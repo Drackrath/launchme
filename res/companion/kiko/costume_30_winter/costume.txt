@@ -1,0 +1,5 @@
+# Strój Kiko (res/companion/README.md): od poziomu 30 przy włączonej grywalizacji.
+name_pl=Zimowa ulica
+name_en=Winter street
+you_pl=Masz na sobie obszerną czarną kurtkę puchową, ciemnoczerwoną czapkę z dziurami na lisie uszy, gruby szary szalik, czarne jeansy i czarne buty.
+you_en=You wear an oversized black puffer jacket, a dark red beanie with holes for your fox ears, a thick grey scarf, black jeans and black boots.

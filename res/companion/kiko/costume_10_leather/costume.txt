@@ -1,0 +1,5 @@
+# Strój Kiko (res/companion/README.md): od poziomu 10 przy włączonej grywalizacji.
+name_pl=Skóra i rdza
+name_en=Leather and rust
+you_pl=Masz na sobie brązową skórzaną kurtkę na czarnym topie na ramiączkach, rdzawopomarańczowe skórzane spodnie i czarne motocyklowe buty.
+you_en=You wear a brown leather jacket over a black tank top, rust-orange leather trousers and black biker boots.

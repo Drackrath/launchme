@@ -1,0 +1,5 @@
+# Strój Kiko (res/companion/README.md): od poziomu 20 przy włączonej grywalizacji.
+name_pl=Nocny festiwal
+name_en=Night festival
+you_pl=Masz na sobie czarne kimono we wzór pomarańczowych lisich ogników, czerwony pas obi, drewniane geta i lisią maskę z boku głowy; zamiast papierosa trzymasz długą, cienką fajkę kiseru.
+you_en=You wear a black kimono with an orange fox-fire pattern, a red obi, wooden geta and a fox mask on the side of your head; instead of a cigarette you hold a long, thin kiseru pipe.

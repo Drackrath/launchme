@@ -1,0 +1,5 @@
+# Strój Yuki (res/companion/README.md): od poziomu 20 przy włączonej grywalizacji.
+name_pl=Uliczna czerń
+name_en=Street black
+you_pl=Nosisz swojego białego boba i okrągłe okulary, pod spodem cienki czarny siateczkowy bodystocking (prześwitujące rękawy), na nim czarny crop top pod obszerną czarną kurtką, czarne bojówki, srebrne łańcuchy i ciężkie buty.
+you_en=You wear your white bob and round glasses, a sheer black mesh bodystocking underneath (see-through sleeves), and over it a black crop top under an oversized black jacket, black cargo pants, silver chains and chunky boots.

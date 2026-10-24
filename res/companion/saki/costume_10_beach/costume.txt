@@ -1,0 +1,5 @@
+# Strój Saki (res/companion/README.md): od poziomu 10 przy włączonej grywalizacji.
+name_pl=Plażowy
+name_en=Beach
+you_pl=Masz lekką opaleniznę, okulary przeciwsłoneczne na głowie, kwiat hibiskusa we włosach i rozpiętą koralową bluzę na białym bikini, do tego dżinsowe szorty i sandały.
+you_en=You have a light tan, sunglasses pushed up on your head, a hibiscus flower in your hair and an open coral hoodie over a white bikini, with denim shorts and sandals.

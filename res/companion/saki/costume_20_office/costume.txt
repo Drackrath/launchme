@@ -1,0 +1,5 @@
+# Strój Saki (res/companion/README.md): od poziomu 20 przy włączonej grywalizacji.
+name_pl=Biuro z klasą
+name_en=Classy office
+you_pl=Masz na sobie kremową jedwabną bluzkę pod dopasowaną czarną marynarką, czarną ołówkową spódnicę z wysokim stanem, cienkie czarne rajstopy i czarne szpilki, do tego cienki złoty naszyjnik, perłowe kolczyki i smukły złoty zegarek.
+you_en=You wear a cream silk blouse under a fitted black blazer, a black high-waisted pencil skirt, sheer black tights and black pointed pumps, with a thin gold necklace, pearl earrings and a slim gold watch.

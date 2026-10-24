@@ -1,0 +1,116 @@
+#include "video_player.hpp"
+
+#include <mfapi.h>
+#include <mfmediaengine.h>
+#include <mfidl.h>
+#include <wincodec.h>
+#include <wrl/implements.h>
+
+#include <algorithm>
+#include <cstring>
+
+using Microsoft::WRL::ComPtr;
+
+namespace {
+// Errors come on the engine's threads: only a flag crosses over.
+class Notify : public Microsoft::WRL::RuntimeClass<Microsoft::WRL::RuntimeClassFlags<Microsoft::WRL::ClassicCom>, IMFMediaEngineNotify> {
+public:
+    explicit Notify(std::shared_ptr<std::atomic_bool> error) : error_(std::move(error)) {}
+    STDMETHODIMP EventNotify(DWORD event, DWORD_PTR, DWORD) override {
+        if (event == MF_MEDIA_ENGINE_EVENT_ERROR) error_->store(true);
+        return S_OK;
+    }
+private:
+    std::shared_ptr<std::atomic_bool> error_;
+};
+}
+
+VideoPlayer::VideoPlayer() = default;
+
+VideoPlayer::~VideoPlayer() {
+    stop();
+    if (started_) MFShutdown();
+}
+
+bool VideoPlayer::open(const std::filesystem::path& file, double volume) {
+    stop();
+    error_ = std::make_shared<std::atomic_bool>(false);
+    if (!started_) {
+        if (FAILED(MFStartup(MF_VERSION))) return false;
+        started_ = true;
+    }
+    if (!wic_ && FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic_)))) return false;
+    ComPtr<IMFMediaEngineClassFactory> factory;
+    ComPtr<IMFAttributes> attributes;
+    if (FAILED(CoCreateInstance(CLSID_MFMediaEngineClassFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory))) ||
+        FAILED(MFCreateAttributes(&attributes, 2))) return false;
+    auto notify = Microsoft::WRL::Make<Notify>(error_);
+    if (!notify || FAILED(attributes->SetUnknown(MF_MEDIA_ENGINE_CALLBACK, notify.Get())) ||
+        FAILED(attributes->SetUINT32(MF_MEDIA_ENGINE_VIDEO_OUTPUT_FORMAT, DXGI_FORMAT_B8G8R8A8_UNORM))) return false;
+    // No playback window and no DXGI manager: frame-server mode, frames copied to a WIC bitmap.
+    ComPtr<IMFMediaEngine> engine;
+    if (FAILED(factory->CreateInstance(0, attributes.Get(), &engine))) return false;
+    // A byte stream instead of a URL: any local path works, spaces and all.
+    ComPtr<IMFByteStream> stream;
+    ComPtr<IMFMediaEngineEx> extended;
+    if (FAILED(MFCreateFile(MF_ACCESSMODE_READ, MF_OPENMODE_FAIL_IF_NOT_EXIST, MF_FILEFLAGS_NONE, file.c_str(), &stream)) ||
+        FAILED(engine.As(&extended))) { engine->Shutdown(); return false; }
+    BSTR name = SysAllocString(file.c_str()); // Its extension tells the engine the container type.
+    const HRESULT source = extended->SetSourceFromByteStream(stream.Get(), name);
+    SysFreeString(name);
+    if (FAILED(source)) { engine->Shutdown(); return false; }
+    engine->SetLoop(TRUE);
+    engine->SetVolume(std::clamp(volume, 0.0, 1.0));
+    engine->SetMuted(volume <= 0.0);
+    if (FAILED(engine->Play())) { engine->Shutdown(); return false; }
+    engine_ = std::move(engine);
+    return true;
+}
+
+void VideoPlayer::stop() {
+    if (!engine_) return;
+    engine_->Pause();
+    engine_->Shutdown();
+    engine_.Reset();
+    bitmap_.Reset();
+    bitmap_width_ = bitmap_height_ = 0;
+}
+
+void VideoPlayer::setVolume(double volume) {
+    if (!engine_) return;
+    engine_->SetVolume(std::clamp(volume, 0.0, 1.0));
+    engine_->SetMuted(volume <= 0.0);
+}
+
+bool VideoPlayer::frame(std::vector<uint8_t>& pixels, uint32_t& width, uint32_t& height, uint32_t max_width) {
+    if (!engine_ || !wic_ || error_->load()) return false;
+    LONGLONG time = 0;
+    if (engine_->OnVideoStreamTick(&time) != S_OK) return false; // S_FALSE: no new frame.
+    DWORD native_width = 0, native_height = 0;
+    if (FAILED(engine_->GetNativeVideoSize(&native_width, &native_height)) || !native_width || !native_height) return false;
+    uint32_t target_width = native_width, target_height = native_height;
+    if (max_width && target_width > max_width) {
+        target_height = std::max<uint32_t>(1, static_cast<uint32_t>(uint64_t(native_height) * max_width / native_width));
+        target_width = max_width;
+    }
+    if (!bitmap_ || bitmap_width_ != target_width || bitmap_height_ != target_height) {
+        bitmap_.Reset();
+        if (FAILED(wic_->CreateBitmap(target_width, target_height, GUID_WICPixelFormat32bppBGRA, WICBitmapCacheOnLoad, &bitmap_))) return false;
+        bitmap_width_ = target_width; bitmap_height_ = target_height;
+    }
+    const MFVideoNormalizedRect source{0, 0, 1, 1};
+    const RECT destination{0, 0, static_cast<LONG>(target_width), static_cast<LONG>(target_height)};
+    const MFARGB border{0, 0, 0, 255};
+    if (FAILED(engine_->TransferVideoFrame(bitmap_.Get(), &source, &destination, &border))) return false;
+    const WICRect area{0, 0, static_cast<INT>(target_width), static_cast<INT>(target_height)};
+    ComPtr<IWICBitmapLock> lock;
+    UINT stride = 0, size = 0;
+    BYTE* data = nullptr;
+    if (FAILED(bitmap_->Lock(&area, WICBitmapLockRead, &lock)) || FAILED(lock->GetStride(&stride)) ||
+        FAILED(lock->GetDataPointer(&size, &data)) || !data || stride < target_width * 4) return false;
+    pixels.resize(size_t(target_width) * target_height * 4);
+    for (uint32_t row = 0; row < target_height; ++row)
+        std::memcpy(pixels.data() + size_t(row) * target_width * 4, data + size_t(row) * stride, size_t(target_width) * 4);
+    width = target_width; height = target_height;
+    return true;
+}

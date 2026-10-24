@@ -1,0 +1,5 @@
+# Strój Mika (res/companion/README.md): od poziomu 20 przy włączonej grywalizacji.
+name_pl=Randka z bogaczem
+name_en=Rich-date glam
+you_pl=Jesteś cała na czarno: rozpięta obszerna czarna marynarka na czarnym koronkowym bralecie, czarne szerokie spodnie z wysokim stanem, złoty łańcuszkowy pasek, złota biżuteria, czarne sandałki na obcasie i mała czarna markowa torebka.
+you_en=You are all in black: an open oversized black blazer over a black lace bralette, high-waisted black wide-leg trousers, a gold chain belt, gold jewellery, black strappy heels and a small black designer bag.

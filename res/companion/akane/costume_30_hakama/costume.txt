@@ -1,0 +1,5 @@
+# Strój Akane (res/companion/README.md): od poziomu 30 przy włączonej grywalizacji.
+name_pl=Hakama na zakończenie roku
+name_en=Graduation hakama
+you_pl=Masz na sobie karmazynowe kimono w białe kwiaty wiśni, ciemnofioletową hakamę, brązowe sznurowane botki i czerwoną wstążkę we włosach.
+you_en=You wear a crimson kimono with white cherry blossoms, a dark purple hakama, brown lace-up boots and a red ribbon in your hair.

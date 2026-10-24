@@ -1,0 +1,535 @@
+// User-added games ("Moje gry"): custom-games.json, the worker that checks which files
+// exist, merging them into shelves/libraries, and the Settings → Library editor panel.
+#include "launcher.hpp"
+#include "../artwork/cover_cache.hpp"
+#include "../library/recent_games.hpp"
+#include "../library/view_options.hpp"
+#include "../platform/text_encoding.hpp"
+
+#include <algorithm>
+#include <optional>
+
+using custom_game_ui::Item;
+
+namespace {
+std::filesystem::path customGamesFile() { return userConfigDirectory() / L"custom-games.json"; }
+
+constexpr size_t field_limits[custom_game_ui::field_count]{
+    custom_games::max_name, custom_games::max_path, custom_games::max_arguments, custom_games::max_path};
+
+// Caret steps keep surrogate pairs together.
+size_t previousStop(const std::wstring& text, size_t caret) {
+    if (!caret) return 0;
+    --caret;
+    if (caret && IS_LOW_SURROGATE(text[caret]) && IS_HIGH_SURROGATE(text[caret - 1])) --caret;
+    return caret;
+}
+size_t nextStop(const std::wstring& text, size_t caret) {
+    if (caret >= text.size()) return text.size();
+    ++caret;
+    if (caret < text.size() && IS_LOW_SURROGATE(text[caret]) && IS_HIGH_SURROGATE(text[caret - 1])) ++caret;
+    return caret;
+}
+} // namespace
+
+// --- Library ----------------------------------------------------------------
+
+void Launcher::loadCustomGames() {
+    custom_games_ = custom_games::load(customGamesFile()).games;
+    custom_installed_.clear();
+    rebuildCustomLibrary();
+    refreshCustomGames();
+}
+
+void Launcher::rebuildCustomLibrary() {
+    custom_library_.clear();
+    for (const auto& entry : custom_games_) {
+        const auto found = custom_installed_.find(entry.id);
+        custom_library_.push_back(custom_games::makeGame(entry, found == custom_installed_.end() || found->second));
+    }
+}
+
+// Files may live on removable or network drives: never touch them on the UI thread.
+void Launcher::refreshCustomGames() {
+    if (!runtime_started_ || custom_games_.empty()) return;
+    const auto generation = custom_token_->fetch_add(1) + 1;
+    std::vector<std::pair<std::string, std::filesystem::path>> files;
+    for (const auto& entry : custom_games_) files.emplace_back(entry.id, entry.path);
+    work_.start([token = custom_token_, alive = alive_, window = hwnd_, generation, files = std::move(files)] {
+        auto message = std::make_unique<CustomGamesMessage>();
+        message->generation = generation;
+        for (const auto& [id, path] : files) {
+            if (!alive->load() || token->load() != generation) return;
+            std::error_code error;
+            message->installed[id] = std::filesystem::exists(path, error) && !error;
+        }
+        if (alive->load() && token->load() == generation &&
+            PostMessageW(window, custom_games_message, 0, reinterpret_cast<LPARAM>(message.get()))) message.release();
+    });
+}
+
+void Launcher::onCustomGames(std::unique_ptr<CustomGamesMessage> message) {
+    if (message->generation != custom_token_->load()) return;
+    bool changed = false;
+    for (const auto& [id, installed] : message->installed) {
+        const auto found = custom_installed_.find(id);
+        changed |= (found == custom_installed_.end() || found->second) != installed;
+        custom_installed_[id] = installed;
+    }
+    if (changed) applyCustomGames();
+}
+
+// The definitions changed: rebuild shelves and the visible screen, keeping focus by identity.
+void Launcher::applyCustomGames() {
+    rebuildCustomLibrary();
+    const auto selected_key = cards_.empty() ? std::string{} : library_view::selectionKey(cards_[selected_].game);
+    const auto category_id = categories_.empty() ? std::string{} : categories_[category_].id;
+    const auto custom = [](const Game& game) { return game.source == GameSource::custom && isGame(game); };
+    const auto current = [&](const Game& game) -> const Game* {
+        const auto key = gameKey(game);
+        const auto found = std::find_if(custom_library_.begin(), custom_library_.end(), [&](const Game& item) { return gameKey(item) == key; });
+        return found == custom_library_.end() ? nullptr : &*found;
+    };
+    if (pending_launch_ && custom(pending_game_)) {
+        if (const auto* next = current(pending_game_)) pending_game_ = *next;
+        else { pending_launch_ = false; launch_progress_ = 0; }
+    }
+    closeEditorsFor([&](const Game& game) { return custom(game) && !current(game); });
+    if (screen_ == ScreenMode::details && !detail_games_.empty() && custom(detail_games_[0])) {
+        if (const auto* next = current(detail_games_[0])) {
+            const auto played = detail_games_[0].last_played;
+            const auto visibility = detail_games_[0].visibility; // Hidden in Launchme ("Ukryj") stays hidden.
+            detail_games_[0] = *next; detail_games_[0].last_played = played; detail_games_[0].visibility = visibility;
+            if (!cards_.empty()) cards_[0].game = detail_games_[0];
+        } else { suspendDetails(); showCategory(0); }
+    }
+    buildShelves();
+    const auto category = std::find_if(categories_.begin(), categories_.end(), [&](const Category& entry) { return entry.id == category_id; });
+    if (category != categories_.end()) category_ = static_cast<size_t>(category - categories_.begin());
+    if (screen_ == ScreenMode::library && pc_source_ == GameSource::custom && custom_library_.empty()) { showCategory(category_); return; }
+    if (screen_ == ScreenMode::search) updateSearch();
+    else if (screen_ == ScreenMode::shelves || screen_ == ScreenMode::library) rebuildCards();
+    else { InvalidateRect(hwnd_, nullptr, FALSE); return; }
+    if (const auto found = findCard(selected_key, true)) focusCard(*found, library_controls_.focus < 0);
+    InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
+void Launcher::forgetCustomArtwork(const Game& game, bool selections) {
+    removeGameArtwork(game, coverCacheDirectory(), selections);
+    art_.erase(gameKey(game));
+    for (const auto kind : {CoverMessage::Kind::cover, CoverMessage::Kind::logo, CoverMessage::Kind::hero}) invalidateArtwork(game, kind);
+}
+
+// --- Editor -----------------------------------------------------------------
+
+void Launcher::openCustomEditor(const std::string& id) {
+    custom_game_ui::State ui;
+    if (!id.empty()) {
+        const auto found = std::find_if(custom_games_.begin(), custom_games_.end(), [&](const auto& entry) { return entry.id == id; });
+        if (found == custom_games_.end()) return;
+        ui.id = id;
+        ui.fields = {found->name, found->path.native(), found->arguments, found->directory.native()};
+    }
+    ui.open = true;
+    // A new game starts at "Wybierz…": one press picks the file, the next one saves it.
+    ui.focus = id.empty() ? Item::file_browse : Item::name;
+    ui.caret = ui.fields[custom_game_ui::name_field].size();
+    custom_editor_ = std::move(ui);
+    // The Space/Enter that opened the panel already queued its WM_CHAR: it must not type.
+    for (MSG typed{}; PeekMessageW(&typed, hwnd_, WM_CHAR, WM_CHAR, PM_REMOVE);) {}
+    audio_.context();
+    InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
+// "Opcje uruchamiania…" in a game's menu: a user-added game opens its own editor; a DRM-free
+// game edits its file, options and working directory; a Steam game its launch options (passed
+// through steam.exe -applaunch, see finishLaunch). Other stores start through their clients'
+// links, which take no options.
+bool Launcher::launchEditable(const Game& game) const {
+    if (game.source == GameSource::custom) return game.kind == GameKind::store && !game.source_id.empty();
+    if (game.source == GameSource::drmfree)
+        return std::any_of(drm_catalog_.games.begin(), drm_catalog_.games.end(), [&](const auto& entry) { return entry.id == game.source_id; });
+    return game.source == GameSource::steam && game.kind == GameKind::steam && game.app_id;
+}
+
+void Launcher::openLaunchEditor(const Game& game) {
+    if (!launchEditable(game)) return;
+    if (game.source == GameSource::custom) { openCustomEditor(game.source_id); return; }
+    custom_game_ui::State ui;
+    ui.title = game.name;
+    if (game.source == GameSource::drmfree) {
+        const auto entry = std::find_if(drm_catalog_.games.begin(), drm_catalog_.games.end(), [&](const auto& item) { return item.id == game.source_id; });
+        ui.target = custom_game_ui::Target::drm_free;
+        ui.key = entry->id;
+        ui.fields = {entry->name, entry->executable.native(), entry->arguments, entry->working_directory.native()};
+        ui.focus = Item::file;
+        ui.caret = ui.fields[custom_game_ui::file_field].size();
+    } else {
+        ui.target = custom_game_ui::Target::steam;
+        ui.key = gameKey(game);
+        ui.fields[custom_game_ui::name_field] = game.name;
+        if (const auto found = library_state_.launch_arguments.find(ui.key); found != library_state_.launch_arguments.end())
+            ui.fields[custom_game_ui::arguments_field] = found->second;
+        ui.focus = Item::arguments;
+        ui.caret = ui.fields[custom_game_ui::arguments_field].size();
+    }
+    ui.open = true;
+    custom_editor_ = std::move(ui);
+    for (MSG typed{}; PeekMessageW(&typed, hwnd_, WM_CHAR, WM_CHAR, PM_REMOVE);) {} // The key that opened it must not type.
+    audio_.context();
+    InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
+std::wstring Launcher::launchArguments(const Game& game) const {
+    if (game.source != GameSource::steam || game.kind != GameKind::steam) return {};
+    const auto found = library_state_.launch_arguments.find(gameKey(game));
+    return found == library_state_.launch_arguments.end() ? std::wstring{} : found->second;
+}
+
+void Launcher::closeCustomEditor() {
+    custom_editor_ = {};
+    mouse_transition_until_ = GetTickCount64() + GetDoubleClickTime();
+    InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
+void Launcher::customEditorFocus(Item item) {
+    auto& ui = custom_editor_;
+    if (!ui.open || ui.focus == item || (item == Item::remove && !ui.editing())) return;
+    if (const int row = custom_game_ui::row(item); row < custom_game_ui::field_count && !ui.shows(row)) return;
+    ui.focus = item;
+    ui.selected = ui.confirm_remove = false;
+    if (const int index = custom_game_ui::field(item); index >= 0) ui.caret = ui.fields[index].size();
+    audio_.navigate();
+    InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
+void Launcher::customEditorMove(int horizontal, int vertical) {
+    const auto focus = custom_editor_.focus;
+    auto next = focus;
+    if (vertical) {
+        // Rows the panel leaves out (launch options) are passed over.
+        int row = custom_game_ui::row(focus);
+        do row += vertical; while (row >= 0 && row < custom_game_ui::field_count && !custom_editor_.shows(row));
+        if (row < 0) return;
+        row = std::min(row, 4);
+        const bool right = focus == Item::file_browse || focus == Item::directory_browse || focus == Item::save;
+        switch (row) {
+        case 0: next = Item::name; break;
+        case 1: next = right ? Item::file_browse : Item::file; break;
+        case 2: next = Item::arguments; break;
+        case 3: next = right ? Item::directory_browse : Item::directory; break;
+        default: if (custom_game_ui::row(focus) != 4) next = Item::save; break;
+        }
+    } else if (horizontal) {
+        const bool forward = horizontal > 0;
+        switch (focus) {
+        case Item::file: if (forward) next = Item::file_browse; break;
+        case Item::file_browse: if (!forward) next = Item::file; break;
+        case Item::directory: if (forward) next = Item::directory_browse; break;
+        case Item::directory_browse: if (!forward) next = Item::directory; break;
+        case Item::remove: if (forward) next = Item::cancel; break;
+        case Item::cancel: next = forward ? Item::save : custom_editor_.editing() ? Item::remove : Item::cancel; break;
+        case Item::save: if (!forward) next = Item::cancel; break;
+        default: break;
+        }
+    }
+    customEditorFocus(next);
+}
+
+void Launcher::customEditorKey(WPARAM key, bool repeated) {
+    if (!customEditorOpen()) return;
+    auto& ui = custom_editor_;
+    if (key == VK_F8 && !repeated) { togglePerformance(); return; }
+    if (key == VK_F11 && !repeated) { toggleFullscreen(); return; }
+    if (key == VK_ESCAPE) { closeCustomEditor(); return; }
+    // AltGr reports Ctrl+Alt: AltGr+A types "ą" and must not select the field.
+    const bool control = (GetKeyState(VK_CONTROL) & 0x8000) && !(GetKeyState(VK_MENU) & 0x8000);
+    const int index = custom_game_ui::field(ui.focus);
+    if (index >= 0) {
+        auto& text = ui.fields[index];
+        ui.caret = std::min(ui.caret, text.size());
+        const auto edited = [&] { ui.error.clear(); InvalidateRect(hwnd_, nullptr, FALSE); };
+        switch (key) {
+        case 'V': if (control) { customEditorPaste(); return; } break;
+        case 'A':
+            if (control) { ui.selected = !text.empty(); ui.caret = text.size(); InvalidateRect(hwnd_, nullptr, FALSE); return; }
+            break;
+        case VK_BACK: case VK_DELETE:
+            if (ui.selected) { text.clear(); ui.caret = 0; }
+            else if (key == VK_BACK && ui.caret) {
+                const auto start = previousStop(text, ui.caret);
+                text.erase(start, ui.caret - start); ui.caret = start;
+            } else if (key == VK_DELETE && ui.caret < text.size()) text.erase(ui.caret, nextStop(text, ui.caret) - ui.caret);
+            ui.selected = false; edited(); return;
+        case VK_HOME: case VK_END:
+            ui.caret = key == VK_HOME ? 0 : text.size(); ui.selected = false;
+            InvalidateRect(hwnd_, nullptr, FALSE); return;
+        case VK_LEFT:
+            ui.caret = ui.selected ? 0 : previousStop(text, ui.caret); ui.selected = false;
+            InvalidateRect(hwnd_, nullptr, FALSE); return;
+        case VK_RIGHT:
+            // At the end of the text Right continues to the row's "Wybierz…" button.
+            if (ui.selected || ui.caret < text.size()) {
+                ui.caret = ui.selected ? text.size() : nextStop(text, ui.caret); ui.selected = false;
+                InvalidateRect(hwnd_, nullptr, FALSE); return;
+            }
+            break;
+        default: break;
+        }
+    } else if (key == VK_BACK) { closeCustomEditor(); return; }
+    switch (key) {
+    case VK_UP: customEditorMove(0, -1); break;
+    case VK_DOWN: customEditorMove(0, 1); break;
+    case VK_LEFT: customEditorMove(-1, 0); break;
+    case VK_RIGHT: customEditorMove(1, 0); break;
+    case VK_TAB: {
+        std::vector<Item> order;
+        for (const auto item : {Item::name, Item::file, Item::file_browse, Item::arguments, Item::directory, Item::directory_browse})
+            if (ui.shows(custom_game_ui::row(item))) order.push_back(item);
+        if (ui.editing()) order.push_back(Item::remove);
+        order.push_back(Item::cancel); order.push_back(Item::save);
+        const auto position = static_cast<int>(std::find(order.begin(), order.end(), ui.focus) - order.begin());
+        const int count = static_cast<int>(order.size());
+        customEditorFocus(order[(position + ((GetKeyState(VK_SHIFT) & 0x8000) ? count - 1 : 1)) % count]);
+        break;
+    }
+    case VK_RETURN: if (!repeated) customEditorAccept(); break;
+    case VK_SPACE: if (!repeated && index < 0) customEditorAccept(); break; // In a field WM_CHAR types the space.
+    default: break;
+    }
+}
+
+void Launcher::customEditorAccept() {
+    auto& ui = custom_editor_;
+    if (!ui.open) return;
+    switch (ui.focus) {
+    case Item::file_browse: customEditorBrowse(false); break;
+    case Item::directory_browse: customEditorBrowse(true); break;
+    case Item::save: customEditorSave(); break;
+    case Item::cancel: closeCustomEditor(); break;
+    case Item::remove:
+        if (ui.confirm_remove) { customEditorRemove(); break; }
+        ui.confirm_remove = true;
+        audio_.context();
+        InvalidateRect(hwnd_, nullptr, FALSE);
+        break;
+    default: customEditorMove(0, 1); break; // A text field: on to the next row.
+    }
+}
+
+void Launcher::customEditorInsert(std::wstring_view text) {
+    auto& ui = custom_editor_;
+    const int index = custom_game_ui::field(ui.focus);
+    if (!ui.open || index < 0) return;
+    auto& value = ui.fields[index];
+    if (ui.selected) { value.clear(); ui.caret = 0; ui.selected = false; }
+    std::wstring clean; // One line: tabs become spaces, other control characters are dropped.
+    for (const wchar_t ch : text) {
+        if (ch == L'\t') clean += L' ';
+        else if (ch >= L' ' && ch != 127) clean += ch;
+    }
+    const auto room = field_limits[index] > value.size() ? field_limits[index] - value.size() : 0;
+    if (clean.size() > room) {
+        clean.resize(room);
+        if (!clean.empty() && IS_HIGH_SURROGATE(clean.back())) clean.pop_back();
+    }
+    ui.caret = std::min(ui.caret, value.size());
+    value.insert(ui.caret, clean);
+    ui.caret += clean.size();
+    if (!clean.empty()) ui.error.clear();
+    InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
+void Launcher::customEditorPaste() {
+    if (!customEditorOpen() || custom_game_ui::field(custom_editor_.focus) < 0 || !OpenClipboard(hwnd_)) return;
+    std::wstring text;
+    if (const auto handle = GetClipboardData(CF_UNICODETEXT)) {
+        if (const auto* data = static_cast<const wchar_t*>(GlobalLock(handle))) {
+            const size_t capacity = std::min<size_t>(GlobalSize(handle) / sizeof(wchar_t), 8192);
+            for (size_t i = 0; i < capacity && data[i]; ++i) text += data[i];
+            GlobalUnlock(handle);
+        }
+    }
+    CloseClipboard();
+    customEditorInsert(text);
+}
+
+void Launcher::customEditorBrowse(bool folder) {
+    using namespace custom_game_ui;
+    auto& ui = custom_editor_;
+    const std::filesystem::path file = custom_games::cleanPath(ui.fields[file_field]);
+    const std::filesystem::path directory = custom_games::cleanPath(ui.fields[directory_field]);
+    auto initial = folder && !directory.empty() ? directory : file.parent_path();
+    if (!initial.is_absolute()) initial.clear();
+    const auto apply = [this, folder, file, directory](const std::filesystem::path& picked) {
+        auto& ui = custom_editor_;
+        if (!ui.open || picked.empty()) { InvalidateRect(hwnd_, nullptr, FALSE); return; }
+        ui.error.clear();
+        if (folder) ui.fields[directory_field] = picked.native();
+        else {
+            ui.fields[file_field] = picked.native();
+            if (custom_games::trim(ui.fields[name_field]).empty())
+                ui.fields[name_field] = picked.stem().native().substr(0, custom_games::max_name);
+            // A working directory the user chose stays; the default follows the file.
+            if (directory.empty() || directory == file.parent_path()) ui.fields[directory_field] = picked.parent_path().native();
+            if (!custom_games::trim(ui.fields[name_field]).empty()) customEditorFocus(Item::save);
+        }
+        InvalidateRect(hwnd_, nullptr, FALSE);
+    };
+    if (pick_path_) { // Tests: an injected picker answers at once.
+        const auto picked = pick_path_(hwnd_, folder, initial);
+        mouse_transition_until_ = GetTickCount64() + GetDoubleClickTime();
+        apply(picked);
+        return;
+    }
+    // Shortcuts stay shortcuts: the list shows .lnk files themselves, never their targets.
+    file_browser::Request request;
+    request.mode = folder ? file_browser::Mode::folder : file_browser::Mode::file;
+    request.title = folder ? tr(L"Wybierz folder roboczy") : tr(L"Wybierz plik gry");
+    if (!folder) {
+        request.extensions = {L".exe", L".lnk", L".bat", L".cmd", L".url"};
+        request.filter_label = tr(L"Programy i skróty");
+        request.all_files_option = true;
+    }
+    request.initial = folder || file.empty() || !file.is_absolute() ? initial : file;
+    request.native = [this, folder, initial] { return pickGamePath(hwnd_, folder, initial); };
+    openFileBrowser(std::move(request), apply);
+}
+
+void Launcher::customEditorSave() {
+    using namespace custom_game_ui;
+    auto& ui = custom_editor_;
+    if (!ui.open) return;
+    const auto fail = [&](std::wstring message, Item focus) {
+        ui.error = std::move(message);
+        customEditorFocus(focus);
+        InvalidateRect(hwnd_, nullptr, FALSE);
+    };
+    if (ui.launchOptions()) { launchEditorSave(); return; }
+    const auto existing = std::find_if(custom_games_.begin(), custom_games_.end(), [&](const auto& entry) { return entry.id == ui.id; });
+    if (ui.editing() && existing == custom_games_.end()) { closeCustomEditor(); return; } // Removed meanwhile.
+    if (!ui.editing() && custom_games_.size() >= custom_games::max_games) { fail(tr(L"Osiągnięto limit gier: ") + std::to_wstring(custom_games::max_games), Item::save); return; }
+    custom_games::Entry entry;
+    entry.id = ui.editing() ? ui.id : custom_games::newId(custom_games_);
+    entry.name = custom_games::trim(ui.fields[name_field]);
+    entry.path = custom_games::cleanPath(ui.fields[file_field]);
+    entry.arguments = custom_games::trim(ui.fields[arguments_field]);
+    entry.directory = custom_games::cleanPath(ui.fields[directory_field]);
+    if (entry.id.empty()) { fail(tr(L"Nie udało się utworzyć identyfikatora gry."), Item::save); return; }
+    switch (custom_games::validate(entry)) {
+    case custom_games::Problem::name: fail(tr(L"Wpisz nazwę gry (do 200 znaków)."), Item::name); return;
+    case custom_games::Problem::path: fail(tr(L"Wybierz plik gry lub wpisz jego pełną ścieżkę."), Item::file); return;
+    case custom_games::Problem::arguments: fail(tr(L"Opcje uruchamiania: jedna linia, do 2000 znaków."), Item::arguments); return;
+    case custom_games::Problem::directory: fail(tr(L"Folder roboczy musi być pełną ścieżką."), Item::directory); return;
+    default: break;
+    }
+    auto next = custom_games_;
+    std::optional<Game> previous;
+    if (existing != custom_games_.end()) {
+        previous = custom_games::makeGame(*existing, true);
+        next[static_cast<size_t>(existing - custom_games_.begin())] = entry;
+    } else next.push_back(entry);
+    if (!custom_games::save(next, customGamesFile())) { fail(tr(L"Nie udało się zapisać listy gier."), Item::save); return; }
+    custom_games_ = std::move(next);
+    // A new file is assumed present until the worker has checked it.
+    if (!previous || previous->play_action.target != entry.path.native()) custom_installed_.erase(entry.id);
+    // Artwork was matched by title: a new name is matched again (the user's picks stay).
+    if (previous && previous->name != entry.name) forgetCustomArtwork(*previous, false);
+    closeCustomEditor();
+    applyCustomGames();
+    if (settingsOpen() && settings_state_.category == static_cast<int>(settings_ui::Category::library)) {
+        const auto row = std::find_if(settings_rows_.begin(), settings_rows_.end(), [&](const settings_ui::Row& item) {
+            return item.id == settings_ui::Id::custom_game && item.key == entry.id;
+        });
+        if (row != settings_rows_.end()) {
+            settings_state_.options = true;
+            settings_state_.selected[settings_state_.category] = static_cast<int>(row - settings_rows_.begin());
+            ensureSettingVisible();
+        }
+    }
+    refreshCustomGames();
+    audio_.context();
+}
+
+void Launcher::launchEditorSave() {
+    using namespace custom_game_ui;
+    auto& ui = custom_editor_;
+    const auto fail = [&](std::wstring message, Item focus) {
+        ui.error = std::move(message);
+        customEditorFocus(focus);
+        InvalidateRect(hwnd_, nullptr, FALSE);
+    };
+    // The fields are checked as a user-added game's are (one line of options, full paths).
+    custom_games::Entry check;
+    check.name = ui.title.empty() ? std::wstring(L"-") : ui.title.substr(0, custom_games::max_name);
+    check.path = ui.target == Target::drm_free ? custom_games::cleanPath(ui.fields[file_field]) : std::wstring(L"C:\\steam");
+    check.arguments = custom_games::trim(ui.fields[arguments_field]);
+    if (ui.target == Target::drm_free) check.directory = custom_games::cleanPath(ui.fields[directory_field]);
+    switch (custom_games::validate(check)) {
+    case custom_games::Problem::path: fail(tr(L"Wybierz plik gry lub wpisz jego pełną ścieżkę."), Item::file); return;
+    case custom_games::Problem::arguments: fail(tr(L"Opcje uruchamiania: jedna linia, do 2000 znaków."), Item::arguments); return;
+    case custom_games::Problem::directory: fail(tr(L"Folder roboczy musi być pełną ścieżką."), Item::directory); return;
+    default: break;
+    }
+    if (ui.target == Target::steam) {
+        // Kept with the library's own state (library-state.ini), whose fields hold 1024 bytes.
+        if (text_encoding::utf8(check.arguments).size() > 1000) { fail(tr(L"Opcje uruchamiania: jedna linia, do 1000 znaków."), Item::arguments); return; }
+        if (check.arguments.empty()) library_state_.launch_arguments.erase(ui.key);
+        else library_state_.launch_arguments[ui.key] = check.arguments;
+        library_state_dirty_ = true;
+        saveLibraryPreferences();
+        closeCustomEditor();
+        audio_.context();
+        return;
+    }
+    const auto entry = std::find_if(drm_catalog_.games.begin(), drm_catalog_.games.end(), [&](const auto& item) { return item.id == ui.key; });
+    if (entry == drm_catalog_.games.end()) { closeCustomEditor(); return; } // Gone with a scan meanwhile.
+    const auto previous = *entry;
+    // The user's choice: scans keep it (with its options) until "Wykrywaj plik automatycznie".
+    entry->executable = check.path;
+    entry->arguments = check.arguments;
+    entry->working_directory = check.directory;
+    if (entry->executable != previous.executable || entry->arguments != previous.arguments || entry->working_directory != previous.working_directory) {
+        entry->manual_executable = true;
+        entry->missing = false;
+    }
+    if (!saveDrmFree()) { *entry = previous; fail(tr(L"Nie udało się zapisać katalogu DRM-free"), Item::save); return; }
+    closeCustomEditor();
+    applyDrmFree();
+    if (settingsOpen()) buildSettingsRows();
+    audio_.context();
+}
+
+void Launcher::customEditorRemove() {
+    auto& ui = custom_editor_;
+    const auto existing = std::find_if(custom_games_.begin(), custom_games_.end(), [&](const auto& entry) { return entry.id == ui.id; });
+    if (!ui.editing() || existing == custom_games_.end()) { closeCustomEditor(); return; }
+    auto next = custom_games_;
+    next.erase(next.begin() + (existing - custom_games_.begin()));
+    if (!custom_games::save(next, customGamesFile())) {
+        ui.error = tr(L"Nie udało się zapisać listy gier.");
+        ui.confirm_remove = false;
+        InvalidateRect(hwnd_, nullptr, FALSE);
+        return;
+    }
+    const auto game = custom_games::makeGame(*existing, true);
+    custom_games_ = std::move(next);
+    custom_installed_.erase(game.source_id);
+    forgetCustomArtwork(game, true);
+    // Its ID is never reused, so its history would only linger.
+    if (library_state_.first_seen.erase(gameKey(game)) + library_state_.last_played.erase(recent_games::historyKey(game, account_, gog_state_.account)) +
+        library_state_.hidden.erase(gameKey(game)))
+        library_state_dirty_ = true;
+    closeCustomEditor();
+    applyCustomGames();
+    audio_.context();
+}
+
+void Launcher::customEditorClick(float x, float y) {
+    const auto view = renderer_.viewport();
+    const auto hit = custom_game_ui::Layout{view.width, view.height, custom_editor_.hidden()}.hit(x, y, custom_editor_.editing());
+    if (!hit) return;
+    customEditorFocus(*hit);
+    if (custom_game_ui::field(*hit) < 0) customEditorAccept();
+    InvalidateRect(hwnd_, nullptr, FALSE);
+}

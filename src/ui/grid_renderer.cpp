@@ -1,0 +1,134 @@
+// Renderer: the grid screens (libraries, Search, the Store) and the quick-scroll letter.
+#include "renderer.hpp"
+#include "renderer_internal.hpp"
+#include "grid_layout.hpp"
+
+#include <algorithm>
+#include <cmath>
+#include <numbers>
+
+using Microsoft::WRL::ComPtr;
+using namespace render_detail;
+
+void Renderer::drawGrid() {
+    const float width = viewport_.width;
+    const bool bookshelf = context_->library_mode == library_view::View::bookshelf;
+    brush(bookshelf ? color(0.008f, 0.009f, 0.012f) : color(0.012f, 0.016f, 0.021f, 0.92f));
+    target_->FillRectangle(D2D1::RectF(0, 0, width, viewport_.height), solid_.Get());
+    if (context_->library_mode == library_view::View::cinematic) {
+        drawBackground();
+        // Let the artwork show behind the spotlight, then fade to black under the capsules.
+        if (status_shade_ && context_->library_options.cinematic_column) {
+            // One column: the picture stays clear behind the capsules and darkens under the synopsis.
+            status_shade_->SetStartPoint(D2D1::Point2F(width * 0.78f, 0));
+            status_shade_->SetEndPoint(D2D1::Point2F(width * 0.12f, 0));
+            status_shade_->SetOpacity(0.96f);
+            target_->FillRectangle(D2D1::RectF(0, 0, width, viewport_.height), status_shade_.Get());
+            status_shade_->SetStartPoint(D2D1::Point2F(0, viewport_.height * 0.45f));
+            status_shade_->SetEndPoint(D2D1::Point2F(0, viewport_.height));
+            status_shade_->SetOpacity(0.7f);
+            target_->FillRectangle(D2D1::RectF(0, 0, width, viewport_.height), status_shade_.Get());
+        } else if (status_shade_) {
+            status_shade_->SetStartPoint(D2D1::Point2F(0, 120));
+            status_shade_->SetEndPoint(D2D1::Point2F(0, cinematic_layout::list_top + 220));
+            status_shade_->SetOpacity(1);
+            target_->FillRectangle(D2D1::RectF(0, 0, width, viewport_.height), status_shade_.Get());
+        }
+    }
+    // List view: the focused game's background, faint, behind the header, rows and panel. Półka:
+    // only a hint of it above the black stage (its floor reflects the covers).
+    if (library_view::preview(context_->library_mode) && context_->library_mode != library_view::View::cinematic)
+        drawLibraryAmbient(context_->library_mode == library_view::View::detailed ? 0.12f :
+            context_->library_mode == library_view::View::list ? 0.18f : context_->library_mode == library_view::View::list_plus ? 0.08f :
+            bookshelf ? 0.14f : 0.32f);
+    beginScreenForeground();
+    // Back: a glass circle with the white dot (white with a dark dot while it has the focus; in
+    // the library the bar's white pill glides onto it: drawLibraryControls).
+    if (context_->library_controls) {
+        drawButtonGlass(D2D1::RectF(16, 35, 52, 71), 1, false);
+        brush(buttonInk(0));
+    } else brush(drawButton(D2D1::RectF(16, 35, 52, 71), context_->grid_back ? 1.0f : 0.0f, 1, false));
+    target_->FillEllipse(D2D1::Ellipse(D2D1::Point2F(34, 53), 3, 3), solid_.Get());
+    const bool store = context_->screen == ScreenMode::store;
+    const bool searching = context_->screen == ScreenMode::search || store;
+    // The library's own search field: the header stays put while it is open, like the search screen.
+    const auto* library = context_->screen == ScreenMode::library ? context_->library_controls : nullptr;
+    const bool filtering = library && library->search;
+    const float unfold = smoothFade(context_->library_search_progress);
+    const bool pinned = searching || filtering || library_view::pinnedHeader(context_->library_mode);
+    const float header_alpha = pinned ? 1.0f :
+        smoothFade(1.0f - context_->grid_scroll / 165.0f);
+    const float lift = pinned ? 0.0f : context_->grid_scroll * 0.24f;
+    // The title, unless the category tabs take its place in the top bar.
+    if (header_alpha > 0.004f && context_->library_tabs.empty())
+        text(store ? std::wstring(tr(L"SKLEP")) : searching ? std::wstring(tr(L"SZUKAJ GIER")) : context_->library_title, 68,
+             37 - lift, context_->library_controls ? library_ui::Layout{width}.filters().left - 92 : width - 136, 45,
+             category_font_.Get(), color(0.78f, 0.78f, 0.78f, header_alpha));
+    if (searching) {
+        const auto& query = context_->search_query;
+        if (query.empty())
+            text(store ? tr(L"Szukaj tytułu lub AppID…") : tr(L"Wpisz tytuł gry…"), 66, 99, width - 130, 71, hero_font_.Get(), color(0.53f, 0.53f, 0.53f));
+        else fieldText(query, context_->search_caret, std::sin(elapsed_ * 4.0f) >= 0, 66, 99, width - 130, 71, hero_font_.Get(), color(0.96f, 0.96f, 0.96f));
+    } else {
+        if (library && unfold > 0.004f) {
+            const auto& query = library->query;
+            const bool typing = library->typing();
+            const float field_right = library_ui::Layout{width}.field().right;
+            if (query.empty())
+                text(tr(L"Tytuł, gatunek albo tag…"), 66, 99 + (1.0f - unfold) * 14, field_right - 66, 71, hero_font_.Get(), color(0.53f, 0.53f, 0.53f, unfold));
+            else fieldText(query, library->caret(), typing && std::sin(elapsed_ * 4.0f) >= 0, 66, 99 + (1.0f - unfold) * 14, field_right - 66, 71,
+                           hero_font_.Get(), color(0.96f, 0.96f, 0.96f, (typing ? 1.0f : 0.72f) * unfold));
+            if (!query.empty() && cards_ && cards_->empty())
+                text(tr(L"Brak wyników. Spróbuj innego tytułu."), 68, 200, width - 136, 34, menu_font_.Get(), color(0.62f, 0.62f, 0.62f, unfold));
+        }
+    }
+    if (store) {
+        text(context_->store_status, 68, 165, width - 136, 26, settings_body_font_.Get(), color(0.6f, 0.65f, 0.65f));
+    }
+    drawLibraryTabs();
+    if (!cards_ || cards_->empty()) {
+        // An empty result says so instead of leaving only the header. The Store reports its own
+        // state in store_status; the library's typed query has its line under the field above.
+        if (scanning_ || store) return;
+        const bool library_query = library && !library->query.empty();
+        if (searching && !context_->search_query.empty())
+            text(tr(L"Brak wyników. Spróbuj innego tytułu."), 68, 200, width - 136, 34, menu_font_.Get(), palette::stateLabel());
+        else if (library_query && unfold <= 0.004f)
+            text(tr(L"Brak wyników. Spróbuj innego tytułu."), 68, 200, width - 136, 34, menu_font_.Get(), palette::stateLabel());
+        else if (library && !library_query)
+            textGroup(tr(L"Brak gier w tym widoku"), tr(L"Zmień zakładkę lub filtry."), 68, 200, width - 136,
+                      menu_font_.Get(), palette::gray(0.82f), settings_body_font_.Get(), palette::muted(), 1, true);
+        return;
+    }
+    if (context_->library_mode == library_view::View::cinematic) { drawLibraryCinematic(); drawScrollLetter(); return; }
+    if (context_->library_mode == library_view::View::overview) { drawLibraryOverview(); drawScrollLetter(); return; }
+    if (library_view::carousel(context_->library_mode)) { drawLibraryCoverflow(); return; }
+    if (context_->library_list) { drawLibraryList(); drawScrollLetter(); return; }
+    // Under the pinned header (from the search field's foot): the first row's focused tile grows a
+    // little and keeps its whole outline.
+    if (pinned)
+        target_->PushAxisAlignedClip(D2D1::RectF(0, 174, width, viewport_.height), D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+    for (size_t i = 0; i < cards_->size(); ++i) {
+        if (i == selected_) continue;
+        drawCard((*cards_)[i], i);
+    }
+    drawCard((*cards_)[selected_], selected_);
+    for (size_t i = 0; i < cards_->size(); ++i) {
+        const auto& card = (*cards_)[i];
+        if (card.y < -180 || card.y > viewport_.height - 30) continue;
+        text(card.game.name, card.x, card.y + card.size + 8, card.width(), 45,
+             button_font_.Get(), color(0.92f, 0.92f, 0.92f, (i == selected_ ? 1.0f : 0.68f) * card.opacity));
+    }
+    if (pinned) target_->PopAxisAlignedClip();
+    drawScrollLetter();
+}
+
+// Quick scrolling: the screen dims and the focused game's initial stands in the middle.
+void Renderer::drawScrollLetter() {
+    const float alpha = smoothFade(context_->scroll_letter_alpha);
+    if (alpha < 0.004f || context_->scroll_letter.empty()) return;
+    brush(color(0.005f, 0.008f, 0.012f, 0.7f * alpha));
+    target_->FillRectangle(D2D1::RectF(0, 0, viewport_.width, viewport_.height), solid_.Get());
+    const float cx = viewport_.width * 0.5f, cy = viewport_.height * 0.5f;
+    text(context_->scroll_letter, cx - 200, cy - 208, 400, 400, index_font_.Get(), color(0.97f, 0.97f, 0.97f, alpha));
+}

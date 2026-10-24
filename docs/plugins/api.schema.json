@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://launchme.local/sdk/v1/api.schema.json",
+  "title": "Launchme native plugin JSON messages v1",
+  "oneOf": [{"$ref": "#/$defs/request"}, {"$ref": "#/$defs/response"}],
+  "$defs": {
+    "game": {
+      "type": "object", "required": ["key", "name", "source", "appId", "installed", "available", "shortcut"],
+      "properties": {
+        "key": {"type": "string"}, "name": {"type": "string"}, "source": {"type": "string"},
+        "appId": {"type": "integer", "minimum": 0, "maximum": 4294967295},
+        "installed": {"type": "boolean"}, "available": {"type": "boolean"}, "shortcut": {"type": "boolean"}
+      }
+    },
+    "request": {
+      "type": "object", "required": ["method", "locale", "settings", "params"],
+      "properties": {
+        "method": {"enum": ["activate", "deactivate", "command", "search", "widget", "details", "library", "downloads"]},
+        "locale": {"enum": ["pl", "en"]}, "settings": {"type": "object"},
+        "params": {"type": "object", "properties": {
+          "dataDirectory": {"type": "string"}, "query": {"type": "string"}, "command": {"type": "string"},
+          "refresh": {"type": "boolean"}, "game": {"$ref": "#/$defs/game"},
+          "playtimeSeconds": {"type": ["integer", "null"], "minimum": 0},
+          "library": {"type": "array", "items": {"$ref": "#/$defs/game"}}
+        }}
+      }
+    },
+    "response": {
+      "type": "object", "not": {"required": ["method"]},
+      "properties": {
+        "error": {"type": "string", "description": "Fatal plugin/protocol error; quarantines this plugin."},
+        "message": {"type": "string"}, "uri": {"type": "string", "maxLength": 2048},
+        "openCatalog": {"type": "boolean"}, "text": {"type": "string"},
+        "revealFile": {"type":"string","minLength":1,"maxLength":32768,"description":"Absolute local file or folder; explicit command only. Opens Explorer, selecting an existing file."},
+        "steamAppIds": {"type": "array", "maxItems": 20000, "items": {"type": "integer", "minimum": 1, "maximum": 2147483647}},
+        "games": {"type": "array", "maxItems": 100, "items": {
+          "type": "object", "required": ["appId", "name", "available"],
+          "properties": {"appId": {"type": "integer", "minimum": 1, "maximum": 4294967295}, "name": {"type": "string", "minLength": 1, "maxLength": 512}, "available": {"type": "boolean"}}
+        }},
+        "page": {"$ref": "#/$defs/page"},
+        "queued": {"type":"object", "required":["count","title"], "properties":{
+          "count":{"type":"integer","minimum":1,"maximum":1000}, "title":{"type":"string","minLength":1,"maxLength":1024}
+        }},
+        "downloads": {"type":"array","maxItems":1000,"items":{"type":"object",
+          "required":["id","title","phase","status","destination","command"], "properties":{
+            "id":{"type":"string","minLength":1,"maxLength":64,"pattern":"^[a-zA-Z0-9_.-]+$"},
+            "title":{"type":"string","minLength":1,"maxLength":512},
+            "artworkName":{"type":"string","maxLength":1024}, "platform":{"type":"string","maxLength":1024},
+            "titleId":{"type":"string","maxLength":1024},
+            "phase":{"enum":["queued","downloading","converting","verifying","paused","done","failed","cancelled"]},
+            "status":{"type":"string","maxLength":1024}, "destination":{"type":"string","maxLength":32768},
+            "fraction":{"type":["number","null"],"minimum":0,"maximum":1},
+            "command":{"type":"string","minLength":1,"maxLength":64,"pattern":"^[a-zA-Z0-9_.-]+$"}
+          }
+        }},
+        "drawer": {"$ref": "#/$defs/page"},
+        "comparison": {"$ref": "#/$defs/comparison"}
+      }
+    },
+    "comparison": {
+      "type": "object", "required": ["gameKey"],
+      "properties": {
+        "gameKey": {"type": "string"},
+        "mainSeconds": {"type": "integer", "minimum": 0, "maximum": 4294967295},
+        "extraSeconds": {"type": "integer", "minimum": 0, "maximum": 4294967295},
+        "completionSeconds": {"type": "integer", "minimum": 0, "maximum": 4294967295},
+        "status": {"type": "string", "maxLength": 1024}
+      }
+    },
+    "page": {
+      "type": "object", "required": ["title", "sections"],
+      "properties": {
+        "title": {"type": "string", "minLength": 1, "maxLength": 256}, "status": {"type": "string", "maxLength": 1024},
+        "back": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-zA-Z0-9_.-]+$"},
+        "dialog": {"type":"boolean","default":false},
+        "refresh": {"type": "integer", "minimum": 1, "maximum": 60},
+        "search": {"type": "object", "required": ["command"], "properties": {
+          "command": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-zA-Z0-9_.-]+$"},
+          "placeholder": {"type": "string", "maxLength": 256}, "query": {"type": "string", "maxLength": 100}
+        }},
+        "sections": {"type": "array", "maxItems": 8, "items": {
+          "type": "object", "required": ["title", "items"], "properties": {
+            "title": {"type": "string", "maxLength": 256}, "empty": {"type": "string"},
+            "items": {"type": "array", "maxItems": 4000, "items": {
+              "type": "object", "required": ["title"], "allOf": [{"not": {"required": ["uri", "command"]}}, {"not": {"required": ["gameKey", "downloadId"]}}], "properties": {
+                "title": {"type": "string", "minLength": 1, "maxLength": 512}, "subtitle": {"type": "string", "maxLength": 1024},
+                "gameKey": {"type": "string"}, "uri": {"type": "string", "maxLength": 2048, "pattern": "^https?://[^\\s\\u0000\\\"]+$"},
+                "downloadId": {"type":"string","minLength":1,"maxLength":64,"pattern":"^[a-zA-Z0-9_.-]+$"},
+                "command": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-zA-Z0-9_.-]+$"},
+                "enabled": {"type": "boolean", "default": true}
+              }
+            }}
+          }
+        }}
+      }
+    }
+  }
+}

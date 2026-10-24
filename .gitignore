@@ -1,0 +1,33 @@
+/build/
+/.vs/
+*.user
+*.suo
+/.opencode/
+/_llm_docs/
+/local/
+/settings.ini
+/steam_web_api_key.txt
+/steamgriddb_api_key.txt
+*.flac
+*.key
+*.env
+
+# Local API keys, tokens and account files (never committed).
+.openai_token
+*_api_key.txt
+*_client_secret.txt
+*_client_id.txt
+*_token.txt
+*_token.dat
+*_key.dat
+.env.*
+/accounts/
+/library-state.ini
+launchme.log
+/crashes/
+
+# Python bytecode from tools/.
+__pycache__/
+
+# The anime face detector tools/companion_faces.py downloads.
+/tools/lbpcascade_animeface.xml

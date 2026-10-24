@@ -1,0 +1,17 @@
+{
+  "apiVersion": 1,
+  "architecture": "windows-x64",
+  "id": "launchme.howlongtobeat",
+  "version": "1.1.0",
+  "entry": "howlongtobeat.dll",
+  "iconText": "HLT",
+  "tags": ["details", "widget", "drawer", "integration"],
+  "name": "HowLongToBeat",
+  "description": {"pl": "Czas głównej fabuły i porównanie z Twoim czasem gry w Szczegółach oraz widżecie aktywnej gry.", "en": "Main story time compared with your playtime, in game details and the active-game widget."},
+  "settings": [],
+  "contributions": [
+    {"id": "times", "kind": "details", "title": "HowLongToBeat", "command": "lookup"},
+    {"id": "active", "kind": "widget", "title": "HowLongToBeat", "command": "lookup", "activeGame": true,
+      "text": {"pl": "Brak aktywnej gry", "en": "No active game"}}
+  ]
+}

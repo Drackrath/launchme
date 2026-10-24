@@ -1,0 +1,5 @@
+# Strój Yuki (res/companion/README.md): od poziomu 30 przy włączonej grywalizacji.
+name_pl=Mroczny mundurek
+name_en=Dark sailor uniform
+you_pl=Nosisz swojego białego boba i czarny mundurek marynarski z czerwoną kokardą, długą czarną spódnicę, czarne rajstopy i mokasyny.
+you_en=You wear your white bob and a black sailor uniform with a red ribbon, a long black skirt, black tights and loafers.

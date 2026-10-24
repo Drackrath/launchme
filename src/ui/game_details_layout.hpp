@@ -1,0 +1,177 @@
+#pragma once
+#include "settings_view.hpp"
+
+#include <algorithm>
+#include <cmath>
+#include <vector>
+
+// The game's page (Szczegóły, src/ui/details_renderer.cpp), after the PS5 game hub: the game's
+// picture over the whole screen; Back at the top left; on the left its logo (or title) and one
+// line of facts ending in the rating; under them one row of pill buttons; at the bottom the
+// cards: the description, the facts table, and the achievements and the plugin's comparison.
+// Drawing, clicks and the keys share this geometry.
+//
+// Action indices (Launcher::detail_action_): -1 Back, 0 the primary action, 1 "…",
+// then the ones a game may have (identify, favourite,
+// collections, versions), then the achievements card, the rating and the plugin card.
+namespace details_layout {
+enum class Kind { back, rating, primary, more, collections, favorite, versions, identify, achievements, plugin };
+// The actions shown for this game (-2 or false: none).
+struct Actions {
+    int identify = -2, favorite = -2, collections = -2, versions = -2;
+    int achievements = -2, rating = -2, plugin = -2;
+    // The rating pill ends the line of facts, after text only the renderer measures: its
+    // rectangle as last drawn (Renderer::ratingLink); empty before the first frame.
+    settings_ui::Rect rating_rect{};
+};
+struct Item {
+    int action;
+    Kind kind;
+    settings_ui::Rect rect;
+    bool card() const { return kind == Kind::achievements || kind == Kind::plugin; }
+};
+// Pill widths: wide enough for the longest label (Polish and English).
+inline float buttonWidth(Kind kind) {
+    switch (kind) {
+    case Kind::primary: return 250;
+    case Kind::more: return 64;
+    case Kind::collections: return 180;
+    case Kind::favorite: return 54;
+    case Kind::versions: return 240;
+    case Kind::identify: return 240;
+    default: return 0;
+    }
+}
+struct Layout {
+    float width, height;
+    static constexpr float margin = 68, button_height = 54, gap = 12, card_gap = 16;
+    float left() const { return margin; }
+    float right() const { return width - margin; }
+    // The achievements list (achievements_view.hpp) over the page: a centred panel.
+    float panelWidth() const { return std::min(1280.0f, width - 128); }
+    float origin() const { return (width - panelWidth()) * 0.5f; }
+    float top() const { return std::max(120.0f, (height - 630) * 0.5f); }
+    settings_ui::Rect back() const { return {margin, 40, margin + 44, 84}; }
+    // Cards along the bottom, clear of the button hints.
+    float cardsBottom() const { return height - 64; }
+    float cardsTop() const { return cardsBottom() - std::clamp(height * 0.29f, 236.0f, 330.0f); }
+    // The buttons in their order on screen, wrapped onto a second line when they do not fit.
+    std::vector<Item> buttons(const Actions& a) const {
+        std::vector<std::pair<int, Kind>> list{{0, Kind::primary}};
+        if (a.collections >= 0) list.push_back({a.collections, Kind::collections});
+        if (a.favorite >= 0) list.push_back({a.favorite, Kind::favorite});
+        if (a.versions >= 0) list.push_back({a.versions, Kind::versions});
+        if (a.identify >= 0) list.push_back({a.identify, Kind::identify});
+        list.push_back({1, Kind::more});
+        std::vector<Item> items;
+        int line = 0;
+        float x = left();
+        for (const auto& [action, kind] : list) {
+            const float w = buttonWidth(kind);
+            if (x > left() && x + w > right()) { ++line; x = left(); }
+            items.push_back({action, kind, {x, static_cast<float>(line), x + w, 0}});
+            x += w + gap;
+        }
+        const int lines = line + 1;
+        const float bottom = cardsTop() - 40;
+        for (auto& item : items) {
+            const float row = item.rect.top;
+            item.rect.top = bottom - (lines - row) * button_height - (lines - 1 - row) * gap;
+            item.rect.bottom = item.rect.top + button_height;
+        }
+        return items;
+    }
+    float buttonsTop(const Actions& a) const {
+        const auto list = buttons(a);
+        float top = cardsTop() - 40 - button_height;
+        for (const auto& item : list) top = std::min(top, item.rect.top);
+        return top;
+    }
+    // The line of facts (platform, year, genre, playtime, then the rating) on its centre line.
+    float factsCenter(const Actions& a) const { return buttonsTop(a) - 44; }
+    settings_ui::Rect rating(const Actions& a) const {
+        if (a.rating_rect.right > a.rating_rect.left) return a.rating_rect;
+        const float cy = factsCenter(a);
+        return {left(), cy - 17, left() + 300, cy + 17};
+    }
+    // The logo or title over the facts, the picture clear on its right.
+    settings_ui::Rect logo(const Actions& a) const {
+        const float bottom = factsCenter(a) - 40;
+        return {left(), std::max(104.0f, bottom - 180), std::min(left() + 720, right()), bottom};
+    }
+    // Cards: the description, the facts table, and (with achievements or a plugin) a progress column.
+    bool progress(const Actions& a) const { return a.achievements >= 0 || a.plugin >= 0; }
+    settings_ui::Rect description(const Actions& a) const {
+        const float w = right() - left() - (progress(a) ? 2 : 1) * card_gap;
+        return {left(), cardsTop(), left() + w * (progress(a) ? 0.44f : 0.62f), cardsBottom()};
+    }
+    settings_ui::Rect facts(const Actions& a) const {
+        const float w = right() - left() - (progress(a) ? 2 : 1) * card_gap;
+        const float x = description(a).right + card_gap;
+        return {x, cardsTop(), progress(a) ? x + w * 0.28f : right(), cardsBottom()};
+    }
+    settings_ui::Rect progressCard(const Actions& a, bool plugin) const {
+        const float x = facts(a).right + card_gap;
+        const bool both = a.achievements >= 0 && a.plugin >= 0;
+        if (!both) return {x, cardsTop(), right(), cardsBottom()};
+        const float middle = (cardsTop() + cardsBottom() - card_gap) * 0.5f;
+        return plugin ? settings_ui::Rect{x, middle + card_gap, right(), cardsBottom()} : settings_ui::Rect{x, cardsTop(), right(), middle};
+    }
+    // Every focus target: Back, the rating, the buttons, the cards.
+    std::vector<Item> items(const Actions& a) const {
+        std::vector<Item> all{{-1, Kind::back, back()}};
+        if (a.rating >= 0) all.push_back({a.rating, Kind::rating, rating(a)});
+        const auto row = buttons(a);
+        all.insert(all.end(), row.begin(), row.end());
+        if (a.achievements >= 0) all.push_back({a.achievements, Kind::achievements, progressCard(a, false)});
+        if (a.plugin >= 0) all.push_back({a.plugin, Kind::plugin, progressCard(a, true)});
+        return all;
+    }
+    const Item* find(const std::vector<Item>& all, int action) const {
+        for (const auto& item : all) if (item.action == action) return &item;
+        return nullptr;
+    }
+    // The rectangle of one target (empty when the game does not have it).
+    settings_ui::Rect rect(const Actions& a, int action) const {
+        const auto all = items(a);
+        const auto* item = find(all, action);
+        return item ? item->rect : settings_ui::Rect{};
+    }
+    int hit(const Actions& a, float x, float y) const {
+        for (const auto& item : items(a)) if (item.rect.contains(x, y)) return item.action;
+        return -3;
+    }
+};
+// The next focus from `action` in a direction, by position on screen: the nearest target whose
+// centre lies that way (straight lines count more than diagonals); `action` itself at an edge.
+inline int move(const std::vector<Item>& all, int action, int dx, int dy) {
+    const Item* from = nullptr;
+    for (const auto& item : all) if (item.action == action) from = &item;
+    if (!from) return all.size() > 1 ? all[1].action : action;
+    const float fx = (from->rect.left + from->rect.right) * 0.5f, fy = (from->rect.top + from->rect.bottom) * 0.5f;
+    int best = action;
+    float best_score = 1e9f;
+    for (const auto& item : all) {
+        if (item.action == action) continue;
+        const float cx = (item.rect.left + item.rect.right) * 0.5f, cy = (item.rect.top + item.rect.bottom) * 0.5f;
+        // Along the move: how far the target's near edge is; across it: how far its span is.
+        float along = 0, across = 0;
+        if (dx) {
+            along = dx > 0 ? item.rect.left - from->rect.right : from->rect.left - item.rect.right;
+            if ((dx > 0 ? cx <= fx : cx >= fx) || along < -4) continue;
+            // Left and right keep to the line: only targets beside this one.
+            if (item.rect.top >= from->rect.bottom || item.rect.bottom <= from->rect.top) continue;
+            across = std::abs(cy - fy);
+        } else {
+            along = dy > 0 ? item.rect.top - from->rect.bottom : from->rect.top - item.rect.bottom;
+            if ((dy > 0 ? cy <= fy : cy >= fy) || along < -4) continue;
+            // Up and down keep to the column: the horizontal distance between the centres.
+            across = std::abs(cx - fx) * 0.5f + std::max({0.0f, item.rect.left - from->rect.right, from->rect.left - item.rect.right});
+        }
+        const float score = std::max(0.0f, along) + across * 3;
+        if (score < best_score) { best_score = score; best = item.action; }
+    }
+    return best;
+}
+inline settings_ui::Rect back(float width, float height) { return Layout{width, height}.back(); }
+}

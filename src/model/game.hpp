@@ -1,0 +1,154 @@
+#pragma once
+
+#include <cstdint>
+#include <filesystem>
+#include <string>
+#include <array>
+#include "key_codec.hpp"
+#include "installation.hpp"
+#include "../i18n/i18n.hpp"
+
+// custom: games the user added in Settings → Library ("Moje gry"), src/library/custom_games.hpp.
+// xbox: Xbox app / Microsoft Store PC games (Gaming Services packages); appended to keep values stable.
+// drmfree: games found in the user's DRM-free folders, src/library/drm_free.hpp.
+enum class GameSource { steam, gog, battlenet, ea, ubisoft, epic, custom, xbox, drmfree };
+inline constexpr std::array<GameSource, 6> pc_sources{GameSource::gog, GameSource::battlenet, GameSource::ea, GameSource::ubisoft, GameSource::epic, GameSource::xbox};
+// category/settings are XMB home tiles: a Steam collection (app_id = category index) and the Settings shortcut.
+// glance/companion: the Glance and Towarzyszka tiles of the Metro and XMB homes (src/ui/home_widgets.hpp).
+enum class GameKind { steam, all, platform, back, nonsteam, store, catalog, pc_platform, category, settings, glance, companion };
+enum class GameVisibility { public_game, hidden, private_game };
+enum class ActionKind { play, install, open_client };
+
+struct GameAction {
+    std::wstring target;
+    std::wstring arguments;
+    std::filesystem::path working_directory;
+    ActionKind kind = ActionKind::play;
+    // Launchme keeps the foreground: the started process gets no foreground permission, and
+    // Launchme hands focus to the game's window itself (Steam → Ciche uruchamianie).
+    bool keep_focus = false;
+    explicit operator bool() const { return !target.empty(); }
+};
+
+struct Game {
+    uint32_t app_id = 0; // Steam only; never put another store's numeric ID here.
+    std::wstring name;
+    uint64_t last_played = 0;
+    uint64_t last_updated = 0;
+    bool installed = true;
+    GameKind kind = GameKind::steam;
+    uint64_t shortcut_id = 0;
+    std::wstring platform;
+    GameSource source = GameSource::steam;
+    std::string source_id;
+    GameVisibility visibility = GameVisibility::public_game;
+    GameAction play_action;
+    GameAction install_action;
+    bool catalog_available = false;
+    std::filesystem::path install_directory;
+    std::filesystem::path executable;
+    // Emulated Steam shortcut: the ROM/ISO named in its exe/launch options. Identifies the
+    // game in ES-DE's gamelist.xml the way ES-DE itself does (by file, not by title).
+    std::filesystem::path rom;
+    std::string account_id; // Online-only membership; local installations are independent.
+    Installation installation;
+    std::filesystem::path manifest_path;
+    // EGS account metadata and installations managed by Launchme/Legendary.
+    std::string epic_namespace, epic_catalog, epic_partner;
+    bool epic_managed = false;
+    std::string catalog_plugin; // Catalog owner; retained when resolving to a local Steam game.
+    std::string version_group; // Display-only aggregate; raw library entries retain their store identity.
+};
+
+inline const char* sourceSlug(GameSource source) {
+    switch (source) {
+    case GameSource::gog: return "gog";
+    case GameSource::battlenet: return "battlenet";
+    case GameSource::ea: return "ea";
+    case GameSource::ubisoft: return "ubisoft";
+    case GameSource::epic: return "epic";
+    case GameSource::xbox: return "xbox";
+    case GameSource::custom: return "custom";
+    case GameSource::drmfree: return "drmfree";
+    default: return "steam";
+    }
+}
+
+inline const wchar_t* sourceName(GameSource source) {
+    switch (source) {
+    case GameSource::gog: return L"GOG";
+    case GameSource::battlenet: return L"Battle.net";
+    case GameSource::ea: return L"EA Play";
+    case GameSource::ubisoft: return L"Ubisoft Connect";
+    case GameSource::epic: return L"Epic Games";
+    case GameSource::xbox: return L"Xbox";
+    case GameSource::custom: return tr(L"Moje gry");
+    case GameSource::drmfree: return L"DRM-free";
+    default: return L"Steam";
+    }
+}
+
+// Games launched straight from a file on disk (user-added or found in DRM-free folders):
+// not installed means the file is missing, never "install".
+inline bool localFileGame(GameSource source) { return source == GameSource::custom || source == GameSource::drmfree; }
+
+// Stand-in names of Steam titles whose name is not known yet. They are stored in
+// Game::name in the active language, so checks accept either language.
+inline constexpr const wchar_t* loading_game_name = trKey(L"Ładowanie nazwy…");
+inline constexpr const wchar_t* missing_game_name = trKey(L"Nazwa niedostępna");
+inline bool placeholderGameName(std::wstring_view name) {
+    return i18n::matches(name, loading_game_name) || i18n::matches(name, missing_game_name);
+}
+
+inline bool isGame(const Game& game) {
+    return game.kind == GameKind::steam || game.kind == GameKind::nonsteam || game.kind == GameKind::store || game.kind == GameKind::catalog;
+}
+
+inline bool steamArtwork(const Game& game) {
+    return game.source == GameSource::steam && (game.kind == GameKind::steam || game.kind == GameKind::catalog);
+}
+
+// Full, collision-free identity for UI messages, in-memory artwork and retries.
+inline bool uiTile(const Game& game) {
+    return game.kind == GameKind::all || game.kind == GameKind::back || game.kind == GameKind::category || game.kind == GameKind::settings ||
+           game.kind == GameKind::glance || game.kind == GameKind::companion;
+}
+
+inline std::string gameKey(const Game& game) {
+    if (uiTile(game)) return {};
+    if (game.kind == GameKind::platform) return "platform:" + std::to_string(game.app_id);
+    if (game.kind == GameKind::pc_platform) return std::string("pc-platform:") + sourceSlug(game.source);
+    if (game.kind == GameKind::nonsteam)
+        return "shortcut:" + std::to_string(game.shortcut_id ? game.shortcut_id : game.app_id);
+    if (game.source == GameSource::steam)
+        return game.app_id ? "steam:" + std::to_string(game.app_id) : std::string{};
+    auto id = game.source_id;
+    if (game.source == GameSource::battlenet)
+        for (char& ch : id) if (ch >= 'A' && ch <= 'Z') ch += 'a' - 'A';
+    return id.empty() ? std::string{} : std::string(sourceSlug(game.source)) + ':' + id;
+}
+
+// Encode rather than sanitize/hash: paths cannot escape the cache or alias another ID.
+inline std::string gameCacheKey(const Game& game) {
+    return key_codec::encode(gameKey(game));
+}
+
+inline const wchar_t* primaryActionLabel(const Game& game) {
+    if (game.source == GameSource::battlenet && game.installation.phase == InstallPhase::unknown) return tr(L"Otwórz klienta");
+    if (game.installation.active()) return game.source == GameSource::gog ? tr(L"Instalacja GOG") :
+        game.source == GameSource::epic ? tr(L"Instalacja Epic") :
+        game.source == GameSource::battlenet ? tr(L"Instalacja Battle.net") : tr(L"Pobieranie w Steam");
+    if (game.installed) return tr(L"Uruchom");
+    if (localFileGame(game.source)) return tr(L"Brak pliku");
+    if (game.source == GameSource::gog && !game.account_id.empty()) return tr(L"Instaluj");
+    if (game.source == GameSource::gog && game.install_action.target.starts_with(L"https://")) return tr(L"Otwórz GOG");
+    return game.source != GameSource::steam && game.install_action.kind == ActionKind::open_client ?
+           tr(L"Otwórz klienta") : tr(L"Instaluj");
+}
+
+inline std::wstring activePlatformName(const Game& game) {
+    if (!game.version_group.empty()) return {};
+    if (uiTile(game)) return {};
+    if (game.kind == GameKind::platform || game.kind == GameKind::nonsteam) return game.platform;
+    return sourceName(game.source);
+}

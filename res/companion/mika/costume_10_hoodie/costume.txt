@@ -1,0 +1,5 @@
+# Strój Mika (res/companion/README.md): od poziomu 10 przy włączonej grywalizacji.
+name_pl=Leniwy dzień
+name_en=Lazy day
+you_pl=Masz na sobie obszerną pastelowo różową bluzę z kapturem zsuwającą się z ramienia na czarnej koszulce na ramiączkach, szare dresowe szorty, białe podkolanówki i puchate różowe klapki, białe słuchawki na szyi i włosy w niedbałym koku.
+you_en=You wear an oversized pastel pink hoodie slipping off one shoulder over a black camisole, grey sweat shorts, white knee socks and fluffy pink slides, white headphones around your neck and your hair in a messy bun.

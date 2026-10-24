@@ -1,0 +1,183 @@
+// Renderer: the power menu's picker, the exit prompt and a game's context menu.
+#include "renderer.hpp"
+#include "renderer_internal.hpp"
+#include "context_menu.hpp"
+#include "exit_prompt.hpp"
+#include "power_menu.hpp"
+
+#include <algorithm>
+#include <cmath>
+#include <numbers>
+
+using Microsoft::WRL::ComPtr;
+using namespace render_detail;
+
+// Power menu uses the Settings choice-picker geometry.
+void Renderer::drawPicker(const std::wstring& title, const std::vector<std::wstring>& labels, int selected) {
+    const int count = static_cast<int>(labels.size());
+    const settings_ui::Layout layout{viewport_.width, viewport_.height};
+    const auto panel = layout.picker(count);
+    const auto shape = [](settings_ui::Rect r, float radius) { return D2D1::RoundedRect(D2D1::RectF(r.left, r.top, r.right, r.bottom), radius, radius); };
+    brush(color(0, 0, 0, 0.78f));
+    target_->FillRectangle(D2D1::RectF(0, 0, viewport_.width, viewport_.height), solid_.Get());
+    // Capture the dimmed scene: otherwise the blur brings the bright background back inside the menu.
+    const auto glass = glassPanel(shape(panel, 18));
+    glassFill(glass, color(0.035f, 0.035f, 0.035f));
+    if (panel_borders_) {
+        brush(color(1, 1, 1, 0.16f));
+        target_->DrawRoundedRectangle(shape(panel, 18), solid_.Get(), 1.0f);
+    }
+    textGroup(title, {}, panel.left + 28, panel.top + 28, panel.right - panel.left - 56, category_font_.Get(),
+              color(0.95f, 0.95f, 0.95f), settings_body_font_.Get(), color(0.62f, 0.62f, 0.62f), 1, true);
+    if (count > 0) {
+        // The highlight glides between rows (ViewContext::picker_glide, a fractional row).
+        const float position = context_->picker_glide.value_or(static_cast<float>(selected));
+        auto r = layout.choice(0, count);
+        const float offset = (layout.choice(count > 1 ? 1 : 0, count).top - r.top) * position;
+        r.top += offset; r.bottom += offset;
+        brush(color(1, 1, 1, 0.13f)); // A pill, no outline (the choice pickers of Settings).
+        target_->FillRoundedRectangle(shape(r, (r.bottom - r.top) * 0.5f), solid_.Get());
+    }
+    for (int i = 0; i < count; ++i) {
+        const auto r = layout.choice(i, count);
+        textLine(labels[i], r.left + 18, (r.top + r.bottom) * 0.5f, r.right - r.left - 36, menu_font_.Get(), color(0.91f, 0.91f, 0.91f));
+    }
+}
+
+// Zasilanie: the picker's look in three groups with an empty band between them; the PC's own
+// power actions in red (their highlight a red tint).
+void Renderer::drawPowerMenu() {
+    const auto& labels = context_->power_labels;
+    const int count = static_cast<int>(labels.size());
+    power_menu::Geometry layout{viewport_.width, viewport_.height, context_->power_gaps};
+    if (static_cast<int>(layout.gaps.size()) != count) layout.gaps.assign(static_cast<size_t>(count), false);
+    const auto panel = layout.panel();
+    const auto shape = [](settings_ui::Rect r, float radius) { return D2D1::RoundedRect(D2D1::RectF(r.left, r.top, r.right, r.bottom), radius, radius); };
+    const auto danger = [&](int i) { return i >= 0 && i < static_cast<int>(context_->power_danger.size()) && context_->power_danger[static_cast<size_t>(i)]; };
+    brush(color(0, 0, 0, 0.78f));
+    target_->FillRectangle(D2D1::RectF(0, 0, viewport_.width, viewport_.height), solid_.Get());
+    const auto glass = glassPanel(shape(panel, 18));
+    glassFill(glass, color(0.035f, 0.035f, 0.035f));
+    if (panel_borders_) {
+        brush(color(1, 1, 1, 0.16f));
+        target_->DrawRoundedRectangle(shape(panel, 18), solid_.Get(), 1.0f);
+    }
+    textGroup(tr(L"Zasilanie"), {}, panel.left + 28, panel.top + 28, panel.right - panel.left - 56, category_font_.Get(),
+              color(0.95f, 0.95f, 0.95f), settings_body_font_.Get(), color(0.62f, 0.62f, 0.62f), 1, true);
+    // A hairline in the middle of each band separates the groups.
+    for (int i = 1; i < count; ++i) {
+        if (!layout.gaps[static_cast<size_t>(i)]) continue;
+        const float y = layout.row(i).top - (power_menu::Geometry::row_step - power_menu::Geometry::row_height + power_menu::Geometry::band) * 0.5f;
+        line(panel.left + 36, y, panel.right - 36, y, color(1, 1, 1, 0.08f), 1);
+    }
+    if (count > 0) {
+        // The highlight glides between rows (ViewContext::picker_glide, a fractional row), red over the PC's actions.
+        const float position = context_->picker_glide.value_or(static_cast<float>(context_->power_menu));
+        const auto r = layout.rowAt(position);
+        const int below = std::clamp(static_cast<int>(position), 0, count - 1), above = std::min(below + 1, count - 1);
+        const float t = std::clamp(position - below, 0.0f, 1.0f);
+        const float red = std::lerp(danger(below) ? 1.0f : 0.0f, danger(above) ? 1.0f : 0.0f, t);
+        const auto tint = palette::dangerStrong();
+        brush(color(std::lerp(1.0f, tint.r, red), std::lerp(1.0f, tint.g, red), std::lerp(1.0f, tint.b, red), std::lerp(0.13f, 0.2f, red)));
+        target_->FillRoundedRectangle(shape(r, (r.bottom - r.top) * 0.5f), solid_.Get());
+    }
+    for (int i = 0; i < count; ++i) {
+        const auto r = layout.row(i);
+        const auto ink = danger(i) ? palette::danger() : color(0.91f, 0.91f, 0.91f);
+        textLine(labels[static_cast<size_t>(i)], r.left + 18, (r.top + r.bottom) * 0.5f, r.right - r.left - 36, menu_font_.Get(), ink);
+    }
+}
+
+void Renderer::drawExitPrompt() {
+    // Desktop mode: both as desktop dialogs (desktop_dialogs_renderer.cpp).
+    if (desktopDialogs() && (context_->power_menu >= 0 || context_->exit_prompt >= 0)) { drawDesktopPrompts(); return; }
+    if (context_->power_menu >= 0) drawPowerMenu();
+    if (context_->exit_prompt < 0) return;
+    const exit_prompt::Layout layout{viewport_.width, viewport_.height};
+    const auto panel = layout.panel();
+    const auto shape = [](settings_ui::Rect r, float radius) {
+        return D2D1::RoundedRect(D2D1::RectF(r.left, r.top, r.right, r.bottom), radius, radius);
+    };
+    const auto glass = glassPanel(shape(panel, 18)); // The scene before the dim, frosted in the panel.
+    brush(color(0, 0, 0, 0.78f));
+    target_->FillRectangle(D2D1::RectF(0, 0, viewport_.width, viewport_.height), solid_.Get());
+    glassFill(glass, color(0.07f, 0.07f, 0.07f));
+    if (panel_borders_) {
+        brush(color(1, 1, 1, 0.16f));
+        target_->DrawRoundedRectangle(shape(panel, 18), solid_.Get(), 1.0f);
+    }
+    textLine(context_->prompt_question.empty() ? std::wstring(tr(exit_prompt::question)) : context_->prompt_question,
+        panel.left + 24, panel.top + 42, panel.right - panel.left - 48,
+        category_font_.Get(), color(0.95f, 0.95f, 0.95f), DWRITE_TEXT_ALIGNMENT_CENTER);
+    // PSfive's pills inside the glass panel; the white one glides to the chosen answer.
+    const auto rect = [](settings_ui::Rect r) { return D2D1::RectF(r.left, r.top, r.right, r.bottom); };
+    for (int i = 0; i < exit_prompt::count; ++i) drawButtonGlass(rect(layout.button(static_cast<float>(i))), 1, false);
+    drawButtonFocus(rect(layout.button(context_->picker_glide.value_or(static_cast<float>(context_->exit_prompt)))));
+    for (int i = 0; i < exit_prompt::count; ++i) {
+        const auto r = layout.button(static_cast<float>(i));
+        textLine(context_->prompt_question.empty() ? std::wstring(tr(exit_prompt::labels[i])) : context_->prompt_labels[static_cast<size_t>(i)],
+            r.left + 22, (r.top + r.bottom) * 0.5f, r.right - r.left - 44,
+            settings_body_font_.Get(), buttonInk(i == context_->exit_prompt ? 1.0f : 0.0f), DWRITE_TEXT_ALIGNMENT_CENTER);
+    }
+}
+
+void Renderer::drawContextMenu() {
+    if (cards_->empty() || context_->menu_progress < 0.005f) return;
+    const auto& active = (*cards_)[selected_];
+    if (!isGame(active.game)) return;
+    const float alpha = smoothFade(context_->menu_progress);
+    const bool beside = context_->menu_beside;
+    const context_menu::Rows rows{context_->menu_suspend, static_cast<int>(context_->menu_plugins.size()), context_->menu_session,
+                                 context_->menu_detail_options, context_->menu_folder, context_->menu_exclude, context_->menu_hide, context_->psfive};
+    const auto bounds = context_menu::bounds(active, rows, beside, viewport_.width, viewport_.height, context_->menu_anchor);
+    const float x = bounds.left, width = bounds.right - bounds.left;
+    const float y = bounds.top + (1.0f - alpha) * (context_->menu_anchor && bounds.top > context_->menu_anchor->top ? -19.0f : 19.0f);
+    const float height = context_menu::height(rows);
+    D2D1_MATRIX_3X2_F menu_base; target_->GetTransform(&menu_base);
+    if (context_->menu_anchor) {
+        const auto& anchor = *context_->menu_anchor;
+        const float sx = std::lerp((anchor.right - anchor.left) / width, 1.0f, alpha);
+        const float sy = std::lerp((anchor.bottom - anchor.top) / height, 1.0f, alpha);
+        const float left = std::lerp(anchor.left, x, alpha), top = std::lerp(anchor.top, y, alpha);
+        target_->SetTransform(D2D1::Matrix3x2F::Scale(sx, sy, D2D1::Point2F(x, y)) *
+            D2D1::Matrix3x2F::Translation(left - x, top - y) * menu_base);
+    }
+    // Frosted glass: the scene under the menu, blurred (it grows from its button with the transform).
+    glassFill(glassPanel(D2D1::RoundedRect(D2D1::RectF(x, y, x + width, y + height), 23, 23)), color(0.022f, 0.024f, 0.027f, 0.93f), alpha);
+    if (panel_borders_) {
+        brush(color(0.90f, 0.90f, 0.90f, 0.63f * alpha));
+        target_->DrawRoundedRectangle(D2D1::RoundedRect(
+            D2D1::RectF(x, y, x + width, y + height), 23, 23), solid_.Get(), 1.4f);
+    }
+    const auto label = [&](context_menu::Item item) -> const wchar_t* {
+        switch (item) {
+        case context_menu::Item::primary: return context_->primary_action.c_str();
+        case context_menu::Item::suspend: return tr(L"Wstrzymaj");
+        case context_menu::Item::plugin: return L"";
+        case context_menu::Item::details: return tr(L"Szczegóły");
+        case context_menu::Item::artwork: return tr(L"Zmień grafikę");
+        case context_menu::Item::retry: return tr(L"Ponów grafiki");
+        case context_menu::Item::close: return tr(L"Zamknij grę");
+        case context_menu::Item::folder: return tr(L"Otwórz folder");
+        case context_menu::Item::hide: return context_->menu_hidden ? tr(L"Pokaż") : tr(L"Ukryj");
+        case context_menu::Item::exclude: return tr(L"Wyklucz");
+        case context_menu::Item::uninstall: return tr(L"Odinstaluj");
+        case context_menu::Item::launch: return tr(L"Opcje uruchamiania");
+        }
+        return L"";
+    };
+    // The highlight glides between rows (ViewContext::menu_glide, a fractional row).
+    const float highlight_y = y + 8 + context_->menu_glide.value_or(static_cast<float>(context_->menu_selected)) * 53.0f;
+    brush(color(0.86f, 0.86f, 0.86f, 0.14f * alpha));
+    target_->FillRoundedRectangle(pill(D2D1::RectF(x + 12, highlight_y, x + width - 12, highlight_y + 48)), solid_.Get());
+    for (int row = 0; row < context_menu::rows(rows); ++row) {
+        const float row_y = y + 8 + row * 53.0f;
+        const auto entry = context_menu::item(row, rows);
+        // "Zamknij grę" is destructive: a soft red, as used for save errors in Settings.
+        text(entry == context_menu::Item::plugin ? context_->menu_plugins[row - context_menu::row(context_menu::Item::plugin, rows)].c_str() : label(entry), x + 32, row_y + 11, width - 50, 35,
+             menu_font_.Get(), entry == context_menu::Item::close ? palette::danger(alpha) :
+             (entry != context_menu::Item::primary || context_->primary_enabled) ? color(0.96f, 0.96f, 0.96f, alpha) :
+             color(0.53f, 0.53f, 0.53f, 0.75f * alpha));
+    }
+    if (context_->menu_anchor) target_->SetTransform(menu_base);
+}

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">launchme — Portal</title>
+  <desc id="desc">Brama z przesuniętym progiem: osobiste wejście do świata gry.</desc>
+  <g id="symbol" fill="#111111">
+    <path d="M28 228 V128 A100 100 0 0 1 228 128 V228 H172 V128 A44 44 0 0 0 84 128 V172 H128 V228 Z"/>
+  </g>
+</svg>

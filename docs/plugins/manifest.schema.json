@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://launchme.local/sdk/v1/manifest.schema.json",
+  "title": "Launchme plugin manifest v1",
+  "type": "object",
+  "required": ["apiVersion", "architecture", "id", "version", "entry", "name"],
+  "properties": {
+    "apiVersion": {"const": 1},
+    "architecture": {"const": "windows-x64"},
+    "id": {"$ref": "#/$defs/id"},
+    "version": {"type": "string", "pattern": "^[0-9a-z.-]{1,40}$"},
+    "entry": {"type": "string", "maxLength": 200, "pattern": "^[A-Za-z0-9_./-]+\\.dll$", "description": "Relative package path; runtime additionally rejects traversal, device names, aliases and trailing dots."},
+    "name": {"$ref": "#/$defs/text"},
+    "description": {"$ref": "#/$defs/text"},
+    "icon": {"type": "string", "maxLength": 200, "pattern": "^[A-Za-z0-9_./-]+\\.png$", "description": "Optional package-local PNG, up to 256 KiB; circle crop in widgets. Same path restrictions as entry."},
+    "iconText": {"type": "string", "pattern": "^[A-Za-z0-9]{1,3}$", "description": "Optional monogram; also used if the icon cannot be loaded."},
+    "library": {"type": "boolean", "default": false},
+    "tags": {"type": "array", "maxItems": 6, "uniqueItems": true, "items": {"enum": ["widget", "screen", "integration", "menu", "context", "drawer", "details"]}},
+    "settings": {"type": "array", "maxItems": 32, "items": {"$ref": "#/$defs/setting"}},
+    "contributions": {"type": "array", "maxItems": 12, "items": {"$ref": "#/$defs/contribution"}}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^(?!.*\\.\\.)(?!.*\\.$)[a-z][a-z0-9_.-]{0,79}$"},
+    "text": {"oneOf": [
+      {"type": "string", "minLength": 1, "maxLength": 512},
+      {"type": "object", "required": ["pl", "en"], "properties": {
+        "pl": {"type": "string", "minLength": 1, "maxLength": 512},
+        "en": {"type": "string", "minLength": 1, "maxLength": 512}
+      }}
+    ]},
+    "setting": {
+      "type": "object", "required": ["id", "type", "title", "default"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"}, "title": {"$ref": "#/$defs/text"},
+        "type": {"enum": ["boolean", "choice", "text", "secret", "folder"]},
+        "default": {"type": ["boolean", "string"]},
+        "choices": {"type": "array", "maxItems": 12, "items": {"type": "object", "required": ["value", "title"], "properties": {
+          "value": {"$ref": "#/$defs/id"}, "title": {"$ref": "#/$defs/text"}
+        }}}
+      },
+      "allOf": [
+        {"if": {"properties": {"type": {"const": "boolean"}}}, "then": {"properties": {"default": {"type": "boolean"}}}, "else": {"properties": {"default": {"type": "string", "maxLength": 512}}}},
+        {"if": {"properties": {"type": {"const": "choice"}}}, "then": {"required": ["choices"], "properties": {"choices": {"minItems": 1}}}}
+      ]
+    },
+    "contribution": {
+      "type": "object", "required": ["id", "kind", "title", "command"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"}, "command": {"$ref": "#/$defs/id"},
+        "kind": {"enum": ["menu", "context", "widget", "catalog", "details", "library", "downloads"]},
+        "activeGame": {"type": "boolean", "default": false},
+        "glyph": {"enum":["store","server-download"]},
+        "title": {"$ref": "#/$defs/text"}, "text": {"$ref": "#/$defs/text"},
+        "source": {"enum": ["steam", "gog", "epic", "ea", "battlenet", "ubisoft", "xbox", "custom", "drmfree"]}
+      },
+      "allOf": [
+        {"if":{"required":["glyph"]},"then":{"properties":{"kind":{"const":"menu"}}}},
+        {"if": {"required": ["activeGame"], "properties": {"activeGame": {"const": true}}}, "then": {"properties": {"kind": {"const": "widget"}}}},
+        {"if": {"properties": {"kind": {"const": "library"}}}, "then": {"required": ["source"], "properties": {"source": {"const": "steam"}}}}
+      ]
+    }
+  }
+}

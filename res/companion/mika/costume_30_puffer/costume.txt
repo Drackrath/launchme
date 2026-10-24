@@ -1,0 +1,5 @@
+# Strój Mika (res/companion/README.md): od poziomu 30 przy włączonej grywalizacji.
+name_pl=Srebrna puchówka
+name_en=Silver puffer
+you_pl=Masz na sobie czarną czapkę beanie, rozpiętą krótką błyszczącą srebrną kurtkę puchową na czarnym sportowym staniku (widać lekki kaloryfer na brzuchu), nisko osadzone luźne czarne bojówki i grube białe sneakersy; często masz lizaka w buzi.
+you_en=You wear a black beanie, a cropped glossy silver puffer jacket worn open over a black sports bra (a hint of abs), low-rise black baggy cargo pants and chunky white sneakers; you often have a lollipop in your mouth.

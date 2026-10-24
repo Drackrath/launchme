@@ -1,0 +1,192 @@
+<!doctype html>
+<!-- Phone access (src/app/companion_remote.cpp): her chat and Launchfeed, served by the launcher itself. -->
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="theme-color" content="#101118">
+<meta name="referrer" content="no-referrer">
+<link rel="manifest" href="/manifest.webmanifest">
+<title>Launchme</title>
+<style>
+  :root { --c: #b3c4ff; --bg: #101118; --panel: #1a1c26; --text: #eceef6; --dim: #8d91a6; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  body { display: flex; flex-direction: column; height: 100dvh; }
+  header { display: flex; align-items: center; gap: 10px; padding: calc(env(safe-area-inset-top) + 8px) 12px 8px; background: var(--panel); border-bottom: 1px solid #ffffff12; }
+  header img { width: 38px; height: 38px; border-radius: 50%; object-fit: cover; object-position: 50% 8%; background: #0004; border: 2px solid var(--c); }
+  select { flex: 1; min-width: 0; background: transparent; color: var(--c); border: 0; font: 600 17px system-ui, sans-serif; }
+  select option { color: #000; }
+  nav { display: flex; gap: 4px; }
+  nav button { background: transparent; color: var(--dim); border: 1px solid #ffffff1c; border-radius: 16px; padding: 5px 12px; font: inherit; }
+  nav button.on { color: var(--bg); background: var(--c); border-color: var(--c); }
+  main { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  #portrait { flex: 0 0 auto; height: 30vh; display: flex; justify-content: center; background: radial-gradient(ellipse at 50% 90%, color-mix(in srgb, var(--c) 30%, transparent), transparent 70%); overflow: hidden; }
+  #portrait img { height: 100%; object-fit: contain; object-position: 50% 0; }
+  #log { flex: 1; overflow-y: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+  .m { max-width: 82%; padding: 8px 12px; border-radius: 16px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .her { align-self: flex-start; background: var(--panel); border: 1px solid color-mix(in srgb, var(--c) 45%, transparent); border-bottom-left-radius: 4px; }
+  .me { align-self: flex-end; background: color-mix(in srgb, var(--c) 28%, #222433); border-bottom-right-radius: 4px; }
+  .who { display: block; font-size: 12px; font-weight: 600; margin-bottom: 2px; }
+  .err { opacity: .6; font-style: italic; }
+  .note { align-self: center; color: var(--dim); font-size: 13px; text-align: center; padding: 6px; }
+  .note button { margin-top: 6px; }
+  .dots { align-self: flex-start; color: var(--dim); padding: 4px 12px; }
+  form { display: flex; gap: 8px; padding: 8px 10px calc(env(safe-area-inset-bottom) + 8px); background: var(--panel); border-top: 1px solid #ffffff12; }
+  textarea { flex: 1; resize: none; height: 42px; max-height: 120px; padding: 10px 12px; border-radius: 20px; border: 1px solid #ffffff22; background: var(--bg); color: var(--text); font: inherit; }
+  button.go { border: 0; border-radius: 20px; padding: 0 16px; background: var(--c); color: var(--bg); font: 600 15px system-ui, sans-serif; }
+  button:disabled { opacity: .4; }
+  #feed { flex: 1; overflow-y: auto; padding: 10px 0; display: none; }
+  .post { background: var(--panel); margin: 0 0 14px; border-top: 1px solid #ffffff10; border-bottom: 1px solid #ffffff10; }
+  .post img { display: block; width: 100%; height: auto; background: #0006; }
+  .post .body { padding: 8px 12px 10px; }
+  .post .when { color: var(--dim); font-size: 12px; }
+  .post .c { font-size: 13.5px; margin-top: 4px; }
+  .post .c b { margin-right: 4px; }
+  .empty { color: var(--dim); text-align: center; padding: 40px 20px; }
+  body.feed #chat { display: none; }
+  body.feed #feed { display: block; }
+  #chat { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+</style>
+</head>
+<body>
+<header>
+  <img id="avatar" alt="">
+  <select id="looks"></select>
+  <nav><button id="tab-chat" class="on">Czat</button><button id="tab-feed">Feed</button></nav>
+</header>
+<main>
+  <section id="chat">
+    <div id="portrait"><img id="sprite" alt=""></div>
+    <div id="log"></div>
+    <form id="form"><textarea id="input" rows="1" maxlength="600" enterkeyhint="send"></textarea><button class="go" id="send">➤</button></form>
+  </section>
+  <section id="feed"></section>
+</main>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const words = {
+  pl: { chat: "Czat", feed: "Feed", type: "Napisz…", typing: "pisze…", restart: "Nowa rozmowa", nofeed: "Jeszcze nic nie wrzuciła.",
+        key: "Podaj klucz z ustawień (Asystent → Dostęp z telefonu):", offline: "Brak połączenia z launcherem…", off: "Towarzyszka jest wyłączona w launcherze." },
+  en: { chat: "Chat", feed: "Feed", type: "Message…", typing: "typing…", restart: "New conversation", nofeed: "Nothing posted yet.",
+        key: "Enter the key from Settings (Assistant → Phone access):", offline: "No connection to the launcher…", off: "The companion is switched off in the launcher." },
+};
+let t = words.pl, state = null, shown = "", feedLook = "", sending = false;
+
+const query = new URLSearchParams(location.search);
+let key = query.get("k") || localStorage.getItem("k") || "";
+if (query.get("k")) { localStorage.setItem("k", key); history.replaceState(null, "", "/"); }
+const withKey = path => path + (path.includes("?") ? "&" : "?") + "k=" + encodeURIComponent(key);
+async function api(path, body) {
+  const response = await fetch(withKey(path), body === undefined ? {} : { method: "POST", body, headers: { "Content-Type": "text/plain;charset=utf-8" } });
+  if (response.status === 403) {
+    const entered = prompt(t.key, "");
+    if (entered) { key = entered.trim(); localStorage.setItem("k", key); }
+    throw new Error("key");
+  }
+  if (!response.ok) throw new Error(response.status);
+  return response.json();
+}
+const sprite = (look, costume, emotion) => `/api/sprite?look=${encodeURIComponent(look)}&c=${costume}&e=${encodeURIComponent(emotion)}`;
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
+
+function render(s) {
+  t = s.en ? words.en : words.pl;
+  document.documentElement.lang = s.en ? "en" : "pl";
+  $("tab-chat").textContent = t.chat; $("tab-feed").textContent = t.feed; $("input").placeholder = t.type;
+  if (s.off) { $("log").replaceChildren(el("div", "note", t.off)); return; }
+  document.documentElement.style.setProperty("--c", s.color);
+  const looks = $("looks");
+  if (looks.dataset.list !== JSON.stringify(s.looks)) {
+    looks.replaceChildren(...s.looks.map(l => { const o = el("option", "", l.name); o.value = l.key; return o; }));
+    looks.dataset.list = JSON.stringify(s.looks);
+  }
+  looks.value = s.look;
+  const face = sprite(s.look, s.costume, s.emotion);
+  if ($("sprite").getAttribute("src") !== face) $("sprite").src = face;
+  const calm = sprite(s.look, s.costume, "smile");
+  if ($("avatar").getAttribute("src") !== calm) $("avatar").src = calm;
+  $("send").disabled = s.waiting || s.ended;
+  const signature = JSON.stringify([s.messages, s.waiting, s.note, s.restart, s.en]);
+  if (signature === shown) return;
+  shown = signature;
+  const log = $("log");
+  const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 80;
+  const items = s.messages.map(m => {
+    const bubble = el("div", "m " + (m.user ? "me" : "her") + (m.error ? " err" : ""));
+    if (!m.user && m.who && m.who !== s.look) { const who = el("span", "who", m.name); bubble.append(who); }
+    bubble.append(document.createTextNode(m.text));
+    return bubble;
+  });
+  if (s.waiting) items.push(el("div", "dots", s.name + " " + t.typing));
+  if (s.note) {
+    const note = el("div", "note", s.note);
+    if (s.restart) { const again = el("button", "go", t.restart); again.onclick = () => api("/api/restart", "").then(refresh).catch(() => {}); note.append(el("br"), again); }
+    items.push(note);
+  }
+  log.replaceChildren(...items);
+  if (atBottom || sending) log.scrollTop = log.scrollHeight;
+  sending = false;
+}
+
+async function refresh() {
+  try { state = await api("/api/state"); render(state); }
+  catch (e) { if (e.message !== "key" && !state) $("log").replaceChildren(el("div", "note", t.offline)); }
+}
+async function loop() {
+  await refresh();
+  setTimeout(loop, document.hidden ? 6000 : state && state.waiting ? 800 : 2000);
+}
+
+async function loadFeed() {
+  if (!state || state.off) return;
+  feedLook = state.look;
+  const box = $("feed");
+  try {
+    const data = await api("/api/feed?look=" + encodeURIComponent(state.look));
+    if (!data.posts.length) { box.replaceChildren(el("div", "empty", t.nofeed)); return; }
+    box.replaceChildren(...data.posts.map(p => {
+      const post = el("article", "post");
+      const img = el("img"); img.loading = "lazy";
+      if (p.w && p.h) { img.width = p.w; img.height = p.h; }
+      img.src = withKey(`/api/feed/image?look=${encodeURIComponent(feedLook)}&id=${p.id}`);
+      const body = el("div", "body");
+      const when = new Date(p.at * 1000).toLocaleString(state.en ? "en-GB" : "pl-PL", { timeZone: "UTC", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+      body.append(el("div", "when", (p.liked ? "♥ " : "") + when), el("div", "", p.text));
+      for (const c of p.comments) { const line = el("div", "c"); line.append(el("b", "", c.author), document.createTextNode(c.text)); body.append(line); }
+      post.append(img, body);
+      return post;
+    }));
+  } catch { box.replaceChildren(el("div", "empty", t.offline)); }
+}
+function tab(feed) {
+  document.body.classList.toggle("feed", feed);
+  $("tab-feed").classList.toggle("on", feed); $("tab-chat").classList.toggle("on", !feed);
+  if (feed) loadFeed();
+}
+$("tab-chat").onclick = () => tab(false);
+$("tab-feed").onclick = () => tab(true);
+$("looks").onchange = async e => {
+  try { await api("/api/look", e.target.value); } catch {}
+  shown = ""; await refresh();
+  if (document.body.classList.contains("feed")) loadFeed();
+};
+async function send() {
+  const input = $("input"), text = input.value.trim();
+  if (!text || !state || state.waiting || state.ended) return;
+  $("send").disabled = true;
+  try {
+    const answer = await api("/api/send", text);
+    if (answer.ok) { input.value = ""; sending = true; }
+  } catch {}
+  await refresh();
+}
+$("form").onsubmit = e => { e.preventDefault(); send(); };
+$("input").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !matchMedia("(pointer: coarse)").matches) { e.preventDefault(); send(); } });
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
+if ("serviceWorker" in navigator && isSecureContext) navigator.serviceWorker.register("/sw.js").catch(() => {});
+loop();
+</script>
+</body>
+</html>

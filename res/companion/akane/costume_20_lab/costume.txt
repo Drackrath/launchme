@@ -1,0 +1,5 @@
+# Strój Akane (res/companion/README.md): od poziomu 20 przy włączonej grywalizacji.
+name_pl=Laboratorium
+name_en=In the lab
+you_pl=Masz na sobie biały fartuch laboratoryjny na czerwonym golfie, czarną ołówkową spódnicę, czarne szpilki i okulary w czerwonych oprawkach.
+you_en=You wear a white lab coat over a red turtleneck, a black pencil skirt, black heels and your red-framed glasses.

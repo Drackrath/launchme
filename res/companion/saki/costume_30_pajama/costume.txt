@@ -1,0 +1,5 @@
+# Strój Saki (res/companion/README.md): od poziomu 30 przy włączonej grywalizacji.
+name_pl=Piżamka z uszkami
+name_en=Bunny pyjamas
+you_pl=Jesteś w domu: puchata pastelowo różowa bluza od piżamy z króliczymi uszkami na kapturze, różowe szorty od piżamy i kapcie-króliczki, włosy w niedbałym koku, płatki pod oczami, bez makijażu.
+you_en=You are at home: a fluffy pastel pink pyjama hoodie with bunny ears on the hood, pink pyjama shorts and bunny slippers, your hair in a messy bun, eye patches under your eyes, no make-up.

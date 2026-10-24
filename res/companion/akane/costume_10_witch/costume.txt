@@ -1,0 +1,5 @@
+# Strój Akane (res/companion/README.md): od poziomu 10 przy włączonej grywalizacji.
+name_pl=Czarownica-uczona
+name_en=Witch scholar
+you_pl=Masz na sobie kapelusz czarownicy, czarną suknię czarownicy z czerwoną podszewką, czerwoną pelerynę i czarne buty; przed tobą unosi się otwarty grymuar.
+you_en=You wear a witch hat, a black witch dress lined with red, a red cape and black boots; an open grimoire floats in front of you.
