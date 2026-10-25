@@ -1,201 +1,201 @@
-# Postacie towarzyszek
+# Companion characters
 
-Każda postać to folder, a każdy jej strój to podfolder z pociętymi obrazkami:
+Each character is a folder, and each of her costumes is a subfolder with the cut-out images:
 
 ```
-res/companion/<klucz>/character.txt                       postać (wymagany)
-res/companion/<klucz>/costume_00/<emocja>.png              podstawowy strój (wymagany, co najmniej cool.png)
-res/companion/<klucz>/costume_<NN>[_<nazwa>]/<emocja>.png  kolejne stroje
-res/companion/<klucz>/costume_<NN>[_<nazwa>]/costume.txt   opcjonalny opis stroju
+res/companion/<key>/character.txt                        character (required)
+res/companion/<key>/costume_00/<emotion>.png             basic costume (required, at least cool.png)
+res/companion/<key>/costume_<NN>[_<name>]/<emotion>.png  further costumes
+res/companion/<key>/costume_<NN>[_<name>]/costume.txt    optional costume description
 ```
 
-Nowa postać = nowy folder z `character.txt` i `costume_00`; kod się nie zmienia. CMake (`tools/build.ps1`)
-sam znajduje postacie i stroje przy konfiguracji i osadza je w exe (do 20 postaci po 32 stroje), więc
-**po dodaniu albo zmianie postaci trzeba przebudować launcher** (w przeciwieństwie do zdjęć, niżej).
+New character = new folder with `character.txt` and `costume_00`; the code does not change. CMake (`tools/build.ps1`)
+finds the characters and costumes on its own at configure time and embeds them in the exe (up to 20 characters with 32 costumes each), so
+**after adding or changing a character you have to rebuild the launcher** (unlike photos, below).
 
-Domyślna postać (nic nie wybrano w Ustawieniach albo wybrana zniknęła) to pierwsza alfabetycznie po kluczu.
-`order=` ustala tylko kolejność kart w Ustawieniach.
+The default character (nothing selected in Settings, or the selected one has disappeared) is the first one alphabetically by key.
+`order=` only sets the order of the cards in Settings.
 
-## Klucz
+## Key
 
-Nazwa folderu, np. `hana`: 1–32 znaki, małe litery, cyfry, `_` albo `-` (nie na początku). Nie może się
-nazywać `day`, `streak`, `pick` ani `card` (to linie pliku sympatii). Tym kluczem postać jest zapisana w ustawieniach,
-w pliku sympatii, w historii czatów i w folderze zdjęć (`<katalog zdjęć>/<klucz>/…`). Zmiana nazwy folderu =
-nowa postać (ustawienia, poziom i rozmowy starej przepadają).
+The folder name, e.g. `hana`: 1–32 characters, lowercase letters, digits, `_` or `-` (not at the start). It must not be
+named `day`, `streak`, `pick` or `card` (those are lines of the sympathy file). The character is stored under this key in the settings,
+in the sympathy file, in the chat history and in the photos folder (`<photos folder>/<key>/…`). Renaming the folder =
+a new character (the old one's settings, level and conversations are lost).
 
 ## character.txt
 
-UTF-8 (BOM nie przeszkadza), linie `klucz=wartość` (spacje wokół `=` dozwolone), `#` to komentarz:
+UTF-8 (a BOM does no harm), `key=value` lines (spaces around `=` allowed), `#` is a comment:
 
 ```
-order=8                       kolejność kart w Ustawieniach (rosnąco; bez niej: na końcu)
-name=Hana                     imię (w czacie, menu i prompcie) — wymagane
-color=#FF9FC8                 jej kolor: imię, obwódka dymków, poświata (tylko #RRGGBB)
-persona=kuudere               jej stały charakter: genki tsundere yandere kuudere dandere deredere himedere kichidere kanedere
-card_pl=Różowe włosy · mundurek       podpis na karcie w Ustawieniach
+order=8                       order of the cards in Settings (ascending; without it: at the end)
+name=Hana                     name (in the chat, menu and prompt) — required
+color=#FF9FC8                 her color: name, speech-bubble outline, glow (#RRGGBB only)
+persona=kuudere               her fixed personality: genki tsundere yandere kuudere dandere deredere himedere kichidere kanedere
+card_pl=Różowe włosy · mundurek       caption on the card in Settings
 card_en=Pink hair · school uniform
-you_pl=Masz krótkie różowe włosy …    wygląd w prompcie, gdy to ona mówi
-her_pl=Ma krótkie różowe włosy …      wygląd w prompcie, gdy jest gościem
+you_pl=Masz krótkie różowe włosy …    appearance in the prompt when she is the one speaking
+her_pl=Ma krótkie różowe włosy …      appearance in the prompt when she is a guest
 you_en=You have short pink hair …
 her_en=She has short pink hair …
-about_pl=Interesujesz się …           kim jest poza archetypem: pasje, rodzina, dziwactwa, gusta, popkultura,
-about_en=You are into …               jak mówi i co myśli o innych towarzyszkach (do niej, „ty”)
-about_her_pl=Interesuje się …         krócej, o niej jako gościu („ona”)
+about_pl=Interesujesz się …           who she is beyond the archetype: passions, family, quirks, tastes, pop culture,
+about_en=You are into …               how she talks and what she thinks of the other companions (addressed to her, “you”)
+about_her_pl=Interesuje się …         shorter, about her as a guest (“she”)
 about_her_en=She is into …
-topics_pl=temat 1 | temat 2 | …       o czym ostatnio myśli: prompt bierze 2 na porę dnia (zmieniają się codziennie)
+topics_pl=temat 1 | temat 2 | …       what she has been thinking about lately: the prompt takes 2 per time of day (they change daily)
 topics_en=topic 1 | topic 2 | …
-example_pl=Gracz: Hej! || Ty: [smug]…  przykładowa wymiana (wzór stylu, długości i tagów); linia powtarzalna, do 8,
-example_en=Player: Hi! || You: […]…    najlepiej 3; tylko gdy rozmawia sama (bez gościa); nie są cytowane dosłownie
-likes=Horror, Souls-like, Gothic      jej gust w grach: tagi jak na Steamie (do 8, rozdzielane `,` albo `|`);
-dislikes=Sports, Farming Sim          gdy on/ona nic nie wskaże, ciągnie w swoją stronę, ale ustępuje
-gender=female                 płeć postaci: female | male (domyślnie female)
-attraction=any                preferencja romantyczna: any | male | female | none (aromantyczna)
-attraction_flex=rare_exception  strict (twarda granica orientacji) | rare_exception (wyjątek/dylemat na wysokim poziomie)
-style=traditional             styl relacji: traditional (dystans, wyłączność, zasady; etapy trochę później) | balanced | casual (luz,
-role=auto                     domyślny tor relacji: auto | friend (przyjaciel) | coworker (służbowy/współpracownik) | romantic
-wealth=comfortable            domyślna sytuacja finansowa: comfortable | tight (krucho) | broke (dołek) | flush (na bogato)
-work=steady                   domyślna sytuacja zawodowa: steady | busy (nawał/sesja) | between_jobs (brak stałej pracy) | promoted | burnout
-origin_pl=Pochodzisz z …      skąd pochodzi i jaki ma dom rodzinny / korzenie
+example_pl=Gracz: Hej! || Ty: [smug]…  sample exchange (a model of style, length and tags); repeatable line, up to 8,
+example_en=Player: Hi! || You: […]…    ideally 3; only when she talks alone (no guest); they are not quoted verbatim
+likes=Horror, Souls-like, Gothic      her taste in games: tags as on Steam (up to 8, separated by `,` or `|`);
+dislikes=Sports, Farming Sim          when he/she doesn't point to anything, she pulls her own way, but gives in
+gender=female                 the character's gender: female | male (default female)
+attraction=any                romantic preference: any | male | female | none (aromantic)
+attraction_flex=rare_exception  strict (hard orientation boundary) | rare_exception (exception/dilemma at a high level)
+style=traditional             relationship style: traditional (distance, exclusivity, rules; stages somewhat later) | balanced | casual (relaxed,
+role=auto                     default relationship track: auto | friend (close friend) | coworker (professional/coworker) | romantic
+wealth=comfortable            default financial situation: comfortable | tight (money is tight) | broke (rock bottom) | flush (living large)
+work=steady                   default work situation: steady | busy (overload/exam season) | between_jobs (no steady job) | promoted | burnout
+origin_pl=Pochodzisz z …      where she comes from and what her family home / roots are like
 origin_en=You come from …
-occupation_pl=Studiujesz …    czym się zajmuje (praca, studia, zarobki, stopa życiowa)
+occupation_pl=Studiujesz …    what she does (job, studies, earnings, standard of living)
 occupation_en=You study …
-home_pl=Paryż, Le Marais — …  gdzie mieszka: prawdziwe miasto i dzielnica, najpierw miasto do przecinka (jej
-home_en=Paris, Le Marais — …  wyszukiwania „co się dzieje w mieście”, plany i epizody w prawdziwych miejscach)
-timezone=+01:00               jej strefa w czasie zimowym (zegar w prompcie, kiedy śpi, kiedy przeglądała sieć)
-dst=eu                        czas letni: eu | us | none
-chronotype=night              night: śpi ok. 2:00–10:00 (rano senna); day: śpi ok. 23:00–7:00 — jej czasu, każda pora ±30 min
-                              na noc, 1,5% nocy nieprzespanych; śpiąca nie rozmawia (czat czeka do rana, wieczorem żegna się
-                              „dobranoc”), nie wpada w gości i nie komentuje na ekranie głównym; bez timezone= nie śpi wcale
-favorites_pl=Muzyka: … | …    prawdziwe rzeczy, które kocha (kategoria: lista | …); tylko istniejące zespoły, marki,
-favorites_en=Music: … | …     filmy i miejsca — przykłady w prompcie i tematy jej własnych wyszukiwań
-goals_pl=cel 1 | cel 2 | …    jej własne cele startowe poza grami (umysł bierze po jednym, każdy na 1–3 tygodnie;
-goals_en=goal 1 | goal 2 | …  potem sama stawia sobie nowe); spełnione zostają kamieniami milowymi jej życia
-gossip=0.4                    jak chętnie przekazuje innym towarzyszkom, co usłyszała od niego/niej (0 nigdy – 1 zawsze;
-                              sekrety nigdy)
-status=soon                   opcjonalnie: tylko karta „Wkrótce” (nie da się jej wybrać ani zawołać; może nie mieć obrazków)
-comfy=1girl, solo, …          tylko dla narzędzi offline (tools/companion_gen), aplikacja tego nie czyta
-elevenlabs_voice=<ID> <nazwa> jej głos ElevenLabs: ID z Biblioteki głosów (przez API tylko w płatnym planie), po spacji
-                              nazwa do Ustawień („5NJx3YreuBEwRpE2BG5G Zofia - Fresh and Upbeat”)
-elevenlabs_voice_free=<ID> …  zapasowy, gdy plan odrzuci głos z biblioteki (402): jeden z wbudowanych głosów każdego
-                              konta (Jessica, Laura, Sarah, Alice, Lily, Bella, Matilda; ID w src/net/elevenlabs.hpp)
-elevenlabs_model=eleven_v4_turbo  jej model (pusty: Eleven v4 Turbo); model wybrany w Ustawieniach ma pierwszeństwo
+home_pl=Paryż, Le Marais — …  where she lives: a real city and district, the city first, up to the comma (her
+home_en=Paris, Le Marais — …  searches for “what's happening in the city”, plans and episodes in real places)
+timezone=+01:00               her time zone in winter time (the clock in the prompt, when she sleeps, when she browsed the web)
+dst=eu                        daylight saving time: eu | us | none
+chronotype=night              night: sleeps approx. 2:00–10:00 (sleepy in the morning); day: sleeps approx. 23:00–7:00 — her time, each time ±30 min
+                              per night, 1.5% of nights sleepless; while asleep she doesn't chat (the chat waits until morning, in the evening she says
+                              “good night”), doesn't drop in as a guest and doesn't comment on the home screen; without timezone= she doesn't sleep at all
+favorites_pl=Muzyka: … | …    real things she loves (category: list | …); only existing bands, brands,
+favorites_en=Music: … | …     films and places — examples in the prompt and topics of her own searches
+goals_pl=cel 1 | cel 2 | …    her own starting goals outside games (the mind takes one at a time, each for 1–3 weeks;
+goals_en=goal 1 | goal 2 | …  then she sets new ones herself); achieved ones remain as milestones of her life
+gossip=0.4                    how readily she passes on to the other companions what she heard from him/her (0 never – 1 always;
+                              secrets never)
+status=soon                   optional: only a “Coming soon” card (she cannot be selected or called; may have no images)
+comfy=1girl, solo, …          only for offline tools (tools/companion_gen), the app does not read it
+elevenlabs_voice=<ID> <name>  her ElevenLabs voice: ID from the Voice Library (through the API only on a paid plan), after a space
+                              the name for Settings (“5NJx3YreuBEwRpE2BG5G Zofia - Fresh and Upbeat”)
+elevenlabs_voice_free=<ID> …  fallback when the plan rejects the library voice (402): one of the built-in voices of every
+                              account (Jessica, Laura, Sarah, Alice, Lily, Bella, Matilda; IDs in src/net/elevenlabs.hpp)
+elevenlabs_model=eleven_v4_turbo  her model (empty: Eleven v4 Turbo); a model selected in Settings takes precedence
 elevenlabs_settings=stability=0.4, similarity=0.8, style=0.35, speed=1.05, speaker_boost=1
-                              ustawienia głosu (0–1, speed 0.7–1.2); brak = wartości jej charakteru
-elevenlabs_tag=bubbly, upbeat jak brzmi (po angielsku, bez nawiasów): tag audio modeli v3/v4 na początku jej kwestii,
-                              razem z tagiem emocji („[bubbly, upbeat, excited] …”); brak = domyślny jej charakteru
+                              voice settings (0–1, speed 0.7–1.2); none = her personality's values
+elevenlabs_tag=bubbly, upbeat how she sounds (in English, without brackets): v3/v4 models' audio tag at the start of her lines,
+                              together with the emotion tag (“[bubbly, upbeat, excited] …”); none = her personality's default
 ```
 
-Wersje `_en` są opcjonalne (brak = polska). Nieznane klucze są ignorowane. Charakter (-dere) jest stały dla
-postaci (karta w Ustawieniach: imię, pod nim charakter); `about_*` go uszczegóławia i przy sprzeczności wygrywa.
-Nowy rodzaj charakteru (spoza listy) wymaga zmian w kodzie (prompt, kwestie offline, domyślny głos w `src/net/elevenlabs.cpp`).
-Głos: kolejno głos wybrany w Ustawieniach, `elevenlabs_voice`, `elevenlabs_voice_free`, wbudowany głos jej charakteru
+The `_en` versions are optional (missing = Polish). Unknown keys are ignored. The personality (-dere) is fixed for the
+character (card in Settings: name, personality below it); `about_*` refines it and wins in case of a conflict.
+A new kind of personality (outside the list) requires code changes (prompt, offline lines, default voice in `src/net/elevenlabs.cpp`).
+Voice: in order, the voice selected in Settings, `elevenlabs_voice`, `elevenlabs_voice_free`, the built-in voice of her personality
 (`src/net/elevenlabs.cpp`).
-Każda wartość w jednej linii; linia `[…]` albo `costume=…` w `character.txt` zepsułaby manifest.
+Every value on one line; a `[…]` or `costume=…` line in `character.txt` would break the manifest.
 
-Wzory: dowolna z obecnych postaci, np. `saki/character.txt`.
+Templates: any of the existing characters, e.g. `saki/character.txt`.
 
-## Czego CMake nie weźmie (ostrzeżenie przy konfiguracji, postać pominięta)
+## What CMake will not accept (a warning at configure time, the character is skipped)
 
-- klucz spoza reguł wyżej (także `day`, `streak`, `pick`, `card`),
-- brak linii `name=`,
-- brak `costume_00/cool.png` (chyba że `status=soon`) — na tej minie kończy się każde zastępstwo brakującego obrazka,
-- 21. postać i dalsze, 33. strój i dalsze, folder stroju o złej nazwie.
+- a key outside the rules above (including `day`, `streak`, `pick`, `card`),
+- no `name=` line,
+- no `costume_00/cool.png` (unless `status=soon`) — every fallback for a missing image ends at this face,
+- the 21st character and beyond, the 33rd costume and beyond, a costume folder with an invalid name.
 
-Pominięta postać nie przesuwa obrazków pozostałych (indeks postaci = jej obrazki w exe).
+A skipped character does not shift the other characters' images (character index = her images in the exe).
 
-## Stroje
+## Costumes
 
-- `costume_00` – podstawowy strój (wymagany; w menu zawsze „Podstawowy”, jego `costume.txt` jest ignorowany).
-- `NN` – dwie cyfry 01–50: poziom sympatii (1–50), od którego strój się odblokowuje przy włączonej
-  grywalizacji. Bez grywalizacji wszystkie stroje są dostępne. `costume_01` = od razu.
-- `_<nazwa>` – opcjonalna, tylko litery/cyfry/`_`/`-`; bez `costume.txt` staje się nazwą w menu
-  (`costume_10_school-uniform` → „School uniform”; bez nazwy: „Strój 10”).
-- Wybór: w czacie „…” → „Zmień strój” — kafelki z miniaturą (jej `smile` w tym stroju) i nazwą,
-  zablokowane wyszarzone z „od poziomu NN”, założony z obwódką akcentu i „Założony”.
+- `costume_00` – the basic costume (required; in the menu always “Basic”, its `costume.txt` is ignored).
+- `NN` – two digits 01–50: the sympathy level (1–50) from which the costume unlocks when gamification
+  is on. Without gamification all costumes are available. `costume_01` = right away.
+- `_<name>` – optional, letters/digits/`_`/`-` only; without `costume.txt` it becomes the name in the menu
+  (`costume_10_school-uniform` → “School uniform”; without a name: “Outfit 10”).
+- Selection: in the chat “…” → “Change outfit” — tiles with a thumbnail (her `smile` in that costume) and the name,
+  locked ones greyed out with “from level NN”, the one being worn with an accent outline and “Wearing”.
 
-### costume.txt (opcjonalny)
+### costume.txt (optional)
 
 ```
-name_pl=Kimono w żurawie        nazwa w menu i prompcie (z polskimi znakami)
+name_pl=Kimono w żurawie        name in the menu and prompt (with Polish characters)
 name_en=Crane kimono
 you_pl=Masz na sobie granatowe kimono w białe żurawie i czerwony pas obi.
 you_en=You wear a navy kimono with white cranes and a red obi sash.
 ```
 
-`you_pl`/`you_en` trafia do promptu, więc towarzyszka wie, co ma na sobie.
+`you_pl`/`you_en` goes into the prompt, so the companion knows what she is wearing.
 
-## Pliki w folderze stroju
+## Files in the costume folder
 
-20 emocji, dokładnie te nazwy: `smile angry sad excited shock thinking smug shy fear sleepy
-playful cool` (klasyczne) oraz `love laugh cry confused determined wave drink gaming` (z puszką
-napoju, z padem) → `smile.png`, `angry.png`, … Inne nazwy są ignorowane.
+20 emotions, exactly these names: `smile angry sad excited shock thinking smug shy fear sleepy
+playful cool` (classic) and `love laugh cry confused determined wave drink gaming` (with a can
+of drink, with a controller) → `smile.png`, `angry.png`, … Other names are ignored.
 
-- Opcjonalnie `<emocja>_talk.png` (otwarte usta) i `<emocja>_blink.png` (zamknięte oczy).
-- Opcjonalnie `pose.png`: cała postać w tym stroju (dowolny rozmiar, przezroczyste tło, przycięta do
-  postaci). Przy otwarciu czatu i po zmianie stroju wypełnia lewą kolumnę ekranu na ~3 s (wejście 0,35 s,
-  wyjście 0,5 s), stojąc na dolnej krawędzi, potem ustępuje popiersiu.
-- Brakująca emocja stroju: jego `cool` (strój się nie zmienia); bez niego ta emocja z `costume_00`, a na
-  końcu `cool` z `costume_00`. Strój można więc zacząć od kilku emocji, najlepiej z `cool`.
-- `faces.txt` (generowany): gdzie na każdym obrazku jest jej twarz (`face_<emocja>=<x> <y> <rozmiar>` w pikselach
-  płótna), żeby okrągły awatar (karta w pasku bocznym trybu desktop, pigułka Flix) miał twarz na środku. Po nowych
-  obrazkach: `python tools/companion_faces.py [--only <klucz>]` (OpenCV 4.x, szczegóły w `--help`) i przebudowa.
-  Bez pliku awatar bierze środek popiersia.
+- Optionally `<emotion>_talk.png` (open mouth) and `<emotion>_blink.png` (closed eyes).
+- Optionally `pose.png`: the whole character in this costume (any size, transparent background, cropped to the
+  character). When the chat opens and after a costume change it fills the left column of the screen for ~3 s (entrance 0.35 s,
+  exit 0.5 s), standing on the bottom edge, then gives way to the bust.
+- A missing emotion in a costume: that costume's `cool` (the costume does not change); without it, that emotion from `costume_00`, and
+  finally `cool` from `costume_00`. So a costume can start with just a few emotions, preferably including `cool`.
+- `faces.txt` (generated): where her face is on each image (`face_<emotion>=<x> <y> <size>` in canvas
+  pixels), so that the round avatar (the card in the desktop-mode sidebar, the Flix pill) has the face in the center. After new
+  images: `python tools/companion_faces.py [--only <key>]` (OpenCV 4.x, details in `--help`) and a rebuild.
+  Without the file the avatar uses the center of the bust.
 
-Format: przezroczysty PNG **560×560** (wspólne kwadratowe płótno, `companion_ui::sprite_width/height`; inny rozmiar
-zostanie rozciągnięty). Popiersie od czubka głowy do pasa (mieści się puszka w ręce i machająca dłoń) stoi płaskim
-dolnym cięciem na dolnej krawędzi, wyśrodkowane. Znaczki manpu i obrót głowy liczą się od twarzy z `faces.txt`.
-Generowanie (ComfyUI, te same modele i LoRA co zdjęcia): `tools/companion_gen/feed_v2.py` — `poses`, `bases`,
-`emotions`, `pack` (tło dowolnego koloru wycięte, `pose.png` stopami na dolnej krawędzi).
+Format: transparent PNG **560×560** (a shared square canvas, `companion_ui::sprite_width/height`; any other size
+will be stretched). The bust, from the top of the head to the waist (with room for a can in hand and a waving hand), stands with its flat
+bottom cut on the bottom edge, centered. Manpu marks and head rotation are measured from the face in `faces.txt`.
+Generation (ComfyUI, the same models and LoRA as the photos; a local tool, not published in this repository): `tools/companion_gen/feed_v2.py` — `poses`, `bases`,
+`emotions`, `pack` (background of any color cut out, `pose.png` with its feet on the bottom edge).
 
-## Zdjęcia od niej (bez przebudowy)
+## Photos from her (no rebuild)
 
-Ustawienia → Asystent → **Folder zdjęć i feedu**. Wskaż wspólny katalog, np. `companion_import`;
-dialog pokazuje instrukcję, a **Przeglądaj…** otwiera wybór folderu (Windows w desktopie, przeglądarka na pada w TV).
-Wybrana ścieżka trafia do pola; **Zapisz** ją zatwierdza. Zdjęcia działają automatycznie, gdy są pliki. Katalog
-jest czytany w trakcie działania, nic nie trzeba budować:
+Settings → Assistant → **Photos and feed folder**. Point it at a shared directory, e.g. `companion_import`;
+the dialog shows instructions, and **Browse…** opens a folder picker (Windows' own in desktop mode, a controller-friendly browser in TV mode).
+The chosen path goes into the field; **Save** confirms it. Photos work automatically once the files are there. The directory
+is read at runtime, nothing needs to be built:
 
 ```
-companion_import/photos/<klucz>/<plik>.png            jej zdjęcia dostępne od razu
-companion_import/photos/<klucz>/<od>-<do>/<plik>.png  otwierają się od poziomu <od> (np. 00-09, 10-19 … 50-59; najwyższy poziom to 50)
-companion_import/photos/<klucz>/…/<plik>.txt          opcjonalny opis zdjęcia (jedna linia, ≤ 4 KB): ona o nim opowiada
+companion_import/photos/<key>/<file>.png              her photos, available right away
+companion_import/photos/<key>/<from>-<to>/<file>.png  unlock from level <from> (e.g. 00-09, 10-19 … 50-59; the top level is 50)
+companion_import/photos/<key>/…/<file>.txt            optional photo description (one line, ≤ 4 KB): she talks about the photo
 ```
 
-- PNG, JPEG, WebP, GIF, BMP, do 16 MiB; folder o innej nazwie niż zakres jest pomijany.
-- Każda postać wysyła tylko zdjęcia ze **swojego** podkatalogu; bez niego nie wysyła żadnych. Pliki luzem
-  w katalogu i podkatalogi bez klucza postaci nie są nigdy wysyłane.
-- Bez grywalizacji otwarte są wszystkie zakresy zaczynające się do poziomu 50 (najwyższego).
-- Najwyżej jedno zdjęcie dziennie, raz na rozmowę (po 2., 3. albo 5. wiadomości gracza); ostatnie 30 nie wracają, dopóki są inne.
+- PNG, JPEG, WebP, GIF, BMP, up to 16 MiB; a folder named other than a range is skipped.
+- Each character sends only photos from **her own** subfolder; without one she sends none. Loose files
+  in the directory and subfolders without a character key are never sent.
+- Without gamification all ranges starting at or below level 50 (the top one) are open.
+- At most one photo a day, once per conversation (after the player's 2nd, 3rd or 5th message); the last 30 do not come back while there are others.
 
-## Osobne zdjęcia do Launchfeed
+## Separate photos for Launchfeed
 
-W tym samym katalogu importu umieść pary `feed/saki/1.png` / `feed/saki/1.txt`.
-TXT opisuje, co widać i co robiła; podpis tworzy LLM jej głosem.
-Brak TXT = zdjęcie czeka. Maksymalnie 2 posty dziennie na aktywną postać, zdjęcia bez powtórek.
-Ikonka telefonu otwiera animowany Launchfeed. Zdjęcia zachowują pełne proporcje, także gdy wymagają
-przewijania. Pod postem: **serce**, **komentarze** (własne i generowane) oraz **Priv**, które wiąże rozmowę z postem.
-Format, zapis i powiązanie z pamięcią: `src/net/companion_feed.hpp`.
+In the same import directory, put pairs `feed/saki/1.png` / `feed/saki/1.txt`.
+The TXT describes what is visible and what she was doing; the LLM writes the caption in her voice.
+No TXT = the photo waits. At most 2 posts a day per active character, no photo is reused.
+The phone icon opens the animated Launchfeed. Photos keep their full aspect ratio, even when that requires
+scrolling. Under a post: **heart**, **comments** (your own and generated ones) and **Priv**, which ties a conversation to the post.
+Format, storage and the link to memory: `src/net/companion_feed.hpp`.
 
-## Z gotowych przezroczystych PNG
+## From ready-made transparent PNGs
 
-Osobne pliki dowolnej wielkości, z nazwą emocji w nazwie pliku (`01_angry_transparent.png`,
+Separate files of any size, with the emotion name in the file name (`01_angry_transparent.png`,
 `smile.png`, `smile_talk.png`…):
 
 ```
 python tools/companion_sprites.py --images <folder> --look hana --costume costume_10_halloween --out res/companion
 ```
 
-Narzędzie skaluje wszystkie jedną skalą (żeby głowa nie zmieniała wielkości między emocjami),
-stawia każde popiersie dolną krawędzią na dole płótna 557×475, wyśrodkowane, i zapisuje pod
-właściwymi nazwami. Wypisuje brakujące emocje.
+The tool scales all of them by one common factor (so the head does not change size between emotions),
+places each bust with its bottom edge at the bottom of a 557×475 canvas, centered, and saves them under
+the correct names. It lists the missing emotions.
 
-## Z arkusza (sprite sheet)
+## From a sprite sheet
 
-Zamiast ciąć ręcznie można narysować arkusz 4×3 na zielonym tle (2752×1536, kolejność jak klasyczne
-emocje wyżej) i pociąć go narzędziem (Pillow + NumPy):
+Instead of cutting by hand, you can draw a 4×3 sheet on a green background (2752×1536, in the order of the classic
+emotions above) and cut it with the tool (Pillow + NumPy):
 
 ```
-python tools/companion_sprites.py --look hana --costume costume_00 arkusz.png --out res/companion
+python tools/companion_sprites.py --look hana --costume costume_00 sheet.png --out res/companion
 ```
 
-Narzędzie usuwa zieleń i podpisy, układa każde popiersie na płótnie 557×475 i zapisuje 12 plików
-do `res/companion/hana/costume_00/`.
+The tool removes the green and the captions, places each bust on a 557×475 canvas and saves 12 files
+to `res/companion/hana/costume_00/`.

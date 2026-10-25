@@ -105,5 +105,85 @@ int LauncherUiTest::launchAnimation(HWND window) {
         app.launch_focus_until_ > GetTickCount64() + 16000) return 5107;
     app.game_sessions_.clear(); app.cancelGameFocus(); app.execute_ = fakeExecute;
     app.settings_.steam_silent_launch = false; app.saveSettings();
+
+    // Przełączanie kont Steam (on by default): a game another remembered account installed restarts
+    // Steam signed in to it before it starts; the launch waits for the switch, a failed one ends it.
+    {
+        using namespace steam_accounts;
+        static std::vector<std::string> switched;
+        switched.clear(); dispatched.clear();
+        app.account_ = steam_id_offset + 1;
+        app.steam_accounts_ = [] { return std::vector<Account>{{steam_id_offset + 2, "second", L"Second", true, false}, {steam_id_offset + 3, "third", L"Third", false, false}}; };
+        app.steam_switcher_ = [](const Account& account) { switched.push_back(account.account_name); return true; };
+        if (!app.settings_.steam_account_switch || !app.settings_.steam_install_dialog) return 5110;
+        app.showCategory(0); app.openLibrary(); app.focusCard(0);
+        // The focused card (each launch can move the focus to the started game on the home screen).
+        const auto prepare = [&](uint64_t owner, bool installed) {
+            auto& game = app.cards_[app.selected_].game;
+            game.installed = installed; game.steam_owner = owner; game.installation = {};
+            return game.app_id;
+        };
+        const auto url = L"steam://rungameid/" + std::to_wstring(prepare(steam_id_offset + 2, true));
+        app.launch();
+        if (!app.pending_launch_ || !app.steam_switch_pending_) return 5111;
+        for (int i = 0; i < 6; ++i) { app.last_frame_ -= std::chrono::milliseconds(200); app.tick(); }
+        if (!dispatched.empty() || !app.pending_launch_) return 5112; // The game waits for Steam.
+        for (int i = 0; i < 200 && switched.empty(); ++i) Sleep(5);
+        if (switched != std::vector<std::string>{"second"}) return 5113;
+        app.steamSwitchFinished(app.steam_switch_generation_, true, L"Second");
+        for (int i = 0; i < 15 && app.pending_launch_; ++i) { app.last_frame_ -= std::chrono::milliseconds(50); app.tick(); }
+        if (app.pending_launch_ || dispatched.size() != 1 || dispatched.back() != url) return 5114;
+        // A failed switch cancels the launch; an account Steam has not remembered is left to Steam.
+        app.game_sessions_.clear(); app.cancelGameFocus(); dispatched.clear();
+        prepare(steam_id_offset + 2, true);
+        app.launch();
+        if (!app.steam_switch_pending_) return 5127;
+        app.steamSwitchFinished(app.steam_switch_generation_, false, L"Second");
+        app.tick();
+        if (app.pending_launch_ || app.steam_switch_pending_ || !dispatched.empty() || app.notifications_.empty()) return 5115;
+        prepare(steam_id_offset + 3, true);
+        app.launch();
+        if (!app.pending_launch_ || app.steam_switch_pending_) return 5116;
+        app.finishLaunch(); app.game_sessions_.clear(); app.cancelGameFocus();
+        prepare(app.account_, true); // Its own account: no switch.
+        app.launch();
+        if (!app.pending_launch_ || app.steam_switch_pending_) return 5117;
+        app.finishLaunch(); app.game_sessions_.clear(); app.cancelGameFocus();
+
+        // Instalacja Steam w launcherze (on by default): Install opens Launchme's dialog on the library
+        // with the most free space; Install there writes the stub (a fake) and closes it.
+        static std::vector<std::wstring> installs;
+        installs.clear(); dispatched.clear();
+        app.steam_libraries_ = [] {
+            constexpr uint64_t gb = 1024ull * 1024 * 1024;
+            return std::vector<Folder>{{L"C:\\Program Files (x86)\\Steam", 40 * gb, 500 * gb}, {L"D:\\SteamLibrary", 812 * gb, 1800 * gb}};
+        };
+        app.steam_installer_ = [](const Game&, const std::filesystem::path& library, uint64_t) { installs.push_back(library.wstring()); return true; };
+        const auto absent = prepare(0, false);
+        app.launch();
+        if (!app.gogInstallOpen() || !app.gog_install_ui_.steam || app.gog_install_ui_.library != 1 || app.gog_install_ui_.row != 3 ||
+            app.pending_launch_ || !dispatched.empty()) return 5118;
+        if (!app.renderer_.captureForTest(captures / L"steam-install.png", [&] { app.paint(); })) return 5119;
+        app.gog_install_ui_.row = 0; app.gogInstallKey(VK_RIGHT, false);
+        if (app.gog_install_ui_.library != 0) return 5120;
+        app.gogInstallKey(VK_LEFT, false); app.gogInstallKey(VK_DOWN, false); app.gogInstallKey(VK_DOWN, false); // Library → Steam's window → Install.
+        if (app.gog_install_ui_.library != 1 || app.gog_install_ui_.row != 3) return 5121;
+        app.gogInstallAccept();
+        if (!app.gog_install_ui_.steam_busy) return 5122;
+        for (int i = 0; i < 200 && installs.empty(); ++i) Sleep(5);
+        if (installs != std::vector<std::wstring>{L"D:\\SteamLibrary"}) return 5123;
+        app.steamInstallFinished(app.steam_install_generation_, true);
+        if (app.gogInstallOpen() || app.gog_install_ui_.steam) return 5124;
+        // "Okno instalacji Steam": Steam's own install window, as with the switch off.
+        prepare(0, false);
+        app.launch();
+        app.gog_install_ui_.row = 1; app.gogInstallAccept();
+        if (app.gogInstallOpen() || dispatched.empty() || dispatched.back() != L"steam://install/" + std::to_wstring(absent)) return 5125;
+        app.settings_.steam_install_dialog = false; dispatched.clear();
+        prepare(0, false);
+        app.launch(); app.finishLaunch();
+        if (app.gogInstallOpen() || dispatched.empty() || dispatched.back() != L"steam://install/" + std::to_wstring(absent)) return 5126;
+        app.settings_.steam_install_dialog = true;
+    }
     return 0;
 }

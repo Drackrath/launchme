@@ -1,50 +1,50 @@
-# Nowe logo launchme — wybór kierunku
+# New launchme logo — choosing a direction
 
-**Rekomendacja: A — Odskok.** Litera L i odrywający się kafel odnoszą się jednocześnie do nazwy oraz startu gry. Znak działa samodzielnie, bez obwódki i bez koloru.
+**Recommendation: A — Rebound.** The letter L and the tile breaking away from it refer both to the name and to launching a game. The mark works on its own, without an outline and without color.
 
-## Podgląd
+## Preview
 
-- [Otwórz porównanie trzech kierunków](index.html) — samodzielny HTML, działa lokalnie, bez sieci; zawiera odnośniki do SVG.
-- [Plansza PNG](concepts.png).
-- [Brief i selekcja pomysłów](BRIEF.md).
+- [Open the comparison of the three directions](index.html) — standalone HTML, works locally, without a network connection; includes links to the SVGs.
+- [PNG board](concepts.png).
+- [Brief and idea selection](BRIEF.md).
 
-| Kierunek | Sam znak | Znak z nazwą | Charakter / kompromis |
+| Direction | Mark alone | Mark with name | Character / trade-off |
 | --- | --- | --- | --- |
-| **A — Odskok** | [SVG](a-odskok-v2.svg) | [SVG](a-odskok-lockup.svg) | Wyrazisty inicjał i ruch. Skojarzenie odrywającego się kafla jest abstrakcyjne. |
-| B — Wspólna biblioteka | [SVG](b-wspolna-biblioteka-v2.svg) | [SVG](b-wspolna-biblioteka-lockup.svg) | Spokojny, przyjazny; może kojarzyć się z książką lub aplikacją do czytania. |
-| C — LM | [SVG](c-monogram-v2.svg) | [SVG](c-monogram-lockup.svg) | Zwarty i techniczny; najciaśniejsze światła przy 16 px. |
+| **A — Rebound** | [SVG](a-odskok-v2.svg) | [SVG](a-odskok-lockup.svg) | A distinctive initial and motion. The association with a tile breaking away is abstract. |
+| B — Shared Library | [SVG](b-wspolna-biblioteka-v2.svg) | [SVG](b-wspolna-biblioteka-lockup.svg) | Calm, friendly; may be associated with a book or a reading app. |
+| C — LM | [SVG](c-monogram-v2.svg) | [SVG](c-monogram-lockup.svg) | Compact and technical; the tightest counters at 16 px. |
 
-Pliki `*-v1.svg` zachowują pierwszą iterację. `*-v2.svg` to dopracowane wersje pokazane na planszy.
+The `*-v1.svg` files preserve the first iteration. `*-v2.svg` are the refined versions shown on the board.
 
-## Konstrukcja
+## Construction
 
-- Symbole: `viewBox="0 0 256 256"`; poziome zestawienia: `0 0 1312 256`.
-- Ciemny kolor bazowy: `#111315`. Na planszy jasny: `#F2F3EE`; sugestia mięty dla A: `#AAF0D1`.
-- A: pion i poziom litery o grubości 56 jednostek, odstępy od oddzielonego modułu 40 jednostek, ścięcia 45°, promienie 16 i 32.
-- B: dwa otwierające się moduły, odstęp 32 jednostki, różnica wysokości 32, łuki 40/48; dolne krawędzie styczne pod kątem 15° z dokładnością zapisu do dwóch miejsc.
-- C: jeden zamknięty kontur z diagonalami 45°, poszerzone dolne światło litery M i wyrównane górne zakończenia.
-- [Napis launchme](wordmark-study.svg) jest narysowany jako własne ścieżki. Nie wymaga fontu. Font Segoe UI w HTML służy tylko opisom planszy.
-- Źródłowe logo nie zawiera tekstu SVG, rastrów, masek, filtrów ani obrysów wymagających rozwinięcia.
+- Symbols: `viewBox="0 0 256 256"`; horizontal lockups: `0 0 1312 256`.
+- Dark base color: `#111315`. Light color on the board: `#F2F3EE`; suggested mint for A: `#AAF0D1`.
+- A: the letter's vertical and horizontal strokes are 56 units thick, the gaps to the separated module are 40 units, 45° chamfers, radii 16 and 32.
+- B: two opening modules, a 32-unit gap, a height difference of 32, arcs 40/48; the bottom edges are tangent at a 15° angle, with values written to two decimal places.
+- C: a single closed outline with 45° diagonals, a widened lower counter in the letter M and aligned top terminals.
+- The [launchme wordmark](wordmark-study.svg) is drawn as custom paths. It does not require a font. The Segoe UI font in the HTML is used only for the board's captions.
+- The source logo contains no SVG text, rasters, masks, filters or strokes that need to be expanded.
 
-## Weryfikacja
+## Verification
 
-Wykonano dwie iteracje rysowania, renderowania i oceny:
+Two iterations of drawing, rendering and evaluation were carried out:
 
-1. `v1`: audyt struktury i plansza dużych znaków z rzeczywistymi próbkami 64/32/16 px.
-2. `v2`: korekta poziomu w A, asymetria i styczność łuków w B, otwarcie światła i wyrównanie C; dodane liternictwo i poziome zestawienia.
-3. Obejrzane rendery Chromium: czarny/jasny znak, biały/ciemny, 16/20/24/32/48/64 px, odbicie, obrót 180° i rozmycie. Dodatkowo rzeczywiste 16 × 16 px powiększone 8× bez interpolacji.
-4. Porównanie obok Steam, Unity, Framer i Pagekit pod kątem charakteru, skali i geometrii. To ograniczony przegląd, a nie badanie unikalności na całym rynku.
+1. `v1`: structure audit and a board of large marks with actual 64/32/16 px samples.
+2. `v2`: correction of the horizontal stroke in A, asymmetry and arc tangency in B, opened counter and alignment in C; added lettering and horizontal lockups.
+3. Reviewed Chromium renders: black mark on light, white on dark, 16/20/24/32/48/64 px, mirroring, 180° rotation and blur. In addition, actual 16 × 16 px renders enlarged 8× without interpolation.
+4. Side-by-side comparison with Steam, Unity, Framer and Pagekit in terms of character, scale and geometry. This is a limited review, not a market-wide uniqueness study.
 
-Obserwacje: w A oddzielony kafel i litera pozostają rozdzielone przy 16 px; w B zachowuje się szczelina między modułami; C zachowuje inicjały, ale ma najmniejsze światła. Wersje odwrócone mogą dostać subtelną korektę optyczną po wyborze kierunku.
+Observations: in A, the separated tile and the letter remain distinct at 16 px; in B, the gap between the modules is preserved; C retains its initials but has the smallest counters. The inverted versions may get a subtle optical correction after a direction is chosen.
 
-Robocze plansze i testy znajdują się w ignorowanym `build/temp/`:
+Working boards and tests are in the ignored `build/temp/`:
 
 - `launchme-logo-round-1.png`, `launchme-logo-round-2.png`;
-- `launchme-logo-tests.html` i `.png` — obejrzany, zwarty przegląd;
-- `launchme-logo-skill-tests.html` — dodatkowy arkusz wygenerowany narzędziem skilla.
+- `launchme-logo-tests.html` and `.png` — the reviewed, compact overview;
+- `launchme-logo-skill-tests.html` — an additional sheet generated with the skill's tool.
 
-Proces i narzędzia: [logo-design-skill](https://github.com/kaankiziltug/logo-design-skill), wersja wskazana w briefie. Audyt SVG ocenia techniczną konstrukcję heurystycznie; nie mierzy jakości pomysłu ani preferencji użytkowników.
+Process and tools: [logo-design-skill](https://github.com/kaankiziltug/logo-design-skill), the version specified in the brief. The SVG audit assesses the technical construction heuristically; it does not measure the quality of the idea or user preferences.
 
-## Następny etap
+## Next stage
 
-Po wyborze A, B lub C: finalna geometria i kolory, wersje jasna/ciemna, komplet PNG i wielorozmiarowe ICO dla Windows oraz wdrożenie w zasobach i interfejsie launchme.
+After choosing A, B or C: final geometry and colors, light/dark versions, a complete PNG set and a multi-size ICO for Windows, and implementation in launchme's resources and interface.

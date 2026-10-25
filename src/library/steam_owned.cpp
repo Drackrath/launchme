@@ -130,9 +130,14 @@ std::optional<std::vector<Game>> clientSteamOwnedGames(const std::filesystem::pa
 }
 
 void mergeSteamOwnedGames(SteamLibrary& library, const std::vector<Game>& owned) {
-    std::set<uint32_t> present;
-    for (const auto* list : {&library.visible, &library.private_games})
-        for (const auto& game : *list) present.insert(game.app_id);
+    std::set<uint32_t> present, mine;
+    for (const auto& game : owned) mine.insert(game.app_id);
+    for (auto* list : {&library.visible, &library.private_games})
+        for (auto& game : *list) {
+            present.insert(game.app_id);
+            // Installed by another account, but this one owns it too: no account switch to play it.
+            if (mine.contains(game.app_id)) game.steam_owner = 0;
+        }
     for (auto game : owned) {
         if (!game.app_id || steamTool(game) || !present.insert(game.app_id).second) continue;
         game.installed = false; game.installation = {};

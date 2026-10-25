@@ -194,17 +194,20 @@ void Launcher::flixTarget(size_t index, float& x, float& y, float& size, float& 
         (quick_open_ ? flix_layout::quick_lift : 0.0f);
     const size_t shown = column > row.first ? column - row.first : 0;
     delay = 0.06f * static_cast<float>(std::min<size_t>(row_index, 4)) + 0.03f * static_cast<float>(std::min<size_t>(shown, 8));
-    // The unfolded tile widens in place; the tiles after it make room, and the row moves left when
-    // the wide card would pass the right margin.
+    // The unfolded tile widens to both sides about its centre, pushing the tiles before it left and
+    // those after it right, as Netflix does; the first tile in view grows only to the right. The row
+    // moves left when the wide card would pass the right margin.
     if (landscape || flix_unfold_ <= 0.0005f || flix_unfold_index_ >= flix_card_rows_.size() || flix_card_rows_[flix_unfold_index_] != row_index) return;
     const float t = std::clamp(flix_unfold_, 0.0f, 1.0f), opened = t * t * (3 - 2 * t);
     const float extra = flix_layout::unfoldExtra(scale) * opened;
     const size_t unfolded = flix_unfold_index_ - row.begin;
+    const float before = unfolded > row.first ? extra * 0.5f : 0.0f, after = extra - before;
     const float right = renderer_.viewport().width - flix_layout::right_margin;
-    const float overflow = std::max(0.0f, flix_layout::tileLeft(false, unfolded, row.first, scale) + flix_layout::tileWidth(false, scale) + extra - right);
-    x -= overflow;
-    if (column > unfolded) x += extra;
-    if (column == unfolded) aspect = (flix_layout::tileWidth(false, scale) + extra) / size;
+    const float card_right = flix_layout::tileLeft(false, unfolded, row.first, scale) + flix_layout::tileWidth(false, scale) + after;
+    x -= std::max(0.0f, card_right - right);
+    if (column < unfolded) x -= before;
+    else if (column > unfolded) x += after;
+    else { x -= before; aspect = (flix_layout::tileWidth(false, scale) + extra) / size; }
 }
 
 bool Launcher::flixUnfoldReady(std::chrono::steady_clock::time_point now) const {

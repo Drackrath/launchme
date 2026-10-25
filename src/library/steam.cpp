@@ -98,6 +98,7 @@ std::optional<Game> manifest(const std::filesystem::path& path, bool& complete) 
         else if (key == "name") game.name = wide(value);
         else if (key == "LastPlayed") game.last_played = number(value);
         else if (key == "LastUpdated") game.last_updated = number(value);
+        else if (key == "LastOwner") game.steam_owner = number(value);
         else if (key == "StateFlags") { state = number(value); has_state = true; }
         else if (key == "SizeOnDisk") size = number(value);
         else if (key == "BytesDownloaded") download_done = number(value);

@@ -585,9 +585,11 @@ void Launcher::settingsToggle(const Row& row) {
         flag = !flag;
         settingsChanged(); audio_.context(); return; // Visual only: no shelf rebuild.
     }
-    else if (row.id == Id::steam_silent_launch) {
-        settings_.steam_silent_launch = !settings_.steam_silent_launch;
-        settingsChanged(); audio_.context(); return; // Read at the next launch: no shelf rebuild.
+    else if (row.id == Id::steam_silent_launch || row.id == Id::steam_account_switch || row.id == Id::steam_install_dialog) {
+        auto& flag = row.id == Id::steam_silent_launch ? settings_.steam_silent_launch :
+                     row.id == Id::steam_account_switch ? settings_.steam_account_switch : settings_.steam_install_dialog;
+        flag = !flag;
+        settingsChanged(); audio_.context(); return; // Read at the next launch or install: no shelf rebuild.
     }
     else if (row.id == Id::flix_category_all) settings_.flix_category_all = !settings_.flix_category_all; // Rebuild: the rows change.
     else if (row.id == Id::shelves_category_all) settings_.shelves_category_all = !settings_.shelves_category_all; // Rebuild: the shelves change.

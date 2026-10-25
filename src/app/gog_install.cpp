@@ -58,10 +58,15 @@ void Launcher::gogInstallKey(WPARAM key, bool repeated) {
         gog_install_ui_.open = false; mouse_transition_until_ = GetTickCount64() + GetDoubleClickTime();
     } else if (key == VK_UP) {
         gog_install_ui_.row = std::max(0, gog_install_ui_.row - 1);
-        if (gog_install_ui_.game.source == GameSource::epic && gog_install_ui_.row == 2) gog_install_ui_.row = 1;
+        if ((gog_install_ui_.game.source == GameSource::epic || gog_install_ui_.steam) && gog_install_ui_.row == 2) gog_install_ui_.row = 1;
     } else if (key == VK_DOWN || key == VK_TAB) {
         gog_install_ui_.row = std::min(4, gog_install_ui_.row + 1);
-        if (gog_install_ui_.game.source == GameSource::epic && gog_install_ui_.row == 2) gog_install_ui_.row = 3;
+        if ((gog_install_ui_.game.source == GameSource::epic || gog_install_ui_.steam) && gog_install_ui_.row == 2) gog_install_ui_.row = 3;
+    }
+    else if ((key == VK_LEFT || key == VK_RIGHT) && gog_install_ui_.row == 0 && gog_install_ui_.steam) {
+        // Steam: the next library folder.
+        const int count = static_cast<int>(gog_install_ui_.libraries.size());
+        if (count > 1 && !gog_install_ui_.steam_busy) gog_install_ui_.library = (gog_install_ui_.library + count + (key == VK_LEFT ? -1 : 1)) % count;
     }
     else if ((key == VK_LEFT || key == VK_RIGHT) && gog_install_ui_.row == 0 && !gog_install_ui_.snapshot.busy() && !gog_install_ui_.snapshot.choices.empty()) {
         const int count = static_cast<int>(gog_install_ui_.snapshot.choices.size());
@@ -72,6 +77,7 @@ void Launcher::gogInstallKey(WPARAM key, bool repeated) {
 void Launcher::gogInstallAccept() {
     auto& ui = gog_install_ui_;
     if (!ui.open) return;
+    if (ui.steam) { steamInstallAccept(); InvalidateRect(hwnd_, nullptr, FALSE); return; } // src/app/steam_install.cpp
     const bool epic = ui.game.source == GameSource::epic;
     if (epic ? !epic_service_ : !gog_service_) return;
     if (ui.row == 4) { gogInstallKey(VK_ESCAPE, false); return; }
@@ -127,7 +133,7 @@ void Launcher::pollGogInstall() {
     if (!gog_service_) return;
     auto next = gog_service_->takeInstall();
     if (!next) return;
-    if (gog_install_ui_.game.source == GameSource::epic) return;
+    if (gog_install_ui_.game.source == GameSource::epic || gog_install_ui_.steam) return;
     const bool was_active = gog_install_ui_.snapshot.progress().active();
     if (next->product.empty()) {
         gog_install_ui_.snapshot.state = gog::InstallState::none;

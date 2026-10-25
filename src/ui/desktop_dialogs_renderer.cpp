@@ -386,38 +386,44 @@ void Renderer::drawDesktopGogInstall() {
     const auto& ui = *context_->gog_install;
     const auto& state = ui.snapshot;
     const auto& hover = context_->desktop_dialog_hover;
-    const bool epic = ui.game.source == GameSource::epic;
+    const bool epic = ui.game.source == GameSource::epic, steam = ui.steam;
     const auto view = desktopViewport();
     D2D1_MATRIX_3X2_F saved{};
     target_->GetTransform(&saved);
     target_->SetTransform(D2D1::Matrix3x2F::Scale(view.scale, view.scale));
     const float item_h = 62;
-    const int settings_rows = epic ? 2 : 3;
+    const int settings_rows = epic || steam ? 2 : 3;
     const bool downloading = state.state == gog::InstallState::downloading;
     const float height = sheet_header + 70 + static_cast<float>(settings_rows) * item_h + (downloading ? 44.0f : 0.0f) + 70;
     const auto p = desktopDialogFrame(view, 620, height, ui.game.name, false);
     float y = p.top + sheet_header + 14;
     // Its state, with a turning disc while the store works.
-    const auto status = epic ? epic::installStatusText(state) : gog::installStatusText(state);
-    if (state.busy()) desktopArc(p.left + 30, y + 14, 8, elapsed_ * 5.0f, 4.2f, uiAccent(), 2);
-    paragraph(status, p.left + (state.busy() ? 48.0f : 22.0f), y + 2, p.right - p.left - 70, desktop_font_.Get(), palette::muted(), 2);
+    const bool busy = state.busy() || (steam && ui.steam_busy);
+    const auto status = steam ? gog_install_ui::steamInstallStatus(ui) : epic ? epic::installStatusText(state) : gog::installStatusText(state);
+    if (busy) desktopArc(p.left + 30, y + 14, 8, elapsed_ * 5.0f, 4.2f, uiAccent(), 2);
+    paragraph(status, p.left + (busy ? 48.0f : 22.0f), y + 2, p.right - p.left - 70, desktop_font_.Get(), palette::muted(), 2);
     y += 56;
-    // Language / version, the game's folder and the download folder: a click changes each.
+    // Language / version (Steam: its library), the game's folder (Steam: Steam's own install window)
+    // and the download folder: a click changes each.
     std::wstring variant = tr(L"Brak dostępnych wariantów");
     if (ui.variant >= 0 && ui.variant < static_cast<int>(state.choices.size())) {
         const auto& choice = state.choices[static_cast<size_t>(ui.variant)];
         variant = choice.language + (choice.version.empty() ? L"" : L" · " + choice.version) + L" · " + std::to_wstring(choice.bytes / (1024 * 1024)) + L" MiB";
     }
-    const std::array<std::wstring, 3> labels{epic ? std::wstring(L"Epic Games · Windows") : std::wstring(tr(L"Język / wersja")), tr(L"Folder gry"), tr(L"Folder pobierania (tymczasowo)")};
-    const std::array<std::wstring, 3> values{epic ? std::wstring(L"Legendary 0.21.1") : variant, ui.request.install_directory.wstring(), ui.request.download_root.wstring()};
+    const std::array<std::wstring, 3> labels = steam ?
+        std::array<std::wstring, 3>{tr(L"Biblioteka Steam"), tr(L"Okno instalacji Steam"), {}} :
+        std::array<std::wstring, 3>{epic ? std::wstring(L"Epic Games · Windows") : std::wstring(tr(L"Język / wersja")), tr(L"Folder gry"), tr(L"Folder pobierania (tymczasowo)")};
+    const std::array<std::wstring, 3> values = steam ?
+        std::array<std::wstring, 3>{gog_install_ui::steamLibraryText(ui), tr(L"Wybór biblioteki i instalacja w samym Steamie"), {}} :
+        std::array<std::wstring, 3>{epic ? std::wstring(L"Legendary 0.21.1") : variant, ui.request.install_directory.wstring(), ui.request.download_root.wstring()};
     for (int i = 0; i < 3; ++i) {
-        if (epic && i == 2) continue;
+        if ((epic || steam) && i == 2) continue;
         const Rect r{p.left + 16, y, p.right - 16, y + item_h - 8};
         const bool focused = ui.row == i, over = hover == SheetHit{Kind::row, i};
         desktopFill(r, 10, gray(1, focused ? 0.075f : over ? 0.055f : 0.035f));
         textLine(labels[static_cast<size_t>(i)], r.left + 14, r.top + 18, r.right - r.left - 50, desktop_small_font_.Get(), palette::muted());
         textLine(values[static_cast<size_t>(i)], r.left + 14, r.top + 38, r.right - r.left - 50, desktop_font_.Get(), palette::text());
-        desktopGlyph(i == 0 ? glyph::chevron_down : glyph::folder_open, r.right - 22, middle(r), i == 0 ? 9.0f : 13.0f, gray(0.65f));
+        desktopGlyph(i == 0 ? glyph::chevron_down : steam ? glyph::open : glyph::folder_open, r.right - 22, middle(r), i == 0 ? 9.0f : 13.0f, gray(0.65f));
         desktopModalHot({Kind::row, i}, r);
         y += item_h;
     }
@@ -433,7 +439,7 @@ void Renderer::drawDesktopGogInstall() {
     // The store's action (Zainstaluj, Przerwij, …) and Powrót.
     const float by = p.bottom - 20 - 38;
     const Rect action{p.right - 22 - 170, by, p.right - 22, by + 38}, back{action.left - 10 - 120, by, action.left - 10, by + 38};
-    desktopButton(action, 2, hover == SheetHit{Kind::row, 3} ? 1.0f : 0.0f, false, true, 0, gog_install_ui::action(state));
+    desktopButton(action, 2, hover == SheetHit{Kind::row, 3} ? 1.0f : 0.0f, false, true, 0, gog_install_ui::action(ui));
     desktopButton(back, 1, hover == SheetHit{Kind::row, 4} ? 1.0f : 0.0f, false, true, 0, tr(L"Powrót"));
     if (ui.row == 3) desktopFocusRing(action, 8);
     if (ui.row == 4) desktopFocusRing(back, 8);

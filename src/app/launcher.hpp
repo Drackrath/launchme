@@ -24,6 +24,8 @@
 #include "../library/metadata_overrides.hpp"
 #include "../library/drm_free.hpp"
 #include "../library/steam_achievements.hpp"
+#include "../library/steam.hpp"
+#include "../library/steam_accounts.hpp"
 #include "../library/rawg.hpp"
 #include "../library/game_index_service.hpp"
 #include "../net/companion_memory.hpp"
@@ -1175,6 +1177,16 @@ private:
     void updateSteamInstallations(const LibraryMessage& library);
     void pollGog();
     void openGogInstall(const Game& game);
+    // Steam in Launchme's hands (src/app/steam_install.cpp): the install dialog picks the library
+    // (gog_install_ui_ with `steam`), Play on another remembered account's game switches Steam to it.
+    bool steamInstallDialogWanted(const Game& game) const;
+    bool openSteamInstall(const Game& game); // false: no library known, Steam's own window instead.
+    void steamInstallAccept();
+    void steamInstallFinished(uint32_t generation, bool ok);
+    std::optional<steam_accounts::Account> steamSwitchTarget(const Game& game, bool& unremembered) const;
+    bool beginSteamAccountSwitch(const Game& game); // false: the launch must not go on.
+    void steamSwitchFinished(uint32_t generation, bool ok, const std::wstring& persona);
+    bool steamGameRunning() const;
     void gogInstallAccept();
     void pollGogInstall();
     void applyGogInstallProgress();
@@ -1557,6 +1569,26 @@ private:
     ActionExecutor execute_ = executeGameAction;
     // steam.exe for Ciche uruchamianie Steam (registry + one file check, at launch time); tests inject a path.
     std::filesystem::path (*steam_executable_)() = installedSteamExecutable;
+    // Steam accounts and installs (src/library/steam_accounts.hpp); tests replace each backend.
+    std::function<std::vector<steam_accounts::Account>()> steam_accounts_ = [] { return steam_accounts::loginUsers(findSteamRoot()); };
+    std::function<std::vector<steam_accounts::Folder>()> steam_libraries_ = [] { return steam_accounts::libraryFolders(findSteamRoot()); };
+    // Closes Steam and makes it sign in to `account` when it next starts (a worker thread).
+    std::function<bool(const steam_accounts::Account&)> steam_switcher_ = [](const steam_accounts::Account& account) {
+        const auto root = findSteamRoot();
+        return steam_accounts::shutdownSteam(steamExecutable(root), std::chrono::seconds(45)) && steam_accounts::prepareSignIn(root, account);
+    };
+    // Puts the game's install stub into `library` and (re)starts Steam, which downloads it (a worker thread).
+    std::function<bool(const Game&, const std::filesystem::path&, uint64_t)> steam_installer_ =
+        [](const Game& game, const std::filesystem::path& library, uint64_t owner) {
+            const auto exe = steamExecutable(findSteamRoot());
+            if (exe.empty()) return false;
+            const bool running = steam_accounts::runningSteamProcess() != 0;
+            if (running && !steam_accounts::shutdownSteam(exe, std::chrono::seconds(45))) return false;
+            const bool written = steam_accounts::writeInstallManifest(library, game.app_id, game.name, exe, owner);
+            return steam_accounts::startSteam(exe) && written;
+        };
+    bool steam_switch_pending_ = false;
+    uint32_t steam_switch_generation_ = 0, steam_install_generation_ = 0;
     // EA library import from a pasted sign-in page; tests replace the network backend.
     std::function<ea::Import(const std::string&)> ea_importer_ = [](const std::string& pasted) {
         return ea::importLibrary(pasted, [](const std::wstring& url, const std::wstring& headers, const std::string& body) {

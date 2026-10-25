@@ -327,6 +327,8 @@ AppSettings parseAppSettings(std::string_view text) {
                 settings.glass = std::clamp(level, 0.0f, 1.0f);
         }
         else if (key == "steam_silent_launch" && (value == "0" || value == "1")) settings.steam_silent_launch = value == "1";
+        else if (key == "steam_account_switch" && (value == "0" || value == "1")) settings.steam_account_switch = value == "1";
+        else if (key == "steam_install_dialog" && (value == "0" || value == "1")) settings.steam_install_dialog = value == "1";
         else if (key == "game_videos" && (value == "0" || value == "1")) settings.game_videos = value == "1";
         else if (key == "video_delay" && (value == "3" || value == "5" || value == "10")) settings.video_delay = value == "3" ? 3 : value == "5" ? 5 : 10;
         else if (key == "video_volume" && value.size() == 1 && value[0] >= '0' && value[0] <= '3') settings.video_volume = value[0] - '0';
@@ -655,6 +657,8 @@ bool saveAppSettings(const AppSettings& settings, const std::filesystem::path& f
                                  settings.hint_glyphs == AppSettings::HintGlyphs::playstation ? "playstation" :
                                  settings.hint_glyphs == AppSettings::HintGlyphs::nintendo ? "nintendo" : "auto") << '\n';
     output << "steam_silent_launch=" << settings.steam_silent_launch << '\n';
+    output << "steam_account_switch=" << settings.steam_account_switch << '\n';
+    output << "steam_install_dialog=" << settings.steam_install_dialog << '\n';
     output << "game_videos=" << settings.game_videos << '\n';
     output << "video_delay=" << settings.video_delay << '\n';
     output << "video_volume=" << settings.video_volume << '\n';

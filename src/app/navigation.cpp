@@ -931,6 +931,8 @@ void Launcher::launchGame(const Game& original) {
     if (active.source == GameSource::epic && !active.installed && !epic_state_.account.empty() &&
         (!active.account_id.empty() || active.installation.active())) { openEpicInstall(active); return; }
     if (active.source == GameSource::epic && active.epic_managed) { startEpicGame(active); return; }
+    // A Steam game to install: the library picked in Launchme's dialog (src/app/steam_install.cpp).
+    if (steamInstallDialogWanted(active) && openSteamInstall(active)) return;
     const auto action = primaryGameAction(active);
     if (!action) {
         if (localFileGame(active.source))
@@ -939,6 +941,8 @@ void Launcher::launchGame(const Game& original) {
                               std::wstring(tr(L"Sprawdź konfigurację ")) + sourceName(active.source));
         return;
     }
+    // A Steam game another remembered account installed: Steam restarts signed in to it first.
+    if (action.kind == ActionKind::play && !beginSteamAccountSwitch(active)) return;
     if (settings_.launch_animation && action.kind == ActionKind::play) startLaunchAnimation(active);
     audio_.launch();
     if (action.kind == ActionKind::play) audio_.stopMusic();

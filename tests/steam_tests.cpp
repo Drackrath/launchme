@@ -1,4 +1,5 @@
 #include "../src/library/steam.hpp"
+#include "../src/library/steam_accounts.hpp"
 #include "../src/library/steam_stats.hpp"
 #include "../src/library/steam_achievements.hpp"
 #include <cmath>
@@ -75,6 +76,60 @@ int main(int argc, char** argv) {
     if (steamActionUrl(shortcut) != L"steam://rungameid/" + std::to_wstring(shortcut.shortcut_id)) {
         std::cerr << "Non-Steam shortcut Steam URI was incorrect\n";
         return 1;
+    }
+    {
+        // Remembered accounts (loginusers.vdf as Steam writes it in 2026), the next sign-in moved to
+        // another one, and the install stub Steam downloads into a picked library.
+        using namespace steam_accounts;
+        const std::string users =
+            "\"users\"\n{\n"
+            "\t\"76561198000000001\"\n\t{\n\t\t\"AccountName\"\t\t\"first\"\n\t\t\"PersonaName\"\t\t\"Pierwszy \xC5\x82\"\n"
+            "\t\t\"RememberPassword\"\t\t\"1\"\n\t\t\"AutoLogin\"\t\t\"1\"\n\t\t\"timestamp\"\t\t\"1792948338\"\n\t}\n"
+            "\t\"76561198000000002\"\n\t{\n\t\t\"AccountName\"\t\t\"second\"\n\t\t\"PersonaName\"\t\t\"Second\"\n"
+            "\t\t\"RememberPassword\"\t\t\"1\"\n\t\t\"AutoLogin\"\t\t\"0\"\n\t}\n"
+            "\t\"76561198000000003\"\n\t{\n\t\t\"AccountName\"\t\t\"third\"\n\t\t\"RememberPassword\"\t\t\"0\"\n\t}\n}\n";
+        const auto accounts = parseLoginUsers(users);
+        if (accounts.size() != 3 || accounts[0].steam_id != 76561198000000001ULL || accounts[0].account_name != "first" ||
+            accounts[0].persona != L"Pierwszy \u0142" || !accounts[0].auto_login || !accounts[0].remember ||
+            accounts[1].auto_login || accounts[2].remember || !accounts[2].persona.empty()) {
+            std::cerr << "loginusers.vdf accounts were not read\n";
+            return 40;
+        }
+        const auto moved = withAutoLogin(users, 76561198000000002ULL);
+        const auto after = parseLoginUsers(moved);
+        if (after.size() != 3 || after[0].auto_login || !after[1].auto_login || after[1].account_name != "second" ||
+            moved.find("\"timestamp\"\t\t\"1792948338\"") == std::string::npos || !withAutoLogin(users, 76561198000000099ULL).empty()) {
+            std::cerr << "The next Steam sign-in did not move to the chosen account\n";
+            return 41;
+        }
+        // A block without AutoLogin (the older format) gets one.
+        const auto third = parseLoginUsers(withAutoLogin(users, 76561198000000003ULL));
+        if (third.size() != 3 || !third[2].auto_login || third[0].auto_login) { std::cerr << "AutoLogin was not added\n"; return 42; }
+        if (installDirectoryName(L"Half-Life: Alyx?", 546560) != L"Half-Life Alyx" || installDirectoryName(L" ..", 7) != L"app7") {
+            std::cerr << "Install folder names were not Windows-safe\n";
+            return 43;
+        }
+        const auto stub = installManifest(620, L"Portal 2", L"C:\\Steam\\steam.exe", 76561198000000002ULL);
+        if (stub.find("\"StateFlags\"\t\t\"1026\"") == std::string::npos || stub.find("\"LauncherPath\"\t\t\"C:\\\\Steam\\\\steam.exe\"") == std::string::npos ||
+            stub.find("\"LastOwner\"\t\t\"76561198000000002\"") == std::string::npos || stub.find("\"installdir\"\t\t\"Portal 2\"") == std::string::npos) {
+            std::cerr << "The Steam install stub was not as Steam writes it\n";
+            return 44;
+        }
+        // The stub reads back as a game Steam is downloading, owned by the account; a second one is refused.
+        const auto root = fs::temp_directory_path() / ("launchme-steam-stub-" + std::to_string(GetCurrentProcessId()));
+        fs::remove_all(root);
+        fs::create_directories(root / "steamapps");
+        if (!writeInstallManifest(root, 620, L"Portal 2", L"C:\\Steam\\steam.exe", 76561198000000002ULL) ||
+            writeInstallManifest(root, 620, L"Portal 2", L"C:\\Steam\\steam.exe", 76561198000000002ULL)) {
+            std::cerr << "The Steam install stub was not written once\n";
+            fs::remove_all(root);
+            return 45;
+        }
+        std::ifstream written(root / "steamapps" / "appmanifest_620.acf", std::ios::binary);
+        const std::string text{std::istreambuf_iterator<char>(written), {}};
+        written.close();
+        fs::remove_all(root);
+        if (text != stub) { std::cerr << "The Steam install stub on disk differs\n"; return 46; }
     }
     Game platform{0xF0000002u, L"Switch"};
     platform.kind = GameKind::platform;

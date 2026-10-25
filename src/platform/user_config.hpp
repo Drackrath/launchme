@@ -194,6 +194,12 @@ struct AppSettings {
     // Steam games start through steam.exe -silent (a Steam started for them stays in the tray) and
     // Steam gets no foreground permission; Launchme hands focus to the game window itself.
     bool steam_silent_launch = false;
+    // A Steam game installed by another account remembered on this PC: Steam restarts signed in to
+    // that account, then the game starts (src/library/steam_accounts.hpp).
+    bool steam_account_switch = true;
+    // Installing a Steam game: Launchme's dialog picks the library (with its free space) instead of
+    // Steam's install window.
+    bool steam_install_dialog = true;
     // Videos downloaded from ScreenScraper: <video_folder>\<ES-DE system>\videos\<ROM name>.mp4, the
     // layout of ES-DE's downloaded_media (pointing it there shares them). Empty: <config>\media.
     std::filesystem::path video_folder;

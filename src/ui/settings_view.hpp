@@ -25,7 +25,7 @@ enum class Id { font, home_layout, ui_accent, accent, uninstalled, emulation, co
                  glow_level, glow_pulse, glow_trace, screenscraper, screenscraper_open, game_videos, video_folder, video_folder_reset, screenscraper_test, screenscraper_clear, video_delay, video_volume, steam_trailers, emulation_names, emulation_rom_art, trailer_space, background_grid, background_grid_style, psfive_size, psfive_clock, custom_games,
                  // Settings 2.0.
                   glass, input_hints, hint_glyphs, audio_sources, system_volume, bt_audio, bt_devices, windows_sound, controller_pads, collections_open,
-                  steam_silent_launch, bulk_covers, screen_transitions, glance,
+                  steam_silent_launch, steam_account_switch, steam_install_dialog, bulk_covers, screen_transitions, glance,
                   // Towarzyszka (Asystent).
                   companion, companion_look, companion_model, companion_token, companion_host, companion_test,
                   companion_voice, companion_voice_key, companion_voice_model, companion_voice_style, companion_voice_test,

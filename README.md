@@ -1,5 +1,7 @@
 # launchme
 
+**[Changelog](changelog/)** · **[Download](../../releases/latest)**
+
 A full-screen, console-style game launcher for Windows 10/11, built for a gamepad.
 It merges Steam (collections and non-Steam shortcuts), GOG, Battle.net, EA app, Ubisoft Connect,
 Epic Games, Xbox (PC) and your own programs into one library, with artwork from SteamGridDB.
@@ -51,12 +53,16 @@ Settings → System → Help → **Open folder** (the version row) opens it.
 
 - **Home layouts**: shelves (default), XMB, Flix, Metro, PSfive and snitch, with a PS5-like tile
   entrance, frosted glass, button colour themes and several focus-outline styles. In Flix, resting
-  on a game for a few seconds unfolds its poster into a wide card with its background, logo and facts.
+  on a game for a few seconds unfolds its poster into a wide card with its background, logo and facts,
+  pushing the neighbouring tiles aside.
 - **Launch screen**: starting a game shows its background, slowly zooming in, with its logo for a few
   seconds while the game opens (`Esc` / B hides it).
 - **Desktop window mode** with a sidebar, search and a details pane; switch with `F11` or from the power menu.
 - **Library views**: grid (squares, posters or landscape tiles), list, cinematic, detailed, poster,
   coverflow and novelty cartridge/floppy views; sorting, filters, search and remembered positions.
+- **Steam accounts and installs**: Play on a game installed by another remembered Steam account switches
+  Steam to that account first; Install picks the Steam library (with its free space) in Launchme's own
+  dialog. Both can be turned off in Settings → Library → Launching.
 - **Stores**: local installs of every store above, Steam collections synced with the running client,
   GOG and Epic account libraries (Epic installs through Legendary, no Epic launcher needed),
   EA and Battle.net libraries imported from their store pages (no EA app needed: sign in on ea.com,

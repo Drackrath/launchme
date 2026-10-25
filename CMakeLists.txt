@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(launchme VERSION 0.1.1 LANGUAGES C CXX)
+project(launchme VERSION 0.1.2 LANGUAGES C CXX)
 
 if(NOT WIN32)
     message(FATAL_ERROR "This native Direct2D prototype currently targets Windows.")
@@ -201,6 +201,7 @@ set(LAUNCHME_APP_SOURCES
     src/app/gog.cpp
     src/app/epic.cpp
     src/app/web_imports.cpp
+    src/app/steam_install.cpp
     src/store/web_import.cpp
     src/store/ea_account.cpp
     ${LAUNCHME_EPIC_SOURCES}
@@ -306,6 +307,7 @@ set(LAUNCHME_APP_SOURCES
     src/library/versions.cpp
     src/library/owned_games.cpp
     src/library/steam_owned.cpp
+    src/library/steam_accounts.cpp
     src/library/shortcuts.cpp
     src/library/esde_gamelist.cpp
     src/library/screenscraper_config.cpp
@@ -787,7 +789,7 @@ if(BUILD_TESTING)
         LIBS bcrypt advapi32 shell32)
     launchme_executable(steam_tests TEST steam_library_scan
         SOURCES tests/steam_tests.cpp src/library/steam.cpp src/library/steam_stats.cpp src/library/steam_achievements.cpp
-            src/library/visibility.cpp src/net/json.cpp src/net/http.cpp
+            src/library/visibility.cpp src/library/steam_accounts.cpp src/net/json.cpp src/net/http.cpp
         LIBS advapi32 winhttp)
     launchme_executable(steam_install_live_test
         SOURCES tests/steam_install_live_test.cpp src/library/steam.cpp src/library/visibility.cpp src/platform/steam_downloads.cpp

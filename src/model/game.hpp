@@ -53,6 +53,9 @@ struct Game {
     std::string account_id; // Online-only membership; local installations are independent.
     Installation installation;
     std::filesystem::path manifest_path;
+    // Installed Steam game: the account it belongs to (its manifest's LastOwner, SteamID64); 0 when
+    // unknown or when the signed-in account can play it (src/library/steam_accounts.hpp).
+    uint64_t steam_owner = 0;
     // EGS account metadata and installations managed by Launchme/Legendary.
     std::string epic_namespace, epic_catalog, epic_partner;
     bool epic_managed = false;

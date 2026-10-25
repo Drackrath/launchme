@@ -54,7 +54,7 @@ void Launcher::click(float mouse_x, float mouse_y, bool double_click) {
     }
     case Modal::identify: if (!double_click) identifyClick(x, y); return;
     case Modal::gog_install: {
-        const auto row = gog_install_ui::Layout{view.width, view.height, gog_install_ui_.game.source == GameSource::epic}.hit(x, y);
+        const auto row = gog_install_ui::Layout{view.width, view.height, gog_install_ui_.game.source == GameSource::epic || gog_install_ui_.steam}.hit(x, y);
         if (!double_click && row >= 0) { gog_install_ui_.row = row; gogInstallAccept(); }
         return;
     }
@@ -290,7 +290,7 @@ bool Launcher::hoverButton(float mouse_x, float mouse_y) const {
         const identify_ui::Layout layout{view.width, view.height};
         return layout.back().contains(x, y) || layout.source().contains(x, y) || layout.search().contains(x, y) || layout.hit(x, y, identify_state_) >= 0;
     }
-    case Modal::gog_install: return gog_install_ui::Layout{view.width, view.height, gog_install_ui_.game.source == GameSource::epic}.hit(x, y) >= 0;
+    case Modal::gog_install: return gog_install_ui::Layout{view.width, view.height, gog_install_ui_.game.source == GameSource::epic || gog_install_ui_.steam}.hit(x, y) >= 0;
     case Modal::companion_picker: return companion_ui::PickerLayout{view.width, view.height}.hit(companion_.picker, x, y) != companion_ui::no_hit;
     }
     if (launchAnimationActive()) return false;

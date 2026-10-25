@@ -337,6 +337,12 @@ void Launcher::buildSettingsRows() {
         add({Id::steam_silent_launch, Control::toggle, tr(L"Ciche uruchamianie Steam"),
             tr(L"Steam zostaje w zasobniku i nie przejmuje fokusu, launcher przekazuje go oknu gry. Okna Steam mogą zostać w tle."),
             {}, settings_.steam_silent_launch});
+        add({Id::steam_account_switch, Control::toggle, tr(L"Przełączanie kont Steam"),
+            tr(L"Gra zainstalowana z innego konta zapamiętanego w Steam: Steam uruchamia się ponownie na tym koncie, potem gra."),
+            {}, settings_.steam_account_switch});
+        add({Id::steam_install_dialog, Control::toggle, tr(L"Instalacja Steam w launcherze"),
+            tr(L"Biblioteka gry wybierana w launcherze, z wolnym miejscem; Steam pobiera ją po ponownym uruchomieniu w tle."),
+            {}, settings_.steam_install_dialog});
         break;
     case settings_ui::Category::media: {
         if (settings_state_.at(Page::screenscraper)) {

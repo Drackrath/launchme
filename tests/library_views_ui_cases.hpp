@@ -1348,13 +1348,16 @@ int LauncherUiTest::flix(HWND window) {
         app.foreground_ = [](HWND) { return true; };
         const auto at = app.selected_;
         deliver(app.cards_[at].game, CoverMessage::Kind::hero, pngFixture(150, 192, 62));
-        const float poster_w = app.cards_[at].width(), next_x = app.cards_[at + 1].x;
+        const float poster_w = app.cards_[at].width(), next_x = app.cards_[at + 1].x, previous_x = app.cards_[at - 1].x, own_x = app.cards_[at].x;
         const auto rested = std::chrono::steady_clock::now() - std::chrono::seconds(4);
         app.tick(); // The window comes to the front: its idle period starts over (screensaver.cpp).
         app.flix_focus_at_ = rested; app.last_input_ = rested;
         settle();
+        // It grows to both sides (it is not the first tile in view): half the extra width each way.
+        const float half = flix_layout::unfoldExtra() * 0.5f;
         if (app.flix_unfold_index_ != at || app.flix_unfold_ < 0.99f || app.cards_[at].width() < poster_w * 2 ||
-            app.cards_[at + 1].x < next_x + flix_layout::unfoldExtra() * 0.9f) return 997;
+            std::abs(app.cards_[at + 1].x - (next_x + half)) > 2 || std::abs(app.cards_[at - 1].x - (previous_x - half)) > 2 ||
+            std::abs(app.cards_[at].x - (own_x - half)) > 2) return 997;
         if (!capture(L"flix-unfolded.png")) return 998;
         app.navigate(1); settle();
         if (app.flix_unfold_ > 0.001f || app.flix_unfold_index_ != SIZE_MAX || std::abs(app.cards_[at].width() - poster_w) > 1) return 999;
