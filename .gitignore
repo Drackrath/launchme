@@ -31,3 +31,6 @@ __pycache__/
 
 # The anime face detector tools/companion_faces.py downloads.
 /tools/lbpcascade_animeface.xml
+
+# Companion art generation scripts: kept locally, not published.
+/tools/companion_gen/
