@@ -585,7 +585,6 @@ void Launcher::settingsToggle(const Row& row) {
         flag = !flag;
         settingsChanged(); audio_.context(); return; // Visual only: no shelf rebuild.
     }
-    else if (row.id == Id::launch_animation) settings_.launch_animation = !settings_.launch_animation;
     else if (row.id == Id::steam_silent_launch) {
         settings_.steam_silent_launch = !settings_.steam_silent_launch;
         settingsChanged(); audio_.context(); return; // Read at the next launch: no shelf rebuild.

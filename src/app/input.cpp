@@ -387,7 +387,11 @@ void Launcher::controllerInput(const PadReading& state) {
         }
         return;
     }
-    if (launchAnimationActive()) { swallow(); return; }
+    if (launchAnimationActive()) {
+        // B hides the starting game's picture (once it is past the press that started it).
+        if ((buttons & XINPUT_GAMEPAD_B) && !(controller_buttons_ & XINPUT_GAMEPAD_B)) dismissLaunchAnimation();
+        swallow(); return;
+    }
     // Screensaver: any button or stick ends it; the waking input is swallowed until released.
     const bool stick = std::abs(state.x) > screensaver::stick_threshold || std::abs(state.y) > screensaver::stick_threshold;
     if (screensaverVerdict(saver_gate_.pad(buttons, stick || state.left_trigger))) { swallow(); return; }

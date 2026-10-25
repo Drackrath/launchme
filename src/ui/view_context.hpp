@@ -357,6 +357,15 @@ struct ViewContext {
     std::vector<FlixRow> flix_rows;
     size_t flix_row = 0;
     float flix_scale = 1; // flix_layout::sizeScale of the tile size setting.
+    // The unfolded tile (flix_layout::unfold_rest): its card, how far it has opened, its primary
+    // action's label and whether it plays, its facts (rating, year, playtime) and genres.
+    size_t flix_unfold_index = static_cast<size_t>(-1);
+    float flix_unfold = 0;
+    std::wstring flix_unfold_action;
+    bool flix_unfold_play = true;
+    std::wstring flix_unfold_rating;
+    std::vector<std::wstring> flix_unfold_facts;
+    std::wstring flix_unfold_genres;
     // Metro home: one entry per card (its role and caption), the tab of every page and the eased
     // page position the tab strip follows.
     struct MetroTile {

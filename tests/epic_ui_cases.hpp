@@ -64,7 +64,7 @@ int LauncherUiTest::epicAccount(HWND window) {
     const auto before = dispatched.size(); fake->start = epic::LaunchResult{local, {L"synthetic-game.exe"}}; app.pollEpic();
     if (dispatched.size() != before + 1 || dispatched.back() != L"synthetic-game.exe") return 1713;
     if (!app.launchAnimationActive() || app.launch_animation_title_ != local.name) return 1728;
-    app.tickLaunchAnimation(*app.launch_animation_started_ + std::chrono::seconds(1));
+    app.tickLaunchAnimation(*app.launch_animation_started_ + std::chrono::seconds(11)); // Past its whole run.
     if (app.launchAnimationActive() || app.screen_ != ScreenMode::shelves) return 1729;
     app.epicCommand(epic::Command::logout);
     if (!app.epic_state_.account.empty() || app.store_library_.size() != 1 || !app.store_library_[0].epic_managed) return 1714;

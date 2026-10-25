@@ -267,7 +267,8 @@ void Launcher::retryGameArtwork(const Game& game, bool notify) {
         kinds.push_back(CoverMessage::Kind::poster); kinds.push_back(CoverMessage::Kind::landscape);
     }
     else if ((settings_.home_layout == AppSettings::HomeLayout::xmb && settings_.xmb_posters) ||
-             (settings_.home_layout == AppSettings::HomeLayout::shelves && settings_.shelves_posters)) kinds.push_back(CoverMessage::Kind::poster);
+             (settings_.home_layout == AppSettings::HomeLayout::shelves && settings_.shelves_posters) ||
+             desktop_mode_) kinds.push_back(CoverMessage::Kind::poster); // The desktop window's grid shows posters.
     if ((libraryLandscape() || libraryGridLandscape()) && std::find(kinds.begin(), kinds.end(), CoverMessage::Kind::landscape) == kinds.end()) kinds.push_back(CoverMessage::Kind::landscape);
     if (library_view::posterArt(libraryPresentation()) && std::find(kinds.begin(), kinds.end(), CoverMessage::Kind::poster) == kinds.end()) kinds.push_back(CoverMessage::Kind::poster);
     if (libraryCoverflow()) kinds.push_back(CoverMessage::Kind::disc);

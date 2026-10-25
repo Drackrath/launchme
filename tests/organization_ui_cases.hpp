@@ -1,5 +1,5 @@
 int LauncherUiTest::organization(HWND window) {
-    Launcher app; app.hwnd_ = window; app.execute_ = fakeExecute;
+    Launcher app; app.hwnd_ = window; app.execute_ = fakeExecute; app.settings_.accept_action = AppSettings::AcceptAction::launch; // These cases pick cards to launch them.
     app.settings_.launch_animation = false;
     if (!app.renderer_.initialize(window)) return 3000;
     const auto capture = [&](const wchar_t* name) {

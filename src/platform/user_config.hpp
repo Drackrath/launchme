@@ -188,7 +188,9 @@ struct AppSettings {
     // Their symbols: from the active pad's family, or always one console's.
     enum class HintGlyphs { automatic, xbox, playstation, nintendo };
     HintGlyphs hint_glyphs = HintGlyphs::automatic;
-    bool launch_animation = true; // Brief cover zoom when starting a game.
+    // The starting game's background and logo for a few seconds (src/ui/launch_animation.hpp). Always
+    // on and no longer saved or shown in Ustawienia; tests switch it off to launch without it.
+    bool launch_animation = true;
     // Steam games start through steam.exe -silent (a Steam started for them stays in the tray) and
     // Steam gets no foreground permission; Launchme hands focus to the game window itself.
     bool steam_silent_launch = false;
@@ -207,10 +209,11 @@ struct AppSettings {
     // Emulation console tiles on their platform colour (emulation_platforms.hpp) in every home
     // layout and library view; off: the dark fill of the store tiles.
     bool console_colors = true;
-    // Picking a game (Enter, A, Space, double click) in every view: launch/install, or its details.
-    // The game menu and the details screen still launch directly.
+    // Picking a game (Enter, A, Space, double click) in every view, desktop and PSfive included: its
+    // details (default), or launch/install. The game menu, the details screen and Play buttons still
+    // launch directly.
     enum class AcceptAction { launch, details };
-    AcceptAction accept_action = AcceptAction::launch;
+    AcceptAction accept_action = AcceptAction::details;
     // Interface language; system follows the Windows display language (Polish or English).
     enum class LanguageChoice { system, pl, en };
     LanguageChoice language = LanguageChoice::system;

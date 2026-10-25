@@ -74,6 +74,15 @@ int main() {
     check(ea::accessToken(R"( {"access_token":")" + token + R"(","token_type":"Bearer","expires_in":"3599"} )") == token, "token from JSON");
     check(ea::accessToken(token) == token && ea::accessToken("short").empty() && ea::accessToken("{\"access_token\":\"a b\"}").empty(), "bare token, rejects");
     check(ea::signedOut(R"({"error_code":"login_required","error":"login_required","error_number":"102100"})"), "login_required");
+    // What a browser copies with the page (Chrome's "Pretty-print" label), and an address carrying the
+    // token or the refusal in its fragment (ea.com's own sign-in redirect), percent-encoded or not.
+    check(ea::accessToken(R"(Pretty-print{"access_token":")" + token + R"(","token_type":"Bearer"})") == token, "token beside the browser's text");
+    check(ea::accessToken("https://www.ea.com/static-pages/auth.html#access_token=" + token + "&token_type=Bearer&expires_in=3599") == token, "token from an address");
+    check(ea::accessToken("#access_token=QVQxOjEuMDozLjA6NTk6ZXhhbXBsZQ%3D%3D&expires_in=1") == "QVQxOjEuMDozLjA6NTk6ZXhhbXBsZQ==", "percent-encoded token");
+    check(ea::accessToken("https://example.invalid/?my_access_token=" + token).empty() && ea::accessToken("access_token=").empty(), "only the access_token field");
+    check(ea::signedOut(R"({"error_code":"login_required","error":"true","error_number":"102100"})") &&
+          ea::signedOut("https://www.ea.com/static-pages/auth.html#error_code=login_required&error=login_required&error_number=102100") &&
+          !ea::signedOut(R"({"access_token":")" + token + R"("})"), "login_required in every form");
     FakeEa fake;
     const auto post = [&](const std::wstring& url, const std::wstring& header, const std::string& body) { return fake(url, header, body); };
     check(ea::importLibrary(R"({"error":"login_required"})", post).failure == ea::Failure::signed_out && fake.bodies.empty(), "signed out: no request");

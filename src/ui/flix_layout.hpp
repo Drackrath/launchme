@@ -54,6 +54,13 @@ inline size_t visibleCount(bool landscape, float width, float scale = 1) {
 inline float tileLeft(bool landscape, size_t column, size_t first, float scale = 1) {
     return left + (static_cast<float>(column) - static_cast<float>(first)) * pitch(landscape, scale);
 }
+// Resting on a game of a poster row unfolds its tile sideways into a wide card (its background,
+// logo and facts) after `unfold_rest` seconds without input; the tiles after it make room.
+constexpr float unfold_rest = 3.0f;
+constexpr float unfold_aspect = 16.0f / 9.0f;
+constexpr float unfold_image = 0.60f; // The picture's share of the unfolded card; the facts below it.
+inline float unfoldWidth(float scale = 1) { return tileHeight(false, scale) * unfold_aspect; }
+inline float unfoldExtra(float scale = 1) { return unfoldWidth(scale) - tileWidth(false, scale); }
 // First visible column after focusing `column`: the row scrolls only when the focus would leave it.
 inline size_t firstVisible(size_t first, size_t column, size_t count, bool landscape, float width, float scale = 1) {
     const size_t visible = visibleCount(landscape, width, scale);

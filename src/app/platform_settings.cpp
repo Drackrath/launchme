@@ -87,7 +87,7 @@ void Launcher::pcSettingsRows() {
         add({Id::pc_connect, Control::action, tr(L"Konto"), account(source), ea_import_.busy ? tr(L"Importowanie…") :
             ea_import_.awaiting ? tr(L"Anuluj") : ea_import_.snapshot ? tr(L"Zmień konto") : tr(L"Połącz")});
         if (ea_import_.awaiting) add({Id::ea_callback, Control::secret, tr(L"Dane logowania"),
-            tr(L"Po zalogowaniu skopiuj całą stronę z access_token i wklej tutaj."), tr(L"Wklej odpowiedź")});
+            tr(L"Zaloguj się na ea.com, odśwież kartę z access_token, skopiuj całą stronę i wklej tutaj."), tr(L"Wklej odpowiedź")});
         add({ea_import_.snapshot ? Id::ea_refresh : Id::pc_refresh, Control::action, tr(L"Biblioteka"),
             ea_import_.snapshot ? syncedAt(ea_import_.snapshot->synced_at) : library(source), tr(L"Odśwież")});
         if (ea_import_.snapshot) add({Id::ea_remove, Control::action, tr(L"Zapisana biblioteka"), tr(L"Usuń zapisaną bibliotekę konta."), tr(L"Usuń")});

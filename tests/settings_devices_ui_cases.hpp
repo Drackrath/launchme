@@ -3,7 +3,7 @@
 // Nothing reaches Windows: FakeDevices only records the commands.
 int LauncherUiTest::settingsDevices(HWND window) {
     using namespace settings_ui;
-    Launcher app; app.hwnd_ = window; app.execute_ = fakeExecute;
+    Launcher app; app.hwnd_ = window; app.execute_ = fakeExecute; app.settings_.accept_action = AppSettings::AcceptAction::launch; // These cases pick cards to launch them.
     if (!app.renderer_.initialize(window)) return 3200;
     auto fake = std::make_unique<FakeDevices>(); auto* backend = fake.get();
     backend->data.audio[0] = {0.42f, true, false, L"out1"};

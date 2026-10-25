@@ -117,7 +117,9 @@ void Launcher::applyCustomGames() {
 void Launcher::forgetCustomArtwork(const Game& game, bool selections) {
     removeGameArtwork(game, coverCacheDirectory(), selections);
     art_.erase(gameKey(game));
-    for (const auto kind : {CoverMessage::Kind::cover, CoverMessage::Kind::logo, CoverMessage::Kind::hero}) invalidateArtwork(game, kind);
+    // Every kind the folder held, the posters of the desktop grid and the poster layouts included.
+    for (const auto kind : {CoverMessage::Kind::cover, CoverMessage::Kind::logo, CoverMessage::Kind::hero,
+                            CoverMessage::Kind::poster, CoverMessage::Kind::landscape}) invalidateArtwork(game, kind);
 }
 
 // --- Editor -----------------------------------------------------------------

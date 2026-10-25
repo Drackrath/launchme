@@ -72,12 +72,14 @@ void Launcher::applyDrmFree(const std::vector<std::string>& artwork_reset) {
         const auto found = std::find_if(drm_library_.begin(), drm_library_.end(), [&](const Game& item) { return gameKey(item) == key; });
         return found == drm_library_.end() ? nullptr : &*found;
     };
-    // The worker removed automatic artwork matched by the folder title: request it again.
+    // The worker removed automatic artwork matched by the folder title (every kind, the desktop
+    // grid's posters too): request it again.
     for (const auto& key : artwork_reset) {
         art_.erase(key);
         const auto found = std::find_if(drm_library_.begin(), drm_library_.end(), [&](const Game& item) { return gameKey(item) == key; });
         if (found != drm_library_.end())
-            for (const auto kind : {CoverMessage::Kind::cover, CoverMessage::Kind::logo, CoverMessage::Kind::hero}) invalidateArtwork(*found, kind);
+            for (const auto kind : {CoverMessage::Kind::cover, CoverMessage::Kind::logo, CoverMessage::Kind::hero,
+                                    CoverMessage::Kind::poster, CoverMessage::Kind::landscape}) invalidateArtwork(*found, kind);
     }
     const auto selected_key = cards_.empty() ? std::string{} : library_view::selectionKey(cards_[selected_].game);
     const auto category_id = categories_.empty() ? std::string{} : categories_[category_].id;

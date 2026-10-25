@@ -74,6 +74,9 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpara
     // and mouse messages never reach the screen beneath.
     if (app && app->screensaverInput(message, wparam, lparam)) return 0;
     if (app && app->launchAnimationActive()) {
+        // Back hides the starting game's picture; every other key and click waits for its end.
+        if ((message == WM_KEYDOWN && (wparam == VK_ESCAPE || wparam == VK_BACK) && !(lparam & (1LL << 30))) ||
+            (message == WM_XBUTTONUP && GET_XBUTTON_WPARAM(wparam) == XBUTTON1)) app->dismissLaunchAnimation();
         if ((message >= WM_KEYFIRST && message <= WM_KEYLAST) ||
             (message >= WM_MOUSEFIRST && message <= WM_MOUSELAST)) return 0;
         if (message == WM_SETCURSOR && LOWORD(lparam) == HTCLIENT) { SetCursor(nullptr); return TRUE; }

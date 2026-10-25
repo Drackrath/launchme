@@ -1,5 +1,5 @@
-// EA and Battle.net libraries copied from the store's website: the browser shows a page
-// (EA: a sign-in JSON with a short-lived token; Battle.net: the account's game list), the
+// EA and Battle.net libraries copied from the store's website: after signing in, the browser shows a
+// page (EA: a JSON with a short-lived token; Battle.net: the account's game list), the
 // user pastes it into Settings, a worker turns it into a saved list of owned games
 // (store/web_import.hpp) and the PC scan merges that list. Refreshing = pasting again.
 #include "launcher.hpp"
@@ -20,8 +20,11 @@ const Launcher::WebImportState& Launcher::webImport(GameSource source) const { r
 void Launcher::startWebImport(GameSource source) {
     auto& state = webImport(source);
     if (state.busy) return;
-    const bool opened = source == GameSource::ea ? execute_(hwnd_, {ea::login_url, {}, {}, ActionKind::open_client}) > 32 :
-        execute_(hwnd_, {battlenet_sign_in, {}, {}, ActionKind::open_client}) > 32 && execute_(hwnd_, {battlenet_games, {}, {}, ActionKind::open_client}) > 32;
+    // Both stores: the sign-in tab, then the page to copy (EA: its token, issued silently for the
+    // ea.com session; reloading it after signing in shows the token).
+    const auto* sign_in = source == GameSource::ea ? ea::login_url : battlenet_sign_in;
+    const auto* page = source == GameSource::ea ? ea::token_url : battlenet_games;
+    const bool opened = execute_(hwnd_, {sign_in, {}, {}, ActionKind::open_client}) > 32 && execute_(hwnd_, {page, {}, {}, ActionKind::open_client}) > 32;
     if (!opened) {
         showNotification(NotificationKind::error, sourceName(source), tr(L"Nie można otworzyć przeglądarki."));
         return;

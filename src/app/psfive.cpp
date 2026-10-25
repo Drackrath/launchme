@@ -122,9 +122,16 @@ bool Launcher::psfiveAccept() {
     if (psfiveActions()) { psfiveActivate(); return true; }
     // The library, "Wszystkie" and store/console tiles open at once (launch()).
     if (!psfiveButtons()) return false;
+    // A game: its details (the default game action), else down to "Graj" / "…" (Down reaches them too).
+    if (psfiveOpensDetails()) { openDetails(cards_[selected_].game); return true; }
     psfiveFocusAction(0);
     audio_.navigate();
     return true;
+}
+
+bool Launcher::psfiveOpensDetails() const {
+    return settings_.accept_action == AppSettings::AcceptAction::details && selected_ < cards_.size() &&
+           isGame(cards_[selected_].game) && cards_[selected_].game.kind != GameKind::catalog;
 }
 
 void Launcher::psfiveActivate() {
@@ -198,8 +205,9 @@ void Launcher::psfiveClickCard(size_t index, bool double_click) {
         return;
     }
     // A game: the first click focuses it, a click on the focused tile goes down to "Graj" and a
-    // double click presses it.
+    // double click opens it the default game action's way (its details, or "Graj" pressed).
     if (moved || !psfiveButtons()) return;
+    if (double_click && psfiveOpensDetails()) { psfiveFocusAction(-1); openDetails(game); return; }
     psfive_action_ = 0;
     if (double_click) psfiveActivate();
     else { audio_.navigate(); InvalidateRect(hwnd_, nullptr, FALSE); }

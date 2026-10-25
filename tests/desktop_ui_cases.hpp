@@ -175,6 +175,48 @@ int LauncherUiTest::desktop(HWND window) {
         if (app.deferPaint()) return 7645; // No frames run (a modal loop): paint at once.
     }
 
+    // Zmień grafikę from the grid opens on the art the grid shows (Plakat, not the square Okładka
+    // of Tryb TV): the picked poster is the card's on return, and Ponów grafiki asks for posters too.
+    {
+        using Kind = CoverMessage::Kind;
+        app.desktopFocus(1);
+        const auto game = app.cards_[1].game;
+        const auto key = gameKey(game);
+        app.openArtworkBrowser(game);
+        if (!app.artworkOpen() || app.artwork_state_.kind() != ArtworkKind::poster) return 7646;
+        const auto picked = pngFixture(200, 40, 60);
+        constexpr uint32_t picked_id = 0x80000123u;
+        if (!cacheArtworkVariant(game, ArtworkKind::poster, picked_id, picked, coverCacheDirectory())) return 7647;
+        app.artwork_state_.applying = true; // A file from disk, as "Z dysku…" applies it.
+        auto applied = std::make_unique<ArtworkBrowserMessage>();
+        applied->generation = app.artwork_jobs_->generation.load();
+        applied->type = ArtworkBrowserMessage::Type::local; applied->kind = ArtworkKind::poster;
+        applied->asset_id = picked_id; applied->bytes = picked;
+        app.onArtworkBrowser(std::move(applied));
+        if (const auto* art = app.art_.peek(key); !art || !art->poster || *art->poster != picked ||
+            selectedArtworkId(game, ArtworkKind::poster, coverCacheDirectory()) != picked_id) return 7648;
+        app.closeArtworkBrowser();
+        if (!app.desktopActive() || app.selected_ >= app.cards_.size() || gameKey(app.cards_[app.selected_].game) != key ||
+            !app.renderer_.hasPoster(app.selected_)) return 7649;
+        const auto poster_request = artRequestKey(game, Kind::poster);
+        const auto before = app.art_revisions_[poster_request];
+        app.retryGameArtwork(game, false);
+        if (app.art_revisions_[poster_request] == before) return 7650;
+        settle();
+    }
+
+    // Enter on a card picks it the default game action's way: its details (Szczegóły), not a launch.
+    {
+        app.desktopFocus(0); app.desktop_zone_ = 1;
+        const auto picked = app.cards_[0].game.app_id;
+        app.desktopKey(VK_RETURN, false);
+        if (app.screen_ != ScreenMode::details || app.pending_launch_ || app.detail_games_.empty() ||
+            app.detail_games_.front().app_id != picked) return 7651;
+        app.desktopPageActivate({SheetHit::Kind::close}, false);
+        if (app.screen_ != ScreenMode::shelves || !app.desktopActive()) return 7652;
+        settle();
+    }
+
     // Ustawienia opens as a desktop dialog: its rows, a switch flipped from its row, Esc closes it.
     app.openSettings(); settle();
     if (!app.desktopSheet() || app.screen_ != ScreenMode::settings) return 7616;

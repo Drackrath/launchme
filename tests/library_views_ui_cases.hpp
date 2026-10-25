@@ -11,6 +11,7 @@
 int LauncherUiTest::libraryViews(HWND window) {
     Launcher app;
     app.settings_.launch_animation = false; // Cancelled synthetic launches must not leave the cosmetic overlay running.
+    app.settings_.accept_action = AppSettings::AcceptAction::launch; // Picking a card launches here; Szczegóły is checked on its own below.
     app.hwnd_ = window; app.execute_ = fakeExecute;
     if (!app.renderer_.initialize(window)) return 900;
     const auto capture = [&](const wchar_t* name) {
@@ -1340,6 +1341,26 @@ int LauncherUiTest::flix(HWND window) {
     if (std::abs(app.cards_[app.selected_].y - (flix_layout::focus_top + flix_layout::header)) > 1 ||
         std::abs(app.cards_[app.selected_].aspect - flix_layout::poster_aspect) > 0.001f) return 959;
     if (!capture(L"flix-rows.png")) return 960;
+    // Resting a few seconds on a poster unfolds it into the wide card (background, logo, facts); the
+    // tiles after it make room, and moving on folds it back.
+    {
+        const auto watched = app.foreground_;
+        app.foreground_ = [](HWND) { return true; };
+        const auto at = app.selected_;
+        deliver(app.cards_[at].game, CoverMessage::Kind::hero, pngFixture(150, 192, 62));
+        const float poster_w = app.cards_[at].width(), next_x = app.cards_[at + 1].x;
+        const auto rested = std::chrono::steady_clock::now() - std::chrono::seconds(4);
+        app.tick(); // The window comes to the front: its idle period starts over (screensaver.cpp).
+        app.flix_focus_at_ = rested; app.last_input_ = rested;
+        settle();
+        if (app.flix_unfold_index_ != at || app.flix_unfold_ < 0.99f || app.cards_[at].width() < poster_w * 2 ||
+            app.cards_[at + 1].x < next_x + flix_layout::unfoldExtra() * 0.9f) return 997;
+        if (!capture(L"flix-unfolded.png")) return 998;
+        app.navigate(1); settle();
+        if (app.flix_unfold_ > 0.001f || app.flix_unfold_index_ != SIZE_MAX || std::abs(app.cards_[at].width() - poster_w) > 1) return 999;
+        app.navigate(-1); settle();
+        app.foreground_ = watched;
+    }
     // The game menu opens beside the focused poster.
     app.openContextMenu(); app.menu_progress_ = 1;
     if (!app.menu_open_ || !app.menuBeside() || !capture(L"flix-menu.png")) return 961;

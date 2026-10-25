@@ -26,14 +26,16 @@ int LauncherUiTest::webImports(HWND window) {
     };
     app.openSettings(); app.settings_state_.selectCategory(static_cast<int>(settings_ui::Category::library)); app.buildSettingsRows();
 
-    // EA: Połącz opens the sign-in page and focuses the paste field.
+    // EA: Połącz opens ea.com's sign-in, then the silent token page, and focuses the paste field.
     auto ea_row = find(settings_ui::Id::pc_platform, GameSource::ea);
     if (ea_row == app.settings_rows_.end() || ea_row->value != L"Opcje") return 1901;
     select(ea_row); app.settings_state_.editing = true;
     app.settingsActivate();
     if (app.settings_state_.platform() != GameSource::ea || app.settings_rows_[0].id != settings_ui::Id::pc_connect) return 1916;
+    const auto opened_before = dispatched.size();
     app.settingsActivate(); // Connect within EA, not from the store overview.
-    if (dispatched.empty() || dispatched.back() != ea::login_url || !app.ea_import_.awaiting || !app.editingSecret() ||
+    if (dispatched.size() != opened_before + 2 || dispatched[dispatched.size() - 2] != ea::login_url || dispatched.back() != ea::token_url ||
+        !app.ea_import_.awaiting || !app.editingSecret() ||
         app.settings_rows_[app.settings_state_.row()].id != settings_ui::Id::ea_callback) return 1902;
     if (!capture(L"ea-import-paste.png")) return 1903;
     // The worker's result: a saved list with one owned game.

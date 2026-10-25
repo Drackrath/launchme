@@ -69,15 +69,20 @@ void Renderer::drawFlix() {
             textLine(cards[selected_].game.name, offset + 16, header_y + 22, width - offset - 16 - flix_layout::right_margin,
                      category_font_.Get(), gray(0.98f, alpha));
         }
+        // The unfolded tile is drawn over its row (a folding one too, after the focus moved on).
+        const size_t unfolded = context_->flix_unfold > 0.0005f ? context_->flix_unfold_index : static_cast<size_t>(-1);
+        const bool in_row = unfolded >= row.begin && unfolded < row.begin + row.count;
         for (size_t i = row.begin; i < row.begin + row.count && i < cards.size(); ++i)
-            if (i != selected_) drawRectangularCard(cards[i], i, alpha);
+            if (i != selected_ && i != unfolded) drawRectangularCard(cards[i], i, alpha);
+        if (in_row && unfolded != selected_ && unfolded < cards.size()) drawFlixUnfolded(cards[unfolded], unfolded, alpha);
         if (focused_row && selected_ >= row.begin && selected_ < row.begin + row.count) {
             const float focus = smooth(context_->launch_progress);
             if (focus > 0.001f) {
                 brush(D2D1::ColorF(0.008f, 0.012f, 0.016f, focus * 0.82f));
                 target_->FillRectangle(D2D1::RectF(0, 0, width, height), solid_.Get());
             }
-            drawRectangularCard(cards[selected_], selected_, alpha);
+            if (selected_ == unfolded) drawFlixUnfolded(cards[selected_], selected_, alpha);
+            else drawRectangularCard(cards[selected_], selected_, alpha);
         }
     }
     // More rows below the resting first one: a small chevron under it.
@@ -236,4 +241,116 @@ void Renderer::drawRectangularCard(const GameCard& card, size_t index, float alp
     } else if (emphasis > 0.004f && isGame(game) && !game.installed && game.kind != GameKind::catalog && !cinematic) // Library tiles: the dimming says it.
         text(localFileGame(game.source) ? tr(L"BRAK PLIKU") : tr(L"DO INSTALACJI"), x + 8, y + tile_h - 36, tile_w - 16, 28,
              button_font_.Get(), gray(0.95f, emphasis * transparency));
+}
+
+// The unfolded tile: over its upper part the game's background with its logo (its title without
+// one), below on a dark panel its primary action, facts and genres. While it opens, the poster
+// gives way to the background and the panel rises from the bottom edge.
+void Renderer::drawFlixUnfolded(const GameCard& card, size_t index, float alpha) {
+    const float w = card.width(), h = card.size;
+    if (card.opacity < 0.01f || card.x > viewport_.width + 20 || card.x + w < -20 || card.y > viewport_.height + 20 || card.y + h < -20) return;
+    const float open = smooth(context_->flix_unfold), transparency = card.opacity * alpha;
+    const float x = card.x, y = card.y;
+    const auto frame = D2D1::RectF(x, y, x + w, y + h);
+    const auto shape = tileShape(frame, tile_shape_);
+    if (!shape) return;
+    const bool focused = index == selected_;
+    const float emphasis = focused ? card.emphasis : 0.0f;
+    for (int layer = 3; layer >= 1; --layer) { // A deeper shadow than the posters': it stands above them.
+        const float spread = layer * (4.0f + 3.0f * open);
+        brush(D2D1::ColorF(0, 0, 0, (0.06f + 0.04f * open) * transparency));
+        if (const auto shadow = tileShape(D2D1::RectF(x - spread, y + 10 - spread, x + w + spread, y + h + 10 + spread), tile_shape_))
+            target_->FillGeometry(shadow.Get(), solid_.Get());
+    }
+    brush(D2D1::ColorF(0.075f, 0.08f, 0.09f, transparency));
+    target_->FillGeometry(shape.Get(), solid_.Get());
+    Cover* poster = index < posters_.size() && posters_[index].bitmap ? &posters_[index] : nullptr;
+    Cover* cover = index < covers_.size() && covers_[index].bitmap ? &covers_[index] : nullptr;
+    Cover* hero = index < heroes_.size() && heroes_[index].bitmap ? &heroes_[index] : nullptr;
+    Cover* logo = index < logos_.size() && logos_[index].bitmap ? &logos_[index] : nullptr;
+    const float image_h = h * (1.0f - (1.0f - flix_layout::unfold_image) * open);
+    const auto image = D2D1::RectF(x, y, x + w, y + image_h);
+    target_->PushLayer(D2D1::LayerParameters(D2D1::InfiniteRect(), shape.Get()), nullptr);
+    // The poster (or its square stand-in) first, the background over it as the card opens.
+    Cover* still = poster ? poster : cover;
+    const float background = hero ? open * reveal(*hero) : 0.0f;
+    if (still && background < 0.999f) fillImage(*still, image, 0, transparency * reveal(*still));
+    if (hero) fillImage(*hero, image, 0, transparency * background);
+    // The picture's lower edge darkens into the panel, under the logo.
+    ComPtr<ID2D1GradientStopCollection> stops;
+    ComPtr<ID2D1LinearGradientBrush> shade;
+    const D2D1_GRADIENT_STOP shade_stops[] = {{0, D2D1::ColorF(0.075f, 0.08f, 0.09f, 0)}, {1, D2D1::ColorF(0.075f, 0.08f, 0.09f, 0.92f * transparency * open)}};
+    if (SUCCEEDED(target_->CreateGradientStopCollection(shade_stops, 2, stops.GetAddressOf())) &&
+        SUCCEEDED(target_->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties(D2D1::Point2F(0, y + image_h * 0.45f), D2D1::Point2F(0, y + image_h)),
+                                                    stops.Get(), shade.GetAddressOf())))
+        target_->FillRectangle(D2D1::RectF(x, y + image_h * 0.45f, x + w, y + image_h + 1), shade.Get());
+    // The logo (or title) bottom-left on the picture, appearing with the card.
+    const float content = transparency * smooth((open - 0.35f) / 0.65f);
+    const float pad = 18;
+    if (content > 0.01f) {
+        if (logo) {
+            const auto pixels = logo->bitmap->GetPixelSize();
+            const auto source = logo->has_ink_bounds ? logo->ink_bounds : D2D1::RectF(0, 0, static_cast<float>(pixels.width), static_cast<float>(pixels.height));
+            const float ink_w = source.right - source.left, ink_h = source.bottom - source.top;
+            if (ink_w > 0 && ink_h > 0) {
+                const float factor = std::min((w - 2 * pad) * 0.62f / ink_w, image_h * 0.42f / ink_h);
+                const float bottom = y + image_h - 12;
+                target_->DrawBitmap(logo->bitmap.Get(), D2D1::RectF(x + pad, bottom - ink_h * factor, x + pad + ink_w * factor, bottom),
+                                    content * reveal(*logo), D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, &source);
+            }
+        } else textLine(card.game.name, x + pad, y + image_h - 30, w - 2 * pad, category_font_.Get(), gray(0.97f, content), DWRITE_TEXT_ALIGNMENT_LEADING);
+    }
+    target_->PopLayer();
+
+    // The panel: primary action, facts, genres.
+    if (content > 0.01f) {
+        const float row1 = y + image_h + 26, row2 = row1 + 34, row3 = row2 + 26;
+        const float r = 15, cx = x + pad + r;
+        brush(gray(0.97f, content));
+        target_->FillEllipse(D2D1::Ellipse(D2D1::Point2F(cx, row1), r, r), solid_.Get());
+        ComPtr<ID2D1PathGeometry> glyph;
+        ComPtr<ID2D1GeometrySink> sink;
+        if (SUCCEEDED(factory_->CreatePathGeometry(glyph.GetAddressOf())) && SUCCEEDED(glyph->Open(sink.GetAddressOf()))) {
+            if (context_->flix_unfold_play) { // ▶
+                sink->BeginFigure(D2D1::Point2F(cx - 4.5f, row1 - 7), D2D1_FIGURE_BEGIN_FILLED);
+                sink->AddLine(D2D1::Point2F(cx + 7.5f, row1)); sink->AddLine(D2D1::Point2F(cx - 4.5f, row1 + 7));
+            } else { // ↓: install
+                sink->BeginFigure(D2D1::Point2F(cx - 7, row1 + 0.5f), D2D1_FIGURE_BEGIN_FILLED);
+                sink->AddLine(D2D1::Point2F(cx + 7, row1 + 0.5f)); sink->AddLine(D2D1::Point2F(cx, row1 + 8));
+            }
+            sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+            if (SUCCEEDED(sink->Close())) {
+                brush(D2D1::ColorF(0.05f, 0.055f, 0.06f, content));
+                target_->FillGeometry(glyph.Get(), solid_.Get());
+                if (!context_->flix_unfold_play) line(cx, row1 - 8, cx, row1 + 2, D2D1::ColorF(0.05f, 0.055f, 0.06f, content), 3.0f);
+            }
+        }
+        textLine(context_->flix_unfold_action, cx + r + 12, row1, w * 0.5f, button_font_.Get(), gray(0.95f, content), DWRITE_TEXT_ALIGNMENT_LEADING);
+        // Right: a ring with a chevron, the way to its details.
+        const float dx = x + w - pad - r;
+        brush(gray(1, 0.55f * content));
+        target_->DrawEllipse(D2D1::Ellipse(D2D1::Point2F(dx, row1), r, r), solid_.Get(), 1.6f);
+        line(dx - 6, row1 - 2.5f, dx, row1 + 3.5f, gray(0.95f, content), 2.0f);
+        line(dx, row1 + 3.5f, dx + 6, row1 - 2.5f, gray(0.95f, content), 2.0f);
+        // Rating (in green), then year, playtime and platform.
+        float fx = x + pad;
+        if (!context_->flix_unfold_rating.empty()) {
+            textLine(context_->flix_unfold_rating, fx, row2, w - 2 * pad, settings_body_font_.Get(), D2D1::ColorF(0.33f, 0.80f, 0.45f, content), DWRITE_TEXT_ALIGNMENT_LEADING);
+            fx += textAdvance(context_->flix_unfold_rating, settings_body_font_.Get()) + 14;
+        }
+        std::wstring facts;
+        for (const auto& fact : context_->flix_unfold_facts) facts += (facts.empty() ? L"" : L"   ") + fact;
+        if (!facts.empty() && fx < x + w - pad) textLine(facts, fx, row2, x + w - pad - fx, settings_body_font_.Get(), gray(0.86f, content), DWRITE_TEXT_ALIGNMENT_LEADING);
+        if (!context_->flix_unfold_genres.empty())
+            textLine(context_->flix_unfold_genres, x + pad, row3, w - 2 * pad, settings_body_font_.Get(), gray(0.66f, content), DWRITE_TEXT_ALIGNMENT_LEADING);
+    }
+
+    // The focus outline in the accent, as on the other tiles; a plain edge otherwise.
+    if (emphasis > 0.004f && !context_->focus_ring) {
+        brush(uiAccent(emphasis * transparency * 0.9f));
+        target_->DrawGeometry(shape.Get(), solid_.Get(), 3.0f);
+    } else {
+        brush(gray(1, 0.16f * transparency));
+        target_->DrawGeometry(shape.Get(), solid_.Get(), 1.0f);
+    }
 }

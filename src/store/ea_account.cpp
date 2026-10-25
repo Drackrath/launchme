@@ -77,20 +77,54 @@ std::optional<json::Value> call(const Post& post, const std::string& token, cons
 }
 }
 
+namespace {
+// The page's JSON object, also when the browser's own text came along with it ("Pretty-print").
+std::optional<json::Value> pastedJson(std::string_view pasted) {
+    const auto open = pasted.find('{'), close = pasted.rfind('}');
+    if (open == std::string_view::npos || close == std::string_view::npos || close < open) return {};
+    auto root = json::parse(pasted.substr(open, close - open + 1));
+    if (!root || root->type != json::Value::Type::object) return {};
+    return root;
+}
+int hexDigit(char ch) {
+    return ch >= '0' && ch <= '9' ? ch - '0' : ch >= 'a' && ch <= 'f' ? ch - 'a' + 10 : ch >= 'A' && ch <= 'F' ? ch - 'A' + 10 : -1;
+}
+// `name=value` in an address's query or fragment (access_token=…&token_type=…), decoded.
+std::string addressValue(std::string_view pasted, std::string_view name) {
+    for (size_t at = pasted.find(name); at != std::string_view::npos; at = pasted.find(name, at + 1)) {
+        const size_t end = at + name.size();
+        if ((at && pasted[at - 1] != '#' && pasted[at - 1] != '?' && pasted[at - 1] != '&') ||
+            end >= pasted.size() || pasted[end] != '=') continue; // Part of another name.
+        auto raw = pasted.substr(end + 1);
+        raw = raw.substr(0, raw.find_first_of("&#\"'"));
+        std::string value;
+        for (size_t i = 0; i < raw.size(); ++i) {
+            if (raw[i] == '%' && i + 2 < raw.size() && hexDigit(raw[i + 1]) >= 0 && hexDigit(raw[i + 2]) >= 0) {
+                value += static_cast<char>(hexDigit(raw[i + 1]) * 16 + hexDigit(raw[i + 2])); i += 2;
+            } else value += raw[i];
+        }
+        return value;
+    }
+    return {};
+}
+}
+
 std::string accessToken(std::string_view pasted) {
     pasted = trim(pasted);
-    if (pasted.starts_with('{')) {
-        const auto root = json::parse(pasted);
-        const auto token = root ? field(&*root, "access_token") : std::string{};
+    if (const auto root = pastedJson(pasted)) {
+        const auto token = field(&*root, "access_token");
         return tokenText(token) ? token : std::string{};
     }
+    if (const auto token = addressValue(pasted, "access_token"); !token.empty()) return tokenText(token) ? token : std::string{};
     return tokenText(pasted) ? std::string(pasted) : std::string{};
 }
 
 bool signedOut(std::string_view pasted) {
     pasted = trim(pasted);
-    const auto root = pasted.starts_with('{') ? json::parse(pasted) : std::nullopt;
-    return root && field(&*root, "error") == "login_required";
+    // {"error_code":"login_required","error":"login_required","error_number":"102100"}, or the same
+    // fields in an address (#error_code=login_required&…).
+    if (const auto root = pastedJson(pasted)) return field(&*root, "error") == "login_required" || field(&*root, "error_code") == "login_required";
+    return addressValue(pasted, "error") == "login_required" || addressValue(pasted, "error_code") == "login_required";
 }
 
 Import importLibrary(std::string_view pasted, const Post& post) {
@@ -170,9 +204,9 @@ Import importLibrary(std::string_view pasted, const Post& post) {
 
 std::wstring failureText(Failure failure) {
     switch (failure) {
-    case Failure::input: return tr(L"To nie jest odpowiedź EA z tokenem. Skopiuj całą stronę po zalogowaniu.");
-    case Failure::signed_out: return tr(L"EA: najpierw zaloguj się w przeglądarce, potem skopiuj stronę ponownie.");
-    case Failure::expired: return tr(L"Token EA wygasł. Otwórz stronę ponownie i wklej nową odpowiedź.");
+    case Failure::input: return tr(L"To nie jest odpowiedź EA z tokenem. Skopiuj całą stronę z access_token po zalogowaniu.");
+    case Failure::signed_out: return tr(L"EA: najpierw zaloguj się na ea.com, potem odśwież kartę z tokenem i skopiuj ją ponownie.");
+    case Failure::expired: return tr(L"Token EA wygasł. Odśwież kartę z tokenem i wklej nową odpowiedź.");
     case Failure::network: return tr(L"Nie można połączyć się z EA. Sprawdź połączenie z siecią.");
     case Failure::response: return tr(L"EA zwróciło nieoczekiwaną odpowiedź.");
     default: return {};

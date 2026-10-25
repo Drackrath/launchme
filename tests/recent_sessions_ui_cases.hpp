@@ -1,7 +1,7 @@
 // Recent: Steam updates are no new games, games in play lead the shelf and take the focus when
 // started, and a background bound again to the same picture continues instead of doubling.
 int LauncherUiTest::recentSessions(HWND window) {
-    Launcher app; app.hwnd_ = window; app.execute_ = fakeExecute;
+    Launcher app; app.hwnd_ = window; app.execute_ = fakeExecute; app.settings_.accept_action = AppSettings::AcceptAction::launch; // These cases pick cards to launch them.
     app.settings_.launch_animation = false; app.settings_.quick_resume = true;
     app.overlay_backend_.foreground = [window] { return window; };
     app.quick_resume_.focus = [](const auto&) { return true; };

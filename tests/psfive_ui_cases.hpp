@@ -104,9 +104,18 @@ int LauncherUiTest::psfive(HWND window) {
         app.cardHit(1, app.cards_[1].x + app.cards_[1].size - 3, app.cards_[1].y + 10) ||
         std::abs(app.cards_[2].x - play_rest.left) > 1) return 4908;
     if (!capture(L"psfive-scrolled.png")) return 4909;
-    // Enter/A on a game goes down to "Graj" (even with "Szczegóły" as the default action); no launch.
+    // Enter/A on a game opens its details with "Szczegóły" as the default action (no launch); with
+    // "Uruchom / instaluj" it goes down to "Graj".
     app.settings_.accept_action = AppSettings::AcceptAction::details;
+    const auto picked_game = app.cards_[2].game.app_id;
     app.accept();
+    if (app.screen_ != ScreenMode::details || app.pending_launch_ || app.detail_games_.empty() ||
+        app.detail_games_.front().app_id != picked_game) return 4922;
+    app.back(); settle();
+    if (app.screen_ != ScreenMode::shelves || app.selected_ != 2) return 4923;
+    app.settings_.accept_action = AppSettings::AcceptAction::launch;
+    app.accept();
+    app.settings_.accept_action = AppSettings::AcceptAction::details;
     if (app.psfive_action_ != 0 || app.pending_launch_ || app.screen_ != ScreenMode::shelves) return 4910;
     settle();
     if (app.cards_[2].emphasis > 0.01f || std::abs(app.cards_[2].size - layout::focus_tile) > 1 || !app.psfive_action_glide_.valid) return 4911;

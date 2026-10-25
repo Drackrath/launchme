@@ -124,12 +124,22 @@ int main() {
         auto chosen = config; chosen.windowed = windowed;
         if (!saveAppSettings(chosen, file) || loadAppSettings(file).windowed != windowed) return 61;
     }
-    // Older settings files keep the default-on launch effect; explicit opt-out persists.
+    // The launch picture is always on: its old switch (and the older cd_loading key) is ignored and
+    // never written again.
     if (!AppSettings{}.launch_animation || !parseAppSettings("").launch_animation ||
-        !parseAppSettings("launch_animation=no\n").launch_animation || parseAppSettings(" cd_loading = 0 \r\n").launch_animation) return 44;
-    for (const bool enabled : {false, true}) {
-        auto chosen = config; chosen.launch_animation = enabled;
-        if (!saveAppSettings(chosen, file) || loadAppSettings(file).launch_animation != enabled) return 45;
+        !parseAppSettings("launch_animation=0\n").launch_animation || !parseAppSettings(" cd_loading = 0 \r\n").launch_animation) return 44;
+    {
+        auto chosen = config; chosen.launch_animation = false;
+        if (!saveAppSettings(chosen, file) || !loadAppSettings(file).launch_animation) return 45;
+    }
+    // The default game action is Szczegóły; the earlier key (it saved "launch" for everyone) is
+    // ignored, a choice made since is kept.
+    if (AppSettings{}.accept_action != AppSettings::AcceptAction::details ||
+        parseAppSettings("accept_action=launch\n").accept_action != AppSettings::AcceptAction::details ||
+        parseAppSettings("game_action=launch\n").accept_action != AppSettings::AcceptAction::launch) return 146;
+    for (const auto action : {AppSettings::AcceptAction::launch, AppSettings::AcceptAction::details}) {
+        auto chosen = config; chosen.accept_action = action;
+        if (!saveAppSettings(chosen, file) || loadAppSettings(file).accept_action != action) return 147;
     }
     // Silent Steam launch is opt-in; only strict 0/1 values are read.
     if (AppSettings{}.steam_silent_launch || parseAppSettings("").steam_silent_launch ||

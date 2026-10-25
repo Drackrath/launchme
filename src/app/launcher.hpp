@@ -1126,6 +1126,11 @@ private:
     void startLaunchAnimation(const Game& game);
     void stopLaunchAnimation();
     void tickLaunchAnimation(std::chrono::steady_clock::time_point now);
+    void endLaunchAnimation(); // Its time is up or Back hid it: the home with the started game in front.
+public:
+    // Back while it plays (main.cpp: Esc/Backspace, the pad: B); false while too young to dismiss.
+    bool dismissLaunchAnimation(std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now());
+private:
     void loadFriends();
     void startDashboardPoll();
     void stopDashboardPoll();
@@ -1400,6 +1405,10 @@ private:
     void flixVertical(int amount, bool edge_menu = true);
     void flixClick(size_t index, bool double_click);
     void flixTarget(size_t index, float& x, float& y, float& size, float& aspect, float& delay) const;
+    // The focused game of a poster row, rested on long enough (flix_layout::unfold_rest) with no
+    // menu, drawer or dialog over the page: its tile unfolds into the wide card.
+    bool flixUnfoldReady(std::chrono::steady_clock::time_point now) const;
+    bool tickFlixUnfold(std::chrono::steady_clock::time_point now, float dt); // true while it moves.
     void flixRequestArt();
     // Binds the card's poster (landscape in the first row) from art_ or requests it;
     // `replace` rebinds when new bytes arrived for an already bound card.
@@ -1452,7 +1461,8 @@ private:
     void psfiveFocusTop(int item);
     void psfiveTopActivate();
     void psfiveTarget(size_t index, float& x, float& y, float& size, float& aspect, float& delay) const;
-    bool psfiveAccept(); // Enter/A: a game tile goes down to its buttons, a button acts.
+    bool psfiveAccept(); // Enter/A: a game tile opens its details (or goes down to its buttons), a button acts.
+    bool psfiveOpensDetails() const; // The focused game opens its details on Enter/A/double click (the default game action).
     void psfiveActivate();
     void psfiveHorizontal(int amount);
     void psfiveVertical(int amount);
@@ -1887,6 +1897,11 @@ private:
     std::vector<FlixRow> flix_rows_;
     std::vector<uint32_t> flix_card_rows_; // Row of every card.
     size_t flix_row_ = 0;
+    // The unfolded tile (flixUnfoldReady): its card and how far it has opened (0..1); a new focus
+    // folds it back first. flix_focus_at_: when the focus last moved, the start of the rest.
+    size_t flix_unfold_index_ = SIZE_MAX;
+    float flix_unfold_ = 0;
+    std::chrono::steady_clock::time_point flix_focus_at_{};
     // Renderer::slotGeneration() right after the last rebuildFlix: unchanged means cards_ and the
     // renderer slots are still that Flix list, so the next rebuild can keep its tiles.
     uint64_t flix_slots_ = ~uint64_t{0};
@@ -2169,6 +2184,7 @@ private:
     void desktopApplyQuery();
     void desktopSearchFocus(bool focus);
     void desktopLaunchSelected();
+    void desktopPickSelected(); // Enter/A/double click on a card: the default game action (details or launch).
     void desktopScrollBy(float amount);
     void desktopSetPoster(float width);
     void desktopToggleMark(size_t index);

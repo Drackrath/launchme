@@ -326,7 +326,6 @@ AppSettings parseAppSettings(std::string_view text) {
             if (result.ec == std::errc{} && result.ptr == value.data() + value.size() && std::isfinite(level))
                 settings.glass = std::clamp(level, 0.0f, 1.0f);
         }
-        else if ((key == "launch_animation" || key == "cd_loading") && (value == "0" || value == "1")) settings.launch_animation = value == "1";
         else if (key == "steam_silent_launch" && (value == "0" || value == "1")) settings.steam_silent_launch = value == "1";
         else if (key == "game_videos" && (value == "0" || value == "1")) settings.game_videos = value == "1";
         else if (key == "video_delay" && (value == "3" || value == "5" || value == "10")) settings.video_delay = value == "3" ? 3 : value == "5" ? 5 : 10;
@@ -339,7 +338,9 @@ AppSettings parseAppSettings(std::string_view text) {
         else if (key == "metro_3d" && (value == "0" || value == "1")) settings.metro_3d = value == "1";
         else if (key == "psfive_clock" && (value == "0" || value == "1")) settings.psfive_clock = value == "1";
         else if (key == "flix_category_all" && (value == "0" || value == "1")) settings.flix_category_all = value == "1";
-        else if (key == "accept_action" && (value == "launch" || value == "details"))
+        // game_action: the earlier key (accept_action) saved its old default for everyone, so the new
+        // default (details) applies once and choices made since are kept under this key.
+        else if (key == "game_action" && (value == "launch" || value == "details"))
             settings.accept_action = value == "details" ? AppSettings::AcceptAction::details : AppSettings::AcceptAction::launch;
         else if (key == "quick_resume" && (value == "0" || value == "1")) settings.quick_resume = value == "1";
         else if (key == "guide_menu" && (value == "0" || value == "1")) settings.guide_menu = value == "1";
@@ -653,7 +654,6 @@ bool saveAppSettings(const AppSettings& settings, const std::filesystem::path& f
     output << "hint_glyphs=" << (settings.hint_glyphs == AppSettings::HintGlyphs::xbox ? "xbox" :
                                  settings.hint_glyphs == AppSettings::HintGlyphs::playstation ? "playstation" :
                                  settings.hint_glyphs == AppSettings::HintGlyphs::nintendo ? "nintendo" : "auto") << '\n';
-    output << "launch_animation=" << settings.launch_animation << '\n';
     output << "steam_silent_launch=" << settings.steam_silent_launch << '\n';
     output << "game_videos=" << settings.game_videos << '\n';
     output << "video_delay=" << settings.video_delay << '\n';
@@ -665,7 +665,7 @@ bool saveAppSettings(const AppSettings& settings, const std::filesystem::path& f
     output << "video_folder=" << text_encoding::utf8Lenient(settings.video_folder.native()) << '\n';
     output << "console_colors=" << settings.console_colors << '\n';
     output << "metro_3d=" << settings.metro_3d << '\n';
-    output << "accept_action=" << (settings.accept_action == AppSettings::AcceptAction::details ? "details" : "launch") << '\n';
+    output << "game_action=" << (settings.accept_action == AppSettings::AcceptAction::details ? "details" : "launch") << '\n';
     output << "hidden_collections=";
     bool first = true;
     std::vector<std::string> hidden(settings.hidden_collections.begin(), settings.hidden_collections.end());

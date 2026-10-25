@@ -586,6 +586,7 @@ private:
     // Flix home (src/ui/flix_renderer.cpp).
     void drawFlix();
     void drawRectangularCard(const GameCard& card, size_t index, float alpha);
+    void drawFlixUnfolded(const GameCard& card, size_t index, float alpha); // Flix's wide card (flix_layout::unfold_rest).
     // Metro home (src/ui/metro_renderer.cpp): tabs over pages of tiles.
     void drawMetro();
     void drawMetroTabs();

@@ -7,6 +7,19 @@ Epic Games, Xbox (PC) and your own programs into one library, with artwork from 
 Native C++20: Win32, Direct2D/DirectWrite/WIC, WinHTTP, XAudio2 and Media Foundation — no HTML UI.
 The interface is available in Polish and English (Settings → System → Language).
 
+![PSfive home layout](docs/screenshots/psfive.jpg)
+
+## Screenshots
+
+| | |
+| --- | --- |
+| ![Desktop window](docs/screenshots/desktop.jpg) **Desktop window** | ![Settings in the desktop window](docs/screenshots/desktop-settings.jpg) **Settings (desktop window)** |
+| ![XMB home layout](docs/screenshots/xmb.jpg) **XMB** | ![Metro home layout](docs/screenshots/metro.jpg) **Metro** |
+| ![Game details](docs/screenshots/game-details.jpg) **Game details** | ![TV mode layouts](docs/screenshots/layouts.jpg) **TV mode layouts** |
+| ![List+ library view](docs/screenshots/list-plus.jpg) **List+ library view** | ![Coverflow library view](docs/screenshots/coverflow.jpg) **Coverflow** |
+| ![Search anywhere](docs/screenshots/search.jpg) **Search** | ![Widgets drawer](docs/screenshots/widgets.jpg) **Widgets drawer** |
+| ![Glance news hub](docs/screenshots/glance.jpg) **Glance** | ![AI companion](docs/screenshots/companion.jpg) **AI companion** |
+
 ## Download
 
 Grab `launchme-<version>-win64.zip` from [Releases](../../releases), unpack it anywhere and run
@@ -37,13 +50,17 @@ Settings → System → Help → **Open folder** (the version row) opens it.
 ## Features
 
 - **Home layouts**: shelves (default), XMB, Flix, Metro, PSfive and snitch, with a PS5-like tile
-  entrance, frosted glass, button colour themes and several focus-outline styles.
+  entrance, frosted glass, button colour themes and several focus-outline styles. In Flix, resting
+  on a game for a few seconds unfolds its poster into a wide card with its background, logo and facts.
+- **Launch screen**: starting a game shows its background, slowly zooming in, with its logo for a few
+  seconds while the game opens (`Esc` / B hides it).
 - **Desktop window mode** with a sidebar, search and a details pane; switch with `F11` or from the power menu.
 - **Library views**: grid (squares, posters or landscape tiles), list, cinematic, detailed, poster,
   coverflow and novelty cartridge/floppy views; sorting, filters, search and remembered positions.
 - **Stores**: local installs of every store above, Steam collections synced with the running client,
   GOG and Epic account libraries (Epic installs through Legendary, no Epic launcher needed),
-  EA and Battle.net libraries imported from their store pages, Ubisoft from the signed-in client.
+  EA and Battle.net libraries imported from their store pages (no EA app needed: sign in on ea.com,
+  paste the token page), Ubisoft from the signed-in client.
 - **Artwork**: SteamGridDB covers, heroes, logos and posters with OCR-assisted cropping and a variant browser.
 - **Details**: Steam metadata, playtime (also for non-Steam games), achievements, Steam and RAWG ratings,
   versions of the same game across stores, uninstall from the game menu.
@@ -62,7 +79,7 @@ Settings → System → Help → **Open folder** (the version row) opens it.
 | Action | Keyboard | Gamepad |
 | --- | --- | --- |
 | Navigate | arrows | D-pad, left stick |
-| Play / select | `Enter`, `Space` | A |
+| Select (a game: its details, or Play — Settings → Library → Default game action) | `Enter`, `Space`, double click | A |
 | Back | `Esc`, `Backspace` | B |
 | Game menu | hold `Enter`, right click | Y, hold A |
 | On-screen keyboard / search | — | X |

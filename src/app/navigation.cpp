@@ -1008,6 +1008,15 @@ void Launcher::startLaunchAnimation(const Game& game) {
     launch_progress_ = 0;
     dismissMenu(); closeQuick(); closeFriends(); closeCategoryMenu();
     cancelEnterHold(); cancelTabHold();
+    // Its background and logo on the focused card (the picture uses them); missing ones are asked for.
+    if (selected_ < cards_.size() && gameKey(cards_[selected_].game) == launch_artwork_key_) {
+        if (const auto* art = art_.find(launch_artwork_key_)) {
+            if (art->hero) renderer_.setHero(selected_, art->hero, art->hero_tone);
+            if (art->logo) renderer_.setLogo(selected_, art->logo);
+        }
+        requestArt(game, CoverMessage::Kind::hero);
+        requestArt(game, CoverMessage::Kind::logo);
+    }
     POINT cursor{};
     if (GetCursorPos(&cursor) && WindowFromPoint(cursor) == hwnd_) SetCursor(nullptr);
     InvalidateRect(hwnd_, nullptr, FALSE);
@@ -1027,6 +1036,18 @@ void Launcher::stopLaunchAnimation() {
 void Launcher::tickLaunchAnimation(std::chrono::steady_clock::time_point now) {
     // Wall time, independent of frame rate, focus, or how soon the game opens.
     if (!launchAnimationActive() || now - *launch_animation_started_ < std::chrono::duration<float>(launch_animation::seconds)) return;
+    endLaunchAnimation();
+}
+
+// Back (Esc, B, the mouse's back button) hides the picture early; the press that started the game
+// (and its repeats) does not.
+bool Launcher::dismissLaunchAnimation(std::chrono::steady_clock::time_point now) {
+    if (!launchAnimationActive() || now - *launch_animation_started_ < std::chrono::duration<float>(launch_animation::dismiss_after)) return false;
+    endLaunchAnimation();
+    return true;
+}
+
+void Launcher::endLaunchAnimation() {
     const auto played = std::move(launch_played_key_);
     stopLaunchAnimation();
     if (screen_ == ScreenMode::details) {

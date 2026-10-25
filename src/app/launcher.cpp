@@ -500,6 +500,9 @@ void Launcher::tick() {
                        (library_search_progress_ > 0.003f && library_search_progress_ < 0.997f) ||
                        (fast_scroll_alpha_ > 0.003f && fast_scroll_alpha_ < 0.997f);
     const bool xmb = xmbActive(), flix = flixActive(), metro = metroActive(), psfive = psfiveActive(), list = libraryList();
+    // Flix: a rest on a game of a poster row unfolds its tile (flixTarget follows flix_unfold_).
+    if (flix) needs_paint |= tickFlixUnfold(now, dt);
+    else { flix_unfold_ = 0; flix_unfold_index_ = SIZE_MAX; }
     // The buttons or the top bar have the focus: the focused tile keeps its size, not its outline.
     const bool psfive_buttons = psfive && (psfiveActions() || psfiveTopFocused());
     // Shelves of posters: 2:3 cards as wide as the square covers (so 1.5x as tall).

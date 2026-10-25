@@ -173,8 +173,10 @@ void Launcher::openArtworkBrowser(const Game& game) {
     artwork_return_ = screen_;
     artwork_return_selected_ = selected_;
     artwork_return_scroll_ = grid_scroll_;
-    // Open on the artwork displayed by the current home layout.
-    const auto opened_from = library_view::posterArt(libraryPresentation()) ? ArtworkKind::poster : libraryLandscape() ? ArtworkKind::landscape : flixActive() && selected_ < flix_card_rows_.size() ?
+    // Open on the artwork displayed by the current home layout. The desktop window's grid shows
+    // posters (the square cover only stands in for a missing one), whichever page it was opened from.
+    const auto opened_from = desktop_mode_ || library_view::posterArt(libraryPresentation()) ? ArtworkKind::poster :
+        libraryLandscape() ? ArtworkKind::landscape : flixActive() && selected_ < flix_card_rows_.size() ?
         (flix_card_rows_[selected_] == 0 ? ArtworkKind::landscape : ArtworkKind::poster) :
         metroActive() && selected_ < metro_tiles_.size() ?
         (metro_layout::landscape(metro_tiles_[selected_].role) ? ArtworkKind::landscape : ArtworkKind::poster) :
@@ -367,7 +369,7 @@ void Launcher::onArtworkBrowser(std::unique_ptr<ArtworkBrowserMessage> message) 
             switch (kind) {
             case ArtworkKind::cover: cached.cover = shareImage(std::move(message->bytes)); cached.focus = message->focus; break;
             case ArtworkKind::logo: cached.logo = shareImage(std::move(message->bytes)); break;
-            case ArtworkKind::poster: cached.poster = shareImage(std::move(message->bytes)); break;
+            case ArtworkKind::poster: cached.poster = shareImage(std::move(message->bytes)); desktop_poster_missing_.erase(key); break;
             case ArtworkKind::landscape: cached.landscape = shareImage(std::move(message->bytes)); break;
             case ArtworkKind::disc: cached.disc = shareImage(std::move(message->bytes)); break;
             default: cached.hero = shareImage(std::move(message->bytes)); cached.hero_tone = HeroTone::full; break;

@@ -338,6 +338,40 @@ void Launcher::paint(bool overlay) {
             const auto& row = flix_rows_[i];
             context.flix_rows.push_back({categories_[row.category].title, row.begin, row.count, i == 0});
         }
+        if (flix_unfold_ > 0.0005f && flix_unfold_index_ < cards_.size()) {
+            // The unfolded tile's card: what the details page says first, never blank.
+            const auto& game = cards_[flix_unfold_index_].game;
+            context.flix_unfold_index = flix_unfold_index_;
+            context.flix_unfold = flix_unfold_;
+            context.flix_unfold_action = actionLabel(game);
+            context.flix_unfold_play = game.installed || sessionState(game) != SessionState::none;
+            if (flix_unfold_index_ == selected_) context.flix_unfold_rating = ratingLabel();
+            const auto* info = preview_.find(game);
+            if (!info) info = localDetails(game);
+            std::wstring released = info ? info->release_date : std::wstring{};
+            if (const auto* own = metadataOverride(game); own && !own->release_date.empty()) released = own->release_date;
+            if (const auto year = gameReleaseYear(released); !year.empty()) context.flix_unfold_facts.push_back(year);
+            std::optional<uint32_t> minutes = info ? info->playtime_minutes : std::nullopt;
+            if (!steamArtwork(game)) minutes = localPlaytime(game);
+            if (minutes && *minutes) context.flix_unfold_facts.push_back(formatPlaytime(*minutes));
+            if (const auto platform = activePlatformName(game); !platform.empty()) context.flix_unfold_facts.push_back(platform);
+            if (info) {
+                // "Akcja, RPG" as "Akcja • RPG"; at most three.
+                std::wstring genres;
+                size_t count = 0, at = 0;
+                const auto& all = info->genres;
+                while (at < all.size() && count < 3) {
+                    auto end = all.find(L',', at);
+                    if (end == std::wstring::npos) end = all.size();
+                    auto genre = all.substr(at, end - at);
+                    while (!genre.empty() && genre.front() == L' ') genre.erase(genre.begin());
+                    while (!genre.empty() && genre.back() == L' ') genre.pop_back();
+                    if (!genre.empty()) { genres += (count ? L"  •  " : L"") + genre; ++count; }
+                    at = end + 1;
+                }
+                context.flix_unfold_genres = std::move(genres);
+            }
+        }
         if (flixIconsShown()) {
             // The quick bar's icons at the top: they make way for the bar itself and the drawers.
             context.flix_icons = true;
@@ -470,7 +504,9 @@ void Launcher::paint(bool overlay) {
     if (launchAnimationActive()) {
         context.launch_animation_seconds = std::chrono::duration<float>(std::chrono::steady_clock::now() - *launch_animation_started_).count();
         context.launch_animation_title = launch_animation_title_;
-        for (size_t i = 0; i < cards_.size(); ++i) if (gameKey(cards_[i].game) == launch_artwork_key_) { context.launch_artwork_index = i; break; }
+        // The focused card first: its background and logo are the ones bound in the renderer.
+        if (selected_ < cards_.size() && gameKey(cards_[selected_].game) == launch_artwork_key_) context.launch_artwork_index = selected_;
+        else for (size_t i = 0; i < cards_.size(); ++i) if (gameKey(cards_[i].game) == launch_artwork_key_) { context.launch_artwork_index = i; break; }
     }
     if (gogInstallOpen()) context.gog_install = &gog_install_ui_;
     if (customEditorOpen()) context.custom_editor = &custom_editor_;

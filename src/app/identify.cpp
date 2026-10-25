@@ -159,17 +159,21 @@ void Launcher::onIdentify(std::unique_ptr<IdentifyMessage> message) {
         emulation_names_[key] = message->picked->name;
         if (screen_ == ScreenMode::details && !detail_games_.empty() && gameKey(detail_games_[0]) == key) details_ = message->picked->details;
         const auto failures = coverCacheDirectory().parent_path() / L"artwork" / L"failures";
-        for (const auto kind : {CoverMessage::Kind::cover, CoverMessage::Kind::hero, CoverMessage::Kind::logo}) {
+        // The worker removed every automatic kind: posters and wide tiles load again when a view asks.
+        for (const auto kind : {CoverMessage::Kind::cover, CoverMessage::Kind::hero, CoverMessage::Kind::logo,
+                                CoverMessage::Kind::poster, CoverMessage::Kind::landscape}) {
             if (auto* cached = art_.find(key)) {
-                (kind == CoverMessage::Kind::cover ? cached->cover : kind == CoverMessage::Kind::hero ? cached->hero : cached->logo) = {};
+                (kind == CoverMessage::Kind::cover ? cached->cover : kind == CoverMessage::Kind::hero ? cached->hero :
+                 kind == CoverMessage::Kind::logo ? cached->logo : kind == CoverMessage::Kind::poster ? cached->poster : cached->landscape) = {};
                 art_.resize(key);
             }
             artwork_failure::retry(failures, artRequestKey(game, kind), artwork_failure::now());
             invalidateArtwork(game, kind);
-            requestArt(game, kind);
+            if (kind == CoverMessage::Kind::cover || kind == CoverMessage::Kind::hero || kind == CoverMessage::Kind::logo) requestArt(game, kind);
         }
         closeIdentify(); audio_.context();
         if (settings_.emulation_names) applyEmulationNames();
+        requestVisibleArt();
     } else if (!message->metadata) state.status = std::move(message->error);
     else {
         const auto game = state.game; const auto key = gameKey(game);
@@ -208,6 +212,7 @@ void Launcher::onIdentify(std::unique_ptr<IdentifyMessage> message) {
         }
         if (game.source == GameSource::drmfree) drmIdentified(game, rawg_metadata_[key]);
         closeIdentify(); audio_.context();
+        requestVisibleArt(); // Posters and wide tiles the views show (the desktop grid's) load again.
         if (!message->artwork.error.empty()) showNotification(NotificationKind::launch, tr(L"Metadane zapisane"), message->artwork.error);
     }
     InvalidateRect(hwnd_, nullptr, FALSE);

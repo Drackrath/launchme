@@ -7,6 +7,7 @@
 #include "../ui/flix_layout.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <unordered_map>
 
 namespace {
@@ -74,6 +75,7 @@ void Launcher::rebuildFlix(bool preserve_background) {
     }
     flix_rows_ = std::move(rows);
     flix_card_rows_ = std::move(card_rows);
+    flix_unfold_index_ = SIZE_MAX; flix_unfold_ = 0; // Card indexes change: a new rest unfolds again.
     if (same_list) renderer_.remapCovers(from, preserve_background);
     else { renderer_.resetCovers(cards_.size(), preserve_background); arrived_ = 0; }
     flix_slots_ = renderer_.slotGeneration();
@@ -133,6 +135,7 @@ void Launcher::flixFocus(size_t row, size_t column) {
     categories_[category_].selected = column;
     selected_ = info.begin + column;
     detail_ = 0;
+    flix_focus_at_ = std::chrono::steady_clock::now(); // The rest before the tile unfolds starts again.
     flixFocusArt();
     requestVisibleArt();
     InvalidateRect(hwnd_, nullptr, FALSE);
@@ -191,6 +194,46 @@ void Launcher::flixTarget(size_t index, float& x, float& y, float& size, float& 
         (quick_open_ ? flix_layout::quick_lift : 0.0f);
     const size_t shown = column > row.first ? column - row.first : 0;
     delay = 0.06f * static_cast<float>(std::min<size_t>(row_index, 4)) + 0.03f * static_cast<float>(std::min<size_t>(shown, 8));
+    // The unfolded tile widens in place; the tiles after it make room, and the row moves left when
+    // the wide card would pass the right margin.
+    if (landscape || flix_unfold_ <= 0.0005f || flix_unfold_index_ >= flix_card_rows_.size() || flix_card_rows_[flix_unfold_index_] != row_index) return;
+    const float t = std::clamp(flix_unfold_, 0.0f, 1.0f), opened = t * t * (3 - 2 * t);
+    const float extra = flix_layout::unfoldExtra(scale) * opened;
+    const size_t unfolded = flix_unfold_index_ - row.begin;
+    const float right = renderer_.viewport().width - flix_layout::right_margin;
+    const float overflow = std::max(0.0f, flix_layout::tileLeft(false, unfolded, row.first, scale) + flix_layout::tileWidth(false, scale) + extra - right);
+    x -= overflow;
+    if (column > unfolded) x += extra;
+    if (column == unfolded) aspect = (flix_layout::tileWidth(false, scale) + extra) / size;
+}
+
+bool Launcher::flixUnfoldReady(std::chrono::steady_clock::time_point now) const {
+    if (!flixActive() || flix_row_ == 0 || flix_row_ >= flix_rows_.size() || selected_ >= cards_.size() ||
+        selected_ >= flix_card_rows_.size() || flix_card_rows_[selected_] != flix_row_) return false;
+    const auto& game = cards_[selected_].game;
+    if (!isGame(game) || game.kind == GameKind::catalog) return false; // Store and console tiles, "Wszystkie".
+    if (menu_open_ || quick_open_ || category_menu_open_ || friends_open_ || pending_launch_ || launchAnimationActive() ||
+        topModal() != Modal::none || screensaverActive() || !windowWatched()) return false;
+    const auto rest = std::chrono::duration<float>(flix_layout::unfold_rest);
+    return now - flix_focus_at_ >= rest && now - last_input_ >= rest;
+}
+
+bool Launcher::tickFlixUnfold(std::chrono::steady_clock::time_point now, float dt) {
+    const bool ready = flixUnfoldReady(now);
+    // A new focus: the previous card folds back before this one opens.
+    if (ready && flix_unfold_index_ != selected_ && flix_unfold_ < 0.002f) {
+        flix_unfold_index_ = selected_;
+        if (runtime_started_) preview_.request(cards_[selected_].game, account_); // Its year, playtime and genres for the card.
+    }
+    const float target = ready && flix_unfold_index_ == selected_ ? 1.0f : 0.0f;
+    if (flix_unfold_ == target) {
+        if (!target) flix_unfold_index_ = SIZE_MAX;
+        return false;
+    }
+    const float speed = target > flix_unfold_ ? 4.5f : 14.0f; // Opens slowly, folds back at once.
+    flix_unfold_ += (target - flix_unfold_) * (1.0f - std::exp(-dt * speed));
+    if (std::abs(target - flix_unfold_) < 0.002f) flix_unfold_ = target;
+    return true;
 }
 
 void Launcher::bindFlixArt(size_t index, bool replace) {

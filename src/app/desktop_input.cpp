@@ -186,7 +186,7 @@ void Launcher::desktopClick(float mouse_x, float mouse_y, bool double_click) {
         if (double_click && !down(VK_CONTROL) && !down(VK_SHIFT)) {
             desktop_pressed_ = {};
             desktopFocus(index, false);
-            desktopLaunchSelected();
+            desktopPickSelected();
             return;
         }
         if (down(VK_CONTROL)) desktopToggleMark(index);
@@ -662,6 +662,19 @@ void Launcher::desktopLaunchSelected() {
     launch();
 }
 
+// A pick of the focused card (Enter, A, double click, the search's one result): the default game
+// action, its details or launch/install. The pane's Play button and the menu's Graj launch.
+void Launcher::desktopPickSelected() {
+    if (cards_.empty() || pending_launch_ || selected_ >= cards_.size()) return;
+    const auto game = cards_[selected_].game;
+    if (settings_.accept_action != AppSettings::AcceptAction::details || !isGame(game) || game.kind == GameKind::catalog) {
+        desktopLaunchSelected();
+        return;
+    }
+    desktop_marked_.clear();
+    openDetails(game);
+}
+
 void Launcher::desktopSetPoster(float width) {
     const int next = std::clamp(static_cast<int>(std::lround(width)), static_cast<int>(poster_min), static_cast<int>(poster_max));
     if (next == settings_.desktop_poster) return;
@@ -769,7 +782,7 @@ bool Launcher::desktopKey(WPARAM key, bool repeated) {
             desktop_zone_ = 1; desktop_keyboard_ = true;
             if (desktop_query_dirty_) desktopApplyQuery();
             if (!cards_.empty()) desktopFocus(0);
-            if (key == VK_RETURN && cards_.size() == 1) desktopLaunchSelected(); // One result: Enter plays it.
+            if (key == VK_RETURN && cards_.size() == 1) desktopPickSelected(); // One result: Enter picks it.
             return true;
         case VK_LEFT: if (caret) --caret; InvalidateRect(hwnd_, nullptr, FALSE); return true;
         case VK_RIGHT: if (caret < query.size()) ++caret; InvalidateRect(hwnd_, nullptr, FALSE); return true;
@@ -965,7 +978,7 @@ void Launcher::desktopAccept() {
         break;
     }
     case 3: desktopKey(VK_RETURN, false); break;
-    default: desktopLaunchSelected(); break;
+    default: desktopPickSelected(); break;
     }
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
@@ -1044,7 +1057,9 @@ void Launcher::desktopOpenGameMenu(float x, float y, bool keyboard) {
     const auto separator = [&] { if (!items.empty() && !items.back().separator) { MenuItem line; line.separator = true; items.push_back(line); } };
     if (games.size() == 1) {
         const auto& game = games.front();
-        MenuItem play{Action::play, actionLabel(game), tr(L"Enter"), glyph::play};
+        // "Enter" beside what Enter does on the card: launch, or its details (the default game action).
+        const bool enter_details = settings_.accept_action == AppSettings::AcceptAction::details;
+        MenuItem play{Action::play, actionLabel(game), enter_details ? std::wstring{} : std::wstring(tr(L"Enter")), glyph::play};
         play.enabled = actionEnabled(game) && !pending_launch_;
         items.push_back(std::move(play));
         const auto session = sessionState(game);
@@ -1058,7 +1073,7 @@ void Launcher::desktopOpenGameMenu(float x, float y, bool keyboard) {
         items.push_back(std::move(collections));
         if (const auto* group = versions_.find(game); group && group->size() > 1) items.push_back({Action::versions, tr(L"Wybierz wersję…"), {}, glyph::sync});
         separator();
-        items.push_back({Action::details, tr(L"Szczegóły"), {}, glyph::info});
+        items.push_back({Action::details, tr(L"Szczegóły"), enter_details ? std::wstring(tr(L"Enter")) : std::wstring{}, glyph::info});
         items.push_back({Action::artwork, tr(L"Zmień grafikę…"), {}, glyph::picture});
         items.push_back({Action::retry_art, tr(L"Pobierz grafiki ponownie"), {}, glyph::refresh});
         if (!steamArtwork(game) && !gameKey(game).empty()) items.push_back({Action::identify, tr(L"Zidentyfikuj grę…"), {}, glyph::search});

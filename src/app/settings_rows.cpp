@@ -334,8 +334,6 @@ void Launcher::buildSettingsRows() {
         choiceRow(Id::accept_action, tr(L"Domyślna akcja gry"),
                   tr(L"Wybranie gry w każdym widoku. Menu gry i ekran szczegółów zawsze uruchamiają."),
                   accept_actions, static_cast<int>(settings_.accept_action));
-        add({Id::launch_animation, Control::toggle, tr(L"Animacja uruchamiania gry"),
-            tr(L"Krótkie powiększenie okładki przy starcie gry."), {}, settings_.launch_animation});
         add({Id::steam_silent_launch, Control::toggle, tr(L"Ciche uruchamianie Steam"),
             tr(L"Steam zostaje w zasobniku i nie przejmuje fokusu, launcher przekazuje go oknu gry. Okna Steam mogą zostać w tle."),
             {}, settings_.steam_silent_launch});
