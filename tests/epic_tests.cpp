@@ -95,6 +95,25 @@ int main() {
     state.games.clear(); state.synced_at = 0;
     CHECK(api->library(config, state, never)); CHECK(state.games.size() == 1 && state.games[0].source_id == "AppOne" && api_state.pages == 2);
     CHECK(state.games[0].name == L"Owned Game");
+    {
+        // An account call for a plugin (achievements): POST with the bearer, one refresh on 401.
+        int posts = 0, renewals = 0;
+        auto caller = makeBackend([&](const std::wstring& url, const std::wstring& headers, const std::string& data, bool post) -> HttpResponse {
+            if (url.ends_with(L"/token")) {
+                ++renewals;
+                return response(R"({"access_token":"rotated-access","refresh_token":"rotated-refresh","account_id":"account-A","displayName":"Test","expires_in":7200})");
+            }
+            if (url == L"https://launcher.store.epicgames.com/graphql" && post && headers.starts_with(L"Authorization: Bearer ") &&
+                headers.find(L"Content-Type: application/json") != std::wstring::npos && data == R"({"q":1})")
+                return ++posts == 1 ? response("", 401) : response(R"({"data":{}})");
+            return {};
+        });
+        auto tokens = session().tokens;
+        HttpResponse out;
+        CHECK(caller->call(config, {L"https://launcher.store.epicgames.com/graphql", R"({"q":1})", true}, tokens, never, out));
+        CHECK(out.status == 200 && posts == 2 && renewals == 1 && tokens.access == "rotated-access");
+        CHECK(caller->call(config, {L"http://launcher.store.epicgames.com/graphql"}, tokens, never, out).failure == Failure::invalid);
+    }
     api_state.pages = 0; api_state.malformed = true;
     CHECK(!api->library(config, state, never)); CHECK(state.games.size() == 1 && state.games[0].name == L"Owned Game");
     api_state.malformed = false; api_state.cycle = true; api_state.pages = 0;

@@ -1,8 +1,10 @@
 #pragma once
 #include "../model/game.hpp"
 #include "../net/http.hpp"
+#include "account_request.hpp"
 #include "gog_install.hpp"
 #include <functional>
+#include <future>
 #include <memory>
 #include <optional>
 #include <chrono>
@@ -47,6 +49,9 @@ public:
     virtual Result library(Session&, const Config&, const Cancel&) = 0;
     virtual Result installers(const std::string&, Tokens&, const Config&, const Cancel&, std::vector<InstallerVariant>&) { return {Failure::configuration}; }
     virtual Result resolveInstaller(const InstallerVariant&, Tokens&, const Config&, const Cancel&, std::vector<InstallerPart>&) { return {Failure::configuration}; }
+    // An account API call (AccountRequest, GET only): the bearer token added, refreshed when due
+    // or on 401. `response` is the server's answer whatever its status.
+    virtual Result call(const AccountRequest&, Tokens&, const Config&, const Cancel&, HttpResponse&) { return {Failure::configuration}; }
 };
 std::unique_ptr<Backend> makeBackend(Http get = {});
 class Vault {
@@ -79,6 +84,11 @@ public:
     virtual void cancelInstall() {}
     virtual std::optional<InstallSnapshot> takeInstall() { return {}; }
     virtual bool installBusy() const { return false; }
+    // An account API call queued for the account worker (which owns the token); its answer is
+    // nullopt without a session or on a failed refresh. Shutdown breaks the promise.
+    virtual std::future<std::optional<HttpResponse>> request(AccountRequest) {
+        std::promise<std::optional<HttpResponse>> none; none.set_value(std::nullopt); return none.get_future();
+    }
 };
 std::unique_ptr<Service> makeService(std::unique_ptr<Backend> backend, std::unique_ptr<Vault> vault,
                                   std::function<Config()> config = loadConfig,

@@ -252,6 +252,60 @@ int LauncherUiTest::desktop(HWND window) {
     app.desktopPageActivate({SheetHit::Kind::close}, false);
     if (app.screen_ != ScreenMode::shelves) return 7628;
 
+    // The panes: the sidebar narrow (its icons, no headings; the toggle by the logo, animated) and
+    // the right pane wider by its edge (fewer columns); both kept in the settings.
+    {
+        const float scale = app.desktopScale();
+        const auto press = [&](float x, float y, bool twice = false) {
+            app.click(x * scale, y * scale, false);
+            if (twice) app.click(x * scale, y * scale, true);
+            app.desktopPointerUp(x * scale, y * scale); app.pointerUp();
+        };
+        const auto wide = app.desktopLayout();
+        const int columns = wide.columns();
+        const auto toggle = wide.sidebarToggle();
+        const float tx = (toggle.left + toggle.right) * 0.5f, ty = (toggle.top + toggle.bottom) * 0.5f;
+        if (app.desktopHit(tx, ty).target != Target::sidebar_toggle || app.desktopCursor(tx * scale, ty * scale) != IDC_HAND) return 7820;
+        press(tx, ty);
+        app.last_frame_ -= std::chrono::milliseconds(50); app.tick();
+        if (!app.settings_.desktop_narrow || app.desktop_narrow_anim_ <= 0.02f || app.desktop_narrow_anim_ >= 0.98f) return 7821; // On its way.
+        settle();
+        const auto narrow = app.desktopLayout();
+        const auto rows = app.desktopRows();
+        if (narrow.sidebarRight() != sidebar_narrow || narrow.columns() <= columns ||
+            std::any_of(rows.begin(), rows.end(), [](const Row& row) { return row.heading; }) || narrow.companion_card) return 7822;
+        const auto first = narrow.sidebarRow(rows[0], app.desktop_sidebar_scroll_);
+        const auto title = app.desktopTooltip(app.desktopHit((first.left + first.right) * 0.5f, (first.top + first.bottom) * 0.5f));
+        if (title.empty() || title != app.desktop_entries_[static_cast<size_t>(rows[0].entry)].title) return 7823;
+        if (!capture(L"desktop-narrow.png")) return 7824;
+        // The pane's edge: ↔, dragged 150 to the left, a wider pane and fewer columns.
+        const auto edge = narrow.paneEdge();
+        const float ex = (edge.left + edge.right) * 0.5f, ey = 400;
+        if (app.desktopHit(ex, ey).target != Target::pane_resize || app.desktopCursor(ex * scale, ey * scale) != IDC_SIZEWE) return 7825;
+        const float before = narrow.paneWidth();
+        app.click(ex * scale, ey * scale, false);
+        app.mouseMove((ex - 150) * scale, ey * scale);
+        if (app.desktopCursor((ex - 150) * scale, ey * scale) != IDC_SIZEWE) return 7826;
+        app.desktopPointerUp((ex - 150) * scale, ey * scale); app.pointerUp();
+        const auto widened = app.desktopLayout();
+        if (std::abs(widened.paneWidth() - (before + 150)) > 1.5f || std::abs(app.settings_.desktop_pane - (before + 150)) > 1.5f || widened.columns() >= narrow.columns()) return 7827;
+        // Never past the grid's minimum.
+        app.click((widened.paneLeft()) * scale, ey * scale, false);
+        app.mouseMove(10 * scale, ey * scale);
+        app.desktopPointerUp(10 * scale, ey * scale); app.pointerUp();
+        if (app.desktopLayout().mainWidth() < main_min - 1) return 7828;
+        if (!capture(L"desktop-pane-wide.png")) return 7829;
+        app.saveSettings();
+        const auto kept = loadAppSettings();
+        if (!kept.desktop_narrow || kept.desktop_pane != app.settings_.desktop_pane || kept.desktop_pane <= 0) return 7830;
+        // A double-click on the edge: back to automatic; the toggle again: wide.
+        const auto reset = app.desktopLayout().paneEdge();
+        press((reset.left + reset.right) * 0.5f, ey, true);
+        if (app.settings_.desktop_pane != 0) return 7831;
+        press(tx, ty); settle();
+        if (app.settings_.desktop_narrow || app.desktopLayout().sidebarRight() != wide.sidebarRight() || app.desktopLayout().columns() != columns) return 7832;
+    }
+
     // Kadrowanie in its sheet (#3): the cover and both buttons fit the window, and the mouse clicks
     // "Automatyczny" and "Zapisz kadr" where they are drawn.
     {

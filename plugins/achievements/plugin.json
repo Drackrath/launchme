@@ -1,0 +1,20 @@
+{
+  "apiVersion": 1,
+  "architecture": "windows-x64",
+  "id": "launchme.achievements",
+  "version": "1.0.0",
+  "entry": "achievements.dll",
+  "iconText": "ACH",
+  "tags": ["details", "integration"],
+  "name": {"pl": "Osiągnięcia", "en": "Achievements"},
+  "description": {"pl": "Osiągnięcia gier spoza Steama w Szczegółach: GOG i Epic (połączone konta), RetroAchievements dla emulowanych gier, trofea RPCS3 i shadPS4. Na podstawie SuccessStory (Lacro59, MIT).", "en": "Achievements of games outside Steam in game details: GOG and Epic (connected accounts), RetroAchievements for emulated games, RPCS3 and shadPS4 trophies. Based on SuccessStory (Lacro59, MIT)."},
+  "settings": [
+    {"id": "ra_user", "type": "text", "title": {"pl": "RetroAchievements: nazwa użytkownika", "en": "RetroAchievements: user name"}, "default": ""},
+    {"id": "ra_key", "type": "secret", "title": {"pl": "RetroAchievements: klucz Web API (retroachievements.org/settings)", "en": "RetroAchievements: Web API key (retroachievements.org/settings)"}, "default": ""},
+    {"id": "rpcs3", "type": "folder", "title": {"pl": "RPCS3: folder emulatora (trofea PS3)", "en": "RPCS3: emulator folder (PS3 trophies)"}, "default": ""},
+    {"id": "shadps4", "type": "folder", "title": {"pl": "shadPS4: folder emulatora (trofea PS4)", "en": "shadPS4: emulator folder (PS4 trophies)"}, "default": ""}
+  ],
+  "contributions": [
+    {"id": "list", "kind": "achievements", "title": {"pl": "Osiągnięcia", "en": "Achievements"}, "command": "list"}
+  ]
+}

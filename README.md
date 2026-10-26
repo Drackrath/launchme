@@ -25,8 +25,8 @@ The interface is available in Polish and English (Settings → System → Langua
 ## Download
 
 Grab `launchme-<version>-win64.zip` from [Releases](../../releases), unpack it anywhere and run
-`launchme.exe`. No installer and no Visual C++ Redistributable are needed. The bundled plugin
-(`plugin-packages/`) installs itself on first start; manage plugins in Settings → Plugins.
+`launchme.exe`. No installer and no Visual C++ Redistributable are needed. The bundled plugins
+(`plugin-packages/`) install themselves on first start; manage plugins in Settings → Plugins.
 
 ## Where settings and cache are stored
 
@@ -58,6 +58,8 @@ Settings → System → Help → **Open folder** (the version row) opens it.
 - **Launch screen**: starting a game shows its background, slowly zooming in, with its logo for a few
   seconds while the game opens (`Esc` / B hides it).
 - **Desktop window mode** with a sidebar, search and a details pane; switch with `F11` or from the power menu.
+  The sidebar folds to its icons (the button by the logo) and the details pane is as wide as you drag
+  its edge (double-click it for the default).
 - **Library views**: grid (squares, posters or landscape tiles), list, cinematic, detailed, poster,
   coverflow and novelty cartridge/floppy views; sorting, filters, search and remembered positions.
 - **Steam accounts and installs**: Play on a game installed by another remembered Steam account switches
@@ -69,7 +71,10 @@ Settings → System → Help → **Open folder** (the version row) opens it.
   paste the token page), Ubisoft from the signed-in client.
 - **Artwork**: SteamGridDB covers, heroes, logos and posters with OCR-assisted cropping and a variant browser.
 - **Details**: Steam metadata, playtime (also for non-Steam games), achievements, Steam and RAWG ratings,
-  versions of the same game across stores, uninstall from the game menu.
+  versions of the same game across stores, uninstall from the game menu. Achievements of games outside
+  Steam come from the Achievements plugin: GOG and Epic (with their accounts connected),
+  RetroAchievements for emulated games (user name and Web API key in the plugin's settings), RPCS3 and
+  shadPS4 trophies.
 - **Glance**: a news hub (your games' Steam announcements, new and upcoming releases, articles) with a
   built-in WebView2 browser window driven by the pad.
 - **Tarot** (optional, off by default): a short card reading — 5 to 8 questions drawn as tarot cards (buy something
@@ -79,7 +84,8 @@ Settings → System → Help → **Open folder** (the version row) opens it.
   — see [AI companion](#ai-companion).
 - **Widgets drawer**: clock, Steam friends, Discord, CPU/GPU temperatures, controllers, audio and Bluetooth.
 - **In-game Guide overlay** (experimental): back to the dashboard, close the game, optional FPS from PresentMon.
-- **Plugins** (ZIP + native DLL): HowLongToBeat ships with the build (completion times in game details);
+- **Plugins** (ZIP + native DLL): HowLongToBeat (completion times in game details) and Achievements
+  (after [SuccessStory](https://github.com/Lacro59/playnite-successstory-plugin), MIT) ship with the build;
   write your own with the [Plugin SDK](docs/plugins/README.md).
 - Background music, screensaver, start with Windows, single instance, crash dumps.
 
@@ -161,5 +167,5 @@ manual (network, real accounts).
 
 ## License
 
-[MIT](LICENSE). Third-party licenses (miniz, PresentMon, WebView2 SDK) ship in
-`plugin-packages/licenses/`.
+[MIT](LICENSE). Third-party licenses (miniz, PresentMon, WebView2 SDK, SuccessStory for the Achievements
+plugin, see [its notice](plugins/achievements/NOTICE.md)) ship in `plugin-packages/licenses/`.

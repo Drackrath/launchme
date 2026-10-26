@@ -96,6 +96,20 @@ public:
         const auto root = json::parse(body(response));
         return root && field(*root, "account_id") == t.account && field(*root, "client_id") == cfg.client ? Result{} : Result{Failure::expired};
     }
+    Result call(const Config& cfg, const AccountRequest& call, Tokens& t, const Cancel& cancel, HttpResponse& out) override {
+        if (!call.url.starts_with(L"https://")) return {Failure::invalid};
+        if (t.expires <= nowSeconds() + 60) { auto r = refresh(cfg, t, cancel); if (!r) return r; }
+        HttpBudget budget(20000);
+        const auto headers = [&] {
+            return L"Authorization: Bearer " + wide(t.access) + L"\r\nAccept: application/json\r\n" + (call.post ? L"Content-Type: application/json\r\n" : L"");
+        };
+        out = http_(call.url, headers(), call.body, call.post);
+        if (out.status == 401 && !cancel()) {
+            auto r = refresh(cfg, t, cancel); if (!r) return r;
+            out = http_(call.url, headers(), call.body, call.post);
+        }
+        return cancel() ? Result{Failure::cancelled} : failure(out);
+    }
     Result library(const Config& cfg, Session& session, const Cancel& cancel) override {
         HttpBudget budget(600000);
         struct Item { std::string app, space, catalog; };

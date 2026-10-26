@@ -75,6 +75,7 @@ void Launcher::rememberTvMonitor() {
 
 Launcher::~Launcher() {
     browser_.reset(); // Close WebView/its callbacks before any Launcher state is destroyed.
+    { std::lock_guard lock(store_gateway_->mutex); store_gateway_->gog = nullptr; store_gateway_->epic = nullptr; } // The plugin worker may outlive us.
     glance_cancel_->store(true);
     companion_.cancel->store(true);
     if (bulk_control_) bulk_control_->cancel = true;

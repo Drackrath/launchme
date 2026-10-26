@@ -4,6 +4,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <deque>
+#include <future>
 #include <mutex>
 #include <thread>
 #include <algorithm>
@@ -21,7 +22,11 @@ class AccountService final : public Service {
     std::function<Config()> configuration_;
     std::mutex mutex_;
     std::condition_variable wake_;
-    struct Work { Command command; std::wstring input; uint64_t generation; std::optional<InstallRequest> install; };
+    using Reply = std::promise<std::optional<HttpResponse>>;
+    struct Work {
+        Command command; std::wstring input; uint64_t generation; std::optional<InstallRequest> install;
+        std::optional<AccountRequest> call; std::shared_ptr<Reply> reply; // request(): an account API call.
+    };
     std::deque<Work> work_;
     std::optional<Snapshot> result_;
     std::atomic_uint64_t generation_{0};
@@ -124,7 +129,34 @@ class AccountService final : public Service {
         });
         if (!cancel() && error != InstallError::none) fail(error);
     }
+    // request(): the account's token stays here; a refresh or 401 rotation is kept in the vault.
+    void serve(Work& work) {
+        std::optional<HttpResponse> answer;
+        try {
+            if (session_ && nowSeconds() >= retry_at_) {
+                config_ = configuration_();
+                if (config_.valid() && config_.client_id == session_->tokens.client) {
+                    const Cancel cancel = [&] { return stopping_.load(); };
+                    auto next = *session_;
+                    // "{account}" in the URL or body: this account's ID, which the caller need not know.
+                    auto call = *work.call;
+                    const auto fill = [&](auto& text, const auto& marker, const auto& value) {
+                        for (size_t at = text.find(marker); at != text.npos; at = text.find(marker, at + value.size())) text.replace(at, std::size(marker) - 1, value);
+                    };
+                    fill(call.url, L"{account}", std::wstring(next.tokens.user.begin(), next.tokens.user.end()));
+                    fill(call.body, "{account}", next.tokens.user);
+                    HttpResponse response;
+                    const auto result = backend_->call(call, next.tokens, config_, cancel, response);
+                    if (result || response.status) answer = std::move(response);
+                    if ((next.tokens.access != session_->tokens.access || next.tokens.refresh != session_->tokens.refresh) && vault_->save(next))
+                        session_ = std::move(next);
+                }
+            }
+        } catch (...) { answer.reset(); }
+        work.reply->set_value(std::move(answer));
+    }
     void process(Work& work) {
+        if (work.call) { serve(work); return; }
         const auto generation = work.generation;
         const Cancel cancel = [&] { return stopping_.load() || generation_.load() != generation; };
         // Logout is ordered and cannot be dropped by a subsequent Connect.
@@ -206,6 +238,7 @@ class AccountService final : public Service {
             }
             try { process(work); }
             catch (...) {
+                if (work.reply) continue;
                 state_.clear();
                 if (work.install) installProgress(work.generation, InstallState::error, InstallError::storage);
                 else failed(work.generation, {Failure::invalid});
@@ -273,6 +306,20 @@ public:
         install_dirty_ = false; return install_status_;
     }
     bool installBusy() const override { return install_busy_; }
+    std::future<std::optional<HttpResponse>> request(AccountRequest call) override {
+        auto reply = std::make_shared<Reply>();
+        auto answer = reply->get_future();
+        {
+            // No new generation: an account call never cancels a sync or an install.
+            std::lock_guard lock(mutex_);
+            if (stopping_) { reply->set_value(std::nullopt); return answer; }
+            Work work{Command::sync, {}, generation_.load()};
+            work.call = std::move(call); work.reply = reply;
+            work_.push_back(std::move(work));
+        }
+        wake_.notify_one();
+        return answer;
+    }
 };
 }
 std::unique_ptr<Service> makeService(std::unique_ptr<Backend> backend, std::unique_ptr<Vault> vault, std::function<Config()> config, std::chrono::milliseconds timeout, InstallOperations operations) {

@@ -290,4 +290,16 @@ HRESULT buildLogo(ID2D1Factory* factory, ID2D1Geometry** result) {
     return S_OK;
 }
 
+HRESULT buildLogoMark(ID2D1Factory* factory, ID2D1Geometry** result) {
+    using Microsoft::WRL::ComPtr;
+    if (!factory || !result) return E_POINTER;
+    *result = nullptr;
+    // The first sub-path of logo_path: the portal.
+    constexpr const char* mark = "M28 228 V128 A100 100 0 0 1 228 128 V228 H172 V128 A44 44 0 0 0 84 128 V172 H128 V228 Z";
+    ComPtr<ID2D1PathGeometry> geometry;
+    if (const auto hr = parse(factory, mark, false, geometry); FAILED(hr)) return hr;
+    *result = geometry.Detach();
+    return S_OK;
+}
+
 } // namespace brand_icons

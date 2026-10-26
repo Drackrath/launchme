@@ -137,6 +137,7 @@ public:
     static int organization(HWND window);
     static int excludedGames(HWND window);
     static int hltbDetails(HWND window);
+    static int pluginAchievements(HWND window);
     static int profileDesktop(HWND window, int seconds); // LAUNCHME_PERF_DESKTOP=1 (desktop_perf_case.hpp).
     static int profile(HWND window, int seconds) {
         const auto enabled = [](const wchar_t* name) {
@@ -1905,6 +1906,7 @@ int LauncherUiTest::language(HWND window) {
 #include "organization_ui_cases.hpp"
 #include "excluded_games_ui_cases.hpp"
 #include "hltb_ui_cases.hpp"
+#include "plugin_achievements_ui_cases.hpp"
 #include "render_layering_ui_cases.hpp"
 #include "modal_layers_ui_cases.hpp"
 
@@ -2074,6 +2076,15 @@ int main(int argc, char** argv) {
         CoUninitialize();
         if (code) std::cerr << "PSfive home layout regression failed at checkpoint " << code << '\n';
         else std::cout << "PSfive: row, pinned focus, buttons, game menu, quick bar, mouse and settings passed\n";
+        return code;
+    }
+    if (argc == 2 && std::string_view(argv[1]) == "--plugin-achievements") {
+        std::filesystem::create_directories(root);
+        const auto code = window ? LauncherUiTest::pluginAchievements(window) : 99;
+        if (window) DestroyWindow(window);
+        CoUninitialize();
+        if (code) std::cerr << "Plugin achievements regression: " << code << '\n';
+        else std::cout << "Plugin achievements: provider, counts, list, icons, refresh and none passed\n";
         return code;
     }
     if (argc == 2 && std::string_view(argv[1]) == "--hltb-details") {

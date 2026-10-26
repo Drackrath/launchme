@@ -49,6 +49,7 @@ restarting the DLL or a separate event. `locale` is `pl` or `en`; lifecycle call
 | `details` | `command`, `game`, `refresh`, `playtimeSeconds` | `comparison`: reference playtimes |
 | `library` | `command` from the `library` extension | `steamAppIds`: supplementary game identifiers |
 | `downloads` | `command` from the `downloads` extension | `downloads`: full job snapshot, no UI effects |
+| `achievements` | `command`, `game` (with paths, below), `accounts`, `refresh`; then `responses`, `state` | `achievements`, `storeRequests` or `message` |
 
 `activate` is called when the plugin is enabled, at startup with the plugin enabled, and when validating
 an active update. Even after a partially failed `activate`, the host attempts `deactivate`.
@@ -104,6 +105,9 @@ on the plugin tile. They do not affect routing, library access or permissions.
   To open the catalog, another command returns `openCatalog`.
 - `downloads`: one per plugin. The host polls the `downloads` method every second regardless
   of which page is open. Jobs are visible in the shared “Downloads” screen.
+- `achievements`: one per plugin, optional `source` filter; the achievements of games outside Steam
+  (Steam games keep the client's own). The first matching provider fills the Details card and
+  Szczegóły → Osiągnięcia; see [Achievements](#achievements).
 - `library`: one per plugin, with `source: "steam"`; additional game identifiers,
   with no UI slot of its own. This is a separate feature from the `library: true` flag, which passes the snapshot to the DLL.
 
@@ -138,6 +142,40 @@ Updates and DLC pass the base game's name and Title ID. The host uses the cache,
 SteamGridDB for `PC`/`Windows` (only with a key) or ScreenScraper for a known system
 (only when configured). A missing platform does not imply PC. The lookup does not scan ROM files
 and does not add entries to the library. Networking, key reading, saving and decoding happen off the UI thread.
+
+### Achievements
+
+Asked when Details opens a game outside Steam (one question per game at a time; an answer is kept
+for 10 minutes). `params.game` adds what finding the game needs: `sourceId` (the store's ID: GOG
+product, Epic AppName…), `epicNamespace`, `platform`, `rom` (the file an emulator runs),
+`installDirectory` and `executable`. `params.accounts` says which store accounts are signed in:
+`{"gog":true,"epic":false}`.
+
+```json
+{"achievements":{"source":"GOG","items":[{"id":"KILL","name":"Monster slayer","description":"Kill 100 monsters",
+ "icon":"https://images.gog.com/kill.png","achieved":true,"unlockedAt":1709634030,"percent":41.5,"hidden":false}]}}
+```
+
+`achievements: null` means none for this game (no card). `id` is unique (at most 128 bytes, 5000
+items); `icon` is an https URL or an absolute path to a PNG/JPEG on this computer; `unlockedAt` is
+Unix seconds; `percent` (0–100) the share of players; a `hidden` locked item shows as hidden.
+The host sorts the list and counts it; the counts go to the game index (previews, desktop pane).
+`message` is a passing failure: the last list stays.
+
+**Store requests.** The plugin never sees account tokens. To call a store API with the signed-in
+account it answers with requests instead:
+
+```json
+{"storeRequests":[{"id":"gog","account":"gog","method":"GET",
+  "url":"https://gameplay.gog.com/clients/1207658924/users/{account}/achievements"}],"state":{"step":1}}
+```
+
+At most 4 per round and 6 rounds. `account` is `gog` (hosts `gameplay.gog.com`, `api.gog.com`,
+`embed.gog.com`, `www.gog.com`, `menu.gog.com`) or `epic` (subdomains of `epicgames.com`); https only;
+`POST` takes a JSON `body` up to 64 KiB. `{account}` in the URL or body becomes the account's ID.
+The account worker adds the bearer token and refreshes it when needed. The host then calls
+`achievements` again with `params.responses` (`[{"id","status","body","truncated"}]`: text bodies
+up to 400 KiB; status 0 without the account or the network) and the same `state`.
 
 ### Library supplement
 

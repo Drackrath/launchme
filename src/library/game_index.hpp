@@ -33,8 +33,9 @@ Date dateFromUnix(uint64_t seconds);
 std::wstring dateLabel(const Date& date, bool english);
 
 // Sources in no particular order; priorities are per field (game_index.cpp).
-enum class Source : uint8_t { library, steam_appinfo, steam_store, rawg, reviews, hltb, emulation, gog, epic, steam_stats };
-inline constexpr size_t source_count = 10;
+// achievements: counts from an achievements plugin (games outside Steam, src/app/plugin_achievements.cpp).
+enum class Source : uint8_t { library, steam_appinfo, steam_store, rawg, reviews, hltb, emulation, gog, epic, steam_stats, achievements };
+inline constexpr size_t source_count = 11;
 const char* sourceKey(Source source);
 std::optional<Source> sourceFromKey(std::string_view key);
 

@@ -66,7 +66,9 @@ desktop_ui::Layout Launcher::desktopLayout() const {
     layout.width = view.width; layout.height = view.height;
     layout.poster_width = static_cast<float>(settings_.desktop_poster);
     layout.tools = static_cast<int>(desktopTools().size());
-    layout.companion_card = settings_.companion;
+    layout.companion_card = settings_.companion && !settings_.desktop_narrow; // Narrow: icons only, no card.
+    layout.narrow = desktop_narrow_anim_;
+    layout.pane_width = static_cast<float>(settings_.desktop_pane);
     return layout;
 }
 
@@ -147,7 +149,7 @@ void Launcher::buildDesktopSidebar() {
     if (desktopEntryIndex(desktop_section_) < 0 && !scanning_ && desktop_section_.starts_with("collection:")) desktop_section_ = "all";
 }
 
-std::vector<desktop_ui::Row> Launcher::desktopRows() const { return layoutRows(desktop_entries_, desktop_collapsed_); }
+std::vector<desktop_ui::Row> Launcher::desktopRows() const { return layoutRows(desktop_entries_, desktop_collapsed_, settings_.desktop_narrow); }
 
 int Launcher::desktopEntryIndex(const std::string& id) const {
     for (int i = 0; i < static_cast<int>(desktop_entries_.size()); ++i) if (desktop_entries_[i].id == id) return i;
@@ -505,6 +507,14 @@ bool Launcher::tickDesktop(float dt) {
             else anim = target;
         }
         desktop_collapse_valid_ = true;
+        // Wide ↔ narrow: the sidebar eases, the grid widening or narrowing with it.
+        const float narrow = settings_.desktop_narrow ? 1.0f : 0.0f;
+        if (!desktop_narrow_valid_) { desktop_narrow_anim_ = narrow; desktop_narrow_valid_ = true; }
+        else if (std::abs(desktop_narrow_anim_ - narrow) > 0.003f) { desktop_narrow_anim_ += (narrow - desktop_narrow_anim_) * ease(dt, 14.0f); paint = true; }
+        else if (desktop_narrow_anim_ != narrow) { desktop_narrow_anim_ = narrow; paint = true; }
+        if (const auto columns = desktopLayout().columns(); columns != desktop_columns_) {
+            if (desktop_columns_) desktopReflow(); else desktop_columns_ = columns; // The first frame only notes them.
+        }
         if (desktop_drop_flash_ > 0.0f) {
             desktop_drop_flash_ = std::max(0.0f, desktop_drop_flash_ - dt / 0.45f);
             paint = true;
@@ -721,7 +731,9 @@ void Launcher::desktopView(desktop_ui::View& view) {
             view.drag_label = std::wstring(tr(L"Dodaj do „")) + desktop_entries_[static_cast<size_t>(rows[desktop_drag_.drop_row].entry)].title + L"”";
         } else view.drag_label = tr(L"Upuść na kolekcję lub Ulubione");
     }
-    view.companion_card = settings_.companion;
+    view.companion_card = settings_.companion && !settings_.desktop_narrow;
+    view.sidebar_narrow = desktop_narrow_anim_;
+    view.pane_width = static_cast<float>(settings_.desktop_pane);
     view.companion_bubble = settings_.companion && companion_.bubble.alpha > 0.003f && (companion_.bubble.waiting || !companion_.bubble.text.empty());
     // Empty grid: why, and what helps.
     if (cards_.empty() && !view.scanning) {

@@ -32,6 +32,10 @@ struct AppSettings {
     // The desktop library: poster width (DIPs), order (library_view::persistedOrder), installed games
     // only, the section shown, its selected game (library_view::selectionKey) and collapsed groups.
     int desktop_poster = 156;
+    // The desktop window's panes: the right one's width (dragged by its edge; 0 a quarter of the
+    // window) and the left one narrow, its icons only (the toggle by the logo).
+    int desktop_pane = 0;
+    bool desktop_narrow = false;
     int desktop_sort = 1;
     bool desktop_installed = false;
     std::string desktop_section = "all";

@@ -16,7 +16,7 @@ struct Setting {
     bool accepts(const json::Value& value) const;
 };
 struct Contribution {
-    std::string id, command, source, kind; // kind: menu, context, widget, catalog, details, library
+    std::string id, command, source, kind; // kind: menu, context, widget, catalog, details, library, downloads, achievements
     Text title, text;
     bool active_game = false; // Widget requests/activation get the current running game.
     std::string glyph; // Optional native quick-bar symbol: store (default), server-download.
@@ -36,6 +36,7 @@ bool packagePath(std::string_view value);
 Manifest parseManifest(std::string_view bytes); // throws descriptive std::runtime_error
 bool matches(const Contribution& item, const Game& game);
 std::string gameJson(const Game& game);
+std::string achievementGameJson(const Game& game); // gameJson plus sourceId, platform, rom, installDirectory, executable.
 struct CatalogResult { std::vector<Game> games; std::wstring error; };
 CatalogResult parseCatalog(const json::Value& value, const std::string& owner);
 std::optional<std::vector<uint32_t>> parseLibrarySupplement(const json::Value& value);

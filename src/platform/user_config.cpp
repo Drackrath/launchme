@@ -184,6 +184,12 @@ AppSettings parseAppSettings(std::string_view text) {
         else if (key == "desktop_gray_uninstalled" && (value == "0" || value == "1")) settings.desktop_gray_uninstalled = value == "1";
         else if (key == "desktop_maximized" && (value == "0" || value == "1")) settings.desktop_maximized = value == "1";
         else if (key == "desktop_installed" && (value == "0" || value == "1")) settings.desktop_installed = value == "1";
+        else if (key == "desktop_narrow" && (value == "0" || value == "1")) settings.desktop_narrow = value == "1";
+        else if (key == "desktop_pane") {
+            int width = 0;
+            const auto parsed = std::from_chars(value.data(), value.data() + value.size(), width);
+            if (parsed.ec == std::errc{} && parsed.ptr == value.data() + value.size()) settings.desktop_pane = width <= 0 ? 0 : std::clamp(width, 300, 4000);
+        }
         else if (key == "desktop_window") {
             // x,y,width,height in physical pixels; anything else keeps the centred default.
             std::array<int, 4> parts{};
@@ -538,6 +544,8 @@ bool saveAppSettings(const AppSettings& settings, const std::filesystem::path& f
            << "desktop_poster=" << std::clamp(settings.desktop_poster, 112, 240) << '\n'
            << "desktop_sort=" << std::clamp(settings.desktop_sort, 1, 4) << '\n'
            << "desktop_installed=" << settings.desktop_installed << '\n'
+           << "desktop_narrow=" << settings.desktop_narrow << '\n'
+           << "desktop_pane=" << (settings.desktop_pane <= 0 ? 0 : std::clamp(settings.desktop_pane, 300, 4000)) << '\n'
            << "desktop_section=" << (settings.desktop_section.find_first_of("\r\n") == std::string::npos ? settings.desktop_section : std::string("all")) << '\n'
            << "desktop_game=" << (settings.desktop_game.find_first_of("\r\n") == std::string::npos ? settings.desktop_game : std::string()) << '\n'
            << "drawer_fade_fraction=" << settings.drawer.fade_fraction << '\n'

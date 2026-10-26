@@ -61,18 +61,22 @@ struct Row {
 inline constexpr float heading_h = 30, row_h = 32, heading_gap = 12, companion_h = 74;
 
 // Headings and entries in order; a collapsed group keeps only its heading. Collections always keep
-// their heading (its "+" makes a new one), the others only when they have entries.
-inline std::vector<Row> layoutRows(const std::vector<Entry>& entries, const std::array<bool, group_count>& collapsed) {
+// their heading (its "+" makes a new one), the others only when they have entries. The narrow
+// sidebar (icons only) has no headings: every entry, a gap between the groups.
+inline std::vector<Row> layoutRows(const std::vector<Entry>& entries, const std::array<bool, group_count>& collapsed, bool narrow = false) {
     std::vector<Row> rows;
     float y = 2;
     for (int g = 0; g < group_count; ++g) {
         const auto group = static_cast<Group>(g);
         const bool any = std::any_of(entries.begin(), entries.end(), [&](const Entry& e) { return e.group == group; });
+        if (narrow && !any) continue;
         if (!any && group != Group::collections) continue;
         if (!rows.empty()) y += heading_gap;
-        rows.push_back({true, group, -1, y, heading_h});
-        y += heading_h;
-        if (collapsed[g]) continue;
+        if (!narrow) {
+            rows.push_back({true, group, -1, y, heading_h});
+            y += heading_h;
+            if (collapsed[g]) continue;
+        }
         for (int i = 0; i < static_cast<int>(entries.size()); ++i) {
             if (entries[i].group != group) continue;
             rows.push_back({false, group, i, y, row_h});
@@ -168,7 +172,8 @@ enum class Target {
     none, caption, minimize, maximize, close, search, search_clear, tool, sidebar_row, sidebar_add, companion_card,
     companion_bubble, card, card_play, card_check, popover_clear, popover_action, scrollbar, sort, installed, size_slider, pane_primary, pane_favorite,
     pane_more, pane_quick, pane_chip, pane_chip_add, pane_rating, bulk, menu_item, submenu_item, popover_row, popover_all,
-    empty_primary, empty_secondary, grid, widget_friend, widget_item, widget_all, widget_panel, library_add, library_refresh, companion_more
+    empty_primary, empty_secondary, grid, widget_friend, widget_item, widget_all, widget_panel, library_add, library_refresh, companion_more,
+    sidebar_toggle, pane_resize
 };
 struct Hit {
     Target target = Target::none;
@@ -359,6 +364,8 @@ struct View {
     std::vector<WidgetFriend> widget_friends;
     std::vector<std::pair<std::wstring, std::wstring>> widget_items; // Title, text.
     bool companion_card = false;   // Her card at the sidebar's foot (Layout::companion_card).
+    float sidebar_narrow = 0;      // 0 wide … 1 narrow (icons only): the toggle's animation (Layout::narrow).
+    float pane_width = 0;          // The pane's width the user dragged it to; 0 automatic (Layout::pane_width).
     bool companion_bubble = false; // Her line pops out of her card.
 };
 
@@ -378,6 +385,8 @@ inline constexpr float title_h = 48, grid_pad = 28, caption_h = 44, gap_x = 20, 
 inline constexpr float logo_height = 18; // launchme's logo in the window's top bar (Renderer::drawLaunchmeLogo).
 inline constexpr float poster_min = 112, poster_max = 240, poster_default = 156;
 inline constexpr float tool_size = 36, tool_gap = 2, window_button = 46;
+// The narrow sidebar (its icons only), the narrowest pane and the narrowest the grid may get by it.
+inline constexpr float sidebar_narrow = 60, pane_min = 300, main_min = 540, toggle_size = 32; // main_min: the header's controls still fit.
 inline constexpr float popover_width = 392, popover_row = 64, popover_head = 50, popover_foot = 50;
 inline constexpr int popover_rows = 5;
 inline float posterFromLevel(float level) { return poster_min + std::clamp(level, 0.0f, 1.0f) * (poster_max - poster_min); }
@@ -388,9 +397,22 @@ struct Layout {
     float poster_width = poster_default; // The narrowest a poster may be; each row stretches its posters.
     int tools = 0;
     bool companion_card = false;
+    float narrow = 0;     // 0 wide … 1 narrow sidebar, animated between them.
+    float pane_width = 0; // Dragged by its left edge; 0: a quarter of the window.
 
-    float sidebarRight() const { return std::clamp(std::round(width * 0.17f), 228.0f, 272.0f); }
-    float paneLeft() const { return width - std::clamp(std::round(width * 0.25f), 340.0f, 420.0f); }
+    float sidebarWide() const { return std::clamp(std::round(width * 0.17f), 228.0f, 272.0f); }
+    float sidebarRight() const { return std::round(sidebarWide() + (sidebar_narrow - sidebarWide()) * std::clamp(narrow, 0.0f, 1.0f)); }
+    float paneWidth() const {
+        const float automatic = std::clamp(std::round(width * 0.25f), 340.0f, 420.0f);
+        if (pane_width <= 0) return automatic;
+        return std::clamp(std::round(pane_width), pane_min, std::max(pane_min, width - sidebarRight() - main_min));
+    }
+    float paneLeft() const { return width - paneWidth(); }
+    // The grab zone of the pane's left edge (the pointer turns into ↔).
+    Rect paneEdge() const { return {paneLeft() - 4, title_h, paneLeft() + 4, height}; }
+    // The sidebar's toggle, then the logo: whole while it is wide, its mark alone when narrow.
+    Rect sidebarToggle() const { const float top = (title_h - toggle_size) * 0.5f; return {12, top, 12 + toggle_size, top + toggle_size}; }
+    float logoLeft() const { return sidebarToggle().right + 12; }
     Rect titlebar() const { return {0, 0, width, title_h}; }
     Rect sidebar() const { return {0, title_h, sidebarRight(), height}; }
     Rect main() const { return {sidebarRight(), title_h, paneLeft(), height}; }
@@ -527,7 +549,6 @@ struct Layout {
 
     // The right pane, scrolled as one page: its picture, name, buttons, numbers and quick actions
     // have fixed places; collections, description and facts follow (measured while drawing).
-    float paneWidth() const { return width - paneLeft(); }
     float bannerHeight() const { return std::clamp(std::round(paneWidth() * 0.52f), 170.0f, 220.0f); }
     float paneTop(float scroll) const { return title_h - scroll; }
     Rect banner(float scroll) const { const float t = paneTop(scroll); return {paneLeft(), t, width, t + bannerHeight()}; }

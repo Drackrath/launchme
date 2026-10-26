@@ -27,5 +27,7 @@ HRESULT build(ID2D1Factory* factory, const Icon& icon, ID2D1Geometry** geometry)
 // launchme's own full logo (res/launchme_logo.svg): the portal symbol and the wordmark, filled in one colour, in the
 // SVG's units (the marks span x 28–1052, y 28–228). The symbol alone is the application icon (tools/launchme_icon.py).
 HRESULT buildLogo(ID2D1Factory* factory, ID2D1Geometry** geometry);
+// Its portal symbol alone, in the same units (the narrow desktop sidebar's top bar).
+HRESULT buildLogoMark(ID2D1Factory* factory, ID2D1Geometry** geometry);
 
 } // namespace brand_icons

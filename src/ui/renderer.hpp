@@ -721,7 +721,8 @@ private:
     bool desktopBrand(std::string_view key, float cx, float cy, float size, D2D1_COLOR_F ink);
     // launchme's full logo (symbol and wordmark, res/launchme_logo.svg) in one colour, `height` tall (the symbol's
     // height), its left edge at `left` (or centred on it), centred on `cy`; returns its width (0 if it cannot be built).
-    float drawLaunchmeLogo(float left, float cy, float height, D2D1_COLOR_F ink, bool centered = false);
+    // `mark_only`: the portal symbol alone (the narrow desktop sidebar).
+    float drawLaunchmeLogo(float left, float cy, float height, D2D1_COLOR_F ink, bool centered = false, bool mark_only = false);
     // A cached brand geometry (brand_icons_) filled under `transform`, tessellated once per device scale.
     void fillBrandGeometry(const std::string& key, ID2D1Geometry* geometry, const D2D1_MATRIX_3X2_F& transform, D2D1_COLOR_F ink);
     void drawDesktopQuick(const desktop_ui::View& view);

@@ -99,6 +99,24 @@ void apiTests() {
         return reply(R"({"external_id":"999","platform_id":"gog","type":"game","title":{"*":"Wrong"},"game":{"visible_in_library":true}})");
     });
     check(api->library(owned, config, running).failure == gog::Failure::invalid && owned.games.empty(), "fallback cannot mix product identity");
+    // An account call for a plugin (achievements): the bearer added, a due token refreshed first,
+    // a 401 refreshed once; never a POST or a non-https URL.
+    int calls_made = 0, renewed = 0;
+    api = gog::makeBackend([&](const auto& address, const auto& headers, size_t) {
+        if (address.starts_with(L"https://auth.gog.com/token")) {
+            ++renewed;
+            return reply(R"({"access_token":"renewed","refresh_token":"renewed-refresh","user_id":"9007199254740993","expires_in":3600,"token_type":"Bearer"})");
+        }
+        ++calls_made;
+        check(address == L"https://gameplay.gog.com/clients/1/users/9007199254740993/achievements" && headers.find(L"Bearer renewed") != std::wstring::npos, "account call bearer");
+        return reply(R"({"items":[]})");
+    });
+    auto due = session().tokens; due.expires = gog::nowSeconds();
+    HttpResponse answer;
+    check(static_cast<bool>(api->call({L"https://gameplay.gog.com/clients/1/users/9007199254740993/achievements"}, due, config, running, answer)) &&
+          answer.status == 200 && renewed == 1 && calls_made == 1 && due.access == "renewed", "account call refreshes a due token");
+    check(api->call({L"https://gameplay.gog.com/x", "{}", true}, due, config, running, answer).failure == gog::Failure::invalid &&
+          api->call({L"http://gameplay.gog.com/x"}, due, config, running, answer).failure == gog::Failure::invalid && calls_made == 1, "account call GET over https only");
 }
 struct Stored {
     std::mutex mutex;
@@ -143,6 +161,11 @@ public:
     gog::Result resolveInstaller(const gog::InstallerVariant&, gog::Tokens&, const gog::Config&, const gog::Cancel&, std::vector<gog::InstallerPart>& value) override {
         value = {{L"setup.exe", L"https://cdn.gog.com/fixture", "900150983cd24fb0d6963f7d28e17f72", 3}}; return {};
     }
+    gog::Result call(const AccountRequest& request, gog::Tokens& tokens, const gog::Config&, const gog::Cancel&, HttpResponse& response) override {
+        check(request.url == L"https://gameplay.gog.com/clients/7/users/" + std::wstring(tokens.user.begin(), tokens.user.end()) + L"/achievements", "account ID filled in by the worker");
+        tokens.access = "rotated-by-call"; // A 401 refresh: the worker must keep it.
+        response = reply(R"({"items":[]})"); return {};
+    }
 };
 template<class Predicate> void until(Predicate predicate) {
     for (int i = 0; i < 5000; ++i) { if (predicate()) return; std::this_thread::sleep_for(std::chrono::milliseconds(1)); }
@@ -163,10 +186,22 @@ void serviceTests() {
     auto stored = std::make_shared<Stored>(); auto control = std::make_shared<Control>();
     auto service = gog::makeService(std::make_unique<FakeBackend>(control), std::make_unique<FakeVault>(stored), [] { return config; });
     service->submit(gog::Command::restore); await(*service, gog::State::disconnected);
+    {
+        auto none = service->request({L"https://gameplay.gog.com/clients/7/users/{account}/achievements"});
+        check(none.wait_for(std::chrono::seconds(5)) == std::future_status::ready && !none.get(), "no session, no account call");
+    }
     login(*service);
     auto value = await(*service, gog::State::connected);
     if (!value.synced_at) value = await(*service, gog::State::connected);
     check(value.account == "1" && value.games.size() == 1, "verified account A");
+    {
+        // A plugin's account call: answered by the worker, the token's rotation kept, no new generation.
+        auto answer = service->request({L"https://gameplay.gog.com/clients/7/users/{account}/achievements"});
+        check(answer.wait_for(std::chrono::seconds(5)) == std::future_status::ready, "account call answered");
+        const auto response = answer.get();
+        check(response && response->status == 200, "account call response");
+        std::lock_guard lock(stored->mutex); check(stored->value && stored->value->tokens.access == "rotated-by-call", "account call rotation saved");
+    }
     control->offline = true; service->submit(gog::Command::sync);
     value = await(*service, gog::State::offline);
     check(value.games.size() == 1 && value.synced_at, "offline membership retained");

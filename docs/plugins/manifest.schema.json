@@ -47,7 +47,7 @@
       "type": "object", "required": ["id", "kind", "title", "command"],
       "properties": {
         "id": {"$ref": "#/$defs/id"}, "command": {"$ref": "#/$defs/id"},
-        "kind": {"enum": ["menu", "context", "widget", "catalog", "details", "library", "downloads"]},
+        "kind": {"enum": ["menu", "context", "widget", "catalog", "details", "library", "downloads", "achievements"]},
         "activeGame": {"type": "boolean", "default": false},
         "glyph": {"enum":["store","server-download"]},
         "title": {"$ref": "#/$defs/text"}, "text": {"$ref": "#/$defs/text"},

@@ -18,6 +18,9 @@
 #include <unordered_set>
 #include <vector>
 
+namespace gog { class Service; }
+namespace epic { class Service; }
+
 namespace launcher_queues {
 
 // Artwork downloads and disk reads (src/app/artwork_requests.cpp, library_worker.cpp).
@@ -154,6 +157,15 @@ struct AchievementsJob {
     uint64_t account = 0;
     size_t index = 0;
     std::wstring url;
+    std::wstring folder; // Icons' cache folder under achievements\: the AppID, or a plugin game's cache key.
+};
+// The store accounts the plugin worker may call for a plugin (achievements' store requests,
+// src/app/plugin_achievements.cpp). The Launcher fills it as its services start and empties it
+// before they go; a call holds the mutex only to queue its request.
+struct StoreGateway {
+    std::mutex mutex;
+    ::gog::Service* gog = nullptr;
+    ::epic::Service* epic = nullptr;
 };
 struct AchievementsQueue {
     std::mutex mutex;

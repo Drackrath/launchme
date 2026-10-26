@@ -1,8 +1,10 @@
-// Szczegóły → Osiągnięcia: the signed-in account's achievements of one Steam game over the
-// details screen. A worker reads the Steam client's own files first (appcache/stats: the full
-// schema and the account's unlocks; else the cached game page), then the public shares of
+// Szczegóły → Osiągnięcia: the signed-in account's achievements of one game over the details
+// screen. For Steam games a worker reads the Steam client's own files first (appcache/stats: the
+// full schema and the account's unlocks; else the cached game page), then the public shares of
 // players, or — only when the client has no schema — the Web API list with the user's key
-// (Ustawienia → Biblioteka). Icons of the rows on screen are downloaded once into achievements\<AppID>\.
+// (Ustawienia → Biblioteka). Other games get theirs from an achievements plugin
+// (plugin_achievements.cpp). Icons of the rows on screen are downloaded once into
+// achievements\<AppID or game cache key>\; a plugin may also point at a picture on this computer.
 #include "launcher.hpp"
 #include "../library/steam.hpp"
 #include "../library/steam_stats.hpp"
@@ -32,6 +34,25 @@ std::wstring percent(float value) {
 }
 bool looksLikeImage(const std::vector<uint8_t>& bytes) {
     return bytes.size() >= 64 && ((bytes[0] == 0xff && bytes[1] == 0xd8) || (bytes[0] == 0x89 && bytes[1] == 'P' && bytes[2] == 'N' && bytes[3] == 'G'));
+}
+std::vector<uint8_t> readImage(const std::filesystem::path& file) {
+    std::vector<uint8_t> bytes;
+    std::ifstream input(file, std::ios::binary | std::ios::ate);
+    if (input && input.tellg() > 0 && input.tellg() < 1024 * 1024) {
+        bytes.resize(static_cast<size_t>(input.tellg()));
+        input.seekg(0);
+        if (!input.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()))) bytes.clear();
+    }
+    return looksLikeImage(bytes) ? bytes : std::vector<uint8_t>{};
+}
+// A cache name for any https icon: Steam's own file name, else a hash of the URL.
+std::wstring iconFile(const std::wstring& url) {
+    if (auto steam = achievementIconFile(url); !steam.empty()) return steam;
+    uint64_t hash = 1469598103934665603ULL;
+    for (const wchar_t c : url) { hash ^= static_cast<uint16_t>(c); hash *= 1099511628211ULL; }
+    wchar_t name[32]{};
+    swprintf_s(name, L"%016llx.img", static_cast<unsigned long long>(hash));
+    return name;
 }
 }
 
@@ -91,18 +112,16 @@ void Launcher::initializeAchievements() {
             message->icon = true;
             message->index = job.index;
             message->url = job.url;
-            const auto name = achievementIconFile(job.url);
-            if (name.empty()) continue;
-            const auto file = icons / std::to_wstring(job.app_id) / name;
-            {
-                std::ifstream input(file, std::ios::binary | std::ios::ate);
-                if (input && input.tellg() > 0 && input.tellg() < 1024 * 1024) {
-                    message->bytes.resize(static_cast<size_t>(input.tellg()));
-                    input.seekg(0);
-                    if (!input.read(reinterpret_cast<char*>(message->bytes.data()), static_cast<std::streamsize>(message->bytes.size()))) message->bytes.clear();
-                }
+            if (!job.url.starts_with(L"https://")) { // A plugin's picture on this computer (an emulator's trophy icon).
+                message->bytes = readImage(job.url);
+                if (!message->bytes.empty()) post(std::move(message));
+                continue;
             }
-            if (!looksLikeImage(message->bytes)) {
+            const auto name = iconFile(job.url);
+            if (name.empty() || job.folder.empty()) continue;
+            const auto file = icons / job.folder / name;
+            message->bytes = readImage(file);
+            if (message->bytes.empty()) {
                 HttpBudget budget(10000);
                 auto reply = httpGet(job.url, L"Accept: image/jpeg, image/png\r\n", 1024 * 1024);
                 message->bytes = reply.status == 200 && looksLikeImage(reply.body) ? std::move(reply.body) : std::vector<uint8_t>{};
@@ -114,22 +133,44 @@ void Launcher::initializeAchievements() {
 }
 
 int Launcher::achievementsDetailAction() const {
-    return screen_ == ScreenMode::details && !detail_games_.empty() && steamArtwork(detail_games_[0]) && details_.achievements_total ?
-           lastDetailAction() + 1 : -2;
+    return screen_ == ScreenMode::details && !detail_games_.empty() && (steamArtwork(detail_games_[0]) || pluginAchievementsProvider(detail_games_[0])) &&
+           details_.achievements_total ? lastDetailAction() + 1 : -2;
 }
 
 void Launcher::openAchievements() {
-    if (screen_ != ScreenMode::details || detail_games_.empty() || !steamArtwork(detail_games_[0])) return;
+    if (screen_ != ScreenMode::details || detail_games_.empty()) return;
     const auto& game = detail_games_[0];
+    const bool steam = steamArtwork(game);
+    if (!steam && !pluginAchievementsProvider(game)) return;
     achievements_ = {};
     achievements_.open = true;
     achievements_.loading = true;
-    achievements_.app_id = game.app_id;
+    achievements_.app_id = steam ? game.app_id : 0;
+    achievements_.key = gameKey(game);
+    achievements_.folder = steam ? std::to_wstring(game.app_id) : text_encoding::wideLenient(gameCacheKey(game));
     achievements_.title = game.name;
     achievements_.unlocked = details_.achievements_unlocked;
     achievements_.total = details_.achievements_total;
     achievement_icons_requested_.clear();
     renderer_.resetArtworkThumbnails(0);
+    if (!steam) {
+        // The plugin's last answer at once; a fresh one replaces it when it comes.
+        {
+            std::lock_guard lock(achievement_jobs_->mutex);
+            achievement_jobs_->generation.fetch_add(1);
+            achievement_jobs_->jobs.clear();
+        }
+        if (const auto* known = pluginAchievements(game)) {
+            achievements_.source = known->source;
+            if (known->list.total) showAchievementList(known->list, !known->pending);
+            else { achievements_.loading = known->pending; achievements_.message = known->message; }
+        }
+        requestPluginAchievements(game);
+        if (const auto* known = pluginAchievements(game); known && !known->pending) achievements_.loading = false;
+        audio_.drawer();
+        InvalidateRect(hwnd_, nullptr, FALSE);
+        return;
+    }
     {
         std::lock_guard lock(achievement_jobs_->mutex);
         const auto generation = achievement_jobs_->generation.fetch_add(1) + 1;
@@ -163,8 +204,12 @@ void Launcher::onAchievements(std::unique_ptr<AchievementsMessage> message) {
         InvalidateRect(hwnd_, nullptr, FALSE);
         return;
     }
-    state.loading = !message->final;
-    auto& list = message->list;
+    showAchievementList(message->list, message->final);
+}
+
+void Launcher::showAchievementList(const SteamAchievements& list, bool final) {
+    auto& state = achievements_;
+    state.loading = !final;
     if (list.total) { state.total = list.total; state.unlocked = list.unlocked; }
     // The first (cached) answer fills the list; a later full list replaces it.
     if (!list.items.empty() && (state.items.empty() || list.complete)) {
@@ -201,7 +246,7 @@ void Launcher::requestAchievementIcons() {
         for (size_t i = first; i < end && i < achievement_icons_requested_.size(); ++i) {
             if (achievement_icons_requested_[i] || achievements_.icons[i].empty()) continue;
             achievement_icons_requested_[i] = 1;
-            achievement_jobs_->jobs.push_back({generation, true, achievements_.app_id, account_, i, achievements_.icons[i]});
+            achievement_jobs_->jobs.push_back({generation, true, achievements_.app_id, account_, i, achievements_.icons[i], achievements_.folder});
             queued = true;
         }
     }

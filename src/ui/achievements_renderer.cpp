@@ -23,7 +23,7 @@ void Renderer::drawAchievements() {
     textLine(tr(L"Osiągnięcia"), back.right + 22, (back.top + back.bottom) * 0.5f, right - back.right - 22, settings_heading_font_.Get(), gray(0.96f));
     // Game, count and progress.
     const float header = layout.panel().top();
-    textLine(state.title, left, header + 14, right - left - 260, menu_font_.Get(), gray(0.7f));
+    textLine(state.source.empty() ? state.title : state.title + L" · " + state.source, left, header + 14, right - left - 260, menu_font_.Get(), gray(0.7f));
     if (state.total) {
         const std::wstring count = std::to_wstring(state.unlocked) + L" / " + std::to_wstring(state.total) +
                                    L"  (" + std::to_wstring(state.unlocked * 100 / state.total) + L"%)";
@@ -37,7 +37,7 @@ void Renderer::drawAchievements() {
         }
     }
     if (state.items.empty()) {
-        textLine(state.loading ? std::wstring(tr(L"Wczytywanie…")) : std::wstring(tr(L"Lista osiągnięć nie jest dostępna.")),
+        textLine(state.loading ? std::wstring(tr(L"Wczytywanie…")) : !state.message.empty() ? state.message : std::wstring(tr(L"Lista osiągnięć nie jest dostępna.")),
                  left, layout.top() + 30, right - left, menu_font_.Get(), gray(0.6f));
         return;
     }

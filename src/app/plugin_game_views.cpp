@@ -112,7 +112,7 @@ void Launcher::requestGameComparisons(const Game& game, bool force) {
 }
 void Launcher::pollPluginGameViews() {
     if (!runtime_started_ || plugins_busy_) return;
-    if (screen_ == ScreenMode::details && !detail_games_.empty()) requestGameComparisons(detail_games_[0]);
+    if (screen_ == ScreenMode::details && !detail_games_.empty()) { requestGameComparisons(detail_games_[0]); requestPluginAchievements(detail_games_[0]); }
     if (friends_open_) {
         const auto scope = pluginWidgetScope();
         if (scope != plugin_widget_scope_ || (!scope.empty() && GetTickCount64() >= next_plugin_widget_refresh_)) refreshPluginWidgets(true);

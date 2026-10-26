@@ -23,10 +23,12 @@ std::filesystem::path bundledPlugins() {
     return std::filesystem::path(std::wstring(file, size)).parent_path() / L"plugin-packages";
 }
 }
+// plugin_achievements.cpp: the achievements method with its store-request rounds.
+json::Value pluginAchievementRounds(plugins::Manager& manager, const plugins::Job& job, launcher_queues::StoreGateway& gateway);
 void Launcher::initializePlugins() {
     plugins_busy_ = true;
     const auto bundle = bundledPlugins();
-    work_.start([queue = plugin_jobs_, alive = alive_, hwnd = hwnd_, bundle, crashed = crashed_plugin_] {
+    work_.start([queue = plugin_jobs_, alive = alive_, hwnd = hwnd_, bundle, crashed = crashed_plugin_, gateway = store_gateway_] {
         plugins::Manager manager(userConfigDirectory() / L"plugins");
         auto initial = std::make_unique<PluginsMessage>();
         try {
@@ -70,6 +72,8 @@ void Launcher::initializePlugins() {
                     result->response = manager.invoke(job.plugin, "library", job.value, job.locale); break;
                 case Kind::downloads:
                     result->response = manager.invoke(job.plugin, "downloads", job.value, job.locale); break;
+                case Kind::achievements:
+                    result->response = pluginAchievementRounds(manager, job, *gateway); break;
                 default: break;
                 }
             } catch (const std::exception& error) { result->error = error.what(); }
@@ -99,7 +103,7 @@ void Launcher::submitPlugin(plugins::Job job) {
             std::erase_if(plugin_jobs_->jobs, [](const auto& j) { return j.kind == plugins::Job::Kind::search; });
         if (job.kind == plugins::Job::Kind::widget)
             std::erase_if(plugin_jobs_->jobs, [&](const auto& j) { return j.kind == job.kind && j.plugin == job.plugin && j.key == job.key; });
-        if (job.kind == plugins::Job::Kind::details)
+        if (job.kind == plugins::Job::Kind::details || job.kind == plugins::Job::Kind::achievements)
             std::erase_if(plugin_jobs_->jobs, [&](const auto& j) { return j.kind == job.kind && j.plugin == job.plugin && gameKey(j.game) == gameKey(job.game); });
         if (job.kind == plugins::Job::Kind::library)
             std::erase_if(plugin_jobs_->jobs, [&](const auto& j) { return j.kind == job.kind && j.plugin == job.plugin; });
@@ -130,7 +134,7 @@ void Launcher::refreshPluginContributions() {
     });
     if (removed) { rebuildUninstalledSteamGames(); refreshRecentGames(); }
     refreshPluginLibraries();
-    plugin_comparisons_.clear(); ++plugin_widget_generation_;
+    plugin_comparisons_.clear(); plugin_achievements_.clear(); ++plugin_widget_generation_;
     for (auto& [key, sample] : plugin_playtimes_) sample.pending = false; // Stats belong to the session, not an enabled plugin.
     plugin_widget_scope_.clear(); next_plugin_widget_refresh_ = 0;
     plugin_menu_ = plugins_.contributions("menu");
@@ -243,6 +247,8 @@ void Launcher::onPlugins(std::unique_ptr<PluginsMessage> message) {
         }
         if (settingsOpen()) buildSettingsRows();
     }
+    // Achievements answer quietly: a failure shows on their screen, not as a notification.
+    if (job.kind == plugins::Job::Kind::achievements) { if (receivePluginAchievements(*message)) InvalidateRect(hwnd_, nullptr, FALSE); return; }
     if (message->error.empty() && receivePluginGameView(*message)) { invalidateGameOverlay(); InvalidateRect(hwnd_, nullptr, FALSE); return; }
     if (!message->error.empty()) {
         if (job.game.kind == GameKind::catalog) add_requests_.clear(job.game.app_id);

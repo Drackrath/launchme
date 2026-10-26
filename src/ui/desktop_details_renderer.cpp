@@ -250,7 +250,7 @@ void Renderer::drawDesktopDetails() {
 void Renderer::drawDesktopAchievements(const achievements_ui::State& list, float left, float right, float top) {
     const auto& view = *context_->desktop_sheet;
     float y = top;
-    textLine(list.title, left, y + 10, right - left - 200, desktop_title_font_.Get(), palette::text());
+    textLine(list.source.empty() ? list.title : list.title + L" · " + list.source, left, y + 10, right - left - 200, desktop_title_font_.Get(), palette::text());
     if (list.total) {
         const auto count = std::to_wstring(list.unlocked) + L" / " + std::to_wstring(list.total);
         textLine(count, right - 190, y + 10, 190, desktop_strong_font_.Get(), palette::text(), DWRITE_TEXT_ALIGNMENT_TRAILING);
@@ -259,7 +259,7 @@ void Renderer::drawDesktopAchievements(const achievements_ui::State& list, float
     }
     y += 56;
     if (list.items.empty()) {
-        textLine(list.loading ? tr(L"Wczytywanie…") : tr(L"Lista osiągnięć nie jest dostępna."), left, y + 10, right - left, desktop_font_.Get(), palette::muted());
+        textLine(list.loading ? std::wstring(tr(L"Wczytywanie…")) : !list.message.empty() ? list.message : std::wstring(tr(L"Lista osiągnięć nie jest dostępna.")), left, y + 10, right - left, desktop_font_.Get(), palette::muted());
         desktop_sheet_height_ = y + 40 - top + view.scroll;
         return;
     }

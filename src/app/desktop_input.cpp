@@ -78,14 +78,17 @@ desktop_ui::Hit Launcher::desktopHit(float x, float y) const {
         for (int i = 0; i < 3; ++i)
             if (L.windowButton(i).contains(x, y)) return {i == 0 ? Target::minimize : i == 1 ? Target::maximize : Target::close, i};
         for (int i = 0; i < static_cast<int>(tools.size()); ++i) if (L.tool(i).contains(x, y)) return {Target::tool, i};
+        if (L.sidebarToggle().contains(x, y)) return {Target::sidebar_toggle, 0};
         if (!desktop_query_.empty() && L.searchClear().contains(x, y)) return {Target::search_clear, 0};
         if (L.search().contains(x, y)) return {Target::search, 0};
         return {Target::caption, 0};
     }
     if (settings_.companion && renderer_.companionBubble().contains(x, y)) return {Target::companion_bubble, 0};
+    // The pane's left edge: dragged, it resizes the pane (and the grid's columns).
+    if (L.paneEdge().contains(x, y) && !desktop_downloads_open_ && !desktop_widgets_open_) return {Target::pane_resize, 0};
     if (x < L.sidebarRight()) {
-        if (settings_.companion && L.companionMore().contains(x, y)) return {Target::companion_more, 0};
-        if (settings_.companion && L.companionCard().contains(x, y)) return {Target::companion_card, 0};
+        if (L.companion_card && L.companionMore().contains(x, y)) return {Target::companion_more, 0};
+        if (L.companion_card && L.companionCard().contains(x, y)) return {Target::companion_card, 0};
         const auto rows = desktopRows();
         const int row = L.hitRow(rows, desktop_sidebar_scroll_, x, y);
         if (row >= 0 && rows[static_cast<size_t>(row)].heading && rows[static_cast<size_t>(row)].group == Group::collections &&
@@ -233,6 +236,12 @@ void Launcher::desktopClick(float mouse_x, float mouse_y, bool double_click) {
         SetCapture(hwnd_); InvalidateRect(hwnd_, nullptr, FALSE);
         return;
     }
+    case Target::pane_resize:
+        if (double_click) { desktop_pressed_ = {}; desktopSetPane(0); settings_dirty_ = true; settings_edited_ = std::chrono::steady_clock::now(); return; } // Back to automatic.
+        desktop_drag_.kind = DesktopDrag::Kind::pane; desktop_drag_.active = true;
+        desktop_drag_.grab = x - desktopLayout().paneLeft();
+        SetCapture(hwnd_); InvalidateRect(hwnd_, nullptr, FALSE);
+        return;
     case Target::size_slider: {
         const auto slider = desktopLayout().sizeSlider();
         desktopSetPoster(posterFromLevel((x - slider.left - 7) / std::max(1.0f, slider.right - slider.left - 14)));
@@ -273,7 +282,7 @@ void Launcher::desktopPointerUp(float mouse_x, float mouse_y) {
             desktopDrop(desktop_entries_[static_cast<size_t>(rows[static_cast<size_t>(drag.drop_row)].entry)], drag.games);
         else if (drag.kind == DesktopDrag::Kind::entry && drag.row >= 0 && drag.row < static_cast<int>(rows.size()) && rows[static_cast<size_t>(drag.row)].entry >= 0)
             desktopReorder(desktop_entries_[static_cast<size_t>(rows[static_cast<size_t>(drag.row)].entry)].collection, drag.reorder_before);
-        else if (drag.kind == DesktopDrag::Kind::slider) { settings_dirty_ = true; settings_edited_ = std::chrono::steady_clock::now(); }
+        else if (drag.kind == DesktopDrag::Kind::slider || drag.kind == DesktopDrag::Kind::pane) { settings_dirty_ = true; settings_edited_ = std::chrono::steady_clock::now(); }
         return;
     }
     const auto hit = desktopHit(x, y);
@@ -300,6 +309,7 @@ void Launcher::desktopMouseMove(float mouse_x, float mouse_y) {
             desktopSetPoster(posterFromLevel((x - slider.left - 7) / std::max(1.0f, slider.right - slider.left - 14)));
             break;
         }
+        case DesktopDrag::Kind::pane: desktopSetPane(static_cast<int>(std::round(L.width - (x - drag.grab)))); break;
         case DesktopDrag::Kind::card: {
             if (!drag.active && std::hypot(x - drag.x0, y - drag.y0) > 6) {
                 drag.active = true;
@@ -451,10 +461,12 @@ LPCWSTR Launcher::desktopCursor(float mouse_x, float mouse_y) const {
     if (!desktopActive() || topModal() != Modal::none || friends_open_ || pending_launch_) return nullptr;
     if (desktop_drag_.active && desktop_drag_.kind == DesktopDrag::Kind::card) return desktop_drag_.drop_row >= 0 ? IDC_HAND : IDC_ARROW;
     if (desktop_drag_.active && desktop_drag_.kind == DesktopDrag::Kind::entry) return IDC_SIZENS;
+    if (desktop_drag_.active && desktop_drag_.kind == DesktopDrag::Kind::pane) return IDC_SIZEWE;
     const float scale = desktopScale();
     const auto hit = desktopHit(mouse_x / scale, mouse_y / scale);
     switch (hit.target) {
     case Target::search: return IDC_IBEAM;
+    case Target::pane_resize: return IDC_SIZEWE;
     case Target::none: case Target::caption: case Target::grid: case Target::widget_panel: case Target::widget_item: return IDC_ARROW;
     case Target::menu_item: case Target::submenu_item: return IDC_ARROW;
     case Target::pane_quick:
@@ -472,6 +484,7 @@ void Launcher::desktopActivate(const desktop_ui::Hit& hit) {
     case Target::minimize: ShowWindow(hwnd_, SW_MINIMIZE); return;
     case Target::maximize: toggleMaximized(); return;
     case Target::close: PostMessageW(hwnd_, WM_CLOSE, 0, 0); return;
+    case Target::sidebar_toggle: desktopToggleSidebar(); return;
     case Target::tool:
         if (hit.index >= 0 && hit.index < static_cast<int>(tools.size())) desktopToolPick(tools[static_cast<size_t>(hit.index)]);
         return;
@@ -685,6 +698,35 @@ void Launcher::desktopSetPoster(float width) {
     // The selected game stays in view while the grid reflows.
     desktop_scroll_target_ = desktop_scroll_ = std::clamp(desktop_scroll_target_, 0.0f, L.maxScroll(cards_.size()));
     if (!cards_.empty()) desktop_scroll_target_ = desktop_scroll_ = L.reveal(selected_, cards_.size(), desktop_scroll_target_);
+    desktopRequestArt();
+    InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
+// The pane's width (dragged by its edge; 0 automatic): the grid reflows around the selected game.
+void Launcher::desktopSetPane(int width) {
+    auto L = desktopLayout();
+    L.pane_width = static_cast<float>(width);
+    const int next = width <= 0 ? 0 : static_cast<int>(L.paneWidth()); // As far as the window allows.
+    if (next == settings_.desktop_pane) return;
+    settings_.desktop_pane = next;
+    desktopReflow();
+}
+
+void Launcher::desktopToggleSidebar() {
+    settings_.desktop_narrow = !settings_.desktop_narrow;
+    settings_dirty_ = true; settings_edited_ = std::chrono::steady_clock::now();
+    desktop_active_y_valid_ = false; // Its rows change: the active bar snaps to its new place.
+    desktop_sidebar_scroll_ = std::clamp(desktop_sidebar_scroll_, 0.0f, desktopLayout().sidebarMaxScroll(desktopRows()));
+    desktop_sidebar_focus_ = -1;
+    audio_.context();
+    InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
+void Launcher::desktopReflow() {
+    const auto L = desktopLayout();
+    desktop_scroll_target_ = desktop_scroll_ = std::clamp(desktop_scroll_target_, 0.0f, L.maxScroll(cards_.size()));
+    if (!cards_.empty()) desktop_scroll_target_ = desktop_scroll_ = L.reveal(selected_, cards_.size(), desktop_scroll_target_);
+    desktop_columns_ = L.columns();
     desktopRequestArt();
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
@@ -1468,6 +1510,14 @@ std::wstring Launcher::desktopTooltip(const desktop_ui::Hit& hit) const {
     case Target::minimize: return tr(L"Minimalizuj");
     case Target::maximize: return IsZoomed(hwnd_) ? tr(L"Przywróć") : tr(L"Maksymalizuj");
     case Target::close: return tr(L"Zamknij");
+    case Target::sidebar_toggle: return settings_.desktop_narrow ? tr(L"Rozwiń panel boczny") : tr(L"Zwiń panel boczny");
+    case Target::pane_resize: return tr(L"Przeciągnij, aby zmienić szerokość; dwuklik: domyślna");
+    case Target::sidebar_row: { // Narrow, the icons alone: their names on hover.
+        if (!settings_.desktop_narrow) return {};
+        const auto rows = desktopRows();
+        if (hit.index < 0 || hit.index >= static_cast<int>(rows.size()) || rows[static_cast<size_t>(hit.index)].entry < 0) return {};
+        return desktop_entries_[static_cast<size_t>(rows[static_cast<size_t>(hit.index)].entry)].title;
+    }
     case Target::tool:
         if (hit.index < 0 || hit.index >= static_cast<int>(tools.size())) return {};
         switch (tools[static_cast<size_t>(hit.index)]) {
@@ -1517,6 +1567,12 @@ desktop_ui::Rect Launcher::desktopTooltipAnchor(const desktop_ui::Hit& hit) cons
     case Target::minimize: return L.windowButton(0);
     case Target::maximize: return L.windowButton(1);
     case Target::close: return L.windowButton(2);
+    case Target::sidebar_toggle: return L.sidebarToggle();
+    case Target::pane_resize: { const auto e = L.paneEdge(); const float y = desktop_drag_.y > 0 ? desktop_drag_.y : (e.top + e.bottom) * 0.5f; return {e.left, y - 12, e.right, y + 12}; }
+    case Target::sidebar_row: {
+        const auto rows = desktopRows();
+        return hit.index >= 0 && hit.index < static_cast<int>(rows.size()) ? L.sidebarRow(rows[static_cast<size_t>(hit.index)], desktop_sidebar_scroll_) : Rect{};
+    }
     case Target::tool: return L.tool(hit.index);
     case Target::search_clear: return L.searchClear();
     case Target::sidebar_add: {

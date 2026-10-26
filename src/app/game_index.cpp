@@ -173,6 +173,10 @@ bool Launcher::completeDetails(GameDetails& details, const Game& game) const {
         fill(details.developer, join(record->developers, false, en));
         fill(details.publisher, join(record->publishers, false, en));
         fill(details.genres, join(record->genres, true, en));
+        // Achievements of a game outside Steam (an achievements plugin's counts).
+        if (!details.achievements_total && record->achievements_total) {
+            details.achievements_total = record->achievements_total; details.achievements_unlocked = record->achievements_unlocked; filled = true;
+        }
         // What it knows now is a description, not "none available".
         if (filled && !details.description.empty()) details.error.clear();
         return filled;

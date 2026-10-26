@@ -895,6 +895,26 @@ private:
     json::Value pluginGameParams(const Game& game) const;
     bool receivePluginGameView(const plugins::Result& message);
     std::wstring pluginWidgetText(size_t index) const;
+    // Achievements of games outside Steam from a plugin (src/app/plugin_achievements.cpp): the
+    // last answer per game key, the list the achievements screen shows and the counts the card,
+    // the game index and the previews use. Store requests go through store_gateway_.
+    struct PluginAchievements {
+        std::string plugin, locale;
+        std::wstring name;               // The game's title when asked (a rename asks again).
+        SteamAchievements list;          // Empty: none for this game, or not known yet.
+        std::wstring source, message;
+        uint32_t generation = 0;
+        uint64_t checked_at = 0;
+        bool pending = false, answered = false;
+    };
+    std::map<std::string, PluginAchievements> plugin_achievements_;
+    uint32_t plugin_achievements_generation_ = 0;
+    std::shared_ptr<launcher_queues::StoreGateway> store_gateway_ = std::make_shared<launcher_queues::StoreGateway>();
+    std::optional<plugins::Action> pluginAchievementsProvider(const Game& game) const;
+    const PluginAchievements* pluginAchievements(const Game& game) const;
+    void requestPluginAchievements(const Game& game, bool force = false);
+    bool receivePluginAchievements(const plugins::Result& message);
+    void showAchievementList(const SteamAchievements& list, bool final); // Fills achievements_ (the open screen).
     library_manager_ui::State library_dialog_;
     void openCollectionManager(std::optional<Game> game = {});
     void rebuildCollectionDialog();
@@ -2163,7 +2183,7 @@ private:
     // Off until initialize() reads Settings: the UI tests build a Launcher without it and see Tryb TV.
     bool desktop_mode_ = false;
     struct DesktopDrag {
-        enum class Kind { none, card, entry, scrollbar, slider } kind = Kind::none;
+        enum class Kind { none, card, entry, scrollbar, slider, pane } kind = Kind::none; // pane: its left edge.
         float x0 = 0, y0 = 0, x = 0, y = 0; // Logical (desktop) coordinates.
         bool active = false;                // Past the threshold: a drag, not a click.
         int card = -1, row = -1;            // The pressed card / sidebar row.
@@ -2178,6 +2198,9 @@ private:
     std::array<bool, desktop_ui::group_count> desktop_collapsed_{};
     std::array<float, desktop_ui::group_count> desktop_collapse_anim_{};
     bool desktop_collapse_valid_ = false;
+    float desktop_narrow_anim_ = 0;   // The sidebar 0 wide … 1 narrow, easing to settings_.desktop_narrow.
+    bool desktop_narrow_valid_ = false;
+    int desktop_columns_ = 0;         // The grid's columns last laid out: a change asks for the new posters' art.
     Spring desktop_active_y_;
     bool desktop_active_y_valid_ = false;
     std::string desktop_drop_flash_id_;
@@ -2260,6 +2283,9 @@ private:
     void desktopPickSelected(); // Enter/A/double click on a card: the default game action (details or launch).
     void desktopScrollBy(float amount);
     void desktopSetPoster(float width);
+    void desktopSetPane(int width);   // The pane's width by its edge; 0 automatic.
+    void desktopToggleSidebar();      // Wide ↔ narrow (the toggle by the logo).
+    void desktopReflow();             // After the grid's width changed: scroll kept, art asked for.
     void desktopToggleMark(size_t index);
     void desktopMarkRange(size_t from, size_t to);
     std::vector<Game> desktopTargets() const;

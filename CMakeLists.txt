@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(launchme VERSION 0.1.4 LANGUAGES C CXX)
+project(launchme VERSION 0.1.5 LANGUAGES C CXX)
 
 if(NOT WIN32)
     message(FATAL_ERROR "This native Direct2D prototype currently targets Windows.")
@@ -198,7 +198,9 @@ set(LAUNCHME_APP_SOURCES
     src/plugins/manifest.cpp
     src/plugins/package.cpp
     src/plugins/manager.cpp
+    src/plugins/achievements.cpp
     src/app/artwork_browser.cpp
+    src/app/plugin_achievements.cpp
     src/app/pc_platforms.cpp
     src/app/gog.cpp
     src/app/epic.cpp
@@ -593,6 +595,12 @@ function(launchme_plugin target folder id dll)
     install(FILES "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/plugin-packages/${id}.zip" DESTINATION plugin-packages COMPONENT ${ARG_COMPONENT})
 endfunction()
 launchme_plugin(launchme_howlongtobeat plugins/howlongtobeat launchme.howlongtobeat howlongtobeat plugins/howlongtobeat/hltb.cpp plugins/howlongtobeat/service.cpp)
+# Achievements of games outside Steam (after SuccessStory, MIT: plugins/achievements/NOTICE.md, also shipped in the package).
+set(LAUNCHME_ACHIEVEMENTS_PLUGIN_SOURCES plugins/achievements/common.cpp plugins/achievements/stores.cpp plugins/achievements/retro.cpp
+    plugins/achievements/trophies.cpp plugins/achievements/service.cpp)
+launchme_plugin(launchme_achievements plugins/achievements launchme.achievements achievements ${LAUNCHME_ACHIEVEMENTS_PLUGIN_SOURCES} ASSETS NOTICE.md)
+target_link_libraries(launchme_achievements PRIVATE bcrypt)
+install(FILES plugins/achievements/NOTICE.md DESTINATION plugin-packages/licenses RENAME successstory.txt COMPONENT Runtime)
 install(FILES "${miniz_SOURCE_DIR}/LICENSE" DESTINATION plugin-packages/licenses RENAME miniz.txt COMPONENT Runtime)
 install(FILES "${presentmon_SOURCE_DIR}/LICENSE.txt" DESTINATION plugin-packages/licenses RENAME presentmon.txt COMPONENT Runtime)
 install(FILES "${webview2_SOURCE_DIR}/LICENSE.txt" DESTINATION plugin-packages/licenses RENAME webview2.txt COMPONENT Runtime)
@@ -656,6 +664,8 @@ if(BUILD_TESTING)
     launchme_executable(howlongtobeat_tests SOURCES tests/howlongtobeat_tests.cpp plugins/howlongtobeat/hltb.cpp)
     add_dependencies(howlongtobeat_tests launchme_howlongtobeat)
     add_test(NAME howlongtobeat_search_and_plugin_cache COMMAND howlongtobeat_tests --plugin $<TARGET_FILE:launchme_howlongtobeat>)
+    launchme_executable(achievements_plugin_tests TEST achievements_plugin_sources_and_rounds
+        SOURCES tests/achievements_plugin_tests.cpp ${LAUNCHME_ACHIEVEMENTS_PLUGIN_SOURCES} LIBS bcrypt)
     launchme_executable(game_fps_tests TEST game_fps_history_and_overlay_bar SOURCES tests/game_fps_tests.cpp)
     foreach(fixture plugin_fixture plugin_bad_abi)
         add_library(${fixture} SHARED tests/plugin_fixture.cpp)
@@ -761,6 +771,7 @@ if(BUILD_TESTING)
     add_test(NAME library_organization_and_versions COMMAND launcher_ui_tests --organization)
     add_test(NAME plugin_library_supplement_merge COMMAND launcher_ui_tests --plugin-library)
     add_test(NAME hltb_details_and_active_game_widget COMMAND launcher_ui_tests --hltb-details)
+    add_test(NAME plugin_achievements_for_other_stores COMMAND launcher_ui_tests --plugin-achievements)
     add_test(NAME psfive_home_layout COMMAND launcher_ui_tests --psfive)
     add_test(NAME snitch_home_layout COMMAND launcher_ui_tests --snitch)
     set_tests_properties(snitch_home_layout PROPERTIES TIMEOUT 60)

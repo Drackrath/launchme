@@ -1,9 +1,11 @@
 #pragma once
 #include "../model/game.hpp"
 #include "../net/http.hpp"
+#include "account_request.hpp"
 #include "gog_install.hpp" // Shared install progress/modal DTOs; Epic has its own backend.
 #include <chrono>
 #include <functional>
+#include <future>
 #include <memory>
 #include <optional>
 
@@ -32,6 +34,9 @@ public:
     virtual Result exchange(const Config&, const std::string&, Tokens&, const Cancel&) = 0;
     virtual Result verify(const Config&, Tokens&, const Cancel&) = 0;
     virtual Result library(const Config&, Session&, const Cancel&) = 0;
+    // An account API call (AccountRequest): the bearer token added, refreshed when due or on 401.
+    // `response` is the server's answer whatever its status.
+    virtual Result call(const Config&, const AccountRequest&, Tokens&, const Cancel&, HttpResponse&) { return {Failure::configuration}; }
 };
 std::unique_ptr<Backend> makeBackend(Http = {});
 class Vault {
@@ -72,6 +77,11 @@ public:
     virtual bool busy() const = 0;
     virtual std::optional<gog::InstallSnapshot> takeInstall() = 0;
     virtual std::optional<LaunchResult> takeLaunch() = 0;
+    // An account API call queued for the account worker (which owns the token); its answer is
+    // nullopt without a session or on a failed refresh. Shutdown breaks the promise.
+    virtual std::future<std::optional<HttpResponse>> request(AccountRequest) {
+        std::promise<std::optional<HttpResponse>> none; none.set_value(std::nullopt); return none.get_future();
+    }
 };
 std::unique_ptr<Service> makeService(std::unique_ptr<Backend>, std::unique_ptr<Vault>, std::unique_ptr<Runner>,
     std::function<Config()>, std::chrono::milliseconds login_timeout = std::chrono::minutes(5));

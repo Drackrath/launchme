@@ -4,6 +4,7 @@
 void Launcher::initializeGog() {
     gog_service_ = gog::makeService(gog::makeBackend(), gog::makeVault(userConfigDirectory() / L"accounts" / L"gog.session"));
     gog_service_->submit(gog::Command::restore);
+    std::lock_guard lock(store_gateway_->mutex); store_gateway_->gog = gog_service_.get(); // Plugins' store requests.
 }
 void Launcher::gogCommand(gog::Command command) {
     if (!gog_service_) return;

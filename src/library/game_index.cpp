@@ -15,7 +15,7 @@
 namespace game_index {
 namespace {
 constexpr std::array<const char*, source_count> source_keys{
-    "library", "steam_appinfo", "steam_store", "rawg", "reviews", "hltb", "emulation", "gog", "epic", "steam_stats"};
+    "library", "steam_appinfo", "steam_store", "rawg", "reviews", "hltb", "emulation", "gog", "epic", "steam_stats", "achievements"};
 
 // Per-field trust: the first source with the field wins.
 using Order = std::initializer_list<Source>;
@@ -33,7 +33,7 @@ constexpr Order rawg_order{Source::reviews, Source::rawg};
 constexpr Order play_order{Source::steam_stats, Source::library};
 constexpr Order library_order{Source::library};
 constexpr Order hltb_order{Source::library, Source::hltb};
-constexpr Order achievement_order{Source::steam_stats};
+constexpr Order achievement_order{Source::steam_stats, Source::achievements};
 constexpr Order alias_order{Source::library, Source::emulation, Source::rawg, Source::steam_store};
 
 std::string utf8(std::wstring_view text) { return text_encoding::utf8Lenient(text); }

@@ -4,6 +4,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <deque>
+#include <future>
 #include <mutex>
 #include <thread>
 
@@ -17,7 +18,11 @@ class AccountService final : public Service {
     std::chrono::milliseconds timeout_;
     std::mutex mutex_;
     std::condition_variable wake_;
-    struct Work { Command command; std::wstring input; uint64_t generation; std::optional<Game> game; std::optional<gog::InstallRequest> install; };
+    using Reply = std::promise<std::optional<HttpResponse>>;
+    struct Work {
+        Command command; std::wstring input; uint64_t generation; std::optional<Game> game; std::optional<gog::InstallRequest> install;
+        std::optional<AccountRequest> call; std::shared_ptr<Reply> reply; // request(): an account API call.
+    };
     std::deque<Work> queue_;
     std::atomic_uint64_t generation_{0};
     std::atomic_bool stop_{false}, busy_{false};
@@ -96,7 +101,34 @@ class AccountService final : public Service {
             result.failure == Failure::storage ? gog::InstallError::storage : result.failure == Failure::invalid ? gog::InstallError::detection : gog::InstallError::network);
         else { std::lock_guard lock(mutex_); if (!cancel()) launch_ = LaunchResult{game, {}, result.failure}; }
     }
+    // request(): the account's token stays here; a refresh or 401 rotation is kept in the vault.
+    void serve(Work& work) {
+        std::optional<HttpResponse> answer;
+        try {
+            if (session_ && nowSeconds() >= retry_at_) {
+                config_ = configuration_();
+                if (config_.valid()) {
+                    const Cancel cancel = [&] { return stop_.load(); };
+                    auto next = *session_;
+                    // "{account}" in the URL or body: this account's ID, which the caller need not know.
+                    auto call = *work.call;
+                    const auto fill = [&](auto& text, const auto& marker, const auto& value) {
+                        for (size_t at = text.find(marker); at != text.npos; at = text.find(marker, at + value.size())) text.replace(at, std::size(marker) - 1, value);
+                    };
+                    fill(call.url, L"{account}", std::wstring(next.tokens.account.begin(), next.tokens.account.end()));
+                    fill(call.body, "{account}", next.tokens.account);
+                    HttpResponse response;
+                    const auto result = backend_->call(config_, call, next.tokens, cancel, response);
+                    if (result || response.status) answer = std::move(response);
+                    if ((next.tokens.access != session_->tokens.access || next.tokens.refresh != session_->tokens.refresh) && vault_->save(next))
+                        session_ = std::move(next);
+                }
+            }
+        } catch (...) { answer.reset(); }
+        work.reply->set_value(std::move(answer));
+    }
     void process(Work& work) {
+        if (work.call) { serve(work); return; }
         const auto generation = work.generation;
         const Cancel cancel = [&] { return stop_.load() || generation != generation_.load(); };
         // Logout stays ordered even when immediately followed by a new Connect.
@@ -160,6 +192,7 @@ class AccountService final : public Service {
             }
             try { process(work); }
             catch (...) {
+                if (work.reply) continue;
                 if (work.install) progress(work.generation, gog::InstallState::error, 0, 0, gog::InstallError::storage);
                 else if (work.game) { std::lock_guard lock(mutex_); if (work.generation == generation_) launch_ = LaunchResult{*work.game, {}, Failure::invalid}; }
                 else failed(work.generation, {Failure::invalid});
@@ -206,6 +239,20 @@ public:
         std::lock_guard lock(mutex_); if (!install_dirty_) return {}; install_dirty_ = false; return install_;
     }
     std::optional<LaunchResult> takeLaunch() override { std::lock_guard lock(mutex_); auto r = std::move(launch_); launch_.reset(); return r; }
+    std::future<std::optional<HttpResponse>> request(AccountRequest call) override {
+        auto reply = std::make_shared<Reply>();
+        auto answer = reply->get_future();
+        {
+            // No new generation: an account call never cancels a sync, an install or a launch.
+            std::lock_guard lock(mutex_);
+            if (stop_) { reply->set_value(std::nullopt); return answer; }
+            Work work{Command::sync, {}, generation_.load()};
+            work.call = std::move(call); work.reply = reply;
+            queue_.push_back(std::move(work));
+        }
+        wake_.notify_one();
+        return answer;
+    }
 };
 }
 std::unique_ptr<Service> makeService(std::unique_ptr<Backend> b, std::unique_ptr<Vault> v, std::unique_ptr<Runner> r, std::function<Config()> cfg, std::chrono::milliseconds timeout) {

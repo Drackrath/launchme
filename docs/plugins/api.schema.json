@@ -15,7 +15,7 @@
     "request": {
       "type": "object", "required": ["method", "locale", "settings", "params"],
       "properties": {
-        "method": {"enum": ["activate", "deactivate", "command", "search", "widget", "details", "library", "downloads"]},
+        "method": {"enum": ["activate", "deactivate", "command", "search", "widget", "details", "library", "downloads", "achievements"]},
         "locale": {"enum": ["pl", "en"]}, "settings": {"type": "object"},
         "params": {"type": "object", "properties": {
           "dataDirectory": {"type": "string"}, "query": {"type": "string"}, "command": {"type": "string"},

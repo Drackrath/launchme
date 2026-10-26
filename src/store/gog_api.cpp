@@ -126,6 +126,12 @@ public:
         const auto root = parsed(response);
         return root && decimal(root->get("id")) == tokens.user ? Result{} : Result{Failure::expired};
     }
+    Result call(const AccountRequest& call, Tokens& tokens, const Config& config, const Cancel& cancel, HttpResponse& response) override {
+        if (call.post || !call.url.starts_with(L"https://")) return {Failure::invalid};
+        if (tokens.expires <= nowSeconds() + 60) { const auto result = refresh(config, tokens, cancel); if (!result) return result; }
+        HttpBudget budget(20000);
+        return authorized(call.url, tokens, config, cancel, response);
+    }
     Result installers(const std::string& product, Tokens& tokens, const Config& config, const Cancel& cancel, std::vector<InstallerVariant>& output) override {
         if (!id(product)) return {Failure::invalid};
         HttpResponse response;

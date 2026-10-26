@@ -108,7 +108,7 @@ Manifest parseManifest(std::string_view bytes) {
             require(!c.active_game || c.kind == "widget", "activeGame requires a widget");
         }
         require(identifier(c.id) && ids.insert(c.id).second && identifier(c.command), "Invalid contribution ID or command");
-        require(c.kind == "menu" || c.kind == "context" || c.kind == "catalog" || c.kind == "widget" || c.kind == "details" || c.kind == "library" || c.kind == "downloads", "Unknown contribution kind");
+        require(c.kind == "menu" || c.kind == "context" || c.kind == "catalog" || c.kind == "widget" || c.kind == "details" || c.kind == "library" || c.kind == "downloads" || c.kind == "achievements", "Unknown contribution kind");
         require(c.kind != "library" || c.source == "steam", "Library supplements require a Steam source");
         require(c.source.empty() || c.source == "steam" || c.source == "gog" || c.source == "epic" || c.source == "ea" ||
             c.source == "ubisoft" || c.source == "battlenet" || c.source == "custom" || c.source == "xbox" || c.source == "drmfree", "Unknown game source");
@@ -118,6 +118,7 @@ Manifest parseManifest(std::string_view bytes) {
     require(std::count_if(out.contributions.begin(), out.contributions.end(), [](const auto& c) { return c.kind == "details"; }) <= 1, "One details provider per plugin");
     require(std::count_if(out.contributions.begin(), out.contributions.end(), [](const auto& c) { return c.kind == "library"; }) <= 1, "One library supplement per plugin");
     require(std::count_if(out.contributions.begin(), out.contributions.end(), [](const auto& c) { return c.kind == "downloads"; }) <= 1, "One download provider per plugin");
+    require(std::count_if(out.contributions.begin(), out.contributions.end(), [](const auto& c) { return c.kind == "achievements"; }) <= 1, "One achievements provider per plugin");
     return out;
 }
 bool matches(const Contribution& c, const Game& game) {
@@ -129,6 +130,17 @@ std::string gameJson(const Game& game) {
         ",\"source\":" + quote(sourceSlug(game.source)) + ",\"appId\":" + std::to_string(steamArtwork(game) ? game.app_id : 0) +
         ",\"shortcut\":" + (game.kind == GameKind::nonsteam ? "true" : "false") +
         ",\"installed\":" + (game.installed ? "true" : "false") + ",\"available\":" + (game.catalog_available ? "true" : "false") + '}';
+}
+std::string achievementGameJson(const Game& game) {
+    // Achievements alone need to find the game outside the store: its platform, the ROM an
+    // emulator runs (RetroAchievements hashes it) and the install folder (emulator trophy files).
+    auto out = gameJson(game);
+    out.pop_back();
+    out += ",\"sourceId\":" + quote(game.source_id) + ",\"epicNamespace\":" + quote(game.epic_namespace) + ",\"platform\":" + quote(text_encoding::utf8Lenient(game.platform)) +
+        ",\"rom\":" + quote(text_encoding::utf8Lenient(game.rom.wstring())) +
+        ",\"installDirectory\":" + quote(text_encoding::utf8Lenient(game.install_directory.wstring())) +
+        ",\"executable\":" + quote(text_encoding::utf8Lenient(game.executable.wstring())) + '}';
+    return out;
 }
 CatalogResult parseCatalog(const json::Value& value, const std::string& owner) {
     CatalogResult out; out.error = text_encoding::wide(text(value, "error"));

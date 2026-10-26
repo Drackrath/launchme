@@ -8,6 +8,7 @@ void Launcher::initializeEpic() {
     epic_service_ = epic::makeService(epic::makeBackend(), epic::makeVault(root / L"accounts" / L"epic.session"), epic::makeRunner(root),
         [root] { return epic::prepareConfig(root / L"accounts" / L"epic-client.bin"); });
     epic_service_->submit(epic::Command::restore);
+    std::lock_guard lock(store_gateway_->mutex); store_gateway_->epic = epic_service_.get(); // Plugins' store requests.
 }
 void Launcher::epicCommand(epic::Command command) {
     if (!epic_service_) return;

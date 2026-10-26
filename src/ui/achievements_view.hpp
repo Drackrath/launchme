@@ -8,7 +8,8 @@
 #include <vector>
 
 // Szczegóły → Osiągnięcia (src/app/achievements.cpp, src/ui/achievements_renderer.cpp): the
-// signed-in account's achievements of one Steam game over the details screen. Icons use the
+// signed-in account's achievements of one game over the details screen: Steam's own, or an
+// achievements plugin's for other games (src/app/plugin_achievements.cpp). Icons use the
 // renderer's artwork thumbnail slots, indexed like `items`.
 namespace achievements_ui {
 struct Item {
@@ -18,8 +19,12 @@ struct Item {
 };
 struct State {
     bool open = false, loading = false, complete = false;
-    uint32_t app_id = 0, unlocked = 0, total = 0;
+    uint32_t app_id = 0, unlocked = 0, total = 0; // app_id: Steam games only.
+    std::string key;       // gameKey of the game shown.
     std::wstring title;    // Game name.
+    std::wstring source;   // A plugin's source ("GOG", "RetroAchievements"), after the title.
+    std::wstring message;  // Why there is no list (a plugin's answer), instead of the generic text.
+    std::wstring folder;   // Icons' cache folder under achievements\.
     std::vector<Item> items;
     std::vector<std::wstring> icons; // URL per item, for the icon worker.
     int selected = 0;

@@ -225,6 +225,7 @@ void Renderer::drawDesktop() {
     layout.poster_width = view.poster;
     layout.tools = static_cast<int>(view.tools.size());
     layout.companion_card = view.companion_card;
+    layout.narrow = view.sidebar_narrow; layout.pane_width = view.pane_width;
     desktop_chips_.clear(); desktop_chip_add_ = {}; desktop_rating_ = {};
     desktop_hotspots_.clear(); // Widżety record their controls here.
     companion_bubble_ = {};
@@ -264,9 +265,25 @@ void Renderer::drawDesktopTitlebar(const Layout& layout, const View& view) {
     target_->FillRectangle(D2D1::RectF(0, 0, viewport_.width, title_h), solid_.Get());
     brush(gray(1, 0.06f));
     target_->FillRectangle(D2D1::RectF(0, title_h - 1, viewport_.width, title_h), solid_.Get());
-    // The logo alone (symbol and wordmark), aligned with the sidebar's rows.
+    // The sidebar's toggle (a panel with its left column), then the logo: symbol and wordmark while
+    // the sidebar is wide, the symbol alone when it is narrow, crossfading with its animation.
     const float cy = title_h * 0.5f;
-    drawLaunchmeLogo(22, cy, desktop_ui::logo_height, palette::text(ink_alpha));
+    {
+        const auto toggle = layout.sidebarToggle();
+        const bool hover = view.hover.target == Target::sidebar_toggle, pressed = view.pressed.target == Target::sidebar_toggle;
+        if (hover || pressed) desktopFill(toggle, 8, gray(1, pressed ? 0.11f : 0.075f));
+        const float cx = (toggle.left + toggle.right) * 0.5f, w = 16, h = 13;
+        const auto frame = D2D1::RectF(cx - w * 0.5f, cy - h * 0.5f, cx + w * 0.5f, cy + h * 0.5f);
+        const auto ink = hover ? palette::text(ink_alpha) : palette::muted(ink_alpha);
+        brush(ink);
+        target_->DrawRoundedRectangle(D2D1::RoundedRect(frame, 2.5f, 2.5f), solid_.Get(), 1.4f);
+        const float column = 6.0f - 2.5f * view.sidebar_narrow; // Narrower with the sidebar.
+        target_->FillRectangle(D2D1::RectF(frame.left + 2.5f, frame.top + 2.5f, frame.left + 2.5f + column, frame.bottom - 2.5f), solid_.Get());
+        if (view.keyboard && view.hover.target == Target::sidebar_toggle) desktopFocusRing(toggle, 8);
+    }
+    const float narrow = std::clamp(view.sidebar_narrow, 0.0f, 1.0f);
+    if (narrow < 1) drawLaunchmeLogo(layout.logoLeft(), cy, desktop_ui::logo_height, palette::text(ink_alpha * (1 - narrow)));
+    if (narrow > 0) drawLaunchmeLogo(layout.logoLeft(), cy, desktop_ui::logo_height, palette::text(ink_alpha * narrow), false, true);
     // Search.
     const auto search = layout.search();
     const bool search_hover = view.hover.target == Target::search || view.hover.target == Target::search_clear;
@@ -421,23 +438,30 @@ void Renderer::drawDesktopSidebar(const Layout& layout, const View& view) {
         }
         if (active && !drop && !view.active_y) desktopFill({r.left, r.top + 8, r.left + 3, r.bottom - 8}, 1.5f, uiAccent(0.95f));
         const float alpha = lifted ? 0.45f : 1.0f;
-        const auto ink = active || drop || flash > 0.2f ? palette::text(alpha) : gray(0.80f, alpha);
-        if (!desktopBrand(entry.brand, r.left + 20, cy, 15, active ? palette::text(alpha) : gray(0.78f, alpha)))
-            desktopGlyph(entry.kind == EntryKind::favorites && active ? glyph::star_fill : entry.icon, r.left + 20, cy, 14,
+        // Narrow: the icon moves to the row's middle and the title and count fade out.
+        const float narrow = std::clamp(view.sidebar_narrow, 0.0f, 1.0f);
+        const float icon_x = r.left + 20 + ((r.left + r.right) * 0.5f - r.left - 20) * narrow;
+        if (!desktopBrand(entry.brand, icon_x, cy, 15, active ? palette::text(alpha) : gray(0.78f, alpha)))
+            desktopGlyph(entry.kind == EntryKind::favorites && active ? glyph::star_fill : entry.icon, icon_x, cy, 14,
                          active ? palette::text(alpha) : gray(0.62f, alpha));
+        if (focused) desktopFocusRing(r, 8);
+        if (narrow > 0.98f) continue;
+        const float text_alpha = alpha * (1 - narrow);
+        const auto ink = active || drop || flash > 0.2f ? palette::text(text_alpha) : gray(0.80f, text_alpha);
+        target_->PushAxisAlignedClip(D2D1::RectF(r.left, r.top, r.right, r.bottom), D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+        struct Unclip { ID2D1RenderTarget* target; ~Unclip() { target->PopAxisAlignedClip(); } } unclip{target_.Get()};
         const auto count = std::to_wstring(entry.count);
         const float count_width = textAdvance(count, desktop_small_font_.Get());
-        textLine(entry.title, r.left + 38, cy, r.right - r.left - 50 - count_width, active ? desktop_strong_font_.Get() : desktop_font_.Get(), ink);
+        textLine(entry.title, r.left + 38, cy, std::max(1.0f, r.right - r.left - 50 - count_width), active ? desktop_strong_font_.Get() : desktop_font_.Get(), ink);
         if (flash > 0.003f) {
             D2D1_MATRIX_3X2_F base{};
             target_->GetTransform(&base);
             const float scale = 1.0f + 0.35f * std::sin(view.drop_flash * std::numbers::pi_v<float>);
             const float cx = r.right - 10 - count_width * 0.5f;
             target_->SetTransform(D2D1::Matrix3x2F::Scale(scale, scale, D2D1::Point2F(cx, cy)) * base);
-            textLine(count, r.right - 10 - count_width, cy, count_width + 2, desktop_strong_font_.Get(), uiAccent(alpha));
+            textLine(count, r.right - 10 - count_width, cy, count_width + 2, desktop_strong_font_.Get(), uiAccent(text_alpha));
             target_->SetTransform(base);
-        } else textLine(count, r.right - 10 - count_width, cy, count_width + 2, desktop_small_font_.Get(), palette::muted(alpha));
-        if (focused) desktopFocusRing(r, 8);
+        } else textLine(count, r.right - 10 - count_width, cy, count_width + 2, desktop_small_font_.Get(), palette::muted(text_alpha));
     }
     if (view.reorder_y >= 0) {
         brush(uiAccent());
@@ -593,12 +617,15 @@ void Renderer::fillBrandGeometry(const std::string& key, ID2D1Geometry* geometry
     target_->SetTransform(base);
 }
 
-float Renderer::drawLaunchmeLogo(float left, float cy, float height, D2D1_COLOR_F ink, bool centered) {
-    static const std::string key = "launchme_logo"; // Not a brand_icons key, so it never meets a store's mark.
+float Renderer::drawLaunchmeLogo(float left, float cy, float height, D2D1_COLOR_F ink, bool centered, bool mark_only) {
+    // Not brand_icons keys, so they never meet a store's mark.
+    static const std::string full = "launchme_logo", mark = "launchme_logo_mark";
+    const auto& key = mark_only ? mark : full;
     auto found = brand_icons_.find(key);
     if (found == brand_icons_.end()) {
         ComPtr<ID2D1Geometry> geometry;
-        brand_icons::buildLogo(factory_.Get(), geometry.GetAddressOf());
+        if (mark_only) brand_icons::buildLogoMark(factory_.Get(), geometry.GetAddressOf());
+        else brand_icons::buildLogo(factory_.Get(), geometry.GetAddressOf());
         found = brand_icons_.emplace(key, geometry).first; // A failed build stays empty: nothing is drawn.
     }
     if (!found->second || height <= 0 || ink.a <= 0) return 0;
@@ -804,6 +831,11 @@ void Renderer::drawDesktopPane(const Layout& layout, const View& view) {
     target_->FillRectangle(box(p), solid_.Get());
     brush(gray(1, 0.06f));
     target_->FillRectangle(D2D1::RectF(p.left, p.top, p.left + 1, p.bottom), solid_.Get());
+    // Its edge under the pointer or dragged: the accent, as wide as the grip.
+    if (view.hover.target == Target::pane_resize || view.pressed.target == Target::pane_resize) {
+        brush(uiAccent(view.pressed.target == Target::pane_resize ? 0.95f : 0.6f));
+        target_->FillRectangle(D2D1::RectF(p.left - 1, p.top, p.left + 2, p.bottom), solid_.Get());
+    }
     target_->PushAxisAlignedClip(D2D1::RectF(p.left + 1, p.top, p.right, p.bottom), D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
     const auto& pane = view.pane;
     const float left = p.left + 20, width = p.right - p.left - 40;

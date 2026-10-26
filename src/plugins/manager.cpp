@@ -1,6 +1,7 @@
 #include "manager.hpp"
 #include "package.hpp"
 #include "downloads.hpp"
+#include "achievements.hpp"
 #include "../../sdk/launchme_plugin.h"
 #include "../platform/protected_file.hpp"
 #include "../platform/text_encoding.hpp"
@@ -213,7 +214,10 @@ void Manager::remove(const std::string& id) {
 json::Value Manager::invoke(const std::string& id, const std::string& method, const json::Value& params, const std::string& locale) {
     auto& e = get(id);
     if (!e.plugin.enabled || !e.module) throw std::runtime_error("Plugin is disabled");
-    if (method != "command" && method != "search" && method != "widget" && method != "details" && method != "library" && method != "downloads") throw std::runtime_error("Unknown plugin method");
+    if (method != "command" && method != "search" && method != "widget" && method != "details" && method != "library" && method != "downloads" && method != "achievements")
+        throw std::runtime_error("Unknown plugin method");
+    if (method == "achievements" && std::none_of(e.plugin.manifest.contributions.begin(), e.plugin.manifest.contributions.end(),
+        [](const auto& c) { return c.kind == "achievements"; })) throw std::runtime_error("Plugin has no achievements provider");
     if (method == "downloads" && std::none_of(e.plugin.manifest.contributions.begin(), e.plugin.manifest.contributions.end(),
         [](const auto& c) { return c.kind == "downloads"; })) throw std::runtime_error("Plugin has no download provider");
     if (method == "library" && std::none_of(e.plugin.manifest.contributions.begin(), e.plugin.manifest.contributions.end(),
@@ -222,6 +226,7 @@ json::Value Manager::invoke(const std::string& id, const std::string& method, co
         auto response = e.module->call(request(method, params, e.plugin.settings, locale));
         if (method == "library") parseLibrarySupplement(response);
         if (method == "downloads") parseDownloads(response);
+        if (method == "achievements") parseAchievements(response);
         if (method == "command" && response.get("downloads")) parseDownloads(response);
         if (method == "command") validateQueued(response);
         if (method == "command") if (const auto* reveal = response.get("revealFile")) {
