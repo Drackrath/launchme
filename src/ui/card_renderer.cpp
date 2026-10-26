@@ -503,3 +503,16 @@ void Renderer::fillImage(Cover& image, D2D1_RECT_F box, float radius, float opac
     else target_->FillRoundedRectangle(D2D1::RoundedRect(box, radius, radius), fill);
     if (contain) target_->PopAxisAlignedClip();
 }
+
+void Renderer::fillPoster(Cover& image, D2D1_RECT_F box, float radius, float opacity, bool gray, ID2D1Geometry* clip) {
+    if (!image.bitmap) return;
+    const auto pixels = image.bitmap->GetPixelSize();
+    const float ratio = static_cast<float>(pixels.width) / static_cast<float>(std::max(1u, pixels.height));
+    const float frame = (box.right - box.left) / std::max(1.0f, box.bottom - box.top);
+    fillImage(image, box, radius, opacity, gray, clip);
+    if (std::abs(ratio / frame - 1) < 0.25f) return;
+    brush(color(0.008f, 0.011f, 0.015f, 0.62f * opacity));
+    if (clip) target_->FillGeometry(clip, solid_.Get());
+    else target_->FillRoundedRectangle(D2D1::RoundedRect(box, radius, radius), solid_.Get());
+    fillImage(image, box, radius, opacity, gray, clip, true);
+}

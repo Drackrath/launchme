@@ -536,7 +536,7 @@ void Renderer::drawCoverflowPoster(const GameCard& card, size_t index) {
     auto* image = index < posters_.size() && posters_[index].bitmap ? &posters_[index] :
                   index < covers_.size() && covers_[index].bitmap ? &covers_[index] : nullptr;
     const auto session = sessionOf(card.game);
-    if (image) fillImage(*image, rect, 14, alpha * reveal(*image), session == SessionState::frozen, shape.Get(), true);
+    if (image) fillPoster(*image, rect, 14, alpha * reveal(*image), session == SessionState::frozen, shape.Get());
     else text(card.game.name, rect.left + 20, rect.top + card.size * 0.43f, card.width() - 40, card.size * 0.3f,
               menu_font_.Get(), gray(0.9f, alpha));
     if (image && session != SessionState::frozen) {
@@ -695,7 +695,9 @@ void Renderer::drawSteelbook(Cover& image, D2D1_RECT_F rect, ID2D1Geometry* clip
     const float w = rect.right - rect.left, h = rect.bottom - rect.top;
     if (material.bitmap && material.brush) {
         const auto size = material.bitmap->GetSize();
-        const float scale = std::min(w / size.width, h / size.height);
+        // As fillPoster: a poster of nearly the frame's shape fills it, another shape shows whole.
+        const auto fits = [&](D2D1_SIZE_F s) { return std::abs((s.width / std::max(1.0f, s.height)) / (w / std::max(1.0f, h)) - 1) < 0.25f; };
+        const float scale = fits(size) ? std::max(w / size.width, h / size.height) : std::min(w / size.width, h / size.height);
         const float left = rect.left + (w - size.width * scale) * 0.5f, top = rect.top + (h - size.height * scale) * 0.5f;
         const float t = std::clamp(std::chrono::duration<float>(std::chrono::steady_clock::now() - material.revealed).count() / 0.25f, 0.0f, 1.0f);
         const auto fit = D2D1::Matrix3x2F::Scale(scale, scale) * D2D1::Matrix3x2F::Translation(left, top);
@@ -710,7 +712,7 @@ void Renderer::drawSteelbook(Cover& image, D2D1_RECT_F rect, ID2D1Geometry* clip
             D2D1::IdentityMatrix(), finish), nullptr);
         if (realizer_ && material.printed) {
             const auto original = image.bitmap->GetSize();
-            const float print_scale = std::min(w / original.width, h / original.height);
+            const float print_scale = fits(original) ? std::max(w / original.width, h / original.height) : std::min(w / original.width, h / original.height);
             const float print_left = rect.left + (w - original.width * print_scale) * 0.5f;
             const float print_top = rect.top + (h - original.height * print_scale) * 0.5f;
             D2D1_MATRIX_3X2_F base; target_->GetTransform(&base);

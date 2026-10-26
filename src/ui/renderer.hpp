@@ -404,6 +404,9 @@ private:
     // `realized`: `clip` already tessellated (ID2D1DeviceContext1); filled through it when given.
     void fillImage(Cover& image, D2D1_RECT_F box, float radius, float opacity, bool gray = false, ID2D1Geometry* clip = nullptr, bool contain = false,
                    ID2D1GeometryRealization* realized = nullptr);
+    // A poster in a poster's frame: one of nearly its shape fills it (a sliver cut, no bands at the sides);
+    // another shape (a square cover standing in) shows whole over a dimmed fill of itself.
+    void fillPoster(Cover& image, D2D1_RECT_F box, float radius, float opacity, bool gray, ID2D1Geometry* clip);
     void drawExitPrompt();
     void beginScreenForeground(); // Wallpaper/shading stay on the window; animate only the UI above them.
     HRESULT endScreenForeground();

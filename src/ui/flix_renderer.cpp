@@ -181,7 +181,8 @@ void Renderer::drawRectangularCard(const GameCard& card, size_t index, float alp
             const auto pixels = image.bitmap->GetPixelSize();
             return static_cast<float>(pixels.width) / static_cast<float>(std::max(1u, pixels.height));
         };
-        const float tile_ratio = tile_w / std::max(1.0f, tile_h);
+        // Of the picture's own rectangle: the inner focus border (focus gap "inside") makes it a little wider.
+        const float tile_ratio = (rect.right - rect.left) / std::max(1.0f, rect.bottom - rect.top);
         // Landscape tiles: the picture always spans the tile's width. A narrower one (a 616x353
         // capsule, a 16:9 screenshot) loses some of its top and bottom (by its crop focus), a wider
         // one (a hero) leaves bands above and below; the sides are never cut or banded.

@@ -723,7 +723,7 @@ void Renderer::drawListPlusPoster() {
     auto* image = selected_ < posters_.size() && posters_[selected_].bitmap ? &posters_[selected_] :
                   selected_ < covers_.size() && covers_[selected_].bitmap ? &covers_[selected_] : nullptr;
     const bool frozen = sessionOf(card.game) == SessionState::frozen;
-    if (image) fillImage(*image, rect, 16, fade * reveal(*image), frozen, shape.Get(), true);
+    if (image) fillPoster(*image, rect, 16, fade * reveal(*image), frozen, shape.Get());
     else text(card.game.name, area.left + 24, (area.top + area.bottom) * 0.5f - 40,
               area.right - area.left - 48, 80, menu_font_.Get(), gray(0.76f, fade));
     if (image && !frozen && context_->library_options.list_plus_steelbook) {
