@@ -41,6 +41,7 @@ void Launcher::click(float mouse_x, float mouse_y, bool double_click) {
     switch (modal) {
     case Modal::none: break;
     case Modal::companion_picker: if (!double_click) companionPickerClick(x, y); return;
+    case Modal::tarot: if (!double_click) tarotClick(x, y); return;
     case Modal::exit_prompt: if (!double_click) exitPromptClick(x, y); return;
     case Modal::power_menu: if (!double_click) powerMenuClick(x, y); return;
     case Modal::tour: if (!double_click) tourClick(x, y); return;
@@ -292,6 +293,7 @@ bool Launcher::hoverButton(float mouse_x, float mouse_y) const {
     }
     case Modal::gog_install: return gog_install_ui::Layout{view.width, view.height, gog_install_ui_.game.source == GameSource::epic || gog_install_ui_.steam}.hit(x, y) >= 0;
     case Modal::companion_picker: return companion_ui::PickerLayout{view.width, view.height}.hit(companion_.picker, x, y) != companion_ui::no_hit;
+    case Modal::tarot: return tarotPointerOver(x, y);
     }
     if (launchAnimationActive()) return false;
     if (glanceAvailable() && home_widgets::glanceArea(homeWidgetSpots(), glance_hover_motion_.value).contains(x, y)) return true;
@@ -428,6 +430,11 @@ void Launcher::mouseMove(float mouse_x, float mouse_y) {
         const auto view = renderer_.viewport();
         const int hit = companion_ui::PickerLayout{view.width, view.height}.hit(companion_.picker, mouse_x / view.scale, mouse_y / view.scale);
         if (companion_.picker.hover != hit) { companion_.picker.hover = hit; InvalidateRect(hwnd_, nullptr, FALSE); }
+        return;
+    }
+    if (topModal() == Modal::tarot) {
+        const auto view = renderer_.viewport();
+        tarotPointer(mouse_x / view.scale, mouse_y / view.scale);
         return;
     }
     if (desktopTextDrag(mouse_x)) return; // Selecting in a desktop field.

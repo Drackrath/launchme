@@ -116,7 +116,7 @@ void Service::markMissed(const std::string& cache_key, const char* source) const
 
 HttpResponse Service::fetch(const std::wstring& url, size_t limit, bool secret) {
     ++requests_;
-    next_request_ = std::chrono::steady_clock::now() + config_.spacing;
+    next_request_ = std::chrono::steady_clock::now() + (requests_ >= config_.requests_per_start ? config_.slow_spacing : config_.spacing);
     HttpBudget budget(15000);
     return (secret ? config_.get_private : config_.get)(url, L"Accept: application/json\r\n", limit);
 }
@@ -212,7 +212,8 @@ bool Service::process(Inbox inbox) {
 }
 
 bool Service::fillStep() {
-    if (requests_ >= config_.requests_per_start || std::chrono::steady_clock::now() < backoff_until_) return false;
+    // Throttled: the worker sleeps until the pause ends (not a wake-up every 50 ms meanwhile).
+    if (std::chrono::steady_clock::now() < backoff_until_) { next_request_ = backoff_until_; return false; }
     const auto now = config_.now();
     // Steam's tag names first (one request a month): appinfo knows tags by number only.
     if (!tags_checked_) {

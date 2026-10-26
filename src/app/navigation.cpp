@@ -200,6 +200,7 @@ void Launcher::back() {
     case Modal::custom_editor: closeCustomEditor(); return;
     case Modal::identify: closeIdentify(); return;
     case Modal::gog_install: gogInstallKey(VK_ESCAPE, false); return;
+    case Modal::tarot: closeTarot(); return;
     default: break;
     }
     if (color_editor_.open) { closeColorEditor(false); return; }
@@ -307,7 +308,7 @@ void Launcher::onCharacter(wchar_t character) {
     case Modal::library_dialog: collectionDialogEdit(character); return;
     case Modal::custom_editor: customEditorInsert(std::wstring_view(&character, 1)); return;
     case Modal::identify: identifyEdit(character); return;
-    case Modal::gog_install: case Modal::companion_picker: return;
+    case Modal::gog_install: case Modal::companion_picker: case Modal::tarot: return;
     default: break; // No dialog, or one without a text field (Pobierz brakujące okładki).
     }
     if (desktopActive() && desktopCharacter(character)) return; // Type-to-search in the desktop window.

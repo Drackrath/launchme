@@ -306,6 +306,7 @@ void Renderer::drawDesktopTitlebar(const Layout& layout, const View& view) {
         const auto ink = gray(hover || open ? 0.98f : 0.80f, ink_alpha);
         switch (tool) {
         case Tool::glance: drawGlanceGlyph(x, y, 15, ink); break;
+        case Tool::tarot: drawTarotGlyph(x, y, 16, ink); break;
         case Tool::companion: desktopGlyph(glyph::people, x, y, 16, ink); break;
         case Tool::store: desktopGlyph(glyph::shop, x, y, 16, ink); break;
         case Tool::friends: desktopGlyph(glyph::people, x, y, 16, ink); break;

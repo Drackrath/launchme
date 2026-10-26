@@ -113,6 +113,43 @@ std::wstring firstImage(std::wstring_view row) {
     auto image=entities(attr(row.substr(at+4,end-at-4),L"src"));
     return imageUrl(image) ? image : L"";
 }
+// data-ds-tagids="[1662,21,1695]": the row's store tags, most voted first.
+std::vector<uint32_t> tagIds(std::wstring_view text) {
+    std::vector<uint32_t> ids; uint64_t value=0; bool digits=false;
+    const auto flush=[&] { if (digits && value && value<=UINT32_MAX) ids.push_back(static_cast<uint32_t>(value)); value=0; digits=false; };
+    for (const auto c : text) {
+        if (c>=L'0' && c<=L'9') { if (value<=UINT32_MAX) value=value*10+static_cast<uint64_t>(c-L'0'); digits=true; }
+        else { flush(); if (ids.size()>=40) break; }
+    }
+    flush();
+    return ids;
+}
+// The review summary's tooltip: "Very Positive<br>94% of the 1,234 user reviews for this game are positive."
+void reviewSummary(std::wstring_view row,Item& item) {
+    for (size_t at=0;(at=row.find(L'<',at))!=row.npos;) {
+        const auto end=tagEnd(row,at+1); if (end==row.npos) return;
+        const auto tag=row.substr(at+1,end-at-1);
+        if (!hasClass(tag,L"search_review_summary")) { at=end+1; continue; }
+        const auto summary=entities(attr(tag,L"data-tooltip-html"));
+        const auto percent=summary.find(L'%');
+        if (percent==summary.npos) return;
+        size_t start=percent; while (start && iswdigit(summary[start-1])) --start;
+        if (start==percent || percent-start>3) return;
+        const int share=std::stoi(summary.substr(start,percent-start));
+        if (share>100) return;
+        item.review_percent=share;
+        const auto of=summary.find(L" of the ",percent);
+        if (of==summary.npos) return;
+        uint64_t count=0; bool any=false;
+        for (size_t i=of+8;i<summary.size() && count<=UINT32_MAX;++i) {
+            const auto c=summary[i];
+            if (c>=L'0' && c<=L'9') { count=count*10+static_cast<uint64_t>(c-L'0'); any=true; }
+            else if (c!=L',' && c!=L'.') break;
+        }
+        if (any && count<=UINT32_MAX) item.review_count=static_cast<uint32_t>(count);
+        return;
+    }
+}
 std::string readPage(const std::filesystem::path& file) {
     std::error_code error; const auto size=std::filesystem::file_size(file,error);
     if (error || size>max_page) return {};
@@ -176,6 +213,8 @@ std::optional<UpcomingPage> parseUpcomingSearch(std::string_view bytes) {
         Item item; item.app_id=static_cast<uint32_t>(numeric); item.title=title->substr(0,240);
         item.release=parseReleaseDate(*date); item.source=L"Steam";
         item.url=L"https://store.steampowered.com/app/"+id+L"/"; item.image=firstImage(content);
+        item.tag_ids=tagIds(attr(tag,L"data-ds-tagids"));
+        reviewSummary(content,item);
         result.items.push_back(std::move(item));
         if (result.items.size()>200) return std::nullopt;
     }

@@ -17,6 +17,7 @@ int LauncherUiTest::modalLayers(HWND window) {
 
     // Paint order, top first; every layer hides the home widgets and the hints.
     const std::vector<std::pair<Modal, std::function<void(bool)>>> layers{
+        {Modal::tarot, [&](bool on) { app.tarot_.open = on; }},
         {Modal::gog_install, [&](bool on) { app.gog_install_ui_.open = on; }},
         {Modal::identify, [&](bool on) { app.identify_state_.open = on; }},
         {Modal::bulk_covers, [&](bool on) { app.bulk_ui_.open = on; }},

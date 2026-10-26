@@ -36,6 +36,7 @@ Launcher::Modal Launcher::topDialog() const {
     if (bulkCoversOpen()) return Modal::bulk_covers;
     if (identifyOpen()) return Modal::identify;
     if (gogInstallOpen()) return Modal::gog_install;
+    if (tarot_.open) return Modal::tarot; // Opened only from the bare home: the lowest dialog.
     return Modal::none;
 }
 
@@ -62,6 +63,7 @@ bool Launcher::modalKey(WPARAM key, bool repeated) {
     case Modal::identify: identifyKey(key, repeated); break;
     case Modal::gog_install: gogInstallKey(key, repeated); break;
     case Modal::companion_picker: companionPickerKey(key, repeated); break;
+    case Modal::tarot: tarotKey(key, repeated); break;
     }
     return true;
 }
@@ -403,7 +405,7 @@ void Launcher::controllerInput(const PadReading& state) {
         return (buttons & XINPUT_GAMEPAD_DPAD_UP) || state.y > 16000 ? -2 : (buttons & XINPUT_GAMEPAD_DPAD_DOWN) || state.y < -16000 ? 2 : 0;
     };
     // Guide/PS and Start/Options: short press vs hold, above every screen but the exit prompt.
-    if (bulkCoversOpen() || identifyOpen() || tour_.open || libraryDialogOpen() || keyboard_.open || companion_.picker.open) { // The keyboard: Start = "Gotowe".
+    if (bulkCoversOpen() || identifyOpen() || tour_.open || libraryDialogOpen() || keyboard_.open || companion_.picker.open || tarot_.open) { // The keyboard: Start = "Gotowe".
         pad_guide_.swallow(buttons & pad_guide); pad_start_.swallow(buttons & XINPUT_GAMEPAD_START);
     } else if (!exit_prompt_) {
         const auto guide = pad_guide_.update(settings_.guide_menu && (buttons & pad_guide), now);
@@ -414,6 +416,9 @@ void Launcher::controllerInput(const PadReading& state) {
         else if (start == HoldGesture::Event::hold) { noteUserInput(); openAudioShortcut(); }
     }
     if (modalPad(state, buttons, now)) return;
+    if (pressed(XINPUT_GAMEPAD_BACK) && tarotAvailable()) { // View / Select / Share: Tarot.
+        noteUserInput(); openTarot(); controller_buttons_ = buttons; controller_direction_ = 0; return;
+    }
     if (pressed(pad_right_trigger) && glanceAvailable()) {
         noteUserInput(); openGlance(); controller_buttons_ = buttons; controller_direction_ = 0; return;
     }
@@ -554,6 +559,18 @@ bool Launcher::modalPad(const PadReading& state, WORD buttons, ULONGLONG now) {
         return true;
     }
     switch (modal) {
+    case Modal::tarot:
+        // The reading: D-pad/stick move between the cards (and the buttons under the games), A picks,
+        // B takes the last card back (on the first, and over the games, it closes), View closes.
+        controllerNavigate(0);
+        if (direction && (direction != controller_direction_ || now >= controller_repeat_)) {
+            noteUserInput(); tarotKey(direction, false);
+            controller_repeat_ = now + (direction != controller_direction_ ? 280 : 200);
+        }
+        if (pressed(XINPUT_GAMEPAD_A)) { noteUserInput(); tarotKey(VK_RETURN, false); }
+        else if (pressed(XINPUT_GAMEPAD_B)) { noteUserInput(); tarotKey(VK_BACK, false); }
+        else if (pressed(XINPUT_GAMEPAD_BACK)) { noteUserInput(); tarotKey(VK_ESCAPE, false); }
+        break;
     case Modal::companion_picker:
         controllerNavigate(0);
         if (direction && (direction != controller_direction_ || now >= controller_repeat_)) {

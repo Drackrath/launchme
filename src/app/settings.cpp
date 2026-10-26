@@ -658,6 +658,11 @@ void Launcher::settingsToggle(const Row& row) {
         if (!settings_.glance) { glance_cancel_->store(true); glance_pending_ = false; }
         settingsChanged(homeWidgets() == home_widgets::Placement::tiles); audio_.context(); return;
     }
+    else if (row.id == Id::tarot) {
+        settings_.tarot = !settings_.tarot;
+        if (!settings_.tarot) closeTarot();
+        settingsChanged(); audio_.context(); return; // The desktop top bar reads it on its next frame.
+    }
     else if (row.id == Id::collection && settings_state_.row() < static_cast<int>(settings_collections_.size())) {
         if (row.locked) { navigationBoundary(); return; } // SRM collection covered by Emulacja.
         const auto key = collectionKey(account_, settings_collections_[settings_state_.row()]);

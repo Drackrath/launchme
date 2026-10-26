@@ -229,6 +229,7 @@ AppSettings parseAppSettings(std::string_view text) {
         else if (key == "screen_transitions" && (value == "0" || value == "1")) settings.screen_transitions = value == "1";
         else if (key == "input_hints" && (value == "0" || value == "1")) settings.input_hints = value == "1";
         else if (key == "glance" && (value == "0" || value == "1")) settings.glance = value == "1";
+        else if (key == "tarot" && (value == "0" || value == "1")) settings.tarot = value == "1";
         else if (key == "companion" && (value == "0" || value == "1")) settings.companion = value == "1";
         // The first version's two looks were white and red: Yuki and Akane (res/companion/yuki, akane).
         else if (key == "companion_look" && companionKey(value))
@@ -618,6 +619,7 @@ bool saveAppSettings(const AppSettings& settings, const std::filesystem::path& f
     output << "glass=" << std::clamp(settings.glass, 0.0f, 1.0f) << '\n';
     output << "input_hints=" << settings.input_hints << '\n';
     output << "glance=" << settings.glance << '\n';
+    output << "tarot=" << settings.tarot << '\n';
     output << "companion=" << settings.companion << '\n';
     output << "companion_look=" << settings.companion_look << '\n';
     output << "companion_guests=" << settings.companion_guests << '\n';

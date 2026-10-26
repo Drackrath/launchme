@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(launchme VERSION 0.1.2 LANGUAGES C CXX)
+project(launchme VERSION 0.1.3 LANGUAGES C CXX)
 
 if(NOT WIN32)
     message(FATAL_ERROR "This native Direct2D prototype currently targets Windows.")
@@ -134,6 +134,7 @@ set(LAUNCHME_APP_SOURCES
     src/ui/plugin_page_renderer.cpp
     src/app/downloads.cpp
     src/app/glance.cpp
+    src/app/tarot.cpp
     src/app/companion.cpp
     src/app/companion_picker.cpp
     src/app/companion_events.cpp
@@ -168,6 +169,7 @@ set(LAUNCHME_APP_SOURCES
     src/ui/brand_icons.cpp
     src/ui/browser_window.cpp
     src/ui/glance_renderer.cpp
+    src/ui/tarot_renderer.cpp
     src/ui/companion_renderer.cpp
     src/ui/companion_mind_renderer.cpp
     src/ui/companion_feed_renderer.cpp
@@ -287,6 +289,7 @@ set(LAUNCHME_APP_SOURCES
     src/library/steam_achievements.cpp
     src/library/steam_appinfo.cpp
     src/library/game_index.cpp
+    src/library/tarot.cpp
     src/library/game_index_sources.cpp
     src/library/game_index_service.cpp
     src/library/steam_tags_builtin.cpp
@@ -634,6 +637,7 @@ if(BUILD_TESTING)
         SOURCES tests/browser_window_tests.cpp src/ui/browser_window.cpp DEFINES LAUNCHME_UI_TEST)
     set_tests_properties(evergreen_browser_lifecycle PROPERTIES TIMEOUT 90 RUN_SERIAL TRUE SKIP_RETURN_CODE 77)
     launchme_executable(glance_tests TEST glance_sources_and_cache SOURCES tests/glance_tests.cpp)
+    launchme_executable(tarot_tests TEST tarot_deck_wish_and_picks SOURCES tests/tarot_tests.cpp)
     launchme_executable(companion_tests TEST companion_replies_prompts_and_rig SOURCES tests/companion_tests.cpp)
     launchme_executable(companion_links_tests TEST companion_bounded_link_previews SOURCES tests/companion_links_tests.cpp)
     launchme_executable(companion_feed_tests TEST companion_feed_publication_and_archive SOURCES tests/companion_feed_tests.cpp)
@@ -759,6 +763,8 @@ if(BUILD_TESTING)
     set_tests_properties(snitch_home_layout PROPERTIES TIMEOUT 60)
     add_test(NAME glance_shortcut_navigation_and_hints COMMAND launcher_ui_tests --glance)
     set_tests_properties(glance_shortcut_navigation_and_hints PROPERTIES TIMEOUT 60)
+    add_test(NAME tarot_reading_cards_and_results COMMAND launcher_ui_tests --tarot)
+    set_tests_properties(tarot_reading_cards_and_results PROPERTIES TIMEOUT 60)
     add_test(NAME companion_home_chat_and_settings COMMAND launcher_ui_tests --companion)
     add_test(NAME companion_picker_and_desktop_input COMMAND launcher_ui_tests --companion-appearance)
     add_test(NAME companion_reply_length_ui COMMAND launcher_ui_tests --companion-reply-length)

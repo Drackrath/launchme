@@ -175,7 +175,7 @@ struct Hit {
     int index = -1;
     bool operator==(const Hit&) const = default;
 };
-enum class Tool { glance, companion, store, friends, downloads, tv, settings };
+enum class Tool { glance, companion, store, friends, downloads, tv, settings, tarot };
 
 // ---- What the renderer draws -------------------------------------------------------------------
 

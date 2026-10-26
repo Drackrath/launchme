@@ -79,6 +79,9 @@ struct AppSettings {
     enum class HomeLayout { shelves, xmb, flix, metro, psfive, snitch };
     HomeLayout home_layout = HomeLayout::shelves;
     bool glance = true; // Default home's shortcut-only gaming hub (G / right trigger).
+    // Tarot (src/app/tarot.cpp): a short card reading that recommends up to three games, from the
+    // library or to buy on Steam (T / View, the desktop window's top bar). Off by default.
+    bool tarot = false;
     // Companion (src/app/companion.cpp): an animated anime girl under Glance and her chat
     // (C / left trigger). Answers come from a Foundry-proxied Gemini model; offline she speaks
     // canned lines. The token is stored apart (DPAPI, companion_token.dat).

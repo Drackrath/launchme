@@ -37,6 +37,11 @@ struct Item {
     uint32_t app_id = 0;
     std::vector<std::wstring> fallback_images;
     ReleaseDate release;
+    // Steam search rows only: the review summary (share positive, count) and the store tag IDs
+    // (data-ds-tagids, most voted first). Tarot scores its store picks with them.
+    std::optional<int> review_percent;
+    std::optional<uint32_t> review_count;
+    std::vector<uint32_t> tag_ids;
 };
 struct Feed {
     std::vector<Item> items;

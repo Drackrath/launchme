@@ -72,6 +72,9 @@ Settings → System → Help → **Open folder** (the version row) opens it.
   versions of the same game across stores, uninstall from the game menu.
 - **Glance**: a news hub (your games' Steam announcements, new and upcoming releases, articles) with a
   built-in WebView2 browser window driven by the pad.
+- **Tarot** (optional, off by default): a short card reading — 5 to 8 questions drawn as tarot cards (buy something
+  new or play what you own, genre, era, mood, company, length…) — that ends with up to three games, from your
+  library or to buy on Steam.
 - **AI companion** (optional): a chat character that knows your library, with an optional voice and photo feed
   — see [AI companion](#ai-companion).
 - **Widgets drawer**: clock, Steam friends, Discord, CPU/GPU temperatures, controllers, audio and Bluetooth.
@@ -92,6 +95,7 @@ Settings → System → Help → **Open folder** (the version row) opens it.
 | Launcher menu (tap) / power (hold) | `Home` | Guide / PS |
 | Widgets drawer (tap) / audio panel (hold) | `Tab` | Start / Options |
 | Glance | `G` | RT / R2 |
+| Tarot (when turned on) | `T` | View / Create |
 | Refresh artwork and view | `F5` | — |
 | Performance overlay | `F8` | — |
 | Full screen ↔ window | `F11` | — |

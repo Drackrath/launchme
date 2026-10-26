@@ -133,6 +133,22 @@ bool Launcher::receivePluginGameView(const plugins::Result& message) {
         cache.session_ms = session == game_sessions_.end() ? 0 : session->second.playedMs();
         return true;
     }
+    if (job.kind == Kind::details && job.background) {
+        // A length for the game index (fillGameLengths): nothing on screen waits for it.
+        const auto parsed = plugins::parseTimeComparison(message.response, gameKey(job.game));
+        if (parsed && parsed->main_seconds) {
+            game_index::Patch times;
+            const auto minutes = [](uint32_t seconds) { return seconds >= 60 ? std::optional<uint32_t>((seconds + 30) / 60) : std::nullopt; };
+            times.hltb_main = minutes(parsed->main_seconds); times.hltb_extra = minutes(parsed->extra_seconds); times.hltb_complete = minutes(parsed->complete_seconds);
+            gameIndexMerge(parsed->game_key, game_index::Source::hltb, std::move(times));
+            length_fill_misses_ = 0;
+        } else if (++length_fill_misses_ >= length_fill_pause_after) {
+            // Six in a row without a time: HowLongToBeat may be unreachable. Not now, then.
+            length_fill_misses_ = 0;
+            length_fill_at_ = GetTickCount64() + 10 * 60 * 1000;
+        }
+        return true;
+    }
     const bool active_widget = job.kind == Kind::widget && job.active_game;
     if (active_widget && (job.generation != plugin_widget_generation_ || pluginWidgetScope() != plugin_widget_scope_)) return true;
     if (job.kind != Kind::details && job.kind != Kind::command && !active_widget) return false;

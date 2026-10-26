@@ -161,6 +161,11 @@ public:
     void resetGlanceThumbnails(size_t count) { glance_thumbnails_.clear(); glance_thumbnails_.resize(count); }
     void setGlanceThumbnail(size_t index, ImageBytes pixels);
     void measureGlance(glance_ui::State& state);
+    // Tarot's result cards (src/ui/tarot_renderer.cpp): a poster each, or a cover until it comes.
+    void resetTarotImages(size_t count) { tarot_images_.clear(); tarot_images_.resize(count); tarot_posters_.assign(count, false); }
+    void setTarotImage(size_t index, ImageBytes pixels, bool poster);
+    bool tarotPoster(size_t index) const { return index < tarot_posters_.size() && tarot_posters_[index]; }
+    bool tarotImage(size_t index) const { return index < tarot_images_.size() && tarot_images_[index].loaded(); }
     void setPlatformBadge(const std::wstring& platform, std::vector<uint8_t> pixels);
     void resetArtworkThumbnails(size_t count);
     // The file picker's image preview (src/ui/file_browser_renderer.cpp); empty bytes clear it.
@@ -494,6 +499,19 @@ private:
                                  float tip_x, float tip_y, float alpha, float min_top, bool left_of_anchor = true);
     void drawGlanceGlyph(float x, float y, float size, D2D1_COLOR_F ink);
     float drawGlanceText(const std::wstring& value, D2D1_RECT_F rect, IDWriteTextFormat* font, D2D1_COLOR_F ink);
+    // Tarot (src/ui/tarot_renderer.cpp): the overlay, one card (face, back or a result's poster)
+    // turned by `turn` (0 back … 1 face), its symbols, and a small card glyph for the top bar.
+    void drawTarot();
+    void drawTarotBackdrop(float alpha, float center_y, float radius);
+    struct TarotCardLook {
+        float cx = 0, cy = 0, width = 0, height = 0;
+        float rotation = 0, turn = 1, lift = 0, glow = 0, alpha = 1;
+    };
+    void drawTarotCard(const TarotCardLook& look, const tarot::Card* face, Cover* poster, const std::wstring& numeral);
+    void drawTarotCardBack(D2D1_RECT_F r, float alpha);
+    void drawTarotSymbol(tarot::Symbol symbol, float cx, float cy, float size, D2D1_COLOR_F ink, float stroke);
+    void drawTarotGlyph(float x, float y, float size, D2D1_COLOR_F ink);
+    bool createTarotFonts();
     void drawDownloadGlyph(float x, float cy, float scale, D2D1_COLOR_F ink); // An arrow into a tray.
     void drawSettings();
     void drawSettingsLayouts(const settings_ui::Layout& layout, int row, float scroll, bool focused);
@@ -809,6 +827,12 @@ private:
     Microsoft::WRL::ComPtr<IDWriteTextFormat> feed_body_font_, feed_small_font_, feed_title_font_;
     std::vector<Cover> plugin_thumbnails_; // Drawer images, independent of underlying library cards.
     std::vector<Cover> glance_thumbnails_;
+    std::vector<Cover> tarot_images_; // Tarot's result cards.
+    std::vector<bool> tarot_posters_; // Per result: the image is its poster (else a cover standing in).
+    // Tarot's type: a calligraphic title, serif card names and numerals, an italic question.
+    Microsoft::WRL::ComPtr<IDWriteTextFormat> tarot_title_font_, tarot_name_font_, tarot_numeral_font_;
+    Microsoft::WRL::ComPtr<IDWriteTextFormat> tarot_question_font_, tarot_body_font_, tarot_small_font_, tarot_result_font_;
+    Microsoft::WRL::ComPtr<ID2D1StrokeStyle> tarot_stroke_; // Round caps and joins for the card symbols.
     std::unordered_map<std::string, Cover> widget_icons_;
     std::vector<std::array<Cover, 4>> tile_thumbnails_; // Indexed like covers_.
     std::vector<Cover> posters_;                        // Flix posters/capsules, indexed like covers_.

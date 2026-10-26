@@ -249,6 +249,8 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpara
                      !(GetKeyState(VK_MENU) & 0x8000) && app->glanceAvailable()) app->openGlance();
             else if (wparam == 'C' && !(lparam & (1LL << 30)) && !(GetKeyState(VK_CONTROL) & 0x8000) &&
                      !(GetKeyState(VK_MENU) & 0x8000) && app->companionAvailable()) app->openCompanion();
+            else if (wparam == 'T' && !(lparam & (1LL << 30)) && !(GetKeyState(VK_CONTROL) & 0x8000) &&
+                     !(GetKeyState(VK_MENU) & 0x8000) && app->tarotAvailable()) app->openTarot();
             else if ((app->editingSecret() || app->editingArtworkSearch()) && wparam == 'V' && (GetKeyState(VK_CONTROL) & 0x8000)) app->pasteSecret();
             else if ((app->editingSecret() || app->editingArtworkSearch()) && wparam == 'A' && (GetKeyState(VK_CONTROL) & 0x8000)) app->selectSecret();
             else if (app->editingArtworkSearch() && wparam == VK_DELETE) app->clearArtworkQuery(); // Delete = "Wyczyść".
@@ -361,6 +363,7 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpara
             if (app->desktopWheel(static_cast<float>(point.x), static_cast<float>(point.y), raw,
                                   (GET_KEYSTATE_WPARAM(wparam) & MK_CONTROL) != 0)) {} // Grid, sidebar, pane, poster size.
             else if (app->companionOpen() && !app->friendsOpen() && modal == Launcher::Modal::none) app->companionWheel(raw);
+            else if (modal == Launcher::Modal::tarot) {} // The reading has nothing to scroll.
             else if (const int step = notch(); !step) {}
             else if (modal == Launcher::Modal::file_browser) app->fileBrowserWheel(step);
             else if (modal == Launcher::Modal::library_dialog) app->libraryDialogKey(step > 0 ? VK_DOWN : VK_UP, false);

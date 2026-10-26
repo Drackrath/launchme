@@ -191,6 +191,17 @@ public:
     void openGlanceBrowser(const std::wstring& url, bool embedded = false);
     void companionVideo(const std::wstring& url);
     void glanceClick(float x, float y);
+    // Tarot (src/app/tarot.cpp): a card reading over the home that ends with up to three games.
+    // A modal layer while open (Modal::tarot); T, the pad's View button or the desktop top bar.
+    bool tarotOpen() const { return tarot_.open; }
+    bool tarotAvailable() const;
+    void openTarot();
+    void closeTarot();
+    void tarotKey(WPARAM key, bool repeated);
+    void tarotClick(float x, float y);   // Logical coordinates, as the renderer's viewport.
+    void tarotPointer(float x, float y); // Hover.
+    bool tarotPointerOver(float x, float y) const;
+    bool tickTarot(float dt);
     // The home (any layout) with no menu, panel or dialog over it: Glance's and the companion's tiles.
     bool homeOverlayAvailable(bool allow_closing = false) const;
     // Where this layout puts Glance and Towarzyszka (src/ui/home_widgets.hpp), and their free-standing
@@ -713,7 +724,7 @@ public:
     // exit prompt over the power menu over the walkthrough … the GOG/Epic installer lowest. The
     // topmost open one takes keys, pad buttons, the wheel and clicks before any screen, drawer or
     // menu. The on-screen keyboard is not a layer: it types into the field of the layer beneath.
-    enum class Modal { none, exit_prompt, power_menu, tour, file_browser, library_dialog, custom_editor, bulk_covers, identify, gog_install, companion_picker };
+    enum class Modal { none, exit_prompt, power_menu, tour, file_browser, library_dialog, custom_editor, bulk_covers, identify, gog_install, companion_picker, tarot };
     Modal topModal() const;
     // The topmost of the dialogs under the walkthrough (file picker … installer): Back and typed
     // characters reach it even under the exit prompt or the power menu.
@@ -796,6 +807,25 @@ private:
     std::shared_ptr<std::atomic_bool> glance_cancel_ = std::make_shared<std::atomic_bool>(false);
     // Injectable transport; the UI and parser tests never contact real providers.
     glance::Get glance_get_ = httpGet;
+    // Tarot (src/app/tarot.cpp): the reading on screen, its seed, the store search in flight.
+    tarot_ui::State tarot_;
+    uint32_t tarot_seed_ = 0, tarot_generation_ = 0;
+    std::shared_ptr<std::atomic_bool> tarot_cancel_ = std::make_shared<std::atomic_bool>(false);
+    std::vector<tarot::Pick> tarot_pending_; // Picks waiting for the shuffle to end.
+    glance::Get tarot_get_ = httpGet;        // Steam's search; UI tests answer it themselves.
+    void tarotAgain();
+    void tarotMove(int dx, int dy);
+    void tarotAccept();
+    void tarotChoose(int card);
+    void tarotBack();
+    void tarotDivine();
+    void tarotStoreFinished(uint32_t generation, std::vector<tarot::Pick> picks, bool failed);
+    void tarotReveal();
+    void tarotOpenResult(int index);
+    std::vector<tarot::Pick> tarotLibraryPicks(const tarot::Wish& wish) const;
+    void bindTarotArt();
+    // A poster or cover that arrived (onCover): bound to the result showing that game.
+    void tarotArtArrived(const std::string& key, CoverMessage::Kind kind, const ImageBytes& image);
     // Her premiere remarks from Glance's calendar (companion_events.cpp); UI tests read no calendar.
 #ifdef LAUNCHME_UI_TEST
     std::function<std::vector<std::wstring>(bool, int)> companion_premieres_ = [](bool, int) { return std::vector<std::wstring>{}; };
@@ -810,6 +840,13 @@ private:
     ULONGLONG game_index_started_ = 0, game_index_later_at_ = 0;
     std::vector<std::string> game_index_later_; // Touched once game_index_later_at_ passes.
     uint64_t game_index_revision_ = 0;
+    // Game lengths for the index (game_index.cpp): the HowLongToBeat plugin asked about one owned
+    // game at a time, quietly, while nothing else needs it; installed and recently played first.
+    void fillGameLengths();
+    ULONGLONG length_fill_at_ = 0;
+    int length_fill_misses_ = 0;                  // Lookups in a row that found no time: a long pause after a few.
+    static constexpr int length_fill_pause_after = 6;
+    std::unordered_set<std::string> length_fill_tried_; // This start's attempts.
     std::shared_ptr<std::atomic_bool> game_index_posted_ = std::make_shared<std::atomic_bool>(false);
     // Tests adjust the worker (transports, no background requests).
 #ifdef LAUNCHME_UI_TEST

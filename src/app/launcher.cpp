@@ -483,8 +483,9 @@ void Launcher::tick() {
     const bool fixed_row = !rail && category_ == 0 && !grid;
     const bool glance_motion = tickGlance(dt);
     const bool companion_motion = tickCompanion(dt);
+    const bool tarot_motion = tickTarot(dt);
     tickGameIndex();
-    bool needs_paint = scanning_ || detail_ < 1.0f || screen_transitioning || wallpaper_moving || glance_motion || companion_motion ||
+    bool needs_paint = scanning_ || detail_ < 1.0f || screen_transitioning || wallpaper_moving || glance_motion || companion_motion || tarot_motion ||
                        dashboardEditing() ||
                        launch_progress_ > 0.003f || pending_launch_ || launchAnimationActive() ||
                         (friends_progress_ > 0.003f && friends_progress_ < 0.997f) ||

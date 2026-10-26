@@ -27,6 +27,7 @@
 #include "onscreen_keyboard.hpp"
 #include "downloads_view.hpp"
 #include "glance_view.hpp"
+#include "tarot_view.hpp"
 #include "companion_view.hpp"
 #include "home_widgets.hpp"
 #include "desktop_sheet.hpp"
@@ -268,6 +269,7 @@ struct ViewContext {
     std::wstring scroll_letter;
     float scroll_letter_alpha = 0;
     const gog_install_ui::State* gog_install = nullptr;
+    const tarot_ui::State* tarot = nullptr; // Tarot's reading, while open or fading out.
     const custom_game_ui::State* custom_editor = nullptr; // Settings → Library add/edit panel.
     const file_browser::State* file_browser = nullptr;    // The launcher's file picker, over everything.
     const settings_ui::ColorEditor* color_editor = nullptr; // Settings: "Inny…" colour.

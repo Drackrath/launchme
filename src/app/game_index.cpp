@@ -12,6 +12,11 @@
 namespace {
 constexpr ULONGLONG fill_delay_ms = 20000;               // After the start, before network lookups.
 constexpr auto settle = std::chrono::milliseconds(1500); // Library changes come in bursts.
+// Game lengths: one HowLongToBeat lookup every 12 s at most (the plugin answers from its own
+// 7-day cache without the network); a 10-minute pause after six lookups in a row found nothing
+// (plugin_game_views.cpp).
+constexpr ULONGLONG length_spacing_ms = 12000;
+constexpr const char* hltb_plugin = "launchme.howlongtobeat";
 }
 
 void Launcher::startGameIndex() {
@@ -93,6 +98,50 @@ void Launcher::tickGameIndex() {
     if (fill != game_index_filling_) {
         game_index_filling_ = fill;
         game_index_->pause(!fill);
+    }
+    fillGameLengths();
+}
+
+void Launcher::fillGameLengths() {
+    const auto now = GetTickCount64();
+    if (now < length_fill_at_ || !game_index_filling_ || !game_index_->loaded() || !runtime_started_ || plugins_busy_ || plugin_command_pending_) return;
+    length_fill_at_ = now + length_spacing_ms;
+    const auto* plugin = plugins_.find(hltb_plugin);
+    if (!plugin || !plugin->enabled || !plugin->error.empty()) return;
+    {
+        std::lock_guard lock(plugin_jobs_->mutex);
+        if (!plugin_jobs_->jobs.empty()) return; // What the player opened goes first.
+    }
+    // The next owned game the index has no length for: installed, then the most recently played.
+    std::vector<const Game*> wanted;
+    game_index_->read([&](const game_index::Index& index) {
+        for (const auto& game : public_library_) {
+            if (!isGame(game) || game.kind == GameKind::catalog || game.visibility != GameVisibility::public_game || locallyHidden(game) ||
+                game.name.empty() || placeholderGameName(game.name)) continue;
+            const auto key = gameKey(game);
+            if (key.empty() || length_fill_tried_.contains(key)) continue;
+            const auto* record = index.get(key);
+            if (record && record->hltb_main) continue;
+            wanted.push_back(&game);
+        }
+    });
+    const auto best = std::min_element(wanted.begin(), wanted.end(), [](const Game* a, const Game* b) {
+        if (a->installed != b->installed) return a->installed;
+        return a->last_played > b->last_played;
+    });
+    if (best == wanted.end()) { length_fill_at_ = now + 10 * 60 * 1000; return; } // Nothing left: a look now and then for new games.
+    const Game game = **best;
+    length_fill_tried_.insert(gameKey(game));
+    for (const auto& action : plugins_.contributions("details", &game)) {
+        if (action.plugin != hltb_plugin) continue;
+        plugins::Job job;
+        job.kind = plugins::Job::Kind::details; job.plugin = action.plugin; job.key = action.item.id; job.game = game;
+        job.background = true;
+        job.value = pluginGameParams(game);
+        job.value.properties["command"] = plugins::wire::string(action.item.command);
+        job.value.properties["refresh"] = plugins::wire::boolean(false);
+        submitPlugin(std::move(job));
+        return;
     }
 }
 

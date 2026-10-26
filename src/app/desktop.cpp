@@ -73,6 +73,7 @@ desktop_ui::Layout Launcher::desktopLayout() const {
 std::vector<desktop_ui::Tool> Launcher::desktopTools() const {
     std::vector<Tool> tools;
     if (settings_.glance) tools.push_back(Tool::glance);
+    if (settings_.tarot) tools.push_back(Tool::tarot);
     if (!plugin_menu_.empty()) tools.push_back(Tool::store);
     tools.push_back(Tool::friends);
     tools.push_back(Tool::downloads);

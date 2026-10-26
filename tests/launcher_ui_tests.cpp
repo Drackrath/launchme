@@ -113,6 +113,8 @@ public:
     static int psfive(HWND window);
     static int snitch(HWND window);
     static int glanceHub(HWND window, bool live = false);
+    static int tarotReading(HWND window);
+    static int gameLengths(HWND window);
     static int companionChat(HWND window);
     static int companionAppearance(HWND window);
     static int companionReplyLength(HWND window);
@@ -1240,6 +1242,7 @@ public:
 #include "psfive_ui_cases.hpp"
 #include "snitch_ui_cases.hpp"
 #include "glance_ui_cases.hpp"
+#include "tarot_ui_cases.hpp"
 #include "companion_ui_cases.hpp"
 #include "game_index_ui_cases.hpp"
 #include "home_widgets_ui_cases.hpp"
@@ -1955,6 +1958,15 @@ int main(int argc, char** argv) {
         else std::cout << "Game index: library, cached pages, Szczegóły, release order, genre search, her tool and memory passed\n";
         return code;
     }
+    if (argc == 2 && std::string_view(argv[1]) == "--tarot") {
+        std::filesystem::create_directories(root);
+        const auto code = window ? LauncherUiTest::tarotReading(window) : 99;
+        if (window) DestroyWindow(window);
+        CoUninitialize();
+        if (code) std::cerr << "Tarot regression failed at checkpoint " << code << '\n';
+        else std::cout << "Tarot: setting, T and View, deal, back, library and store readings, results, pad and mouse passed\n";
+        return code;
+    }
     if (argc == 2 && std::string_view(argv[1]) == "--home-widgets") {
         std::filesystem::create_directories(root);
         const auto code = window ? LauncherUiTest::homeWidgets(window) : 99;
@@ -2066,7 +2078,8 @@ int main(int argc, char** argv) {
     }
     if (argc == 2 && std::string_view(argv[1]) == "--hltb-details") {
         std::filesystem::create_directories(root);
-        const auto code = window ? LauncherUiTest::hltbDetails(window) : 99;
+        auto code = window ? LauncherUiTest::hltbDetails(window) : 99;
+        if (!code) code = LauncherUiTest::gameLengths(window);
         if (window) DestroyWindow(window);
         CoUninitialize();
         if (code) std::cerr << "HLTB details/widget regression: " << code << '\n';

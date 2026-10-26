@@ -626,6 +626,7 @@ void Launcher::desktopActivate(const desktop_ui::Hit& hit) {
 void Launcher::desktopToolPick(desktop_ui::Tool tool) {
     switch (tool) {
     case Tool::glance: openGlance(); return;
+    case Tool::tarot: openTarot(); return;
     case Tool::companion: openCompanion(); return;
     case Tool::store:
         if (plugin_menu_.size() == 1) pluginAction(plugin_menu_.front());
@@ -1471,6 +1472,7 @@ std::wstring Launcher::desktopTooltip(const desktop_ui::Hit& hit) const {
         if (hit.index < 0 || hit.index >= static_cast<int>(tools.size())) return {};
         switch (tools[static_cast<size_t>(hit.index)]) {
         case Tool::glance: return tr(L"Glance — nowości i premiery");
+        case Tool::tarot: return tr(L"Tarot — wróżba z kart");
         case Tool::companion: return companion::name(companionLook());
         case Tool::store: return tr(L"Sklep");
         case Tool::friends: return tr(L"Widżety i znajomi");

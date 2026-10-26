@@ -62,6 +62,7 @@ void Launcher::onCover(std::unique_ptr<CoverMessage> cover) {
         auto& asset = art_.at(cover->key);
         (cover->kind == CoverMessage::Kind::poster ? asset.poster : asset.landscape) = shareImage(std::move(cover->bytes));
         art_.resize(cover->key);
+        if (cover->kind == CoverMessage::Kind::poster) tarotArtArrived(cover->key, cover->kind, asset.poster);
         if (flixActive()) for (size_t i = 0; i < cards_.size(); ++i) if (gameKey(cards_[i].game) == cover->key) bindFlixArt(i, true);
         metroArtArrived(cover->key, cover->kind);
         if (shelfPosters() && cover->kind == CoverMessage::Kind::poster)
@@ -102,6 +103,7 @@ void Launcher::onCover(std::unique_ptr<CoverMessage> cover) {
     } else if (cover->kind == CoverMessage::Kind::logo) asset.logo = shareImage(std::move(cover->bytes));
     else { asset.hero = shareImage(std::move(cover->bytes)); asset.hero_tone = cover->hero_tone; }
     art_.resize(cover->key);
+    if (cover->kind == CoverMessage::Kind::cover) tarotArtArrived(cover->key, cover->kind, asset.cover);
     if (friends_open_ && plugin_drawer_active_ && cover->kind == CoverMessage::Kind::cover) requestPluginPageArt();
     // The desktop grid binds only around its view (thousands of cards; a card scrolled away is
     // bound again from art_ when it returns) and a cover only where it stands in for a poster.

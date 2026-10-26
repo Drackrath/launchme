@@ -246,6 +246,7 @@ void Launcher::onPlugins(std::unique_ptr<PluginsMessage> message) {
     if (message->error.empty() && receivePluginGameView(*message)) { invalidateGameOverlay(); InvalidateRect(hwnd_, nullptr, FALSE); return; }
     if (!message->error.empty()) {
         if (job.game.kind == GameKind::catalog) add_requests_.clear(job.game.app_id);
+        if (job.kind == plugins::Job::Kind::details && job.background) return; // A quiet lookup for the game index.
         showNotification(NotificationKind::error, tr(L"Błąd pluginu"), text_encoding::wideLenient(message->error));
         if (job.kind == plugins::Job::Kind::search) { store_loading_ = false; store_status_ = text_encoding::wideLenient(message->error); }
     } else if (job.kind == plugins::Job::Kind::downloads) {

@@ -54,7 +54,9 @@ enum class Id { font, home_layout, ui_accent, accent, uninstalled, emulation, co
                    // Interfejs → Tryb TV: how tiles appear; the artwork of search results.
                    tile_entrance, search_art,
                    // Opcje układu: the default home's facts under the logo; Flix's quick icons top right.
-                   shelves_hero_facts, flix_top_icons };
+                   shelves_hero_facts, flix_top_icons,
+                   // System → Funkcje: Tarot, the card reading (src/app/tarot.cpp).
+                   tarot };
 inline bool hasOptionsButton(Id id) { return id == Id::plugin_enabled || id == Id::pc_platform; }
 // layout: drawn preview tiles in the row (one per home layout); Row::choice is the active one.
 // count: Row::value as a large number with a chevron; activating opens a sub-list.

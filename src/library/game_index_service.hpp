@@ -45,7 +45,10 @@ struct ServiceConfig {
     Get get, get_private;              // Public pages; key-bearing URLs (no redirects).
     std::function<uint64_t()> now;     // Unix seconds.
     std::chrono::milliseconds spacing{2500}; // Between background requests.
+    // The first this many requests of a start go at `spacing`; then it keeps going, quietly, one
+    // every `slow_spacing` until nothing is left (a large library fills within one long session).
     size_t requests_per_start = 240;
+    std::chrono::milliseconds slow_spacing{15000};
     bool background = true;            // Fill gaps from the network.
     // A Steam game's local play time and achievements: {minutes, unlocked, total}.
     std::function<std::tuple<std::optional<uint32_t>, uint32_t, uint32_t>(uint64_t account, uint32_t app_id)> steam_stats;

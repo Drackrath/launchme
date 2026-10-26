@@ -509,6 +509,7 @@ void Launcher::paint(bool overlay) {
         else for (size_t i = 0; i < cards_.size(); ++i) if (gameKey(cards_[i].game) == launch_artwork_key_) { context.launch_artwork_index = i; break; }
     }
     if (gogInstallOpen()) context.gog_install = &gog_install_ui_;
+    if (tarot_.open || tarot_.alpha > 0.003f) { context.tarot = &tarot_; context.hint_device = hintDevice(); } // Its own line of hints.
     if (customEditorOpen()) context.custom_editor = &custom_editor_;
     if (fileBrowserOpen()) context.file_browser = &file_browser_;
     if (color_editor_.open && settingsOpen()) context.color_editor = &color_editor_;
