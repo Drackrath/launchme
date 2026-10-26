@@ -118,6 +118,15 @@ int main() {
         const auto odd = parseAppSettings("companion_voice_engine=hybrid_pl\ncompanion_voice_style=6\ncompanion_voice_model=Bad Model\n"
                                           "companion_voice_id_rin=abc/../x\ncompanion_voice_id_Bad=abc\ncompanion_voice_id_mei=Xb7hH8MSUJpSbSDYk0k2\n");
         if (!odd.companion_voice_model.empty() || odd.companion_voice_ids.size() != 1 || odd.companion_voice_ids.at("mei") != "Xb7hH8MSUJpSbSDYk0k2") return 100;
+        // Where they live: one city for all (empty: each her own) and per companion ("home": her own).
+        auto moved = config;
+        moved.companion_city = "los-angeles";
+        moved.companion_cities = {{"hana", "tokyo"}, {"rin", "home"}};
+        const auto housed = saveAppSettings(moved, file) ? loadAppSettings(file) : AppSettings{};
+        if (housed.companion_city != "los-angeles" || housed.companion_cities != moved.companion_cities || !fresh.companion_city.empty() ||
+            !fresh.companion_cities.empty()) return 102;
+        const auto bad = parseAppSettings("companion_city=Los Angeles\ncompanion_city_Bad=tokyo\ncompanion_city_mei=osaka\ncompanion_city_rin=../x\n");
+        if (!bad.companion_city.empty() || bad.companion_cities.size() != 1 || bad.companion_cities.at("mei") != "osaka") return 103;
     }
     if (parseAppSettings("windowed=no\n").windowed || !parseAppSettings("windowed=1\n").windowed) return 60;
     for (const bool windowed : {false, true}) {

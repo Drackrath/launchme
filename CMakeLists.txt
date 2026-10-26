@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(launchme VERSION 0.1.3 LANGUAGES C CXX)
+project(launchme VERSION 0.1.4 LANGUAGES C CXX)
 
 if(NOT WIN32)
     message(FATAL_ERROR "This native Direct2D prototype currently targets Windows.")
@@ -741,6 +741,9 @@ if(BUILD_TESTING)
         LIBS ${LAUNCHME_APP_LIBS}
         DEFINES LAUNCHME_UI_TEST)
     target_precompile_headers(launcher_ui_tests PRIVATE src/app/launcher.hpp)
+    if(MSVC)
+        target_compile_options(launcher_ui_tests PRIVATE /bigobj) # Every *_ui_cases.hpp lands in one object file.
+    endif()
     target_sources(launcher_ui_tests PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/companion.rc")
     add_dependencies(launcher_ui_tests launchme_audio)
     add_test(NAME cover_zoom_launch_effect COMMAND launcher_ui_tests --launch-animation)

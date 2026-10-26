@@ -133,6 +133,9 @@ AppSettings ownSettings(const AppSettings& source, const std::string& key) {
     out.companion_photos = source.companion_photos;
     if (const auto at = source.companion_voice_ids.find(key); at != source.companion_voice_ids.end()) out.companion_voice_ids.insert(*at);
     if (const auto at = source.companion_costumes.find(key); at != source.companion_costumes.end()) out.companion_costumes.insert(*at);
+    // Where she lives now: her own city from Settings, else the one for all of them.
+    out.companion_city = source.companion_city;
+    if (const auto at = source.companion_cities.find(key); at != source.companion_cities.end()) out.companion_cities.insert(*at);
     return out;
 }
 json::Value manifest(const std::filesystem::path& bundle) {

@@ -135,6 +135,7 @@ bool Launcher::initialize(HWND hwnd) {
     const int y = (GetSystemMetrics(SM_CYSCREEN) - windowed_height) / 2;
     previous_rect_ = RECT{x, y, x + windowed_width, y + windowed_height};
     settings_ = loadAppSettings();
+    companionApplyHomes(); // Where they live, before anything reads their clocks.
     // The desktop window unless Interfejs → "Uruchamiaj w trybie TV" asks for Tryb TV.
     desktop_mode_ = !settings_.launch_tv_mode;
     audio_.setDesktop(desktop_mode_);

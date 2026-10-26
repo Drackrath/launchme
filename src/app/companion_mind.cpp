@@ -433,10 +433,11 @@ void Launcher::companionWeatherRefresh() {
     if (fresh || now < companion_.weather_tried + 10 * 60) return;
     companion_.weather_tried = now;
     companion_.weather_busy = true;
-    // Her home's own coordinates when character.txt gives them (no lookup); a trip's town is looked up.
+    // Her home's own coordinates when character.txt (or a city from Settings) gives them (no
+    // lookup); a trip's town is looked up.
     std::optional<std::pair<double, double>> coordinates;
     if (!travelling)
-        if (const auto* c = companion::character(look)) coordinates = c->location;
+        if (const auto* c = companion::character(look)) coordinates = c->coordinates();
     const auto post = [hwnd = hwnd_, alive = alive_](std::unique_ptr<CompanionMessage> message) {
         if (alive->load() && PostMessageW(hwnd, companion_message, 0, reinterpret_cast<LPARAM>(message.get()))) message.release();
     };

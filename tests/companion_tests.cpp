@@ -2712,6 +2712,50 @@ int mindAndLife() {
         homebody.episodes.push_back(shopping);
         if (!mind::travelPlace(homebody, ctx).empty()) return 1366;
     }
+
+    // 1367: Where they live (Settings → Gdzie mieszkają): a city for all of them, hers over it or
+    // her own home again; the city's clock (both summers), home, coordinates and her prompt.
+    {
+        const auto& list = cities();
+        if (list.size() < 20 || !cityFromKey("osaka") || cityFromKey("atlantis")) return 1367;
+        for (size_t i = 0; i < list.size(); ++i) {
+            if (i && list[i - 1].utc_offset > list[i].utc_offset) return 1367; // West to east.
+            if (cityFromKey(list[i].key) != &list[i] || list[i].home_pl.empty() || list[i].home_en.empty() ||
+                list[i].home_en.find_first_of(L"-–—(;:") != std::wstring::npos) return 1367; // Unique; the weather's lookup ends at the first comma.
+        }
+        Character own;
+        own.key = "zed"; own.home_en = L"Kraków, Kazimierz - a flat"; own.home_pl = L"Kraków, Kazimierz - mieszkanie";
+        own.zoned = true; own.utc_offset = 60; own.dst = Character::Dst::eu; own.location = std::pair{50.06, 19.94};
+        const uint64_t january = 1'768'478'400, july = 1'784'116'800; // 2026-01-15 and 2026-07-15, 12:00 UTC.
+        const auto at = [&](uint64_t utc) { const auto clock = localClock(own, utc); return clock ? clock->hour * 100 + clock->minute : -1; };
+        if (homeCity(own) || own.home(true) != L"Kraków, Kazimierz - a flat" || at(january) != 1300 || at(july) != 1400 || own.coordinates()->first != 50.06) return 1367;
+        setHomeCities("los-angeles", {});
+        if (homeCity(own) != cityFromKey("los-angeles") || own.home(true) != L"Los Angeles, USA" || own.home(false) != L"Los Angeles, USA" ||
+            weather::homeCity(own) != L"Los Angeles" || std::abs(own.coordinates()->first - 34.0522) > 1e-6 || at(january) != 400 || at(july) != 500) return 1367;
+        setHomeCities("sydney", {});
+        if (at(january) != 2300 || at(july) != 2200) return 1367; // The southern summer spans the new year: UTC+11 in January.
+        setHomeCities("auckland", {});
+        if (at(january) != 100 || at(july) != 0) return 1367;
+        setHomeCities("mumbai", {});
+        if (at(january) != 1730 || at(july) != 1730) return 1367;
+        setHomeCities("los-angeles", {{"zed", "tokyo"}, {"other", "home"}});
+        if (own.home(false) != L"Tokio, Japonia" || at(january) != 2100) return 1367;
+        setHomeCities("los-angeles", {{"zed", std::string(own_home)}});
+        if (homeCity(own) || own.home(true) != L"Kraków, Kazimierz - a flat" || at(january) != 1300) return 1367;
+        setHomeCities("atlantis", {{"zed", "nowhere"}}); // Unknown: her own.
+        if (homeCity(own) || at(july) != 1400) return 1367;
+        // Her prompt: the city and its clock; her corner of it she makes up herself.
+        PromptExtras when;
+        when.utc = july;
+        const auto before = systemPrompt(Persona::genki, companion_fixture::hana, {}, false, july, 1, 20, when);
+        if (has(before, L"Gdzie mieszkasz")) return 1367; // Hana has no home: none in her prompt.
+        setHomeCities("paris", {});
+        const auto moved = systemPrompt(Persona::genki, companion_fixture::hana, {}, false, july, 1, 20, when);
+        const auto moved_en = systemPrompt(Persona::genki, companion_fixture::hana, {}, true, july, 1, 20, when);
+        setHomeCities({}, {});
+        if (!has(moved, L"Gdzie mieszkasz: Paryż, Francja.") || !has(moved, L"godz. 14:00") || !has(moved, L"nie są podane") ||
+            !has(moved_en, L"Where you live: Paris, France.") || !has(moved_en, L"are not given")) return 1367;
+    }
     return 0;
 }
 

@@ -426,6 +426,8 @@ public:
     // The real weather where she is (src/net/companion_weather.hpp): her trip's town or her home city
     // (`travelling` says which), refreshed in the background every 45 minutes or when she moves.
     std::wstring companionWeatherPlace(companion::Look look, bool* travelling) const;
+    // Settings → Gdzie mieszkają into companion::setHomeCities (their clocks, homes and weather).
+    void companionApplyHomes();
     void companionWeatherRefresh();
     // Her current report when it is fresh (three hours) and still where she is; nullptr otherwise.
     const companion::weather::Report* companionWeatherNow(companion::Look look) const;

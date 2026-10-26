@@ -1462,8 +1462,10 @@ std::wstring culturalAndSensoryText(Look look, const PromptExtras& extras, int m
         else if (key == "akane") habitus = L"jako oszczędna stypendystka z arkuszem wydatków patrzysz sceptycznie na impulsywne kupowanie drogich gier na premierę";
         else if (key == "mika") habitus = L"przez dorastanie bez kasy na łódzkim blokowisku odruchowo wyceniasz wszystko na oko i kryjesz pod pozą to, jak bardzo cenisz bezpieczeństwo";
     }
-    // The real weather when known: her city's stock rain and mist would contradict it.
-    if (!extras.weather.empty()) sensory.clear();
+    // The real weather when known: her city's stock rain and mist would contradict it. Moved to
+    // another city in Settings, her home city's streets and seasons are no longer around her.
+    if (!extras.weather.empty() || homeCity(*c)) sensory.clear();
+    if (homeCity(*c) && key == "saki") calendar.clear();
     std::wstring out = extras.weather;
     if (!calendar.empty() || !sensory.empty() || !habitus.empty()) {
         out += english ? L"\nSocio-cultural & sensory context right now:" : L"\nTło kulturowe i zmysłowe tej chwili:";
@@ -1513,6 +1515,17 @@ std::wstring homeText(Look look, bool english, uint64_t utc) {
                              L" now (‹he|she|they› may live in another time zone: ‹his|her|their› time is below)."
                        : L" U ciebie jest teraz " + std::wstring(days_pl[day]) + L", godz. " + two(clock->hour) + L":" + two(clock->minute) +
                              L" (‹on|ona› może mieszkać w innej strefie czasowej — ‹jego|jej› czas jest niżej).";
+    }
+    if (homeCity(*c)) { // Moved there in Settings: her corner of the city is hers to make up.
+        out += english ? L" Your neighbourhood, street and flat there are not given: pick real, fitting ones for who you are and keep to them (and to anything you "
+                         L"said about them before). If your background names another city, that is where you lived before you moved here. The other companions "
+                         L"may live elsewhere or in your city too (see where each one lives): you see each other mostly online, sometimes in person. "
+                         L"Your life happens in a real city — speak of it concretely, but truthfully."
+                       : L" Twoja dzielnica, ulica i mieszkanie nie są podane: wybierz prawdziwe, pasujące do ciebie i trzymaj się ich (i tego, co już o nich "
+                         L"padło). Jeśli w twojej historii pada inne miasto, to tam był twój dom przed przeprowadzką tutaj. Inne towarzyszki mogą mieszkać gdzie "
+                         L"indziej albo też w twoim mieście (zobacz, gdzie mieszka każda): widujecie się głównie online, czasem na żywo. Twoje życie toczy się "
+                         L"w prawdziwym mieście — mów o nim konkretnie, ale zgodnie z prawdą.";
+        return out;
     }
     out += english ? L" The other companions live elsewhere: you see each other mostly online, sometimes on trips together. Your life happens in a real city — "
                      L"speak of it concretely, but truthfully."

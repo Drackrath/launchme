@@ -313,6 +313,11 @@ AppSettings parseAppSettings(std::string_view text) {
                     return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9'); }))
                 settings.companion_voice_ids[std::string(key.substr(19))] = std::string(value);
         }
+        else if (key == "companion_city" || (key.starts_with("companion_city_") && companionKey(key.substr(15)))) {
+            const bool valid = value.size() <= 32 && std::all_of(value.begin(), value.end(), [](char ch) { return (ch >= 'a' && ch <= 'z') || ch == '-'; });
+            if (valid && key == "companion_city") settings.companion_city = std::string(value);
+            else if (valid && !value.empty()) settings.companion_cities[std::string(key.substr(15))] = std::string(value);
+        }
         else if (key == "companion_memory" && (value == "0" || value == "1")) settings.companion_memory = value == "1";
         else if (key == "companion_notes" && (value == "0" || value == "1")) settings.companion_notes = value == "1";
         else if (key == "hint_glyphs") {
@@ -638,6 +643,9 @@ bool saveAppSettings(const AppSettings& settings, const std::filesystem::path& f
     output << "companion_voice_model=" << settings.companion_voice_model << '\n';
     for (const auto& [look, voice] : settings.companion_voice_ids)
         if (!voice.empty()) output << "companion_voice_id_" << look << '=' << voice << '\n';
+    output << "companion_city=" << settings.companion_city << '\n';
+    for (const auto& [look, city] : settings.companion_cities)
+        if (!city.empty()) output << "companion_city_" << look << '=' << city << '\n';
     output << "companion_provider=" << AppSettings::companion_provider_keys[static_cast<size_t>(settings.companion_provider)] << '\n';
     output << "companion_claude_model=" << settings.companion_claude_model << '\n';
     output << "companion_ollama_model=" << settings.companion_ollama_model << '\n';

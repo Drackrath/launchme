@@ -5,6 +5,7 @@
 #include "../platform/text_encoding.hpp"
 
 #include <algorithm>
+#include <chrono>
 using namespace settings_ui;
 
 namespace {
@@ -21,6 +22,19 @@ std::vector<companion::ModelInfo> companionModelChoices(companion::Provider prov
         out.assign(companion::models.begin(), companion::models.end());
         if (provider == Provider::foundry) out.push_back(companion::xai_models.front()); // Foundry's xAI proxy has Grok 4.7.
     }
+    return out;
+}
+bool english() { return i18n::language() == i18n::Language::en; }
+uint64_t unixNow() {
+    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count());
+}
+// "UTC−8", "UTC+5:30", "UTC" (standard time).
+std::wstring utcLabel(int minutes) {
+    if (minutes == 0) return L"UTC";
+    std::wstring out = minutes < 0 ? L"UTC−" : L"UTC+";
+    const int value = minutes < 0 ? -minutes : minutes;
+    out += std::to_wstring(value / 60);
+    if (value % 60) out += L":" + std::to_wstring(value % 60);
     return out;
 }
 }
@@ -63,6 +77,52 @@ std::vector<settings_ui::Row> Launcher::companionSettingsRows() const {
             if (learnt != companion::Gender::unknown) gender.value += std::wstring(L": ") + tr(learnt == companion::Gender::male ? L"Mężczyzna" : L"Kobieta");
         }
         rows.push_back(std::move(gender));
+    }
+    {
+        // Where they live: one city for all of them, then the chosen one's own over it. The city's
+        // clock decides when she sleeps; her corner of it the model makes up.
+        const bool en = english();
+        const auto label = [&](const companion::City& city) { return city.home(en) + L" (" + utcLabel(city.utc_offset) + L")"; };
+        Row all{Id::companion_city, Control::choice, tr(L"Wspólne miasto"),
+            tr(L"Jedno miasto dla wszystkich: jego strefa czasowa ustala, kiedy śpią, a dzielnicę i mieszkanie wymyślają same. Każda u siebie: jak w jej opisie (Europa i Tokio).")};
+        all.choices.push_back({tr(L"Każda u siebie")});
+        all.choice = 0;
+        for (const auto& city : companion::cities()) {
+            if (city.key == settings_.companion_city) all.choice = static_cast<int>(all.choices.size());
+            all.choices.push_back({label(city)});
+        }
+        all.value = all.choices[all.choice].label;
+        rows.push_back(std::move(all));
+        section(tr(L"Gdzie mieszkają"));
+        const auto chosen = companionLook();
+        const auto key = std::string(companion::lookKey(chosen));
+        const auto* her = companion::character(chosen);
+        const auto own = settings_.companion_cities.find(key);
+        Row city{Id::companion_city_own, Control::choice, std::wstring(tr(L"Miasto: ")) + companion::name(chosen)};
+        std::wstring hers; // Her own city, from her character.txt.
+        if (her) {
+            const auto& home = en && !her->home_en.empty() ? her->home_en : her->home_pl;
+            hers = home.substr(0, std::min(home.find(L','), home.find(L" -")));
+        }
+        city.choices.push_back({tr(L"Jak wszystkie")});
+        city.choices.push_back({hers.empty() ? std::wstring(tr(L"U siebie")) : std::wstring(tr(L"U siebie: ")) + hers});
+        city.choice = 0;
+        if (own != settings_.companion_cities.end() && own->second == companion::own_home) city.choice = 1;
+        for (const auto& item : companion::cities()) {
+            if (own != settings_.companion_cities.end() && item.key == own->second) city.choice = static_cast<int>(city.choices.size());
+            city.choices.push_back({label(item)});
+        }
+        city.value = city.choices[city.choice].label;
+        city.description = tr(L"Tylko dla niej, ponad wspólnym wyborem.");
+        if (her)
+            if (const auto clock = companion::localClock(*her, unixNow())) {
+                const auto two = [](int value) { return (value < 10 ? L"0" : L"") + std::to_wstring(value); };
+                const auto& home = her->home(en);
+                city.description += std::wstring(tr(L" Teraz: ")) + home.substr(0, std::min(home.find(L','), home.find(L" -"))) + tr(L", godz. ") +
+                                    two(clock->hour) + L":" + two(clock->minute) +
+                                    (companionAsleep(chosen) ? std::wstring(tr(L" (śpi)")) : std::wstring{}) + L".";
+            }
+        rows.push_back(std::move(city));
     }
     {
         const auto& style = companion::replyStyle(settings_.companion_reply_length);
@@ -356,6 +416,12 @@ std::vector<settings_ui::Row> Launcher::companionVoiceRows() const {
     return rows;
 }
 
+void Launcher::companionApplyHomes() {
+    std::vector<std::pair<std::string, std::string>> each(settings_.companion_cities.begin(), settings_.companion_cities.end());
+    companion::setHomeCities(settings_.companion_city, each);
+    companion_.weather_tried = 0; // A new city's weather comes with the next check, not in ten minutes.
+}
+
 // Enter (A, a click) on one of her rows; false: not hers.
 bool Launcher::companionSetting(const Row& row) {
     if (row.id == Id::companion_test) { companionTest(); audio_.context(); return true; }
@@ -486,10 +552,24 @@ bool Launcher::companionSetting(const Row& row) {
     }
     const bool choice = row.control == Control::choice &&
         (row.id == Id::companion_model || row.id == Id::companion_photos || row.id == Id::companion_user_gender ||
-         row.id == Id::companion_provider || row.id == Id::companion_voice || row.id == Id::companion_voice_model || row.id == Id::companion_voice_style);
+         row.id == Id::companion_provider || row.id == Id::companion_voice || row.id == Id::companion_voice_model || row.id == Id::companion_voice_style ||
+         row.id == Id::companion_city || row.id == Id::companion_city_own);
     if (choice && !settings_state_.editing) { settings_state_.choice = row.choice; settings_state_.editing = true; }
     else if (choice) {
-        if (row.id == Id::companion_model) {
+        if (row.id == Id::companion_city || row.id == Id::companion_city_own) {
+            const auto& list = companion::cities();
+            const bool own = row.id == Id::companion_city_own;
+            const int index = settings_state_.choice - (own ? 2 : 1); // Before the cities: as all / her own (each her own).
+            const std::string city = index >= 0 && index < static_cast<int>(list.size()) ? list[static_cast<size_t>(index)].key : std::string{};
+            if (!own) settings_.companion_city = city;
+            else {
+                const auto key = std::string(companion::lookKey(companionLook()));
+                if (settings_state_.choice == 0) settings_.companion_cities.erase(key);
+                else settings_.companion_cities[key] = city.empty() ? std::string(companion::own_home) : city;
+            }
+            companionApplyHomes();
+        }
+        else if (row.id == Id::companion_model) {
             const auto provider = companionAccess().provider;
             const auto choices = companionModelChoices(provider);
             if (settings_state_.choice >= 0 && settings_state_.choice < static_cast<int>(choices.size())) {

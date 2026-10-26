@@ -27,7 +27,7 @@ bool dailyHas(const json::Value* daily, const char* name, size_t index) {
 } // namespace
 
 std::wstring homeCity(const Character& character) {
-    const auto& home = !character.home_en.empty() ? character.home_en : character.home_pl;
+    const auto& home = character.home(true); // English first, else Polish; a city from Settings first of all.
     const auto end = home.find_first_of(L",-–—(;:");
     std::wstring city = home.substr(0, end == std::wstring::npos ? home.size() : end);
     while (!city.empty() && city.back() == L' ') city.pop_back();

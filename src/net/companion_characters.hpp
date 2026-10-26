@@ -46,11 +46,13 @@ struct Character {
     // suggestions that way and may argue about it.
     std::vector<std::wstring> likes, dislikes;
     // Where she lives (home_*: a real city and her corner of it, in words) and its clock
-    // (timezone=+09:00 standard time, dst=eu|us|none): she knows her own time of day.
+    // (timezone=+09:00 standard time, dst=eu|us|au|nz|none): she knows her own time of day. A city
+    // picked in Settings replaces all of it (homeCity below): read them through home(), coordinates()
+    // and localClock(), never the fields.
     std::wstring home_pl, home_en;
     int utc_offset = 0;         // Minutes east of UTC, standard time.
     bool zoned = false;         // A timezone= line was given.
-    enum class Dst { none, eu, us } dst = Dst::none;
+    enum class Dst { none, eu, us, au, nz } dst = Dst::none;
     bool night_owl = false;     // chronotype=night: lively late, sleepy in the morning.
     // Real things she loves (favorites_*: "Muzyka: The Cure, Bauhaus | Miejsca: …", one category per
     // part): her prompt names a few a day, so what she talks about exists. Her own goals outside
@@ -88,12 +90,33 @@ struct Character {
     }
     const std::vector<std::wstring>& topics(bool english) const { return english && !topics_en.empty() ? topics_en : topics_pl; }
     const std::vector<std::wstring>& examples(bool english) const { return english && !examples_en.empty() ? examples_en : examples_pl; }
-    const std::wstring& home(bool english) const { return english && !home_en.empty() ? home_en : home_pl; }
+    // Where she lives: the city Settings picked for her ("Los Angeles, USA"), else character.txt's.
+    const std::wstring& home(bool english) const;
+    std::optional<std::pair<double, double>> coordinates() const; // Her home's, for the weather; nullopt: look up home()'s city.
     const std::wstring& origin(bool english) const { return english && !origin_en.empty() ? origin_en : origin_pl; }
     const std::wstring& occupation(bool english) const { return english && !occupation_en.empty() ? occupation_en : occupation_pl; }
     const std::vector<std::wstring>& favorites(bool english) const { return english && !favorites_en.empty() ? favorites_en : favorites_pl; }
     const std::vector<std::wstring>& goals(bool english) const { return english && !goals_en.empty() ? goals_en : goals_pl; }
 };
+// A real city Settings can move the companions to (Settings → Towarzyszka AI → Gdzie mieszkają),
+// for players far from their own cities, where they would always be asleep. Only its name, clock
+// and coordinates: her street, flat and neighbourhood the model makes up itself (homeText).
+struct City {
+    std::string key;               // "los-angeles" (settings.ini).
+    std::wstring home_pl, home_en; // "Los Angeles, USA": her home() there.
+    int utc_offset = 0;            // Minutes east of UTC, standard time.
+    Character::Dst dst = Character::Dst::none;
+    double lat = 0, lon = 0;
+    const std::wstring& home(bool english) const { return english ? home_en : home_pl; }
+};
+const std::vector<City>& cities(); // West to east.
+const City* cityFromKey(std::string_view key);
+// Where Settings puts them: `all` for everyone (empty: each one her own, character.txt's) and
+// `each` per character key over it (a city key, or "home": her own whatever `all` says).
+// Unknown keys are ignored. Thread-safe; the UI thread sets it from AppSettings.
+inline constexpr std::string_view own_home = "home";
+void setHomeCities(std::string_view all, const std::vector<std::pair<std::string, std::string>>& each);
+const City* homeCity(const Character& character); // nullptr: her character.txt's home.
 // A wall clock reading.
 struct Clock { int year = 0, month = 0, day = 0, weekday = 0, hour = 0, minute = 0; }; // weekday: 0 = Sunday.
 // Her local time at `utc` (Unix seconds): her timezone with its daylight saving; nullopt without one.

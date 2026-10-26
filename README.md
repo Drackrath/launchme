@@ -138,6 +138,11 @@ Other providers: Claude (`ANTHROPIC_API_KEY`), Grok (`XAI_API_KEY`) or a local [
 server with no key. Optional voice uses an [ElevenLabs](https://elevenlabs.io) key (`ELEVENLABS_API_KEY`).
 Keys typed in Settings are encrypted with DPAPI for your Windows account.
 
+The companions live in real cities (Europe and Tokyo) and keep their own clocks, so they sleep at night there.
+Far from those time zones, **Settings → Assistant → Where they live** moves them all to one of 27 cities
+from Honolulu to Auckland (*Shared city*), or one of them on her own (*City: …*); the city's time zone
+sets when she sleeps, and she makes up her neighbourhood there herself.
+
 ## Building
 
 Requirements: Windows 10/11 x64, Visual Studio 2026 (18) with the C++ workload and Windows SDK,

@@ -125,6 +125,12 @@ struct AppSettings {
     bool companion_typing = false;
     // The real weather where she is (Open-Meteo, no key; only her city goes out): on by default.
     bool companion_weather = true;
+    // Where they live (companion::cities(), src/net/companion_characters.hpp): one city for all of
+    // them (companion_city=<city key>; empty: each her own, character.txt's) and per companion over
+    // it (companion_city_<key>=<city key>, or "home" for her own). The city sets her clock, so when
+    // she sleeps; her neighbourhood the model makes up.
+    std::string companion_city;
+    std::map<std::string, std::string, std::less<>> companion_cities;
     // Phone access (src/app/companion_remote.cpp): her chat and Launchfeed in a browser, on this
     // port of every interface; the key goes in the page's address.
     bool companion_remote = false;

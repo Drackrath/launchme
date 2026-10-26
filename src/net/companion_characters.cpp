@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <charconv>
 #include <cmath>
+#include <mutex>
 #include <string>
 
 namespace companion {
@@ -127,7 +128,8 @@ std::vector<Character> parseCharacters(std::string_view manifest) {
                 c.zoned = true;
             }
         }
-        else if (key == "dst") c.dst = value == "eu" ? Character::Dst::eu : value == "us" ? Character::Dst::us : Character::Dst::none;
+        else if (key == "dst") c.dst = value == "eu" ? Character::Dst::eu : value == "us" ? Character::Dst::us : value == "au" ? Character::Dst::au :
+                                       value == "nz" ? Character::Dst::nz : Character::Dst::none;
         else if (key == "chronotype") c.night_owl = value == "night";
         else if (key == "attachment") { if (value == "secure" || value == "anxious" || value == "avoidant" || value == "fearful") c.attachment = std::string(value); }
         else if (key == "location") {
@@ -252,6 +254,91 @@ std::vector<Character> parseCharacters(std::string_view manifest) {
     return out;
 }
 
+const std::vector<City>& cities() {
+    using Dst = Character::Dst;
+    struct Row { const char* key; const wchar_t* pl; const wchar_t* en; int offset; Dst dst; double lat, lon; };
+    static constexpr Row rows[]{
+        {"honolulu", L"Honolulu, USA", L"Honolulu, USA", -10 * 60, Dst::none, 21.3069, -157.8583},
+        {"los-angeles", L"Los Angeles, USA", L"Los Angeles, USA", -8 * 60, Dst::us, 34.0522, -118.2437},
+        {"vancouver", L"Vancouver, Kanada", L"Vancouver, Canada", -8 * 60, Dst::us, 49.2827, -123.1207},
+        {"denver", L"Denver, USA", L"Denver, USA", -7 * 60, Dst::us, 39.7392, -104.9903},
+        {"mexico-city", L"Ciudad de México, Meksyk", L"Mexico City, Mexico", -6 * 60, Dst::none, 19.4326, -99.1332},
+        {"chicago", L"Chicago, USA", L"Chicago, USA", -6 * 60, Dst::us, 41.8781, -87.6298},
+        {"toronto", L"Toronto, Kanada", L"Toronto, Canada", -5 * 60, Dst::us, 43.6532, -79.3832},
+        {"new-york", L"Nowy Jork, USA", L"New York, USA", -5 * 60, Dst::us, 40.7128, -74.0060},
+        {"sao-paulo", L"São Paulo, Brazylia", L"São Paulo, Brazil", -3 * 60, Dst::none, -23.5505, -46.6333},
+        {"buenos-aires", L"Buenos Aires, Argentyna", L"Buenos Aires, Argentina", -3 * 60, Dst::none, -34.6037, -58.3816},
+        {"reykjavik", L"Reykjavík, Islandia", L"Reykjavík, Iceland", 0, Dst::none, 64.1466, -21.9426},
+        {"lisbon", L"Lizbona, Portugalia", L"Lisbon, Portugal", 0, Dst::eu, 38.7223, -9.1393},
+        {"london", L"Londyn, Wielka Brytania", L"London, UK", 0, Dst::eu, 51.5074, -0.1278},
+        {"paris", L"Paryż, Francja", L"Paris, France", 60, Dst::eu, 48.8566, 2.3522},
+        {"berlin", L"Berlin, Niemcy", L"Berlin, Germany", 60, Dst::eu, 52.5200, 13.4050},
+        {"warsaw", L"Warszawa, Polska", L"Warsaw, Poland", 60, Dst::eu, 52.2297, 21.0122},
+        {"krakow", L"Kraków, Polska", L"Kraków, Poland", 60, Dst::eu, 50.0614, 19.9366},
+        {"istanbul", L"Stambuł, Turcja", L"Istanbul, Turkey", 3 * 60, Dst::none, 41.0082, 28.9784},
+        {"dubai", L"Dubaj, ZEA", L"Dubai, UAE", 4 * 60, Dst::none, 25.2048, 55.2708},
+        {"mumbai", L"Bombaj, Indie", L"Mumbai, India", 5 * 60 + 30, Dst::none, 19.0760, 72.8777},
+        {"bangkok", L"Bangkok, Tajlandia", L"Bangkok, Thailand", 7 * 60, Dst::none, 13.7563, 100.5018},
+        {"singapore", L"Singapur", L"Singapore", 8 * 60, Dst::none, 1.3521, 103.8198},
+        {"seoul", L"Seul, Korea Południowa", L"Seoul, South Korea", 9 * 60, Dst::none, 37.5665, 126.9780},
+        {"tokyo", L"Tokio, Japonia", L"Tokyo, Japan", 9 * 60, Dst::none, 35.6762, 139.6503},
+        {"osaka", L"Osaka, Japonia", L"Osaka, Japan", 9 * 60, Dst::none, 34.6937, 135.5023},
+        {"sydney", L"Sydney, Australia", L"Sydney, Australia", 10 * 60, Dst::au, -33.8688, 151.2093},
+        {"auckland", L"Auckland, Nowa Zelandia", L"Auckland, New Zealand", 12 * 60, Dst::nz, -36.8485, 174.7633}};
+    static const std::vector<City> list = [] {
+        std::vector<City> out;
+        for (const auto& row : rows) out.push_back({row.key, row.pl, row.en, row.offset, row.dst, row.lat, row.lon});
+        return out;
+    }();
+    return list;
+}
+
+const City* cityFromKey(std::string_view key) {
+    for (const auto& city : cities()) if (city.key == key) return &city;
+    return nullptr;
+}
+
+namespace {
+struct Homes {
+    std::mutex lock;
+    const City* all = nullptr;
+    std::vector<std::pair<std::string, const City*>> each; // nullptr: her own home.
+};
+Homes& homes() {
+    static Homes state;
+    return state;
+}
+} // namespace
+
+void setHomeCities(std::string_view all, const std::vector<std::pair<std::string, std::string>>& each) {
+    std::vector<std::pair<std::string, const City*>> resolved;
+    for (const auto& [key, city] : each) {
+        if (city == own_home) resolved.push_back({key, nullptr});
+        else if (const auto* found = cityFromKey(city)) resolved.push_back({key, found});
+    }
+    auto& state = homes();
+    std::lock_guard guard(state.lock);
+    state.all = cityFromKey(all);
+    state.each = std::move(resolved);
+}
+
+const City* homeCity(const Character& character) {
+    auto& state = homes();
+    std::lock_guard guard(state.lock);
+    for (const auto& [key, city] : state.each) if (key == character.key) return city;
+    return state.all;
+}
+
+const std::wstring& Character::home(bool english) const {
+    if (const auto* city = homeCity(*this)) return city->home(english);
+    return english && !home_en.empty() ? home_en : home_pl;
+}
+
+std::optional<std::pair<double, double>> Character::coordinates() const {
+    if (const auto* city = homeCity(*this)) return std::pair{city->lat, city->lon};
+    return location;
+}
+
 const std::vector<Character>& characters() { return registry(); }
 void setCharacters(std::vector<Character> list) {
     for (size_t i = 0; i < list.size(); ++i) for (auto& costume : list[i].costumes) costume.look = static_cast<Look>(i);
@@ -329,17 +416,28 @@ int sunday(int year, int month, int n) {
 } // namespace
 
 std::optional<Clock> localClock(const Character& character, uint64_t utc) {
-    if (!character.zoned || !utc) return std::nullopt;
-    int64_t local = static_cast<int64_t>(utc) + static_cast<int64_t>(character.utc_offset) * 60;
-    if (character.dst != Character::Dst::none) {
+    const auto* city = homeCity(character); // Settings moved her: that city's clock.
+    if ((!city && !character.zoned) || !utc) return std::nullopt;
+    const int offset = city ? city->utc_offset : character.utc_offset;
+    const auto dst = city ? city->dst : character.dst;
+    int64_t local = static_cast<int64_t>(utc) + static_cast<int64_t>(offset) * 60;
+    if (dst != Character::Dst::none) {
         const auto standard = clockOf(local);
         const int year = standard.year;
         bool summer = false;
-        if (character.dst == Character::Dst::eu) {
+        if (dst == Character::Dst::eu) {
             // The last Sunday of March 01:00 UTC to the last Sunday of October 01:00 UTC.
             const int64_t start = daysFrom(year, 3, static_cast<unsigned>(sunday(year, 3, 0))) * 86400 + 3600;
             const int64_t end = daysFrom(year, 10, static_cast<unsigned>(sunday(year, 10, 0))) * 86400 + 3600;
             summer = static_cast<int64_t>(utc) >= start && static_cast<int64_t>(utc) < end;
+        } else if (dst == Character::Dst::au || dst == Character::Dst::nz) {
+            // The southern summer spans the new year: from the first Sunday of October (Australia) or
+            // the last Sunday of September (New Zealand) 02:00 to the first Sunday of April 03:00
+            // summer time (02:00 standard), local standard time.
+            const int64_t start = dst == Character::Dst::au ? daysFrom(year, 10, static_cast<unsigned>(sunday(year, 10, 1))) * 86400 + 2 * 3600
+                                                            : daysFrom(year, 9, static_cast<unsigned>(sunday(year, 9, 0))) * 86400 + 2 * 3600;
+            const int64_t end = daysFrom(year, 4, static_cast<unsigned>(sunday(year, 4, 1))) * 86400 + 2 * 3600;
+            summer = local >= start || local < end;
         } else {
             // The second Sunday of March 02:00 to the first Sunday of November 01:00, local standard time.
             const int64_t start = daysFrom(year, 3, static_cast<unsigned>(sunday(year, 3, 2))) * 86400 + 2 * 3600;
