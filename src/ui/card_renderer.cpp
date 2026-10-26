@@ -21,7 +21,7 @@ D2D1_COLOR_F Renderer::platformTileFill(const Game& game, float alpha) const {
 }
 
 void Renderer::drawSquareShadow(float x, float y, float size, bool selected, float transparency) {
-    const auto base = D2D1::Matrix3x2F::Scale(viewport_.scale, viewport_.scale);
+    const auto base = canvasBase();
     for (int layer = 4; layer >= 1; --layer) {
         const float spread = static_cast<float>(layer) * (selected ? 4.0f : 2.0f);
         target_->SetTransform(D2D1::Matrix3x2F::Scale(size + spread * 2, size + spread * 2) *
@@ -60,7 +60,7 @@ void Renderer::drawCard(const GameCard& card, size_t index) {
     const float size = card.size * focus_zoom;
     const float x = card.x - (size - card.size) * 0.5f;
     const float y = card.y - (size - card.size) * 0.5f;
-    const auto base = D2D1::Matrix3x2F::Scale(viewport_.scale, viewport_.scale);
+    const auto base = canvasBase();
     float rail_alpha = 1;
     bool rail_layer = false;
     if (context_->category_rail) {
@@ -94,8 +94,12 @@ void Renderer::drawCard(const GameCard& card, size_t index) {
     // must not fall on its neighbours, which sit closer than on the shelves.
     if (!context_->psfive && !context_->snitch) drawSquareShadow(x, y, size, selected, transparency);
     // "Grafika do środka" (focus gap inside): the focused cover shrinks inside its outline, an empty
-    // band between them (PSfive keeps its own frame outside the tile).
-    const float inner = selected && !context_->psfive ? focusInset(3.2f) * (1.0f - smoothFade(context_->quick_progress)) : 0.0f;
+    // band between them (PSfive keeps its own frame outside the tile). It follows card.emphasis, which
+    // eases with the focus: the new cover shrinks in while the previous one grows back to the edge
+    // (as the rectangular tiles do) instead of both snapping in one frame.
+    const bool may_inset = !context_->psfive && context_->screen != ScreenMode::details && context_->screen != ScreenMode::crop &&
+        !context_->category_rail_focus && (!context_->library_controls || context_->library_controls->focus < 0);
+    const float inner = may_inset ? focusInset(3.2f) * std::clamp(card.emphasis, 0.0f, 1.0f) * (1.0f - smoothFade(context_->quick_progress)) : 0.0f;
     if (inner > 0.05f) {
         target_->SetTransform(D2D1::Matrix3x2F::Scale(size, size) * D2D1::Matrix3x2F::Translation(x, y) * base);
         brush(color(0.012f, 0.014f, 0.018f, 0.94f * transparency));

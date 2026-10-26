@@ -265,6 +265,7 @@ public:
     bool heroLeavingForTest() const { return hero_leaving_.pixels != nullptr; }
     ID2D1Bitmap* heroBitmapForTest(size_t index) const { return index < heroes_.size() ? heroes_[index].bitmap.Get() : nullptr; }
     HRESULT draw_result_for_test = S_OK;
+    float psfiveClockAdvanceForTest(const std::wstring& value) { return psfive_clock_font_ ? textAdvance(value, psfive_clock_font_.Get()) : 0; }
 #endif
 
 private:
@@ -944,6 +945,11 @@ private:
     mutable std::unordered_map<uint64_t, Microsoft::WRL::ComPtr<ID2D1PathGeometry>> capped_shapes_; // By aspect and corner.
     float corner_reference_ = 0; // Metro: tileShape rounds corners as for this shorter side at most; 0 = off.
     float squircle_corner_ = 0.5f; // Corner / shorter side of the tiles being drawn; 0.5 = full squircle.
+    // Where the screen's canvas sits in the target: a TV screen inside a desktop sheet
+    // (drawDesktopEmbedded) is moved to the sheet's body. Code that sets its own transform for a
+    // card (drawCard) starts from canvasBase(), never from the bare scale.
+    D2D1::Matrix3x2F canvas_offset_ = D2D1::Matrix3x2F::Identity();
+    D2D1::Matrix3x2F canvasBase() const { return D2D1::Matrix3x2F::Scale(viewport_.scale, viewport_.scale) * canvas_offset_; }
     Microsoft::WRL::ComPtr<ID2D1PathGeometry> power_arc_; // Quick bar power glyph: open circle around the origin.
     // Device-dependent: made with the target, released with it.
     Microsoft::WRL::ComPtr<ID2D1DeviceContext1> realizer_;

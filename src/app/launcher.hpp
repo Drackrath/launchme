@@ -1345,6 +1345,8 @@ private:
     void openLocalArtwork();
     void openArtworkCrop(); // "Popraw kadr" on the artwork browser's rail.
     void cycleArtworkProvider(); // "Źródło": SteamGridDB → ScreenScraper → ES-DE (emulated shortcuts).
+    void openArtworkProviders();          // Tryb TV: "Źródło"'s list, right of the search field.
+    void chooseArtworkProvider(int index); // Its row picked (artwork_ui::providers order); closes the list.
     void closeLocalArtwork();
     void pickLocalArtwork();
     void applyLocalArtwork(const std::filesystem::path& picked);

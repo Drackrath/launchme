@@ -314,7 +314,7 @@ bool Launcher::hoverButton(float mouse_x, float mouse_y) const {
     }
     if (downloadsOpen() && !friends_open_) return downloadsHover(x, y);
     if (cropOpen()) {
-        const crop_ui::Layout layout{view.width, view.height};
+        const crop_ui::Layout layout{view.width, view.height, desktopEmbedded()};
         if (layout.back().contains(x, y)) return true;
         return !crop_state_.loading && crop_state_.error.empty() &&
             ((crop_state_.adjustable() && layout.preview().contains(x, y)) || layout.button(0).contains(x, y) || layout.button(1).contains(x, y));
@@ -327,6 +327,7 @@ bool Launcher::hoverButton(float mouse_x, float mouse_y) const {
     if (artworkOpen()) {
         const artwork_ui::Layout layout{view.width, view.height, artwork_state_.kind(), artwork_state_.providerChoice()};
         if (artwork_state_.local_open) return layout.hitLocal(x, y) >= 0;
+        if (artwork_state_.provider_open) return layout.hitProvider(x, y) >= 0;
         if (layout.base().backButton().contains(x, y)) return true;
         if (artwork_state_.applying) return false;
         if (layout.localButton().contains(x, y) || (!artwork_state_.query.empty() && layout.clearButton().contains(x, y))) return true;

@@ -74,7 +74,7 @@ void Launcher::cropMove(int horizontal, int vertical) {
     }
     if (control >= 0) {
         if (horizontal < 0) control = -1;
-        else if (vertical < 0 && control == 0) control = back; // Up from "Automatyczny".
+        else if (vertical < 0 && control == 0) { if (!desktopEmbedded()) control = back; } // Up from "Automatyczny" (a desktop sheet has its ✕ instead).
         else control = std::clamp(control + vertical, 0, 1);
     } else {
         if (horizontal > 0 && crop_state_.height >= crop_state_.width) crop_state_.control = 0;
@@ -83,8 +83,9 @@ void Launcher::cropMove(int horizontal, int vertical) {
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
 void Launcher::cropTab(int amount) {
-    // Back → picture → Automatyczny → Zapisz kadr, round.
+    // Back → picture → Automatyczny → Zapisz kadr, round (in a desktop sheet without Back: its ✕ closes).
     crop_state_.control = (crop_state_.control + 2 + amount + 4) % 4 - 2;
+    if (desktopEmbedded() && crop_state_.control == crop_ui::State::back) crop_state_.control = (crop_state_.control + 2 + amount + 4) % 4 - 2;
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
 void Launcher::cropReset() {
@@ -112,7 +113,7 @@ void Launcher::closeCropEditor() {
     if (screen_ == ScreenMode::details) requestDetails();
 }
 void Launcher::cropClick(float x, float y) {
-    const auto view = renderer_.viewport(); const crop_ui::Layout layout{view.width, view.height};
+    const auto view = renderer_.viewport(); const crop_ui::Layout layout{view.width, view.height, desktopEmbedded()};
     if (layout.back().contains(x, y)) { closeCropEditor(); return; }
     if (crop_state_.loading || !crop_state_.error.empty()) return;
     if (layout.preview().contains(x, y)) {
@@ -124,7 +125,7 @@ void Launcher::cropClick(float x, float y) {
 }
 void Launcher::cropDrag(float x, float y) {
     if (!crop_state_.dragging) return;
-    const auto view = renderer_.viewport(); const crop_ui::Layout layout{view.width, view.height};
+    const auto view = renderer_.viewport(); const crop_ui::Layout layout{view.width, view.height, desktopEmbedded()};
     const float side = static_cast<float>(std::min(crop_state_.width, crop_state_.height));
     crop_state_.focus.x = crop_state_.drag_focus.x - (x - crop_state_.drag_x) * side / (layout.size() * crop_state_.width);
     crop_state_.focus.y = crop_state_.drag_focus.y - (y - crop_state_.drag_y) * side / (layout.size() * crop_state_.height);

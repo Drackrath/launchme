@@ -402,6 +402,31 @@ void Launcher::cycleArtworkProvider() {
     audio_.context();
 }
 
+void Launcher::chooseArtworkProvider(int index) {
+    auto& state = artwork_state_;
+    state.provider_open = false;
+    if (!artworkOpen() || !state.providerChoice() || state.applying || index < 0 || index >= static_cast<int>(artwork_ui::providers.size())) return;
+    const auto chosen = artwork_ui::providers[static_cast<size_t>(index)];
+    audio_.context();
+    if (chosen != state.provider) {
+        state.provider = chosen;
+        state.page = 0;
+        state.source = state.override_source;
+        loadArtworkPage();
+    }
+    InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
+void Launcher::openArtworkProviders() {
+    auto& state = artwork_state_;
+    if (!artworkOpen() || !state.providerChoice() || state.applying) return;
+    state.local_focus = state.crop_focus = state.back_focus = state.gallery = state.search_focus = false;
+    state.provider_focus = state.provider_open = true;
+    state.provider_row = static_cast<int>(std::find(artwork_ui::providers.begin(), artwork_ui::providers.end(), state.provider) - artwork_ui::providers.begin());
+    audio_.context();
+    InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
 // "Popraw kadr": the crop editor of the same game; Back there returns to "Zmień grafikę".
 void Launcher::openArtworkCrop() {
     auto& state = artwork_state_;
@@ -471,26 +496,44 @@ void Launcher::artworkMove(int horizontal, int vertical) {
         }
         InvalidateRect(hwnd_, nullptr, FALSE); return;
     }
+    // "Źródło"'s open list: Up/Down between the providers (A picks, Back closes).
+    if (state.provider_open) {
+        if (vertical) {
+            const int next = std::clamp(state.provider_row + vertical, 0, static_cast<int>(artwork_ui::providers.size()) - 1);
+            if (next == state.provider_row) navigationBoundary(); else audio_.navigate();
+            state.provider_row = next;
+        }
+        InvalidateRect(hwnd_, nullptr, FALSE); return;
+    }
+    // "Źródło" (right of the search): Left back to the field, Down into the gallery.
+    if (state.provider_focus) {
+        if (!state.providerChoice()) state.provider_focus = false;
+        else if (horizontal < 0) { state.provider_focus = false; state.search_focus = state.query_selected = true; audio_.navigate(); }
+        else if (vertical > 0) {
+            state.provider_focus = false;
+            if ((state.results_mode && !state.games.empty()) || (!state.results_mode && !state.assets.empty())) state.gallery = true;
+            audio_.navigate();
+        } else navigationBoundary();
+        InvalidateRect(hwnd_, nullptr, FALSE); return;
+    }
     // Right from any rail entry reaches the search field even while the gallery is loading/empty.
     // Keep the selected rail entry so Left returns there; Down enters the results or gallery.
     if (horizontal > 0 && !state.gallery && !state.search_focus) {
         state.search_focus = state.query_selected = true;
         audio_.navigate(); InvalidateRect(hwnd_, nullptr, FALSE); return;
     }
-    // The rail's buttons under the types, top to bottom: "Z dysku…", "Źródło: …" (emulated games),
-    // "Popraw kadr", Back. Up from the first returns to the last type.
+    // The rail's buttons under the types, top to bottom: "Z dysku…", "Popraw kadr", Back. Up from
+    // the first returns to the last type.
     if (state.railButton() && !state.gallery && !state.search_focus) {
-        enum Entry { local, provider, crop, back };
-        std::vector<Entry> entries{local};
-        if (state.providerChoice()) entries.push_back(provider);
-        entries.push_back(crop); entries.push_back(back);
-        const Entry at = state.local_focus ? local : state.provider_focus ? provider : state.crop_focus ? crop : back;
+        enum Entry { local, crop, back };
+        const std::vector<Entry> entries{local, crop, back};
+        const Entry at = state.local_focus ? local : state.crop_focus ? crop : back;
         const int position = static_cast<int>(std::find(entries.begin(), entries.end(), at) - entries.begin());
         const auto focusEntry = [&](int index) {
             state.local_focus = state.provider_focus = state.crop_focus = state.back_focus = false;
             if (index < 0) return; // The last type.
             const auto entry = entries[static_cast<size_t>(index)];
-            (entry == local ? state.local_focus : entry == provider ? state.provider_focus : entry == crop ? state.crop_focus : state.back_focus) = true;
+            (entry == local ? state.local_focus : entry == crop ? state.crop_focus : state.back_focus) = true;
         };
         if (vertical) {
             const int next = position + (vertical > 0 ? 1 : -1);
@@ -502,6 +545,8 @@ void Launcher::artworkMove(int horizontal, int vertical) {
     }
     if (state.search_focus) {
         if (horizontal < 0) { leaveArtworkSearch(); audio_.navigate(); }
+        else if (horizontal > 0 && state.providerChoice()) { state.search_focus = state.query_selected = false; state.provider_focus = true; audio_.navigate(); }
+        else if (horizontal > 0) navigationBoundary();
         else if (vertical > 0) {
             if ((state.results_mode && !state.games.empty()) || (!state.results_mode && !state.assets.empty())) {
                 state.search_focus = state.query_selected = false; state.gallery = true;
@@ -557,7 +602,8 @@ void Launcher::artworkAccept() {
         return;
     }
     if (state.local_focus && !state.gallery && !state.search_focus) { openLocalArtwork(); return; }
-    if (state.provider_focus && !state.gallery && !state.search_focus) { cycleArtworkProvider(); return; }
+    if (state.provider_open) { chooseArtworkProvider(state.provider_row); return; }
+    if (state.provider_focus && !state.gallery && !state.search_focus) { openArtworkProviders(); return; }
     if (state.crop_focus && !state.gallery && !state.search_focus) { openArtworkCrop(); return; }
     if (state.back_focus && !state.gallery && !state.search_focus) { closeArtworkBrowser(); return; }
     if (artwork_state_.loading) return;
@@ -618,13 +664,16 @@ void Launcher::artworkClick(float x, float y, bool double_click) {
         InvalidateRect(hwnd_, nullptr, FALSE);
         return;
     }
+    if (state.provider_open) { // The open list takes the click; outside it closes.
+        const int row = layout.hitProvider(x, y);
+        if (row >= 0) chooseArtworkProvider(row);
+        else { state.provider_open = false; InvalidateRect(hwnd_, nullptr, FALSE); }
+        return;
+    }
     if (layout.base().backButton().contains(x, y)) { closeArtworkBrowser(); return; }
     if (state.applying) return;
     if (layout.localButton().contains(x, y)) { openLocalArtwork(); return; }
-    if (state.providerChoice() && layout.providerButton().contains(x, y)) {
-        state.local_focus = state.crop_focus = state.back_focus = false; state.provider_focus = true; state.gallery = state.search_focus = false;
-        cycleArtworkProvider(); return;
-    }
+    if (state.providerChoice() && layout.providerButton().contains(x, y)) { openArtworkProviders(); return; }
     if (layout.cropButton().contains(x, y)) { openArtworkCrop(); return; }
     state.local_focus = state.provider_focus = state.crop_focus = state.back_focus = false;
     if (!state.query.empty() && layout.clearButton().contains(x, y)) { clearArtworkQuery(); return; }

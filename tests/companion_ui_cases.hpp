@@ -1665,7 +1665,7 @@ int LauncherUiTest::companionChat(HWND window) {
         if (all < 0 || own != all + 1 || app.settings_rows_[all].section != L"Gdzie mieszkają" || app.settings_rows_[all].choice != 0 ||
             app.settings_rows_[all].choices.size() != cities.size() + 1 || app.settings_rows_[own].choices.size() != cities.size() + 2 ||
             app.settings_rows_[own].title != L"Miasto: Rin" || app.settings_rows_[own].choices[1].label != L"U siebie" ||
-            companion::localClock(*companion::character(rin_look), 1'784'116'800)) return 7190; // No home, no clock: she never sleeps.
+            companion::localClock(*companion::character(rin_look), 1'784'116'800)) return 7400; // No home, no clock: she never sleeps.
         const auto choose = [&](settings_ui::Id id, int choice) {
             const auto picked = app.settings_rows_[row(id)];
             app.companionSetting(picked); // Opens its list.
@@ -1680,29 +1680,29 @@ int LauncherUiTest::companionChat(HWND window) {
         choose(settings_ui::Id::companion_city, 1 + index("los-angeles"));
         if (app.settings_.companion_city != "los-angeles" || hour(hana_look) != 5 || hour(rin_look) != 5 || // Summer time: UTC−7.
             companion::character(rin_look)->home(false) != L"Los Angeles, USA" || app.companionWeatherPlace(rin_look, nullptr) != L"Los Angeles" ||
-            app.settings_rows_[row(settings_ui::Id::companion_city)].value != L"Los Angeles, USA (UTC−8)") return 7191;
+            app.settings_rows_[row(settings_ui::Id::companion_city)].value != L"Los Angeles, USA (UTC−8)") return 7401;
         choose(settings_ui::Id::companion_city_own, 2 + index("tokyo"));
         if (app.settings_.companion_cities["rin"] != "tokyo" || hour(rin_look) != 21 || hour(hana_look) != 5 ||
-            app.settings_rows_[row(settings_ui::Id::companion_city_own)].description.find(L"Teraz: Tokio, godz. ") == std::wstring::npos) return 7192;
+            app.settings_rows_[row(settings_ui::Id::companion_city_own)].description.find(L"Teraz: Tokio, godz. ") == std::wstring::npos) return 7402;
         app.settings_state_.selected[app.settings_state_.category] = row(settings_ui::Id::companion_city_own);
         app.ensureSettingVisible();
-        if (!capture(L"companion-settings-city.png")) return 7193;
+        if (!capture(L"companion-settings-city.png")) return 7403;
         {
             const auto list = app.settings_rows_[row(settings_ui::Id::companion_city)];
             app.settings_state_.selected[app.settings_state_.category] = row(settings_ui::Id::companion_city);
             app.companionSetting(list); // Its list open, Los Angeles picked.
-            if (!app.settings_state_.editing || app.settings_state_.choice != 1 + index("los-angeles") || !capture(L"companion-settings-city-list.png")) return 7193;
+            if (!app.settings_state_.editing || app.settings_state_.choice != 1 + index("los-angeles") || !capture(L"companion-settings-city-list.png")) return 7407;
             app.settings_state_.editing = false;
             app.settings_state_.selected[app.settings_state_.category] = row(settings_ui::Id::companion_city_own);
         }
         choose(settings_ui::Id::companion_city_own, 1); // Her own home, whatever the others have.
-        if (app.settings_.companion_cities["rin"] != std::string(companion::own_home) || hour(rin_look) != -1 || hour(hana_look) != 5) return 7194;
+        if (app.settings_.companion_cities["rin"] != std::string(companion::own_home) || hour(rin_look) != -1 || hour(hana_look) != 5) return 7404;
         app.saveSettings();
         const auto kept = loadAppSettings();
-        if (kept.companion_city != "los-angeles" || kept.companion_cities.size() != 1 || kept.companion_cities.at("rin") != "home") return 7195;
+        if (kept.companion_city != "los-angeles" || kept.companion_cities.size() != 1 || kept.companion_cities.at("rin") != "home") return 7405;
         app.settings_.companion_city.clear(); app.settings_.companion_cities.clear();
         app.companionApplyHomes(); app.settingsChanged();
-        if (hour(hana_look) != -1 || companion::homeCity(*companion::character(hana_look))) return 7196;
+        if (hour(hana_look) != -1 || companion::homeCity(*companion::character(hana_look))) return 7406;
         app.settings_state_.selected[app.settings_state_.category] = row(settings_ui::Id::companion_look);
     }
     for (const auto hidden : {settings_ui::Id::companion_guests, settings_ui::Id::companion_gamification, settings_ui::Id::companion_memory,

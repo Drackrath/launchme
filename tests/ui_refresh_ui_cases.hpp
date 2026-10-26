@@ -154,6 +154,17 @@ int LauncherUiTest::uiRefresh(HWND window) {
     // ...or the picture pulled inside its outline, the band empty.
     app.settings_.focus_gap = AppSettings::FocusGap::inside; app.settingsChanged(true); settle();
     if (!capture(L"refresh-focus-gap-inside.png")) return 7761;
+    {
+        // A new focus: its cover shrinks in while the previous one grows back, both eased (they
+        // snapped in one frame on square tiles, e.g. in the search results).
+        const size_t before = app.selected_;
+        app.navigate(1, false);
+        app.last_frame_ = std::chrono::steady_clock::now() - std::chrono::milliseconds(30); app.tick();
+        if (app.selected_ == before || app.cards_[before].emphasis < 0.05f || app.cards_[before].emphasis > 0.95f ||
+            app.cards_[app.selected_].emphasis < 0.05f || app.cards_[app.selected_].emphasis > 0.95f) return 7763;
+        if (!capture(L"refresh-focus-gap-inside-moving.png")) return 7764;
+        settle();
+    }
     app.settings_.home_layout = AppSettings::HomeLayout::flix; app.showCategory(0); settle();
     if (!capture(L"refresh-focus-gap-inside-flix.png")) return 7762;
     app.settings_.home_layout = AppSettings::HomeLayout::shelves; app.showCategory(0); settle();

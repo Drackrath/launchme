@@ -252,6 +252,76 @@ int LauncherUiTest::desktop(HWND window) {
     app.desktopPageActivate({SheetHit::Kind::close}, false);
     if (app.screen_ != ScreenMode::shelves) return 7628;
 
+    // Kadrowanie in its sheet (#3): the cover and both buttons fit the window, and the mouse clicks
+    // "Automatyczny" and "Zapisz kadr" where they are drawn.
+    {
+        const auto crop_file = userConfigDirectory() / L"desktop-crop-fixture.png";
+        const auto portrait = pngFixture(40, 64, 96);
+        { std::ofstream file(crop_file, std::ios::binary); file.write(reinterpret_cast<const char*>(portrait.data()), static_cast<std::streamsize>(portrait.size())); }
+        const auto open = [&] {
+            app.openCropEditor(app.cards_[0].game);
+            auto message = std::make_unique<CropMessage>();
+            message->generation = app.crop_token_->load(); message->image = crop_file; message->bytes = portrait;
+            message->width = 64; message->height = 96; message->automatic = {0.5f, 0.5f}; message->focus = {0.5f, 0.2f};
+            app.onCrop(std::move(message));
+            app.paint();
+        };
+        open();
+        if (!app.cropOpen() || !app.desktopEmbedded()) return 7800;
+        if (!capture(L"desktop-crop.png")) return 7801;
+        // Window pixels of a point in the editor's canvas, as the sheet draws it.
+        const auto at = [&](settings_ui::Rect r) {
+            const auto origin = app.renderer_.desktopEmbedOrigin();
+            const float scale = app.renderer_.desktopEmbedViewport().scale;
+            return std::pair{origin.x + (r.left + r.right) * 0.5f * scale, origin.y + (r.top + r.bottom) * 0.5f * scale};
+        };
+        const auto canvas = app.renderer_.desktopEmbedViewport();
+        const crop_ui::Layout layout{canvas.width, canvas.height, true};
+        // The cover is drawn where the mouse finds it (it was drawn at the window's corner, #3):
+        // the preview's centre shows the colourful fixture, the space between it and the buttons does not.
+        {
+            Microsoft::WRL::ComPtr<IWICImagingFactory> wic;
+            if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(wic.GetAddressOf())))) return 7806;
+            const auto shot = std::filesystem::temp_directory_path() / L"launchme-desktop-crop-probe.png";
+            if (!app.renderer_.captureForTest(shot, [&] { app.paint(); })) return 7806;
+            std::ifstream input(shot, std::ios::binary);
+            const std::vector<uint8_t> bytes(std::istreambuf_iterator<char>{input}, {});
+            input.close(); std::error_code ignored; std::filesystem::remove(shot, ignored);
+            const auto image = decodeImage(wic.Get(), bytes, {});
+            if (!image.valid()) return 7806;
+            const auto vivid = [&](std::pair<float, float> point) {
+                const auto x = static_cast<uint32_t>(point.first), y = static_cast<uint32_t>(point.second);
+                if (x >= image.width || y >= image.height) return false;
+                const size_t i = (static_cast<size_t>(y) * image.width + x) * 4;
+                const int high = std::max({image.pixels[i], image.pixels[i + 1], image.pixels[i + 2]}), low = std::min({image.pixels[i], image.pixels[i + 1], image.pixels[i + 2]});
+                return high - low > 50;
+            };
+            const auto p = layout.preview();
+            if (!vivid(at(p)) || vivid(at({p.right + 20, p.top, p.right + 40, p.bottom}))) return 7807;
+        }
+        const auto sheet = desktop_ui::embedSheet(app.renderer_.desktopViewport().width, app.renderer_.desktopViewport().height);
+        const auto body = desktop_ui::embedBody(sheet);
+        // Everything inside the sheet's body.
+        const auto inside = [&](settings_ui::Rect r) {
+            const auto origin = app.renderer_.desktopEmbedOrigin();
+            const float scale = canvas.scale, dips = app.desktopScale();
+            const float left = (origin.x + r.left * scale) / dips, right = (origin.x + r.right * scale) / dips;
+            const float top = (origin.y + r.top * scale) / dips, bottom = (origin.y + r.bottom * scale) / dips;
+            return left >= body.left - 0.5f && right <= body.right + 0.5f && top >= body.top - 0.5f && bottom <= body.bottom + 0.5f;
+        };
+        if (!inside(layout.preview()) || !inside(layout.button(0)) || !inside(layout.button(1))) return 7802;
+        const auto automatic = at(layout.button(0));
+        app.mouseMove(automatic.first, automatic.second);
+        if (!app.hoverButton(automatic.first, automatic.second)) return 7803;
+        app.click(automatic.first, automatic.second, false);
+        if (!app.crop_state_.automatic_selected || std::abs(app.crop_state_.focus.y - 0.5f) > 0.001f) return 7804;
+        app.crop_state_.focus = {0.5f, 0.2f}; app.crop_state_.automatic_selected = false;
+        const auto save = at(layout.button(1));
+        app.click(save.first, save.second, false);
+        const auto saved = manualTextCrop(crop_file);
+        if (app.cropOpen() || !saved || std::abs(saved->y - 0.2f) > 0.01f) return 7805;
+    }
+
     // The power menu's mode row says where it goes; Tryb TV and back keep the library.
     app.openPowerMenu();
     if (app.power_items_.size() < 3 || app.power_items_[0] != power_menu::Item::tv_mode) return 7629;

@@ -254,13 +254,16 @@ void Renderer::drawDesktopEmbedded() {
     // the launcher's hit tests (which subtract desktopEmbedOrigin first).
     viewport_ = desktopEmbedViewport();
     const auto origin = desktopEmbedOrigin();
-    target_->SetTransform(D2D1::Matrix3x2F::Scale(viewport_.scale, viewport_.scale) * D2D1::Matrix3x2F::Translation(origin.x, origin.y));
+    canvas_offset_ = D2D1::Matrix3x2F::Translation(origin.x, origin.y); // Kadrowanie's cover sets its own transform from it.
+    target_->SetTransform(canvasBase());
     switch (context_->screen) {
     case ScreenMode::devices: drawDevices(); break;
     case ScreenMode::crop: drawCropEditor(); break;
     case ScreenMode::plugin_page: drawPluginPage(); break;
     default: break;
     }
+    target_->SetTransform(canvasBase());
+    canvas_offset_ = D2D1::Matrix3x2F::Identity();
     target_->PopAxisAlignedClip();
 }
 

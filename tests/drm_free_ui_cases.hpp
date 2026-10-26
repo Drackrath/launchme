@@ -224,7 +224,8 @@ int LauncherUiTest::drmFree(HWND window) {
         art.games[3].source.id != 5100000 || !art.gallery || art.selected != 0) return 2155;
     if (!capture(L"artwork-search-years.png")) return 2156;
     app.closeArtworkBrowser();
-    // Emulated shortcuts: "Źródło" under "Z dysku…" switches SteamGridDB → ScreenScraper → ES-DE.
+    // Emulated shortcuts: "Źródło" right of the search (SteamGridDB, ScreenScraper, ES-DE), reached
+    // with the pad from any type: Right to the field, Right again; A opens its list, A picks.
     {
         Game emulated; emulated.kind = GameKind::nonsteam; emulated.app_id = 0xF1000001u;
         emulated.shortcut_id = (uint64_t{0xF1000001u} << 32) | 0x02000000ULL;
@@ -232,10 +233,14 @@ int LauncherUiTest::drmFree(HWND window) {
         app.openArtworkBrowser(emulated);
         if (!art.emulated() || art.provider != ArtworkProvider::steamgriddb) return 2157;
         art.category = artwork_ui::category(ArtworkKind::landscape); // Disc artwork has one fixed provider.
-        art.local_focus = true;
-        app.artworkMove(0, 1); // "Z dysku…" -> "Źródło" for the landscape gallery.
-        if (!art.provider_focus || art.local_focus) return 2158;
-        app.artworkAccept();
+        app.artworkMove(1, 0); // The rail -> the search field…
+        if (!art.search_focus || art.provider_focus) return 2158;
+        app.artworkMove(1, 0); // …-> "Źródło".
+        if (!art.provider_focus || art.search_focus || art.railFocus()) return 2158;
+        app.artworkAccept(); // Its list, on the one in use.
+        if (!art.provider_open || art.provider_row != 0) return 2158;
+        app.artworkMove(0, 1);
+        app.artworkAccept(); // ScreenScraper.
         {
             std::lock_guard lock(app.artwork_jobs_->mutex);
             if (app.artwork_jobs_->jobs.empty() || app.artwork_jobs_->jobs.front().type != ArtworkBrowserMessage::Type::list ||
@@ -247,15 +252,21 @@ int LauncherUiTest::drmFree(HWND window) {
         listed->page.assets = {{0x40000001u, L"https://neoclone.screenscraper.fr/api2/mediaJeu.php?media=fanart",
                                 L"https://neoclone.screenscraper.fr/api2/mediaJeu.php?media=fanart", L"ScreenScraper · fanart"}};
         app.onArtworkBrowser(std::move(listed));
-        if (art.provider != ArtworkProvider::screenscraper || art.assets.size() != 1 || !art.provider_focus) return 2160;
+        if (art.provider != ArtworkProvider::screenscraper || art.assets.size() != 1 || !art.provider_focus || art.provider_open) return 2160;
         const auto loading = app.launch_animation_started_;
         app.launch_animation_started_.reset(); // The earlier launch animation would cover the page.
         if (!capture(L"artwork-source-screenscraper.png")) return 2161;
+        app.artworkAccept(); app.artworkMove(0, 1);
+        if (!art.provider_open || art.provider_row != 2 || !capture(L"artwork-source-list.png")) return 2161;
         app.launch_animation_started_ = loading;
         app.artworkAccept();
-        if (art.provider != ArtworkProvider::esde) return 2162;
-        app.artworkAccept();
+        if (art.provider != ArtworkProvider::esde || art.provider_open) return 2162;
+        app.artworkAccept(); app.back(); // Back closes the list, nothing changes.
+        if (art.provider_open || !art.provider_focus || art.provider != ArtworkProvider::esde) return 2163;
+        app.artworkAccept(); app.artworkMove(0, -1); app.artworkMove(0, -1); app.artworkAccept();
         if (art.provider != ArtworkProvider::steamgriddb) return 2163;
+        app.artworkMove(-1, 0); // Left: the search field again.
+        if (!art.search_focus || art.provider_focus) return 2163;
         app.closeArtworkBrowser();
         // Other games have no "Źródło": Down from "Z dysku…" goes to "Popraw kadr", then Back, which
         // Enter presses; Down stops there.

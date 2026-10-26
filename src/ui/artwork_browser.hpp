@@ -39,13 +39,17 @@ struct State {
     int local_kind = 0;
     int local_row = 0; // Focused panel row: a type (0..kinds-1) or local_pick_row.
     static constexpr int local_pick_row = static_cast<int>(kinds.size());
-    // "Źródło: …" under "Z dysku…", only for emulated shortcuts: SteamGridDB, ScreenScraper, ES-DE.
+    // "Źródło: …" right of the search, only for emulated shortcuts: SteamGridDB, ScreenScraper, ES-DE.
+    // Right from the field focuses it; A opens its list (provider_row), A again picks one.
     ArtworkProvider provider = ArtworkProvider::steamgriddb;
-    bool provider_focus = false;
-    // "Popraw kadr" (the crop editor) under them, then Back at the rail's foot.
+    bool provider_focus = false, provider_open = false;
+    int provider_row = 0;
+    // "Popraw kadr" (the crop editor) under "Z dysku…", then Back at the rail's foot.
     bool crop_focus = false, back_focus = false;
     // The rail has the focus on one of its buttons rather than on a type.
-    bool railButton() const { return local_focus || provider_focus || crop_focus || back_focus; }
+    bool railButton() const { return local_focus || crop_focus || back_focus; }
+    // Neither the gallery nor the search row (field or "Źródło") has the focus: the rail has it.
+    bool railFocus() const { return !gallery && !search_focus && !provider_focus; }
     bool emulated() const { return game.kind == GameKind::nonsteam && game.platform != L"PC"; }
     ArtworkKind kind() const { return kinds[category]; }
     bool providerChoice() const { return emulated() && kind() != ArtworkKind::disc; }
@@ -53,14 +57,32 @@ struct State {
 struct Layout {
     float width, height;
     ArtworkKind kind;
-    bool providers = false; // The "Źródło" entry is shown (State::emulated()).
+    bool providers = false; // The "Źródło" dropdown is shown (State::providerChoice()).
+    static constexpr float provider_width = 270, provider_gap = 12, provider_row_step = 54;
     settings_ui::Layout base() const { return {width, height}; }
     float left() const { return base().contentLeft(); }
     float right() const { return base().contentRight(); }
     static constexpr float top = 260, gap = 18;
     // The search field starts level with the first rail tab.
-    settings_ui::Rect searchBox() const { return {left(), settings_ui::Layout::rail_top, right() - 100, settings_ui::Layout::rail_top + 55}; }
-    settings_ui::Rect searchButton() const { return {right() - 88, settings_ui::Layout::rail_top, right(), settings_ui::Layout::rail_top + 55}; }
+    // Then "Szukaj" and, for emulated games, the "Źródło: …" dropdown at the row's right end.
+    float searchRight() const { return right() - (providers ? provider_width + provider_gap : 0.0f); }
+    settings_ui::Rect searchBox() const { return {left(), settings_ui::Layout::rail_top, searchRight() - 100, settings_ui::Layout::rail_top + 55}; }
+    settings_ui::Rect searchButton() const { return {searchRight() - 88, settings_ui::Layout::rail_top, searchRight(), settings_ui::Layout::rail_top + 55}; }
+    settings_ui::Rect providerButton() const { return {right() - provider_width, settings_ui::Layout::rail_top, right(), settings_ui::Layout::rail_top + 55}; }
+    // Its open list under it: one row per provider (artwork_ui::providers order).
+    settings_ui::Rect providerList() const {
+        const auto b = providerButton();
+        return {b.left, b.bottom + 8, b.right, b.bottom + 8 + 12 + static_cast<float>(providers_count) * provider_row_step};
+    }
+    settings_ui::Rect providerRow(int index) const {
+        const auto l = providerList();
+        return {l.left + 6, l.top + 6 + index * provider_row_step, l.right - 6, l.top + 6 + index * provider_row_step + 48};
+    }
+    int hitProvider(float x, float y) const {
+        for (int i = 0; i < providers_count; ++i) if (providerRow(i).contains(x, y)) return i;
+        return -1;
+    }
+    static constexpr int providers_count = static_cast<int>(artwork_ui::providers.size());
     // "Wyczyść" inside the field's right end, shown while it holds text.
     settings_ui::Rect clearButton() const { const auto s = searchBox(); return {s.right - 112, s.top + 9, s.right - 9, s.bottom - 9}; }
     settings_ui::Rect gameRow(size_t index, float scroll) const { return {left(), top + index * 58 - scroll, right(), top + index * 58 + 50 - scroll}; }
@@ -103,21 +125,15 @@ struct Layout {
         else if (r.bottom + 28 > bottom()) scroll += r.bottom + 28 - bottom();
         return std::clamp(scroll, 0.0f, maxScroll(count));
     }
-    // Directly under the last type, a little more compact than the types: "Z dysku…", "Źródło: …"
-    // (emulated games only), "Popraw kadr".
+    // Directly under the last type, a little more compact than the types: "Z dysku…", "Popraw kadr".
     settings_ui::Rect railButton(int index) const {
         const auto first = base().rail(static_cast<int>(kinds.size()));
         const float y = first.top + index * 62;
         return {first.left, y, first.right, y + 52};
     }
     settings_ui::Rect localButton() const { return railButton(0); }
-    settings_ui::Rect providerButton() const { return railButton(1); }
-    settings_ui::Rect cropButton() const { return railButton(providers ? 2 : 1); }
+    settings_ui::Rect cropButton() const { return railButton(1); }
     settings_ui::Rect pageButton(bool next) const {
-        if (providers) {
-            const float middle = (left() + right()) * 0.5f;
-            return {middle + (next ? 40 : -120), height - 60, middle + (next ? 120 : -40), height - 12};
-        }
         const float center = (56 + base().railRight() - 22) * 0.5f, y = cropButton().bottom + 24;
         return next ? settings_ui::Rect{center + 30, y, base().railRight() - 22, y + 48} :
                       settings_ui::Rect{56, y, center - 30, y + 48};

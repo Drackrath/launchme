@@ -231,6 +231,8 @@ void Launcher::back() {
     }
     if (artworkOpen()) {
         if (artwork_state_.local_open) { closeLocalArtwork(); return; } // "Z dysku…" panel first.
+        if (artwork_state_.provider_open) { artwork_state_.provider_open = false; InvalidateRect(hwnd_, nullptr, FALSE); return; } // Then "Źródło"'s list.
+        if (artwork_state_.provider_focus) { artwork_state_.provider_focus = false; InvalidateRect(hwnd_, nullptr, FALSE); return; } // Back to the rail.
         if (artwork_state_.search_focus || artwork_state_.results_mode) {
             artwork_state_.search_focus = artwork_state_.results_mode = false;
             artwork_state_.source = artwork_state_.override_source; loadArtworkPage(); return;

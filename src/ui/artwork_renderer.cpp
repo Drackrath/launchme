@@ -68,19 +68,27 @@ void Renderer::drawArtworkBrowser() {
     }
     const auto search_ink = drawButton(box(search_button), 0, 1, false);
     textLine(tr(L"Szukaj"), search_button.left, center(search_button), search_button.right - search_button.left, button_font_.Get(), search_ink);
-    // The rail: the types, then "Z dysku…", "Źródło: …" (emulated games), "Popraw kadr" and Back
-    // as glass pills; one white pill glides to the focused entry (ViewContext::artwork_glide).
-    const bool rail_focus = !state.gallery && !state.search_focus;
+    // "Źródło: …" at the row's right end (emulated games): a dropdown, white with the focus.
+    if (state.providerChoice()) {
+        const auto source = layout.providerButton();
+        const auto source_ink = drawButton(box(source), state.provider_focus ? 1.0f : 0.0f, 1, false);
+        const float arrow = source.right - 30, cy = center(source), d = state.provider_open ? -1.0f : 1.0f;
+        textLine(std::wstring(tr(L"Źródło")) + L": " + artwork_ui::providerName(state.provider), source.left + 22, cy, arrow - source.left - 34,
+                 button_font_.Get(), source_ink);
+        line(arrow - 6, cy - 3 * d, arrow, cy + 3 * d, source_ink, 1.8f);
+        line(arrow, cy + 3 * d, arrow + 6, cy - 3 * d, source_ink, 1.8f);
+    }
+    // The rail: the types, then "Z dysku…", "Popraw kadr" and Back as glass pills; one white pill
+    // glides to the focused entry (ViewContext::artwork_glide).
+    const bool rail_focus = state.railFocus();
     const bool type_focus = rail_focus && !state.railButton();
     const auto back = base.backButton();
     if (!type_focus) fillPill(base.rail(state.category), shade(1, 0.07f)); // The type in view.
     drawButtonGlass(box(layout.localButton()), 1, false);
-    if (state.providerChoice()) drawButtonGlass(box(layout.providerButton()), 1, false);
     drawButtonGlass(box(layout.cropButton()), 1, false);
     drawButtonGlass(box(back), 1, false);
     if (rail_focus) {
-        const auto target = state.local_focus ? layout.localButton() : state.provider_focus ? layout.providerButton() :
-                            state.crop_focus ? layout.cropButton() : state.back_focus ? back : base.rail(state.category);
+        const auto target = state.local_focus ? layout.localButton() : state.crop_focus ? layout.cropButton() : state.back_focus ? back : base.rail(state.category);
         auto r = box(target);
         if (context_->artwork_glide) { const auto& g = *context_->artwork_glide; r = D2D1::RectF(g.left, g.top, g.right, g.bottom); }
         drawButtonFocus(r);
@@ -91,14 +99,11 @@ void Renderer::drawArtworkBrowser() {
         textLine(tr(artwork_ui::names[i]), r.left + 25, center(r), r.right - r.left - 50,
                  category_font_.Get(), focus ? shade(0.08f) : active ? shade(0.95f) : shade(0.57f));
     }
-    // "Z dysku…" opens the type/file panel; "Źródło: …" switches SteamGridDB → ScreenScraper → ES-DE;
-    // "Popraw kadr" opens the crop editor.
+    // "Z dysku…" opens the type/file panel; "Popraw kadr" opens the crop editor.
     const auto caption = [&](settings_ui::Rect r, const std::wstring& label, bool focus) {
         textLine(label, r.left + 25, center(r), r.right - r.left - 50, menu_font_.Get(), buttonInk(rail_focus && focus ? 1.0f : 0.0f));
     };
     caption(layout.localButton(), tr(L"Z dysku…"), state.local_focus);
-    if (state.providerChoice())
-        caption(layout.providerButton(), std::wstring(tr(L"Źródło")) + L": " + artwork_ui::providerName(state.provider), state.provider_focus);
     caption(layout.cropButton(), tr(L"Popraw kadr"), state.crop_focus);
     brush(buttonInk(rail_focus && state.back_focus ? 1.0f : 0.0f));
     target_->FillEllipse(D2D1::Ellipse(D2D1::Point2F((back.left + back.right) * 0.5f, (back.top + back.bottom) * 0.5f), 4, 4), solid_.Get());
@@ -170,6 +175,25 @@ void Renderer::drawArtworkBrowser() {
         const float thumb = std::max(30.0f, length * length / (length + maximum));
         const float y = layout.top + (length - thumb) * state.scroll / maximum;
         fill({layout.right() + 15, y, layout.right() + 18, y + thumb}, shade(1, 0.30f), 1.5f);
+    }
+    // "Źródło"'s open list over the gallery: the focused row lit, the one in use checked.
+    if (state.provider_open && state.providerChoice()) {
+        const auto list = layout.providerList();
+        fill(list, shade(0.09f, 0.98f), 16);
+        if (panel_borders_) { brush(shade(1, 0.16f)); target_->DrawRoundedRectangle(D2D1::RoundedRect(box(list), 16, 16), solid_.Get(), 1.0f); }
+        for (int i = 0; i < artwork_ui::Layout::providers_count; ++i) {
+            const auto r = layout.providerRow(i);
+            const bool focused = state.provider_row == i;
+            if (focused) fillPill(r, shade(0.95f));
+            const auto provider = artwork_ui::providers[static_cast<size_t>(i)];
+            textLine(artwork_ui::providerName(provider), r.left + 18, center(r), r.right - r.left - 60, menu_font_.Get(), focused ? shade(0.08f) : shade(0.91f));
+            if (provider == state.provider) {
+                const float y = center(r);
+                const auto mark = focused ? shade(0.08f) : uiAccent();
+                line(r.right - 31, y, r.right - 26, y + 5, mark, 2);
+                line(r.right - 26, y + 5, r.right - 17, y - 5, mark, 2);
+            }
+        }
     }
     if (!state.local_open) return;
     // "Z dysku…" panel: the artwork type (check mark), then "Wskaż plik…".

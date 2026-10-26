@@ -199,7 +199,7 @@ void Launcher::desktopPageActivate(const SheetHit& hit, bool double_click) {
         return;
     case K::tile_action: openLocalArtwork(); return;
     case K::cog:
-        state.local_focus = state.crop_focus = state.back_focus = false; state.provider_focus = true; state.gallery = state.search_focus = false;
+        state.local_focus = state.crop_focus = state.back_focus = false; state.gallery = state.search_focus = false; // Its cog cycles; no TV focus.
         cycleArtworkProvider();
         return;
     case K::toggle: openArtworkCrop(); return;

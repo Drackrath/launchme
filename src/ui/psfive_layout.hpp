@@ -34,7 +34,8 @@ constexpr float tabs_left = 77, tab_gap = 48;
 constexpr size_t visible_tabs = 3;
 enum TopItem { top_widgets, top_menu };
 constexpr int top_count = 2;
-constexpr float bar_margin = 72, clock_width = 114, clock_gap = 50, icon_radius = 26, icon_step = 70;
+// The clock's box fits a 12-hour "12:00 PM" (#3), right-aligned, so a 24-hour "14:05" sits at its end.
+constexpr float bar_margin = 72, clock_width = 150, clock_gap = 40, icon_radius = 26, icon_step = 70;
 
 inline float sizeScale(int size) { return 0.8f + std::clamp(size, 0, 2) * 0.2f; }
 inline float tileSize(bool focused, float scale = 1) { return (focused ? focus_tile : tile) * scale; }

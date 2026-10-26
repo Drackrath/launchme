@@ -83,6 +83,11 @@ int LauncherUiTest::psfive(HWND window) {
     if (std::abs(play_rest.bottom - (view.height - 145)) > 1 || play_raised.bottom > quick_menu::centerY(view.height, 1, false) - 44 ||
         std::abs(layout::labelLeft() - (layout::anchorX() + layout::focus_tile + layout::focus_gap)) > 0.5f) return 4950;
     if (!capture(L"psfive-row.png")) return 4907;
+    // A 12-hour clock's longest times fit its box (they were cut off, #3).
+    for (const auto* time : {L"12:00 PM", L"12:59 AM", L"10:08 PM"}) {
+        const float advance = app.renderer_.psfiveClockAdvanceForTest(time);
+        if (advance <= 0 || advance > layout::clock_width - 4) return 4949;
+    }
     if (app.psfiveTopActive() || app.psfive_top_opacity_.value != 0.66f) return 5026;
     // Capture the primary Steam status in the PSfive action area, including missing byte totals.
     {
