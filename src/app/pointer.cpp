@@ -42,6 +42,7 @@ void Launcher::click(float mouse_x, float mouse_y, bool double_click) {
     case Modal::none: break;
     case Modal::companion_picker: if (!double_click) companionPickerClick(x, y); return;
     case Modal::tarot: if (!double_click) tarotClick(x, y); return;
+    case Modal::whats_new: if (!double_click) whatsNewClick(x, y); return;
     case Modal::exit_prompt: if (!double_click) exitPromptClick(x, y); return;
     case Modal::power_menu: if (!double_click) powerMenuClick(x, y); return;
     case Modal::tour: if (!double_click) tourClick(x, y); return;
@@ -294,6 +295,7 @@ bool Launcher::hoverButton(float mouse_x, float mouse_y) const {
     case Modal::gog_install: return gog_install_ui::Layout{view.width, view.height, gog_install_ui_.game.source == GameSource::epic || gog_install_ui_.steam}.hit(x, y) >= 0;
     case Modal::companion_picker: return companion_ui::PickerLayout{view.width, view.height}.hit(companion_.picker, x, y) != companion_ui::no_hit;
     case Modal::tarot: return tarotPointerOver(x, y);
+    case Modal::whats_new: return update_ui::WhatsNewLayout{view.width, view.height}.ok().contains(x, y);
     }
     if (launchAnimationActive()) return false;
     if (glanceAvailable() && home_widgets::glanceArea(homeWidgetSpots(), glance_hover_motion_.value).contains(x, y)) return true;
@@ -403,7 +405,8 @@ bool Launcher::hoverButton(float mouse_x, float mouse_y) const {
     }
     if (achievementsOpen()) {
         const achievements_ui::Layout layout{view.width, view.height};
-        return layout.back().contains(x, y);
+        if (achievements_.card) return layout.cardBack().contains(x, y);
+        return layout.back().contains(x, y) || layout.hit(x, y, achievements_.items.size(), achievements_.scroll) >= 0; // A row opens its card.
     }
     if (screen_ == ScreenMode::details && !menu_open_) {
         const int action = details_layout::Layout{view.width, view.height}.hit(detailsActions(), x, y);

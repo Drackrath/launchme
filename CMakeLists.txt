@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(launchme VERSION 0.1.7 LANGUAGES C CXX)
+project(launchme VERSION 0.1.8 LANGUAGES C CXX)
 
 if(NOT WIN32)
     message(FATAL_ERROR "This native Direct2D prototype currently targets Windows.")
@@ -352,6 +352,9 @@ set(LAUNCHME_APP_SOURCES
     src/platform/sensors.cpp
     src/platform/discord.cpp
     src/platform/video_player.cpp
+    src/platform/updater.cpp
+    src/app/updates.cpp
+    src/ui/update_renderer.cpp
 )
 set(LAUNCHME_APP_LIBS d2d1 dxguid dwrite windowscodecs winhttp shell32 ole32 xaudio2 dwmapi xinput advapi32
     mfplat mfreadwrite mfuuid crypt32 windowsapp hid propsys bcrypt powrprof pdh bthprops cfgmgr32 xmllite shlwapi
@@ -646,6 +649,7 @@ if(BUILD_TESTING)
     set_tests_properties(evergreen_browser_lifecycle PROPERTIES TIMEOUT 90 RUN_SERIAL TRUE SKIP_RETURN_CODE 77)
     launchme_executable(glance_tests TEST glance_sources_and_cache SOURCES tests/glance_tests.cpp)
     launchme_executable(tarot_tests TEST tarot_deck_wish_and_picks SOURCES tests/tarot_tests.cpp)
+    launchme_executable(updater_tests TEST updater_release_package_and_swap SOURCES tests/updater_tests.cpp)
     launchme_executable(companion_tests TEST companion_replies_prompts_and_rig SOURCES tests/companion_tests.cpp)
     launchme_executable(companion_links_tests TEST companion_bounded_link_previews SOURCES tests/companion_links_tests.cpp)
     launchme_executable(companion_feed_tests TEST companion_feed_publication_and_archive SOURCES tests/companion_feed_tests.cpp)
@@ -778,6 +782,7 @@ if(BUILD_TESTING)
     add_test(NAME glance_shortcut_navigation_and_hints COMMAND launcher_ui_tests --glance)
     set_tests_properties(glance_shortcut_navigation_and_hints PROPERTIES TIMEOUT 60)
     add_test(NAME tarot_reading_cards_and_results COMMAND launcher_ui_tests --tarot)
+    add_test(NAME launchme_updates_and_whats_new COMMAND launcher_ui_tests --updates)
     set_tests_properties(tarot_reading_cards_and_results PROPERTIES TIMEOUT 60)
     add_test(NAME companion_home_chat_and_settings COMMAND launcher_ui_tests --companion)
     add_test(NAME companion_picker_and_desktop_input COMMAND launcher_ui_tests --companion-appearance)

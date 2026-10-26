@@ -46,6 +46,8 @@ void Renderer::drawDesktopDetails() {
     if (achievements) {
         drawDesktopAchievements(*achievements, left, right, top);
         target_->PopAxisAlignedClip();
+        if (achievements->card && achievements->selected >= 0 && achievements->selected < static_cast<int>(achievements->items.size()))
+            drawDesktopAchievementCard(*achievements);
         return;
     }
     const auto hover = [&](SheetHit hit) { return view.hover == hit ? 1.0f : 0.0f; };
@@ -116,9 +118,16 @@ void Renderer::drawDesktopDetails() {
         const bool session = context_->menu_session;
         {
             const SheetHit hit{Kind::action, 0};
-            const auto r = place(std::max(180.0f, textAdvance(context_->primary_action, desktop_button_font_.Get()) + 64));
-            desktopButton(r, 2, hover(hit), pressed(hit), context_->primary_enabled,
-                          !game.installed && !session ? desktop_ui::glyph::download : desktop_ui::glyph::play, context_->primary_action);
+            const auto& install = game.installation;
+            const bool installing = install.active() && !session;
+            const auto label = installing ? installationText(install) : context_->primary_action;
+            const auto r = place(std::max(installing ? 220.0f : 180.0f, textAdvance(label, desktop_button_font_.Get()) + 64));
+            if (installing) { // Its share fills the button, as in the pane.
+                const auto percent = install.percent();
+                desktopInstallButton(r, percent ? *percent / 100.0f : -1.0f, label);
+            } else
+                desktopButton(r, 2, hover(hit), pressed(hit), context_->primary_enabled,
+                              !game.installed && !session ? desktop_ui::glyph::download : desktop_ui::glyph::play, context_->primary_action);
             if (context_->primary_enabled) desktopHot(hit, r);
         }
         if (context_->detail_favorite_action >= 0) {
@@ -264,12 +273,17 @@ void Renderer::drawDesktopAchievements(const achievements_ui::State& list, float
         return;
     }
     const float item_h = 60;
-    const auto p = detailsSheet(viewport_.width, viewport_.height).panel();
+    const auto sheet = detailsSheet(viewport_.width, viewport_.height);
+    const auto p = sheet.panel();
+    const float visible_top = sheet.header().bottom;
     for (size_t i = 0; i < list.items.size(); ++i) {
         const Rect r{left, y, right, y + item_h - 6};
         if (r.bottom >= p.top && r.top <= p.bottom) {
             const auto& item = list.items[i];
+            const SheetHit hit{Kind::row, static_cast<int>(i)}; // A click opens its card.
             desktopFill(r, 8, item.achieved ? rgb(1, 1, 1, 0.045f) : rgb(1, 1, 1, 0.022f));
+            if (!list.card && view.hover == hit) desktopFill(r, 8, gray(1, 0.04f));
+            if (r.bottom > visible_top) desktopHot(hit, {r.left, std::max(r.top, visible_top), r.right, std::min(r.bottom, p.bottom)});
             const Rect icon{r.left + 8, r.top + 7, r.left + 48, r.bottom - 7};
             if (i < artwork_thumbnails_.size() && artwork_thumbnails_[i].bitmap)
                 fillImage(artwork_thumbnails_[i], box(icon), 6, (item.achieved ? 1.0f : 0.55f) * reveal(artwork_thumbnails_[i]), !item.achieved);
@@ -288,6 +302,66 @@ void Renderer::drawDesktopAchievements(const achievements_ui::State& list, float
         y += 40;
     }
     desktop_sheet_height_ = y - top + 20;
+}
+
+// The selected achievement's card over the dimmed page: a click beside it, Wstecz or Esc return to
+// the list; Left/Right show the neighbours (as in Tryb TV).
+void Renderer::drawDesktopAchievementCard(const achievements_ui::State& state) {
+    const auto& view = *context_->desktop_sheet;
+    const auto sheet = detailsSheet(viewport_.width, viewport_.height);
+    const auto p = sheet.panel();
+    const Rect area{p.left + 1, sheet.header().bottom, p.right - 1, p.bottom - 1};
+    const auto index = static_cast<size_t>(state.selected);
+    const auto& item = state.items[index];
+    target_->PushAxisAlignedClip(box(area), D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+    brush(rgb(0, 0, 0, 0.55f));
+    target_->FillRectangle(box(area), solid_.Get());
+    target_->PopAxisAlignedClip();
+    desktopHot({Kind::dialog_cancel}, area);
+    const float w = std::min(600.0f, area.right - area.left - 64), h = std::min(400.0f, area.bottom - area.top - 48);
+    const float cx = (area.left + area.right) * 0.5f, cy = (area.top + area.bottom) * 0.5f;
+    const Rect c{std::round(cx - w * 0.5f), std::round(cy - h * 0.5f), std::round(cx + w * 0.5f), std::round(cy + h * 0.5f)};
+    desktopFill(c, 14, rgb(0.085f, 0.092f, 0.11f));
+    desktopStroke(c, 14, gray(1, 0.09f));
+    desktopHot({Kind::dialog}, c);
+    // The icon, larger; the name, state and description beside it.
+    const float size = 96;
+    const Rect icon{c.left + 28, c.top + 28, c.left + 28 + size, c.top + 28 + size};
+    desktopFill(icon, 12, gray(1, 0.06f));
+    if (index < artwork_thumbnails_.size() && artwork_thumbnails_[index].bitmap)
+        fillImage(artwork_thumbnails_[index], box(icon), 12, (item.achieved ? 1.0f : 0.55f) * reveal(artwork_thumbnails_[index]), !item.achieved);
+    if (item.achieved) desktopStroke(icon, 12, uiAccent(0.85f), 2);
+    const float text_left = icon.right + 22, text_width = c.right - 28 - text_left;
+    std::wstring where = std::to_wstring(index + 1) + L" / " + std::to_wstring(state.items.size());
+    if (!state.source.empty()) where = state.source + L"  ·  " + where;
+    textLine(where, text_left, icon.top + 8, text_width, desktop_small_font_.Get(), palette::muted());
+    textLine(item.name, text_left, icon.top + 36, text_width, desktop_title_font_.Get(), item.achieved ? palette::text() : gray(0.8f));
+    const auto status = item.achieved ? (item.earned.empty() ? std::wstring(tr(L"Zdobyte")) : tr(L"Zdobyte ") + item.earned) : std::wstring(tr(L"Niezdobyte"));
+    textLine(status, text_left, icon.top + 64, text_width, desktop_font_.Get(), item.achieved ? uiAccent() : gray(0.55f));
+    const auto description = item.description.empty() && !item.achieved ? std::wstring(tr(L"Opis pojawi się po zdobyciu.")) : item.description;
+    const float rarity_top = c.bottom - 128;
+    if (!description.empty()) {
+        desktop_font_->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
+        text(description, c.left + 28, icon.bottom + 18, c.right - c.left - 56, rarity_top - 12 - (icon.bottom + 18), desktop_font_.Get(),
+             item.description.empty() ? palette::muted() : gray(0.86f));
+        desktop_font_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+    }
+    if (item.percent >= 0) {
+        const float left = c.left + 28, right = c.right - 28;
+        desktopFill({left, rarity_top, right, rarity_top + 1}, 0, gray(1, 0.07f));
+        std::wstring heading = tr(L"Rzadkość");
+        CharUpperBuffW(heading.data(), static_cast<DWORD>(heading.size()));
+        textLine(heading, left, rarity_top + 20, right - left, desktop_label_font_.Get(), palette::muted());
+        textLine(std::wstring(achievements_ui::rarity(item.percent)) + L"  ·  " + item.share, left, rarity_top + 42, right - left,
+                 desktop_strong_font_.Get(), palette::text());
+        desktopFill({left, rarity_top + 60, right, rarity_top + 64}, 2, gray(1, 0.1f));
+        desktopFill({left, rarity_top + 60, left + std::max(4.0f, (right - left) * std::clamp(item.percent / 100.0f, 0.0f, 1.0f)), rarity_top + 64}, 2, uiAccent());
+    }
+    const SheetHit back{Kind::dialog_cancel, 1};
+    const float bw = textAdvance(tr(L"Wstecz"), desktop_button_font_.Get()) + 40;
+    const Rect button{c.right - 20 - bw, c.bottom - 52, c.right - 20, c.bottom - 18};
+    desktopButton(button, 1, view.hover == back ? 1.0f : 0.0f, view.pressed == back, true, 0, tr(L"Wstecz"));
+    desktopHot(back, button);
 }
 
 // ---- Zmień grafikę ------------------------------------------------------------------------------

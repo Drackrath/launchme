@@ -16,6 +16,8 @@
 #include "../src/platform/steam_controller.hpp"
 #include "../src/artwork/failure_cache.hpp"
 #include "../src/platform/atomic_file.hpp"
+#define MINIZ_NO_ZLIB_COMPATIBLE_NAMES
+#include <miniz.h>
 #include <fstream>
 #include <iostream>
 #include <numeric>
@@ -114,6 +116,7 @@ public:
     static int snitch(HWND window);
     static int glanceHub(HWND window, bool live = false);
     static int tarotReading(HWND window);
+    static int updates(HWND window);
     static int gameLengths(HWND window);
     static int companionChat(HWND window);
     static int companionAppearance(HWND window);
@@ -1244,6 +1247,7 @@ public:
 #include "snitch_ui_cases.hpp"
 #include "glance_ui_cases.hpp"
 #include "tarot_ui_cases.hpp"
+#include "update_ui_cases.hpp"
 #include "companion_ui_cases.hpp"
 #include "game_index_ui_cases.hpp"
 #include "home_widgets_ui_cases.hpp"
@@ -1795,8 +1799,9 @@ int LauncherUiTest::language(HWND window) {
     };
     const auto* language_row = english_row(settings_ui::Id::language);
     if (app.settings_rows_.size() < 2 || !language_row || language_row->title != L"Language" || language_row->value != L"English" ||
-        app.settings_rows_[0].id != settings_ui::Id::windowed || app.settings_rows_[0].title != L"TV mode in a window" ||
-        app.settings_rows_[0].section != L"Window and language" ||
+        app.settings_rows_[0].id != settings_ui::Id::update || app.settings_rows_[0].section != L"Updates" || app.settings_rows_[0].value != L"Check now" ||
+        !english_row(settings_ui::Id::windowed) || english_row(settings_ui::Id::windowed)->title != L"TV mode in a window" ||
+        english_row(settings_ui::Id::windowed)->section != L"Window and language" ||
         app.settings_rows_.back().title != L"Walkthrough" || app.settings_rows_.back().value != L"Show" ||
         !english_row(settings_ui::Id::about) || english_row(settings_ui::Id::about)->value != L"Open folder" ||
         std::wstring(tr(settings_ui::categories[0].title)) != L"Interface" ||
@@ -1869,8 +1874,9 @@ int LauncherUiTest::language(HWND window) {
     app.back();
     // And back to Polish from the same row.
     if (!choose(1)) return 515;
-    if (i18n::language() != i18n::Language::pl || app.settings_rows_[1].id != settings_ui::Id::language ||
-        app.settings_rows_[0].section != L"Okno i język" || app.settings_rows_[0].title != L"Tryb TV w oknie" ||
+    if (i18n::language() != i18n::Language::pl || app.settings_rows_[3].id != settings_ui::Id::language ||
+        app.settings_rows_[0].section != L"Aktualizacje" || app.settings_rows_[0].value != L"Sprawdź teraz" ||
+        app.settings_rows_[2].section != L"Okno i język" || app.settings_rows_[2].title != L"Tryb TV w oknie" ||
         app.categories_[0].title != L"Ostatnio grane" || stand_in() != L"Ładowanie nazwy…" ||
         app.actionLabel(app.installed_library_[0]) != L"Graj") return 516;
     // "Systemowy" follows the Windows display language.
@@ -1967,6 +1973,15 @@ int main(int argc, char** argv) {
         CoUninitialize();
         if (code) std::cerr << "Tarot regression failed at checkpoint " << code << '\n';
         else std::cout << "Tarot: setting, T and View, deal, back, library and store readings, results, pad and mouse passed\n";
+        return code;
+    }
+    if (argc == 2 && std::string_view(argv[1]) == "--updates") {
+        std::filesystem::create_directories(root);
+        const auto code = window ? LauncherUiTest::updates(window) : 99;
+        if (window) DestroyWindow(window);
+        CoUninitialize();
+        if (code) std::cerr << "Updates regression failed at checkpoint " << code << '\n';
+        else std::cout << "Updates: check, notification, row, desktop icon, download, swap, restart, failures and Co nowego passed\n";
         return code;
     }
     if (argc == 2 && std::string_view(argv[1]) == "--home-widgets") {

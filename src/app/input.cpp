@@ -29,6 +29,7 @@ Launcher::Modal Launcher::topModal() const {
 }
 
 Launcher::Modal Launcher::topDialog() const {
+    if (whats_new_.open) return Modal::whats_new; // Shown alone, right after an update's restart.
     if (companion_.picker.open) return Modal::companion_picker;
     if (fileBrowserOpen()) return Modal::file_browser; // Opened from the panels below it.
     if (libraryDialogOpen()) return Modal::library_dialog;
@@ -64,6 +65,7 @@ bool Launcher::modalKey(WPARAM key, bool repeated) {
     case Modal::gog_install: gogInstallKey(key, repeated); break;
     case Modal::companion_picker: companionPickerKey(key, repeated); break;
     case Modal::tarot: tarotKey(key, repeated); break;
+    case Modal::whats_new: if (!repeated || key == VK_UP || key == VK_DOWN) whatsNewKey(key); break;
     }
     return true;
 }
@@ -405,7 +407,7 @@ void Launcher::controllerInput(const PadReading& state) {
         return (buttons & XINPUT_GAMEPAD_DPAD_UP) || state.y > 16000 ? -2 : (buttons & XINPUT_GAMEPAD_DPAD_DOWN) || state.y < -16000 ? 2 : 0;
     };
     // Guide/PS and Start/Options: short press vs hold, above every screen but the exit prompt.
-    if (bulkCoversOpen() || identifyOpen() || tour_.open || libraryDialogOpen() || keyboard_.open || companion_.picker.open || tarot_.open) { // The keyboard: Start = "Gotowe".
+    if (bulkCoversOpen() || identifyOpen() || tour_.open || libraryDialogOpen() || keyboard_.open || companion_.picker.open || tarot_.open || whats_new_.open) { // The keyboard: Start = "Gotowe".
         pad_guide_.swallow(buttons & pad_guide); pad_start_.swallow(buttons & XINPUT_GAMEPAD_START);
     } else if (!exit_prompt_) {
         const auto guide = pad_guide_.update(settings_.guide_menu && (buttons & pad_guide), now);
@@ -559,6 +561,14 @@ bool Launcher::modalPad(const PadReading& state, WORD buttons, ULONGLONG now) {
         return true;
     }
     switch (modal) {
+    case Modal::whats_new: // Co nowego: D-pad/stick scroll, A or B closes it.
+        controllerNavigate(0);
+        if (direction && (direction != controller_direction_ || now >= controller_repeat_)) {
+            noteUserInput(); whatsNewKey(direction);
+            controller_repeat_ = now + (direction != controller_direction_ ? 280 : 90);
+        }
+        if (pressed(XINPUT_GAMEPAD_A) || pressed(XINPUT_GAMEPAD_B)) { noteUserInput(); closeWhatsNew(); }
+        break;
     case Modal::tarot:
         // The reading: D-pad/stick move between the cards (and the buttons under the games), A picks,
         // B takes the last card back (on the first, and over the games, it closes), View closes.

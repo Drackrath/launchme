@@ -4,6 +4,7 @@
 #include "../platform/video_player.hpp"
 #include "../platform/background_work.hpp"
 #include "../platform/change_watch.hpp"
+#include "../platform/updater.hpp"
 #include "../platform/launch.hpp"
 #include "../model/game_card.hpp"
 #include "../artwork/text_crop.hpp"
@@ -191,6 +192,9 @@ public:
     void openGlanceBrowser(const std::wstring& url, bool embedded = false);
     void companionVideo(const std::wstring& url);
     void glanceClick(float x, float y);
+    // Co nowego (src/app/updates.cpp): the new version's changes once after an update (Modal::whats_new).
+    bool whatsNewOpen() const { return whats_new_.open; }
+    void whatsNewScroll(float amount); // Logical pixels; the mouse wheel.
     // Tarot (src/app/tarot.cpp): a card reading over the home that ends with up to three games.
     // A modal layer while open (Modal::tarot); T, the pad's View button or the desktop top bar.
     bool tarotOpen() const { return tarot_.open; }
@@ -726,7 +730,8 @@ public:
     // exit prompt over the power menu over the walkthrough … the GOG/Epic installer lowest. The
     // topmost open one takes keys, pad buttons, the wheel and clicks before any screen, drawer or
     // menu. The on-screen keyboard is not a layer: it types into the field of the layer beneath.
-    enum class Modal { none, exit_prompt, power_menu, tour, file_browser, library_dialog, custom_editor, bulk_covers, identify, gog_install, companion_picker, tarot };
+    enum class Modal { none, exit_prompt, power_menu, tour, file_browser, library_dialog, custom_editor, bulk_covers, identify, gog_install, companion_picker, tarot,
+                       whats_new };
     Modal topModal() const;
     // The topmost of the dialogs under the walkthrough (file picker … installer): Back and typed
     // characters reach it even under the exit prompt or the power menu.
@@ -912,6 +917,44 @@ private:
     std::shared_ptr<launcher_queues::StoreGateway> store_gateway_ = std::make_shared<launcher_queues::StoreGateway>();
     std::optional<plugins::Action> pluginAchievementsProvider(const Game& game) const;
     const PluginAchievements* pluginAchievements(const Game& game) const;
+    // Launchme's own updates (src/app/updates.cpp, src/platform/updater.hpp): a look at GitHub's
+    // latest release now and then, a notification pointing to Ustawienia → System → Aktualizacje
+    // (and the desktop top bar's icon), then one click downloads, checks, swaps the files in and
+    // restarts; the new version shows its changes once (Modal::whats_new).
+    struct UpdateState {
+        enum class Phase { idle, checking, downloading, ready, installing, failed } phase = Phase::idle;
+        std::optional<updater::Release> available; // Newer than this version.
+        std::vector<std::filesystem::path> files;   // Phase::ready: the unpacked package.
+        uint64_t done = 0;                          // Downloaded bytes.
+        std::wstring error;
+        std::wstring announced;                     // The version already notified in this run.
+        ULONGLONG next_check = 0;                   // GetTickCount64 of the next look; 0: not scheduled yet.
+        uint32_t generation = 0;
+        bool manual = false;                        // Sprawdź teraz: also say when there is none.
+    } update_;
+    std::wstring app_version_;                      // diagnostics::version(); tests set their own.
+    std::filesystem::path update_app_dir_;          // Where launchme.exe lives; tests use a folder of theirs.
+    std::function<HttpResponse(const std::wstring&)> update_get_;  // Tests: GitHub's answers.
+    std::function<bool(const updater::Release&, const std::filesystem::path&, const std::function<void(uint64_t)>&)> update_download_; // Tests: the package.
+    std::function<bool(const std::filesystem::path& exe)> update_restart_; // Starts the new launchme.exe; tests record it.
+    update_ui::WhatsNew whats_new_;
+    void initializeUpdates();       // At start: the previous update's files away, its changes shown once.
+    void tickUpdates();             // The periodic look (never while a game runs).
+    void checkForUpdate(bool manual);
+    void updateFound(uint32_t generation, std::optional<updater::Release> release, bool failed);
+    void updateAction();            // The row's or the icon's one click.
+    void startUpdate();
+    void updateProgress(uint32_t generation, uint64_t done);
+    void updateStaged(uint32_t generation, std::wstring error, std::vector<std::filesystem::path> files);
+    void installUpdate();
+    bool updateAvailable() const;   // A newer version than this one is known.
+    float updateFraction() const;   // The download's share, -1 when none runs.
+    // System → Aktualizacje's row: its title, help and button.
+    std::tuple<std::wstring, std::wstring, std::wstring> updateRow() const;
+    void openWhatsNew(std::wstring version, std::wstring text);
+    void closeWhatsNew();
+    void whatsNewKey(WPARAM key);
+    void whatsNewClick(float x, float y);
     // background: the desktop pane's selected game; a newer selection drops it from the queue.
     void requestPluginAchievements(const Game& game, bool force = false, bool background = false);
     std::string plugin_achievements_focus_; // The pane's game last asked about (once per selection).
@@ -1084,6 +1127,8 @@ private:
     int achievementsDetailAction() const; // Details action index of the achievements row; -2 without one.
     void openAchievements();
     void closeAchievements();
+    void openAchievementCard(int index);  // The achievement's card: larger icon, name, description, date and rarity.
+    void closeAchievementCard();          // Back to the list, on the same row.
     void achievementsMove(int amount);
     void achievementsClick(float x, float y);
     void requestAchievementIcons();

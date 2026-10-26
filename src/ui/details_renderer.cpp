@@ -194,7 +194,9 @@ void Renderer::drawDetails() {
                     else target_->DrawGeometry(star.Get(), solid_.Get(), 1.9f);
                 }
             }
-        } else
+        } else if (item.kind != Kind::primary || // An installation: its share on the button.
+                   !drawInstallProgress(game, box(r), buttonInk(focused(item.action), true),
+                                        focused(item.action) > 0.5f ? gray(0.05f, 0.15f) : gray(1, 0.2f), settings_body_font_.Get()))
             text(item.kind == Kind::primary ? primary : std::wstring(label), r.left + inset, r.top, r.right - r.left - 2 * inset, r.bottom - r.top,
                  action_font_.Get(), buttonInk(focused(item.action), enabled));
         if (pulse_star) target_->SetTransform(saved);

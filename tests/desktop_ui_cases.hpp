@@ -249,6 +249,13 @@ int LauncherUiTest::desktop(HWND window) {
     app.openDetails(app.cards_[0].game); settle();
     if (!app.desktopSheet() || app.screen_ != ScreenMode::details) return 7626;
     if (!capture(L"desktop-details.png")) return 7627;
+    { // An installation fills the primary button with its share, its state the label.
+        auto& install = app.cards_[0].game.installation;
+        const auto saved = install;
+        install = {InstallPhase::downloading, 37, 100, true};
+        if (!capture(L"desktop-details-download.png")) return 7659;
+        install = saved;
+    }
     app.desktopPageActivate({SheetHit::Kind::close}, false);
     if (app.screen_ != ScreenMode::shelves) return 7628;
 
@@ -273,6 +280,32 @@ int LauncherUiTest::desktop(HWND window) {
         app.desktop_hover_ = {};
         app.desktopActivate(hit);
         if (app.screen_ != ScreenMode::details || !app.achievementsOpen() || app.achievements_.app_id != app_id) return 7657;
+        // A row opens the achievement's card over the page; Wstecz (or a click beside it) closes it.
+        {
+            SteamAchievements list; list.complete = true; list.total = 2; list.unlocked = 1;
+            SteamAchievement earned; earned.id = "A"; earned.name = L"First blood"; earned.description = L"Win the first fight of the campaign without losing a unit.";
+            earned.achieved = true; earned.unlocked_at = 1709634030; earned.global_percent = 3.2f;
+            SteamAchievement locked; locked.id = "B"; locked.name = L"Collector"; locked.description = L"Find every relic."; locked.global_percent = 27.0f;
+            list.items = {earned, locked};
+            app.showAchievementList(list, true);
+            app.paint();
+            const auto& spots = app.renderer_.desktopHotspots();
+            const auto row = std::find_if(spots.begin(), spots.end(), [](const SheetHotspot& s) { return s.hit.kind == SheetHit::Kind::row && s.hit.index == 0; });
+            if (row == spots.end()) return 7660;
+            const float rx = (row->rect.left + row->rect.right) * 0.5f, ry = (row->rect.top + row->rect.bottom) * 0.5f;
+            const auto hit = app.desktopHotspotHit(rx, ry);
+            if (hit.kind != SheetHit::Kind::row || hit.index != 0) return 7661;
+            app.desktopPageActivate(hit, false);
+            if (!app.achievements_.card || app.achievements_.selected != 0) return 7662;
+            if (!capture(L"desktop-achievement-card.png")) return 7663;
+            app.navigate(1);
+            if (!app.achievements_.card || app.achievements_.selected != 1) return 7664;
+            app.desktopPageActivate({SheetHit::Kind::dialog_cancel, 1}, false);
+            if (app.achievements_.card || !app.achievementsOpen()) return 7665;
+            app.desktopPageActivate(hit, false);
+            app.back(); // Esc: the card first, then the list.
+            if (app.achievements_.card || !app.achievementsOpen()) return 7666;
+        }
         app.closeAchievements();
         app.desktopPageActivate({SheetHit::Kind::close}, false);
         if (app.screen_ != ScreenMode::shelves || !app.desktopActive()) return 7658;

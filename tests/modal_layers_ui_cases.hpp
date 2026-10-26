@@ -24,6 +24,7 @@ int LauncherUiTest::modalLayers(HWND window) {
         {Modal::custom_editor, [&](bool on) { app.custom_editor_.open = on; }},
         {Modal::library_dialog, [&](bool on) { app.library_dialog_.open = on; }},
         {Modal::file_browser, [&](bool on) { app.file_browser_.open = on; }},
+        {Modal::whats_new, [&](bool on) { app.whats_new_.open = on; }},
         {Modal::tour, [&](bool on) { app.tour_.open = on; }},
         {Modal::power_menu, [&](bool on) { if (on) app.power_menu_ = 0; else app.power_menu_.reset(); }},
         {Modal::exit_prompt, [&](bool on) { if (on) app.exit_prompt_ = 0; else app.exit_prompt_.reset(); }},
@@ -34,7 +35,7 @@ int LauncherUiTest::modalLayers(HWND window) {
         ViewContext context; app.inputHints(context);
         if (!context.hints.empty()) return 6903;
     }
-    if (app.topDialog() != Modal::file_browser) return 6904; // Back and typing skip the prompts and the tour.
+    if (app.topDialog() != Modal::whats_new) return 6904; // Back and typing skip the prompts and the tour.
     for (auto layer = layers.rbegin(); layer != layers.rend(); ++layer) {
         if (app.topModal() != layer->first) return 6905;
         layer->second(false);

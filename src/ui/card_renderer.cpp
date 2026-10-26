@@ -449,6 +449,37 @@ void Renderer::drawCardStatus(float x, float y, float width, float height, float
     if (*fraction > 0) line(left, bottom - 3, left + (right - left) * std::min(*fraction, 1.0f), bottom - 3, bar, 4);
 }
 
+bool Renderer::drawInstallProgress(const Game& game, D2D1_RECT_F button, D2D1_COLOR_F ink, D2D1_COLOR_F track, IDWriteTextFormat* font) {
+    const auto session = sessionOf(game);
+    if (!game.installation.active() || session == SessionState::running || session == SessionState::frozen) return false;
+    const auto& install = game.installation;
+    const auto percent = install.percent();
+    std::wstring status = installationLabel(install.phase);
+    if (percent) status += L" " + std::to_wstring(*percent) + L"%";
+    else if (install.moving()) status += L"...";
+    const float h = button.bottom - button.top;
+    const float pad = std::clamp(h * 0.37f, 14.0f, 22.0f);
+    const float left = button.left + pad, right = button.right - pad;
+    const float bar_height = h >= 56 ? 6.0f : 4.0f;
+    const float top = button.top + h * 0.63f;
+    textLine(status, left, button.top + h * 0.34f, right - left, font, ink);
+    brush(track);
+    target_->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(left, top, right, top + bar_height), bar_height * 0.5f, bar_height * 0.5f), solid_.Get());
+    float begin = left, end = left;
+    if (percent) end += (right - left) * static_cast<float>(*percent) / 100.0f;
+    else if (install.moving()) {
+        // No byte totals yet (Steam's first seconds): activity without an invented share.
+        const float segment = (right - left) * 0.22f;
+        begin += (right - left - segment) * (0.5f + 0.5f * std::sin(elapsed_ * 2.5f));
+        end = begin + segment;
+    }
+    if (end > begin) {
+        brush(ink);
+        target_->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(begin, top, end, top + bar_height), bar_height * 0.5f, bar_height * 0.5f), solid_.Get());
+    }
+    return true;
+}
+
 void Renderer::fillImage(Cover& image, D2D1_RECT_F box, float radius, float opacity, bool gray, ID2D1Geometry* clip, bool contain,
                          ID2D1GeometryRealization* realized) {
     if (!image.bitmap || !image.brush || opacity <= 0.001f) return;

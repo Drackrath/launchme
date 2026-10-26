@@ -181,7 +181,7 @@ struct Hit {
     int index = -1;
     bool operator==(const Hit&) const = default;
 };
-enum class Tool { glance, companion, store, friends, downloads, tv, settings, tarot };
+enum class Tool { glance, companion, store, friends, downloads, tv, settings, tarot, update }; // update: a newer Launchme waits.
 
 // ---- What the renderer draws -------------------------------------------------------------------
 
@@ -341,6 +341,7 @@ struct View {
     bool maximized = false, active_window = true;
     int downloads_moving = 0, downloads_total = 0;
     float downloads_fraction = -1;
+    float update_progress = -1; // Tool::update: the package's share while it downloads; -1 otherwise.
     bool downloads_open = false;
     std::vector<downloads_ui::Row> download_rows;
     std::vector<std::wstring> download_names;

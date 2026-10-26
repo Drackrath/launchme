@@ -44,7 +44,7 @@ void Launcher::navigate(int amount, bool edge_menu) {
     if (devicesOpen()) { deviceAdjust(amount); return; }
     if (artworkOpen()) { artworkMove(amount, 0); return; }
     if (settingsOpen() && !friends_open_) { settingsAdjust(amount); return; }
-    if (achievementsOpen()) return; // The list scrolls vertically only.
+    if (achievementsOpen()) { if (achievements_.card) achievementsMove(amount); return; } // A card: the previous/next one; the list scrolls vertically only.
     if (screen_ == ScreenMode::details) {
         if (menu_open_) { dismissMenu(); return; }
         if (edge_menu && std::abs(amount) == 1) { detailsMove(amount, 0); return; } // Keys and pad: by position.
@@ -201,11 +201,12 @@ void Launcher::back() {
     case Modal::identify: closeIdentify(); return;
     case Modal::gog_install: gogInstallKey(VK_ESCAPE, false); return;
     case Modal::tarot: closeTarot(); return;
+    case Modal::whats_new: closeWhatsNew(); return;
     default: break;
     }
     if (color_editor_.open) { closeColorEditor(false); return; }
     if (friends_open_) { friendsBack(); return; } // The drawer overlays every screen.
-    if (achievementsOpen()) { closeAchievements(); return; }
+    if (achievementsOpen()) { if (achievements_.card) closeAchievementCard(); else closeAchievements(); return; }
     if (!quick_open_ && !menu_open_ && pluginPageBack()) return; // The page's own level above.
     if (libraryButtons() && library_controls_.action >= 0 && !menu_open_ && !library_controls_.open()) {
         library_controls_.action = -1; InvalidateRect(hwnd_, nullptr, FALSE); return;
@@ -310,7 +311,7 @@ void Launcher::onCharacter(wchar_t character) {
     case Modal::library_dialog: collectionDialogEdit(character); return;
     case Modal::custom_editor: customEditorInsert(std::wstring_view(&character, 1)); return;
     case Modal::identify: identifyEdit(character); return;
-    case Modal::gog_install: case Modal::companion_picker: case Modal::tarot: return;
+    case Modal::gog_install: case Modal::companion_picker: case Modal::tarot: case Modal::whats_new: return;
     default: break; // No dialog, or one without a text field (Pobierz brakujące okładki).
     }
     if (desktopActive() && desktopCharacter(character)) return; // Type-to-search in the desktop window.
@@ -889,7 +890,12 @@ void Launcher::launch() {
     // No games: Accept presses the empty home's focused button (Dodaj grę, Platformy, Odśwież).
     if (emptyHomeActive()) { emptyHomeActivate(empty_focus_); return; }
     if (cards_.empty() || pending_launch_ || friends_open_ || category_menu_open_ || quick_open_) return;
-    if (achievementsOpen()) { if (achievements_.selected < 0) closeAchievements(); return; } // A list to read; Back closes it.
+    if (achievementsOpen()) { // Back above the list closes it; an achievement opens its card, which closes again.
+        if (achievements_.card) closeAchievementCard();
+        else if (achievements_.selected < 0) closeAchievements();
+        else openAchievementCard(achievements_.selected);
+        return;
+    }
     const auto& active = cards_[selected_].game;
     if (screen_ == ScreenMode::store) { openDetails(active); return; }
     if (screen_ == ScreenMode::details && detail_action_ == -1) { back(); return; }

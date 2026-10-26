@@ -174,6 +174,9 @@ void Launcher::desktopPageActivate(const SheetHit& hit, bool double_click) {
         switch (hit.kind) {
         case K::close: for (int i = 0; i < 4 && screen_ == ScreenMode::details; ++i) back(); return;
         case K::back: back(); return;
+        case K::row: openAchievementCard(hit.index); return; // Osiągnięcia: a row's card.
+        case K::dialog_cancel: closeAchievementCard(); return;
+        case K::dialog: return;
         case K::action: detail_action_ = hit.index; launch(); return;
         case K::tile:
             if (hit.sub == static_cast<int>(DetailsExtra::artwork)) openArtworkBrowser(game);
@@ -491,6 +494,7 @@ bool Launcher::desktopSheetWheel(float, float, int delta) {
     const float notches = static_cast<float>(delta) / WHEEL_DELTA;
     if (screen_ != ScreenMode::settings) {
         if (screen_ == ScreenMode::artwork && artwork_state_.local_open) return true;
+        if (achievementsOpen() && achievements_.card) return true; // The card stays; the list under it too.
         const float limit = std::max(0.0f, renderer_.desktopSheetHeight() - desktopSheetViewHeight());
         desktop_sheet_scroll_target_ = std::clamp(desktop_sheet_scroll_target_ - notches * 80, 0.0f, limit);
         InvalidateRect(hwnd_, nullptr, FALSE);

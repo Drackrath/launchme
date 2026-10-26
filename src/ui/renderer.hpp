@@ -384,6 +384,10 @@ private:
     void drawCardBadge(float x, float y, float width, float height, float transparency, bool frozen);
     void drawCardStatus(float x, float y, float width, float height, float transparency, const std::wstring& label,
                         std::optional<float> fraction = {}, D2D1_COLOR_F bar = {});
+    // An installation in the place of a button's caption: its phase and percent above a thin track,
+    // filled to the share (a sweeping segment while the total is unknown). True when drawn: the game
+    // installs and is not running; otherwise the caller draws its caption.
+    bool drawInstallProgress(const Game& game, D2D1_RECT_F button, D2D1_COLOR_F ink, D2D1_COLOR_F track, IDWriteTextFormat* font);
     // Cover-fit around the crop focus, or contain the entire image without cropping.
     // `realized`: `clip` already tessellated (ID2D1DeviceContext1); filled through it when given.
     void fillImage(Cover& image, D2D1_RECT_F box, float radius, float opacity, bool gray = false, ID2D1Geometry* clip = nullptr, bool contain = false,
@@ -551,6 +555,10 @@ private:
     void drawBulkCovers();
     float drawRating(float x, float y, float width, float alpha = 1);
     void drawAchievements(); // src/ui/achievements_renderer.cpp
+    void drawWhatsNew();     // src/ui/update_renderer.cpp
+    void drawAchievementCard(const achievements_ui::State& state, const achievements_ui::Layout& layout);
+    // Desktop: the same card over the Osiągnięcia page of the Szczegóły sheet.
+    void drawDesktopAchievementCard(const achievements_ui::State& state);
     void drawArtworkBrowser();
     void drawDevices();
     void drawAudioDevices();
@@ -735,6 +743,8 @@ private:
     void desktopShadow(settings_ui::Rect r, float radius, float strength);
     void desktopFocusRing(settings_ui::Rect r, float radius);
     void desktopButton(settings_ui::Rect r, int style, float hover, bool pressed, bool enabled, wchar_t glyph, const std::wstring& label);
+    // The primary button as an installation: its share fills it (an unknown one sweeps), its state the label.
+    void desktopInstallButton(settings_ui::Rect r, float fraction, const std::wstring& label); // fraction < 0: unknown.
     void desktopArc(float cx, float cy, float radius, float start, float sweep, D2D1_COLOR_F ink, float width);
     float desktopCenteredText(const std::wstring& value, float cx, float top, float width, IDWriteTextFormat* format, D2D1_COLOR_F ink, int max_lines);
     void desktopBitmapFill(ID2D1Bitmap* bitmap, D2D1_RECT_F box, float opacity);

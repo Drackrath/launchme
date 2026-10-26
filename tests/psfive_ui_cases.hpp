@@ -116,6 +116,13 @@ int LauncherUiTest::psfive(HWND window) {
     app.accept();
     if (app.screen_ != ScreenMode::details || app.pending_launch_ || app.detail_games_.empty() ||
         app.detail_games_.front().app_id != picked_game) return 4922;
+    { // An installation on Szczegóły's primary button: its phase and percent over a track.
+        auto& install = app.cards_[0].game.installation;
+        const auto saved = install;
+        install = {InstallPhase::downloading, 37, 100, true};
+        if (!capture(L"details-download.png")) return 5057;
+        install = saved;
+    }
     app.back(); settle();
     if (app.screen_ != ScreenMode::shelves || app.selected_ != 2) return 4923;
     app.settings_.accept_action = AppSettings::AcceptAction::launch;

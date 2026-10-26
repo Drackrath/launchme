@@ -222,11 +222,15 @@ void Launcher::showAchievementList(const SteamAchievements& list, bool final) {
                                    secret ? std::wstring{} : item.description,
                                    item.achieved ? (item.unlocked_at ? tr(L"Zdobyte ") + localDate(item.unlocked_at) : std::wstring(tr(L"Zdobyte"))) :
                                    item.global_percent >= 0 ? percent(item.global_percent) : std::wstring{},
-                                   item.achieved});
+                                   item.achieved,
+                                   item.achieved && item.unlocked_at ? localDate(item.unlocked_at) : std::wstring{},
+                                   item.global_percent,
+                                   item.global_percent >= 0 ? percent(item.global_percent) : std::wstring{}});
             state.icons.push_back(item.icon);
         }
         state.selected = std::min(state.selected, static_cast<int>(state.items.size()) - 1);
-        state.scroll = 0;
+        if (state.selected < 0) state.card = false;
+        if (!state.card) state.scroll = 0; // A fresher list under an open card keeps its place.
         achievement_icons_requested_.assign(state.items.size(), 0);
         renderer_.resetArtworkThumbnails(state.items.size());
         requestAchievementIcons();
@@ -253,10 +257,31 @@ void Launcher::requestAchievementIcons() {
     if (queued) achievement_jobs_->wake.notify_one();
 }
 
-// Up past the first achievement: Back (selected -1), which Enter/A presses.
+void Launcher::openAchievementCard(int index) {
+    if (!achievementsOpen() || index < 0 || index >= static_cast<int>(achievements_.items.size())) return;
+    achievements_.selected = index;
+    achievements_.card = true;
+    audio_.drawer();
+    InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
+void Launcher::closeAchievementCard() {
+    if (!achievements_.card) return;
+    achievements_.card = false;
+    const auto view = renderer_.viewport();
+    const achievements_ui::Layout layout{view.width, view.height};
+    // The row it showed (moved on from inside the card) in view again.
+    achievements_.scroll = layout.ensureVisible(achievements_.selected, achievements_.rows(), achievements_.scroll);
+    requestAchievementIcons();
+    audio_.navigate();
+    InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
+// Up past the first achievement: Back (selected -1), which Enter/A presses. On a card: the
+// previous or next achievement's card.
 void Launcher::achievementsMove(int amount) {
     if (!achievementsOpen() || !amount || (achievements_.items.empty() && amount > 0)) return;
-    const int next = std::clamp(achievements_.selected + amount, -1, static_cast<int>(achievements_.items.size()) - 1);
+    const int next = std::clamp(achievements_.selected + amount, achievements_.card ? 0 : -1, static_cast<int>(achievements_.items.size()) - 1);
     if (next == achievements_.selected) { navigationBoundary(); return; }
     achievements_.selected = next;
     const auto view = renderer_.viewport();
@@ -272,7 +297,11 @@ void Launcher::achievementsMove(int amount) {
 void Launcher::achievementsClick(float x, float y) {
     const auto view = renderer_.viewport();
     const achievements_ui::Layout layout{view.width, view.height};
+    if (achievements_.card) { // Its Back, or anywhere beside it, returns to the list.
+        if (layout.cardBack().contains(x, y) || !layout.card().contains(x, y)) closeAchievementCard();
+        return;
+    }
     if (layout.back().contains(x, y)) { closeAchievements(); return; }
     const int row = layout.hit(x, y, achievements_.items.size(), achievements_.scroll);
-    if (row >= 0) { achievements_.selected = row; InvalidateRect(hwnd_, nullptr, FALSE); }
+    if (row >= 0) openAchievementCard(row);
 }

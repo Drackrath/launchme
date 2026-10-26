@@ -223,6 +223,7 @@ bool Launcher::initialize(HWND hwnd) {
     startGameIndex();
     companionRemoteSync(); // Phone access, when switched on.
     restoreFrozenGames();
+    initializeUpdates(); // The previous update's old files away, its changes shown once; then a look for a newer one.
     if (desktop_mode_) { applyWindowMode(); buildDesktopSidebar(); } // The window's style and place; ShowWindow follows in main.cpp.
     else if (!settings_.tour_done) startTour(); // First start: the walkthrough over the loading home screen.
     profiler_.startup(FrameProfiler::Startup::initialized);
@@ -487,6 +488,7 @@ void Launcher::tick() {
     const bool companion_motion = tickCompanion(dt);
     const bool tarot_motion = tickTarot(dt);
     tickGameIndex();
+    tickUpdates();
     bool needs_paint = scanning_ || detail_ < 1.0f || screen_transitioning || wallpaper_moving || glance_motion || companion_motion || tarot_motion ||
                        dashboardEditing() ||
                        launch_progress_ > 0.003f || pending_launch_ || launchAnimationActive() ||

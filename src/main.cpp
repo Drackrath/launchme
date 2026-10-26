@@ -364,6 +364,7 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpara
                                   (GET_KEYSTATE_WPARAM(wparam) & MK_CONTROL) != 0)) {} // Grid, sidebar, pane, poster size.
             else if (app->companionOpen() && !app->friendsOpen() && modal == Launcher::Modal::none) app->companionWheel(raw);
             else if (modal == Launcher::Modal::tarot) {} // The reading has nothing to scroll.
+            else if (modal == Launcher::Modal::whats_new) app->whatsNewScroll(-static_cast<float>(raw) / WHEEL_DELTA * 60.0f); // Smooth, as text scrolls.
             else if (const int step = notch(); !step) {}
             else if (modal == Launcher::Modal::file_browser) app->fileBrowserWheel(step);
             else if (modal == Launcher::Modal::library_dialog) app->libraryDialogKey(step > 0 ? VK_DOWN : VK_UP, false);
@@ -449,10 +450,12 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show_command) {
     std::wstring jump;
     std::filesystem::path companion_copy;
     bool start_minimized = false;
+    DWORD updated_from = 0;
     int argument_count = 0;
     if (auto** arguments = CommandLineToArgvW(GetCommandLineW(), &argument_count)) {
         for (int i = 1; i < argument_count; ++i) {
             if (std::wstring_view(arguments[i]).starts_with(L"--jump=")) jump = arguments[i] + 7;
+            else if (std::wstring_view(arguments[i]).starts_with(L"--after-update=")) updated_from = static_cast<DWORD>(_wtoi(arguments[i] + 15));
             else if (std::wstring_view(arguments[i]) == L"--minimized") start_minimized = true;
             else if (std::wstring_view(arguments[i]) == L"--companion-copy" && i + 1 < argument_count) companion_copy = arguments[++i];
         }
@@ -470,6 +473,14 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show_command) {
         if (!restored.ok || !SetEnvironmentVariableW(L"LAUNCHME_CONFIG_DIR", restored.path.c_str())) {
             MessageBoxW(nullptr, restored.error.empty() ? L"Cannot open companion backup." : restored.error.c_str(), L"Launchme — companion backup", MB_ICONERROR | MB_OK);
             return 1;
+        }
+    }
+    // Started by an update (src/app/updates.cpp): the previous version closes first (up to 30 s), so
+    // this one takes the single-instance lock and its old files can be removed.
+    if (updated_from) {
+        if (const HANDLE previous = OpenProcess(SYNCHRONIZE, FALSE, updated_from)) {
+            WaitForSingleObject(previous, 30000);
+            CloseHandle(previous);
         }
     }
     const auto data_folder = userConfigDirectory();

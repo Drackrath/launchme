@@ -571,8 +571,11 @@ void Renderer::drawLibraryActions() {
     for (int i = 0; i < library_presentation::action_count; ++i) {
         const auto r = layout.action(i);
         const auto ink = buttonInk(on_actions && state.action == i ? 1.0f : 0.0f, i != 0 || context_->primary_enabled);
-        if (i == 0) text(context_->primary_action, r.left + 20, r.top, r.right - r.left - 40, r.bottom - r.top, action_font_.Get(), ink);
-        else {
+        if (i == 0) {
+            const bool focused = on_actions && state.action == 0;
+            if (!drawInstallProgress((*cards_)[selected_].game, box(r), ink, focused ? gray(0.05f, 0.15f) : gray(1, 0.2f), settings_body_font_.Get()))
+                text(context_->primary_action, r.left + 20, r.top, r.right - r.left - 40, r.bottom - r.top, action_font_.Get(), ink);
+        } else {
             brush(ink);
             for (int dot = -1; dot <= 1; ++dot)
                 target_->FillEllipse(D2D1::Ellipse(D2D1::Point2F((r.left + r.right) * 0.5f + dot * 8.5f, (r.top + r.bottom) * 0.5f), 2.7f, 2.7f), solid_.Get());
@@ -935,5 +938,7 @@ void Renderer::drawOverviewPanel() {
                  buttonInk(focused == index ? 1.0f : 0.0f, enabled), DWRITE_TEXT_ALIGNMENT_CENTER);
     };
     caption(details_button, tr(L"Szczegóły"), 0, true);
-    caption(play_button, context_->primary_action, 1, context_->primary_enabled);
+    if (!drawInstallProgress(game, box(play_button), buttonInk(focused == 1 ? 1.0f : 0.0f, true),
+                             focused == 1 ? gray(0.05f, 0.15f) : gray(1, 0.2f), settings_body_font_.Get()))
+        caption(play_button, context_->primary_action, 1, context_->primary_enabled);
 }

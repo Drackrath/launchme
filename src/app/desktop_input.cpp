@@ -655,6 +655,7 @@ void Launcher::desktopToolPick(desktop_ui::Tool tool) {
     case Tool::downloads: desktopToggleDownloads(); return;
     case Tool::tv: setDesktopMode(false); return;
     case Tool::settings: openSettings(); return;
+    case Tool::update: updateAction(); return; // Downloads, installs and restarts (or says why not now).
     }
 }
 
@@ -1538,6 +1539,7 @@ std::wstring Launcher::desktopTooltip(const desktop_ui::Hit& hit) const {
         }
         case Tool::tv: return tr(L"Tryb TV");
         case Tool::settings: return tr(L"Ustawienia");
+        case Tool::update: return std::get<0>(updateRow()) + L" · " + std::get<2>(updateRow());
         }
         return {};
     case Target::search_clear: return tr(L"Wyczyść");

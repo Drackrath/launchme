@@ -269,6 +269,10 @@ struct AppSettings {
     // First-run walkthrough (src/app/tour.cpp) finished or skipped. Only a missing settings.ini
     // (the first start) loads false; files written before the walkthrough existed count as done.
     bool tour_done = true;
+    // Launchme's own updates (src/app/updates.cpp): look for a newer release on GitHub; a version
+    // the user chose to skip gets no notification (Ustawienia → System still offers it).
+    bool update_check = true;
+    std::wstring update_skipped;
     // Not stored: settings.ini exists but could not be read (locked, damaged). These are the
     // defaults; saveAppSettings() keeps the unreadable file as settings.unreadable.ini first.
     bool load_failed = false;

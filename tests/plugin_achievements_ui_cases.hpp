@@ -62,6 +62,32 @@ int LauncherUiTest::pluginAchievements(HWND window) {
         app.onAchievements(std::move(icon));
     }
     if (!capture(L"plugin-achievements.png")) return 4110;
+    // Enter/A on an achievement: its card (date and rarity at once); Left/Right its neighbours;
+    // Back returns to the list on the row it showed. A click on a row opens it, beside it closes.
+    {
+        state.selected = 0; app.launch();
+        if (!state.card || state.selected != 0 || !app.achievementsOpen()) return 4120;
+        if (state.items[0].earned.empty() || state.items[0].percent != 41.5f || state.items[0].share.empty()) return 4121;
+        if (!capture(L"plugin-achievements-card.png")) return 4122;
+        app.navigate(1); app.navigate(1); app.navigate(1); // Clamped at the last one.
+        if (!state.card || state.selected != 2) return 4123;
+        if (!capture(L"plugin-achievements-card-hidden.png")) return 4124; // Locked and hidden: no description.
+        app.navigate(-1);
+        app.back();
+        if (state.card || !app.achievementsOpen() || state.selected != 1) return 4125;
+        const auto view = app.renderer_.viewport();
+        const achievements_ui::Layout layout{view.width, view.height};
+        const auto row = layout.row(2, state.scroll);
+        app.achievementsClick((row.left + row.right) * 0.5f, (row.top + row.bottom) * 0.5f);
+        if (!state.card || state.selected != 2) return 4126;
+        app.achievementsClick(4, 4); // Beside the card.
+        if (state.card || !app.achievementsOpen()) return 4127;
+        app.openAchievementCard(0);
+        const auto back = layout.cardBack();
+        app.achievementsClick((back.left + back.right) * 0.5f, (back.top + back.bottom) * 0.5f);
+        if (state.card || !app.achievementsOpen()) return 4128;
+        state.selected = 0;
+    }
     // A fresh answer while it is open replaces the list (a second one earned since).
     app.runtime_started_ = true; app.requestPluginAchievements(witcher, true); app.runtime_started_ = false;
     if (app.plugin_jobs_->jobs.size() != 1) return 4111;

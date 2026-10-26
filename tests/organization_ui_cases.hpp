@@ -84,10 +84,12 @@ int LauncherUiTest::organization(HWND window) {
     // Actual Win32 window style and the first System control, on the test window only.
     const int system = static_cast<int>(settings_ui::Category::system);
     app.openSettings(); app.settings_state_.selectCategory(system); app.buildSettingsRows();
-    if (app.settings_rows_.empty() || app.settings_rows_[0].id != settings_ui::Id::windowed) return 3024;
+    // Aktualizacje come first; the window's row heads "Okno i język".
+    const auto windowed = std::find_if(app.settings_rows_.begin(), app.settings_rows_.end(), [](const auto& r) { return r.id == settings_ui::Id::windowed; });
+    if (app.settings_rows_.empty() || app.settings_rows_[0].id != settings_ui::Id::update || windowed == app.settings_rows_.end()) return 3024;
     const auto style = GetWindowLongPtrW(window, GWL_STYLE); RECT original{}; GetWindowRect(window, &original);
     app.fullscreen_ = true; app.previous_rect_ = {100, 100, 1380, 820};
-    app.settings_state_.options = true; app.settings_state_.selected[system] = 0; app.settingsActivate();
+    app.settings_state_.options = true; app.settings_state_.selected[system] = static_cast<int>(windowed - app.settings_rows_.begin()); app.settingsActivate();
     if (!app.settings_.windowed || app.fullscreen_ || (GetWindowLongPtrW(window, GWL_STYLE) & WS_OVERLAPPEDWINDOW) != WS_OVERLAPPEDWINDOW) return 3025;
     app.toggleFullscreen();
     if (app.settings_.windowed || !app.fullscreen_ || !(GetWindowLongPtrW(window, GWL_STYLE) & WS_POPUP)) return 3026;

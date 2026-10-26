@@ -378,6 +378,7 @@ void Launcher::settingsActivate() {
         startTour();
         return;
     }
+    if (row.id == Id::update) { updateAction(); return; } // Aktualizuj (one click), or look for one now.
     if (row.id == Id::about) { // The data folder: launchme.log and crashes\ to send with a report.
         if (execute_(hwnd_, GameAction{userConfigDirectory().wstring(), {}, {}, ActionKind::open_client}) <= 32)
             showNotification(NotificationKind::error, tr(L"Nie można otworzyć folderu"), userConfigDirectory().wstring());
@@ -662,6 +663,11 @@ void Launcher::settingsToggle(const Row& row) {
         settings_.tarot = !settings_.tarot;
         if (!settings_.tarot) closeTarot();
         settingsChanged(); audio_.context(); return; // The desktop top bar reads it on its next frame.
+    }
+    else if (row.id == Id::update_check) {
+        settings_.update_check = !settings_.update_check;
+        if (settings_.update_check) checkForUpdate(true);
+        settingsChanged(); audio_.context(); return;
     }
     else if (row.id == Id::collection && settings_state_.row() < static_cast<int>(settings_collections_.size())) {
         if (row.locked) { navigationBoundary(); return; } // SRM collection covered by Emulacja.

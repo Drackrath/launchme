@@ -216,6 +216,19 @@ void Renderer::desktopButton(Rect r, int style, float hover, bool pressed, bool 
     if (!label.empty()) textLine(label, start + glyph_width + gap, cy, label_width + 2, desktop_button_font_.Get(), ink);
 }
 
+void Renderer::desktopInstallButton(Rect r, float fraction, const std::wstring& label) {
+    desktopFill(r, 8, gray(1, 0.08f));
+    const float span = r.right - r.left;
+    if (fraction >= 0) desktopFill({r.left, r.top, r.left + span * std::clamp(fraction, 0.0f, 1.0f), r.bottom}, 8, uiAccent(0.32f));
+    else {
+        const float strip = span * 0.3f, phase = std::fmod(elapsed_ * 0.6f, 1.0f);
+        const float x0 = r.left + (span + strip) * phase - strip;
+        desktopFill({std::max(r.left, x0), r.top, std::min(r.right, x0 + strip), r.bottom}, 8, uiAccent(0.28f));
+    }
+    desktopStroke(r, 8, uiAccent(0.6f));
+    textLine(label, r.left, (r.top + r.bottom) * 0.5f, span, desktop_button_font_.Get(), palette::text(), DWRITE_TEXT_ALIGNMENT_CENTER);
+}
+
 // ---- The frame -------------------------------------------------------------------------------
 
 void Renderer::drawDesktop() {
@@ -329,6 +342,18 @@ void Renderer::drawDesktopTitlebar(const Layout& layout, const View& view) {
         case Tool::friends: desktopGlyph(glyph::people, x, y, 16, ink); break;
         case Tool::tv: desktopGlyph(glyph::tv, x, y, 17, ink); break;
         case Tool::settings: desktopGlyph(glyph::settings, x, y, 16, ink); break;
+        case Tool::update: {
+            // A newer Launchme: an accent arrow with a dot; downloading, its ring fills.
+            desktopGlyph(glyph::download, x, y, 15, uiAccent(ink_alpha));
+            if (view.update_progress >= 0) {
+                desktopArc(x, y, 13, 0, 2 * std::numbers::pi_v<float>, gray(1, 0.1f), 2);
+                desktopArc(x, y, 13, -std::numbers::pi_v<float> * 0.5f, std::max(0.08f, view.update_progress) * 2 * std::numbers::pi_v<float>, uiAccent(ink_alpha), 2);
+            } else {
+                brush(uiAccent(ink_alpha));
+                target_->FillEllipse(D2D1::Ellipse(D2D1::Point2F(r.right - 8, r.top + 8), 4, 4), solid_.Get());
+            }
+            break;
+        }
         case Tool::downloads: {
             desktopGlyph(glyph::download, x, y, 15, view.downloads_moving ? uiAccent(ink_alpha) : ink);
             if (view.downloads_moving) {
@@ -912,18 +937,7 @@ void Renderer::drawDesktopPane(const Layout& layout, const View& view) {
     const float primary_hover = view.hover.target == Target::pane_primary ? 1.0f : 0.0f;
     const bool pressed = view.pressed.target == Target::pane_primary;
     if (pane.progress) {
-        // The installation in the button: its share fills it; an unknown share sweeps across it.
-        desktopFill(primary, 8, gray(1, 0.08f));
-        const float span = primary.right - primary.left;
-        if (*pane.progress >= 0) desktopFill({primary.left, primary.top, primary.left + span * std::clamp(*pane.progress, 0.0f, 1.0f), primary.bottom}, 8, uiAccent(0.32f));
-        else {
-            const float strip = span * 0.3f, phase = std::fmod(elapsed_ * 0.6f, 1.0f);
-            const float x0 = primary.left + (span + strip) * phase - strip;
-            desktopFill({std::max(primary.left, x0), primary.top, std::min(primary.right, x0 + strip), primary.bottom}, 8, uiAccent(0.28f));
-        }
-        desktopStroke(primary, 8, uiAccent(0.6f));
-        textLine(pane.primary, primary.left, (primary.top + primary.bottom) * 0.5f, primary.right - primary.left, desktop_button_font_.Get(),
-                 palette::text(), DWRITE_TEXT_ALIGNMENT_CENTER);
+        desktopInstallButton(primary, *pane.progress, pane.primary);
     } else {
         const wchar_t g = !pane.installed && !pane.running && !pane.frozen ? glyph::download : pane.frozen ? glyph::play : pane.running ? glyph::open : glyph::play;
         desktopButton(primary, 2, primary_hover, pressed, pane.primary_enabled, g, pane.primary);

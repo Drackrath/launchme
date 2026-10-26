@@ -74,7 +74,8 @@ Settings → System → Help → **Open folder** (the version row) opens it.
   versions of the same game across stores, uninstall from the game menu. Achievements of games outside
   Steam come from the Achievements plugin: GOG and Epic (with their accounts connected),
   RetroAchievements for emulated games (user name and Web API key in the plugin's settings), RPCS3 and
-  shadPS4 trophies.
+  shadPS4 trophies. An achievement opens its card: a larger icon, the description, when it was earned and
+  how rare it is.
 - **Glance**: a news hub (your games' Steam announcements, new and upcoming releases, articles) with a
   built-in WebView2 browser window driven by the pad.
 - **Tarot** (optional, off by default): a short card reading — 5 to 8 questions drawn as tarot cards (buy something
@@ -87,6 +88,8 @@ Settings → System → Help → **Open folder** (the version row) opens it.
 - **Plugins** (ZIP + native DLL): HowLongToBeat (completion times in game details) and Achievements
   (after [SuccessStory](https://github.com/Lacro59/playnite-successstory-plugin), MIT) ship with the build;
   write your own with the [Plugin SDK](docs/plugins/README.md).
+- **Updates**: Launchme looks for a new release on GitHub, says so, and updates itself with one click
+  (Settings → System → Updates, or the icon on the desktop window's top bar), then shows what is new.
 - Background music, screensaver, start with Windows, single instance, crash dumps.
 
 ## Controls

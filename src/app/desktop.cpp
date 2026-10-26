@@ -74,6 +74,7 @@ desktop_ui::Layout Launcher::desktopLayout() const {
 
 std::vector<desktop_ui::Tool> Launcher::desktopTools() const {
     std::vector<Tool> tools;
+    if (updateAvailable()) tools.push_back(Tool::update); // A newer Launchme: first, in the accent colour.
     if (settings_.glance) tools.push_back(Tool::glance);
     if (settings_.tarot) tools.push_back(Tool::tarot);
     if (!plugin_menu_.empty()) tools.push_back(Tool::store);
@@ -701,6 +702,7 @@ void Launcher::desktopView(desktop_ui::View& view) {
         if (row.fraction) { share += *row.fraction; ++shares; }
     }
     view.downloads_fraction = shares ? static_cast<float>(share / shares) : -1.0f;
+    view.update_progress = updateFraction();
     // Widżety: friends online (playing first, at most eight), then each plugin widget's line.
     view.widgets_open = desktop_widgets_open_;
     desktop_widget_friend_ids_.clear();

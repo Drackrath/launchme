@@ -273,35 +273,10 @@ void Renderer::drawPsfiveButtons() {
         return focus == i ? gray(0.05f) : gray(0.97f);
     };
     const auto play = psfive_layout::action(0, height, scale, lift);
-    const auto session = sessionOf(game);
-    if (game.source == GameSource::steam && game.installation.active() &&
-        session != SessionState::running && session != SessionState::frozen) {
-        // In place of the large "Pobieranie w Steam" label: a small status above a thin track.
-        const auto& install = game.installation;
-        const auto percent = install.percent();
-        std::wstring status = installationLabel(install.phase);
-        if (percent) status += L" " + std::to_wstring(*percent) + L"%";
-        else if (install.moving()) status += L"...";
-        const float left = play.left + 22, right = play.right - 22, top = play.top + 38, bar_height = 6;
-        textLine(status, left, play.top + 20, right - left, settings_body_font_.Get(), ink(0, true));
-        brush(focus == 0 ? gray(0.05f, 0.15f) : gray(1, 0.20f));
-        target_->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(left, top, right, top + bar_height), 3, 3), solid_.Get());
-        float begin = left, end = left;
-        if (percent) end += (right - left) * static_cast<float>(*percent) / 100.0f;
-        else if (install.moving()) {
-            // Steam has not supplied byte totals yet: show activity without inventing a percentage.
-            const float segment = (right - left) * 0.22f;
-            begin += (right - left - segment) * (0.5f + 0.5f * std::sin(elapsed_ * 2.5f));
-            end = begin + segment;
-        }
-        if (end > begin) {
-            brush(ink(0, true));
-            target_->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(begin, top, end, top + bar_height), 3, 3), solid_.Get());
-        }
-    } else {
+    // In place of the large "Pobieranie w Steam" label: a small status above a thin track.
+    if (!drawInstallProgress(game, rect(play), ink(0, true), focus == 0 ? gray(0.05f, 0.15f) : gray(1, 0.20f), settings_body_font_.Get()))
         text(context_->primary_action, play.left + 18, play.top, play.right - play.left - 36, play.bottom - play.top,
              psfive_button_font_.Get(), ink(0, context_->primary_enabled));
-    }
     const auto more = psfive_layout::action(1, height, scale, lift);
     brush(ink(1, true));
     const float cx = (more.left + more.right) * 0.5f, cy = (more.top + more.bottom) * 0.5f;

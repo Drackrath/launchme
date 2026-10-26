@@ -510,6 +510,7 @@ void Launcher::paint(bool overlay) {
     }
     if (gogInstallOpen()) context.gog_install = &gog_install_ui_;
     if (tarot_.open || tarot_.alpha > 0.003f) { context.tarot = &tarot_; context.hint_device = hintDevice(); } // Its own line of hints.
+    if (whats_new_.open) context.whats_new = &whats_new_;
     if (customEditorOpen()) context.custom_editor = &custom_editor_;
     if (fileBrowserOpen()) context.file_browser = &file_browser_;
     if (color_editor_.open && settingsOpen()) context.color_editor = &color_editor_;

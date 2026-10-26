@@ -380,6 +380,9 @@ AppSettings parseAppSettings(std::string_view text) {
         else if (key == "screensaver" && (value == "0" || value == "1")) settings.screensaver = value == "1";
         else if (key == "drmfree_background" && (value == "0" || value == "1")) settings.drm_background = value == "1";
         else if (key == "tour_done" && (value == "0" || value == "1")) settings.tour_done = value == "1";
+        else if (key == "update_check" && (value == "0" || value == "1")) settings.update_check = value == "1";
+        else if (key == "update_skipped" && value.size() <= 32 && value.find_first_not_of("0123456789.") == std::string_view::npos)
+            settings.update_skipped = text_encoding::wideLenient(value);
         else if (key == "screensaver_style") {
             if (value == "backgrounds") settings.screensaver_style = AppSettings::ScreensaverStyle::backgrounds;
             else if (value == "boxes") settings.screensaver_style = AppSettings::ScreensaverStyle::boxes;
@@ -573,6 +576,8 @@ bool saveAppSettings(const AppSettings& settings, const std::filesystem::path& f
            << "screensaver=" << settings.screensaver << '\n'
            << "drmfree_background=" << settings.drm_background << '\n'
            << "tour_done=" << settings.tour_done << '\n'
+           << "update_check=" << settings.update_check << '\n'
+           << "update_skipped=" << text_encoding::utf8Lenient(settings.update_skipped) << '\n'
            << "screensaver_style=" << (settings.screensaver_style == AppSettings::ScreensaverStyle::boxes ? "boxes" :
                                        settings.screensaver_style == AppSettings::ScreensaverStyle::discs ? "discs" : "backgrounds") << '\n'
            << "screensaver_minutes=" << (settings.screensaver_minutes == 3 || settings.screensaver_minutes == 5 ||

@@ -592,6 +592,13 @@ void Launcher::buildSettingsRows() {
             add({Id::screensaver_start, Control::action, tr(L"Uruchom teraz"), tr(L"Podgląd, także gdy wygaszacz jest wyłączony."), tr(L"Uruchom")});
             break;
         }
+        section(tr(L"Aktualizacje"));
+        {
+            const auto [title, help, button] = updateRow();
+            add({Id::update, Control::action, title, help, button});
+        }
+        add({Id::update_check, Control::toggle, tr(L"Sprawdzaj aktualizacje"),
+            tr(L"Co kilka godzin pyta GitHub o nowe wydanie i powiadamia o nim."), {}, settings_.update_check});
         section(tr(L"Okno i język"));
         add({Id::windowed, Control::toggle, tr(L"Tryb TV w oknie"), tr(L"Zamiast pełnego ekranu. Także F11."), {}, settings_.windowed});
         {

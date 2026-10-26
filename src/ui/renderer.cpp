@@ -492,6 +492,7 @@ void Renderer::paint(const std::vector<GameCard>& cards, size_t selected, bool s
             drawKeyboard(); // Over the field's dialog it types into.
             drawCompanionPicker();
             drawTarot(); // Over the home it opens from; the walkthrough, prompts and toasts above it.
+            drawWhatsNew(); // After an update's restart: the top dialog; the walkthrough and prompts above it.
             drawTour(); // Over the panels it opens; notifications and the exit prompt stay above it.
             drawHints();
             // Wallpaper screens animate only their foreground (above); opaque panels
