@@ -34,6 +34,8 @@ struct Controller {
     // Panel-only connection management. The connected-device census stays live-only.
     std::wstring bluetooth_id;
     bool connected = true;
+    // Paired, but Windows' Bluetooth is off: listed greyed, its action opens Windows' Bluetooth settings.
+    bool radio_off = false;
 };
 struct Endpoint { std::wstring id, name; bool input = false, active = false; };
 struct BluetoothDevice { std::wstring id, name; bool paired = false, connected = false, audio = false; };

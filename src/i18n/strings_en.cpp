@@ -1108,6 +1108,7 @@ constexpr Entry entries[] = {
     {L"Sparuj kontroler", L"Pair controller"},
     {L"Rozłącz", L"Disconnect"},
     {L"Rozłączono", L"Disconnected"},
+    {L"wyłączony", L"off"}, // Kontrolery: "Bluetooth · wyłączony", Windows' Bluetooth is off.
     {L"Połączenie w Windows", L"Connection in Windows"},
     {L"Nie znaleziono sparowanego pada Bluetooth.", L"No paired Bluetooth controller found."},
     {L"Anulowano operację Bluetooth.", L"Bluetooth operation cancelled."},

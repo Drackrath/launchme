@@ -54,16 +54,18 @@ std::wstring bluetoothId(const std::wstring& path) {
     }
     return {};
 }
-bool gamepad(const BLUETOOTH_DEVICE_INFO& info) {
+bool gamepad(ULONG class_of_device) {
     // Bluetooth Class of Device: peripheral major, joystick/gamepad minor.
-    const auto minor = info.ulClassofDevice & 0x3c;
-    return (info.ulClassofDevice & 0x1f00) == 0x500 && (minor == 0x04 || minor == 0x08);
+    const auto minor = class_of_device & 0x3c;
+    return (class_of_device & 0x1f00) == 0x500 && (minor == 0x04 || minor == 0x08);
 }
-template<class Visitor> void visitPads(Visitor&& visit) {
+bool gamepad(const BLUETOOTH_DEVICE_INFO& info) { return gamepad(info.ulClassofDevice); }
+// False when Windows has no Bluetooth radio switched on (off, airplane mode, no adapter).
+template<class Visitor> bool visitPads(Visitor&& visit) {
     BLUETOOTH_FIND_RADIO_PARAMS params{sizeof(params)};
     HANDLE radio{};
     const auto radios = BluetoothFindFirstRadio(&params, &radio);
-    if (!radios) return;
+    if (!radios) return false;
     bool done = false;
     do {
         BLUETOOTH_DEVICE_SEARCH_PARAMS search{sizeof(search)};
@@ -80,6 +82,52 @@ template<class Visitor> void visitPads(Visitor&& visit) {
         CloseHandle(radio);
     } while (!done && BluetoothFindNextRadio(radios, &radio));
     BluetoothFindRadioClose(radios);
+    return true;
+}
+// The Bluetooth properties Windows keeps on a paired device's node ({2bd67d8b-…} 1 address,
+// 7/8 VID/PID, 10 Class of Device); not every SDK names them.
+constexpr GUID bluetooth_properties{0x2bd67d8b, 0x8beb, 0x48d5, {0x87, 0xe0, 0x6c, 0xda, 0x34, 0x28, 0x04, 0x0a}};
+// With the radio off Windows removes the Bluetooth stack, so the API above lists nothing, but every
+// paired Classic device keeps its node: BTHENUM\DEV_<address>\…, now not present.
+std::vector<devices::Controller> pairedPadsWithoutRadio() {
+    std::vector<devices::Controller> pads;
+    const wchar_t* enumerator = L"BTHENUM";
+    ULONG length = 0;
+    if (CM_Get_Device_ID_List_SizeW(&length, enumerator, CM_GETIDLIST_FILTER_ENUMERATOR) != CR_SUCCESS || length < 2) return pads;
+    std::vector<wchar_t> list(length);
+    if (CM_Get_Device_ID_ListW(enumerator, list.data(), length, CM_GETIDLIST_FILTER_ENUMERATOR) != CR_SUCCESS) return pads;
+    const auto property = [](DEVINST node, DEVPROPID id, DEVPROPTYPE expected, void* out, ULONG size) {
+        const DEVPROPKEY key{bluetooth_properties, id};
+        DEVPROPTYPE type{};
+        return CM_Get_DevNode_PropertyW(node, &key, &type, static_cast<PBYTE>(out), &size, 0) == CR_SUCCESS && type == expected;
+    };
+    for (const wchar_t* id = list.data(); *id && id < list.data() + list.size(); id += wcslen(id) + 1) {
+        std::wstring text(id);
+        for (auto& c : text) c = static_cast<wchar_t>(std::towlower(c));
+        // The device itself (bthenum\dev_<12 hex>\…), not one of its service nodes.
+        if (!text.starts_with(L"bthenum\\dev_") || text.size() < 25 || text[24] != L'\\') continue;
+        const auto found = address(std::wstring_view(text).substr(12, 12));
+        DEVINST node{};
+        if (!found || CM_Locate_DevNodeW(&node, const_cast<wchar_t*>(id), CM_LOCATE_DEVNODE_PHANTOM) != CR_SUCCESS) continue;
+        ULONG class_of_device = 0;
+        if (!property(node, 10, DEVPROP_TYPE_UINT32, &class_of_device, sizeof(class_of_device)) || !gamepad(class_of_device)) continue;
+        USHORT vid = 0, pid = 0;
+        property(node, 7, DEVPROP_TYPE_UINT16, &vid, sizeof(vid));
+        property(node, 8, DEVPROP_TYPE_UINT16, &pid, sizeof(pid));
+        std::array<wchar_t, 256> name{};
+        DEVPROPTYPE type{}; ULONG size = static_cast<ULONG>(sizeof(name) - sizeof(wchar_t));
+        if (CM_Get_DevNode_PropertyW(node, &DEVPKEY_Device_FriendlyName, &type, reinterpret_cast<PBYTE>(name.data()), &size, 0) != CR_SUCCESS ||
+            type != DEVPROP_TYPE_STRING) name[0] = L'\0';
+        devices::Controller pad;
+        pad.id = controllerId(*found); // Not bluetooth_id: nothing can connect it until the radio is on.
+        pad.name = name[0] ? name.data() : L"Bluetooth";
+        pad.connection = L"Bluetooth";
+        pad.picture = devices::classifyController(vid, pid, pad.name);
+        pad.connected = false;
+        pad.radio_off = true;
+        if (std::none_of(pads.begin(), pads.end(), [&](const auto& other) { return other.id == pad.id; })) pads.push_back(std::move(pad));
+    }
+    return pads;
 }
 }
 
@@ -90,7 +138,7 @@ std::vector<devices::Controller> controllerPanelControllers() {
         if (!pad.bluetooth_id.empty()) pad.connection = L"Bluetooth";
         else if (pad.id.find(L"{00001812-") != pad.id.npos) pad.connection = L"Bluetooth LE";
     }
-    visitPads([&](HANDLE, const BLUETOOTH_DEVICE_INFO& info) {
+    const bool radio = visitPads([&](HANDLE, const BLUETOOTH_DEVICE_INFO& info) {
         const auto id = controllerId(info.Address.ullLong);
         if (std::any_of(pads.begin(), pads.end(), [&](const auto& pad) { return pad.bluetooth_id == id; })) return false;
         devices::Controller pad;
@@ -100,6 +148,10 @@ std::vector<devices::Controller> controllerPanelControllers() {
         pads.push_back(std::move(pad));
         return false;
     });
+    // Bluetooth off: the remembered pads stay listed, greyed, with the way to switch it on.
+    if (!radio) for (auto& pad : pairedPadsWithoutRadio())
+        if (std::none_of(pads.begin(), pads.end(), [&](const auto& other) { return other.id == pad.id || other.bluetooth_id == pad.id; }))
+            pads.push_back(std::move(pad));
     loadControllerOverrides(pads, userConfigDirectory() / L"controller_overrides.json");
     return pads;
 }

@@ -139,6 +139,7 @@ public:
     static int launchAnimation(HWND window);
     static int organization(HWND window);
     static int excludedGames(HWND window);
+    static int uninstallGames(HWND window);
     static int hltbDetails(HWND window);
     static int pluginAchievements(HWND window);
     static int profileDesktop(HWND window, int seconds); // LAUNCHME_PERF_DESKTOP=1 (desktop_perf_case.hpp).
@@ -542,6 +543,23 @@ public:
         if (std::none_of(app.settings_rows_.begin(), app.settings_rows_.end(), [](const auto& row) {
             return row.id == settings_ui::Id::plugin_enabled && row.key == "launchme.howlongtobeat"; })) return 10;
         if (!capture(L"settings-native-plugins.png")) return 1004;
+        {
+            // A long description: the row grows so its lines sit above the tags, never under them.
+            const auto plugin = std::find_if(app.settings_rows_.begin(), app.settings_rows_.end(), [](const auto& row) {
+                return row.id == settings_ui::Id::plugin_enabled && row.key == "launchme.howlongtobeat"; });
+            const int index = static_cast<int>(plugin - app.settings_rows_.begin());
+            plugin->description = L"Czas głównej fabuły, fabuły z dodatkami i ukończenia na 100% z HowLongToBeat, porównanie z Twoim czasem gry "
+                                  L"w Szczegółach, widżet aktywnej gry i szuflada z najkrótszymi grami z Twojej biblioteki do ukończenia w weekend.";
+            app.renderer_.fitSettingsDescriptions(app.settings_rows_, app.settings_state_, false);
+            const auto view = app.renderer_.viewport();
+            const auto layout = settings_ui::Layout::of(view.width, view.height, app.settings_state_, app.settings_rows_);
+            if (app.settings_rows_[index].lines < 3 || layout.rowHeight(index) <= settings_ui::Layout::row_height) return 1041;
+            if (!capture(L"settings-plugins-long.png")) return 1042;
+            app.renderer_.fitSettingsDescriptions(app.settings_rows_, app.settings_state_, true); // The desktop window: two lines, no tags.
+            if (app.settings_rows_[index].lines) return 1043;
+            app.buildSettingsRows();
+            if (app.settings_rows_[index].lines) return 1043; // The manifest's one line again.
+        }
         app.back();
         if (app.settingsOpen()) app.back();
         if (app.settingsOpen()) return 10;
@@ -918,7 +936,11 @@ public:
         app.openContextMenu();
         if (!app.pluginContext(crop_game).empty() || context_menu::item(1, app.menuRows()) != context_menu::Item::details) return 128;
         app.menuMove(10);
-        if (app.menu_selected_ != context_menu::rows({}) - 1) return 129;
+        // Its own rows, and Odinstaluj last for an installed Steam game.
+        const auto own_rows = app.menuRows();
+        if (own_rows.uninstall != app.canUninstall(app.cards_[app.selected_].game) ||
+            context_menu::rows(own_rows) != context_menu::rows({}) + (own_rows.uninstall ? 1 : 0) || app.menu_selected_ != context_menu::rows(own_rows) - 1 ||
+            own_rows.uninstall != (context_menu::item(app.menu_selected_, own_rows) == context_menu::Item::uninstall)) return 129;
         app.dismissMenu(); dispatched.clear();
         // The crop editor opens from "Zmień grafikę" (its rail's "Popraw kadr"), no longer from the game menu.
         app.openArtworkBrowser(crop_game);
@@ -1911,6 +1933,7 @@ int LauncherUiTest::language(HWND window) {
 #include "launch_animation_ui_cases.hpp"
 #include "organization_ui_cases.hpp"
 #include "excluded_games_ui_cases.hpp"
+#include "uninstall_ui_cases.hpp"
 #include "hltb_ui_cases.hpp"
 #include "plugin_achievements_ui_cases.hpp"
 #include "render_layering_ui_cases.hpp"
@@ -2067,6 +2090,14 @@ int main(int argc, char** argv) {
         if (code) std::cerr << "Organization regression: " << code << '\n';
         return code;
     }
+    if (argc == 2 && std::string_view(argv[1]) == "--uninstall") {
+        std::filesystem::create_directories(root);
+        const auto code = window ? LauncherUiTest::uninstallGames(window) : 99;
+        if (window) DestroyWindow(window);
+        CoUninitialize();
+        if (code) std::cerr << "Uninstall regression: " << code << '\n';
+        return code;
+    }
     if (argc == 2 && std::string_view(argv[1]) == "--plugin-library") {
         std::filesystem::create_directories(root);
         const auto code = window ? LauncherUiTest::pluginLibrarySupplements(window) : 99;
@@ -2201,6 +2232,7 @@ int main(int argc, char** argv) {
     if (!code && !profiling) code = LauncherUiTest::tour(window);
     if (!code && !profiling) code = LauncherUiTest::organization(window);
     if (!code && !profiling) code = LauncherUiTest::excludedGames(window);
+    if (!code && !profiling) code = LauncherUiTest::uninstallGames(window);
     if (window) DestroyWindow(window);
     CoUninitialize();
     if (code) std::cerr << "Launcher UI regression failed at checkpoint " << code << '\n';

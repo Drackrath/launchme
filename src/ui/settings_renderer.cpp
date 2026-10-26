@@ -183,8 +183,14 @@ void Renderer::drawSettings() {
             continue;
         }
         const float controls_left = hasOptionsButton(item.id) ? r.right - 324 : layout.controlsLeft(item.control);
+        // What the row has room for: thin rows (DRM-free games) one line of description; a row with
+        // tags (plugins) the lines fitSettingsDescriptions made room for, the tags under them; the
+        // rest ends with an ellipsis.
+        const int description_lines = layout.compact ? 1 : !item.tags.empty() ? (item.lines > 2 ? item.lines - 1 : 1) : std::max(2, item.lines);
         textGroup(item.title, item.description, text_left, y - (item.tags.empty() ? 0 : 12), controls_left - (stepped_size ? 72 : 24) - text_left,
-                  category_font_.Get(), gray(item.locked ? 0.56f : 0.93f), body, gray(0.52f), std::max(2, item.lines));
+                  category_font_.Get(), gray(item.locked ? 0.56f : 0.93f), body, gray(0.52f), description_lines);
+        // Each further line grows the centred group by half a line downwards: the tags follow it.
+        const float tag_top = y + 24 + (item.description.empty() ? 0.0f : (description_lines - 1) * typeMetrics(body).line * 0.5f);
         float tag_left = text_left;
         for (const auto& tag : item.tags) {
             DWRITE_TEXT_METRICS metrics{};
@@ -192,8 +198,8 @@ void Renderer::drawSettings() {
             const float ink = measured && SUCCEEDED(measured->GetMetrics(&metrics)) ? metrics.widthIncludingTrailingWhitespace : tag.size() * 10.0f;
             const float width = 22.0f + std::ceil(ink);
             if (tag_left + width > layout.controlsLeft(item.control) - 24) break;
-            fill({tag_left, y + 24, tag_left + width, y + 44}, gray(1, 0.055f), 10);
-            textLine(tag, tag_left + 10, y + 34, width - 20, toast_sub_font_.Get(), gray(0.62f));
+            fill({tag_left, tag_top, tag_left + width, tag_top + 20}, gray(1, 0.055f), 10);
+            textLine(tag, tag_left + 10, tag_top + 10, width - 20, toast_sub_font_.Get(), gray(0.62f));
             tag_left += width + 7;
         }
         if (item.control == Control::choice || item.control == Control::secret || item.control == Control::text || item.control == Control::action) {
@@ -483,5 +489,22 @@ void Renderer::drawSettings() {
             line(r.right - 31, y, r.right - 26, y + 5, check, 2);
             line(r.right - 26, y + 5, r.right - 17, y - 5, check, 2);
         }
+    }
+}
+
+void Renderer::fitSettingsDescriptions(std::vector<settings_ui::Row>& rows, const settings_ui::State& state, bool desktop) {
+    using namespace settings_ui;
+    const auto layout = Layout::of(viewport_.width, viewport_.height, state);
+    const auto body = settings_body_font_.Get();
+    const float line = typeMetrics(body).line;
+    for (auto& row : rows) {
+        if (row.tags.empty()) continue;
+        if (desktop || layout.compact || row.description.empty() || line <= 0) { row.lines = 0; continue; }
+        // The text width drawSettings gives the row (its title and description end before the controls).
+        const float text_left = layout.contentLeft() + 24;
+        const float controls_left = hasOptionsButton(row.id) ? layout.contentRight() - 324 : layout.controlsLeft(row.control);
+        const int wrapped = static_cast<int>(std::lround(paragraph(row.description, 0, 0, controls_left - 24 - text_left, body, {}, 8, false) / line));
+        // A standard row holds the title, one line of description and the tags; up to three lines grow it.
+        row.lines = wrapped >= 2 ? std::min(wrapped, 3) + 1 : 0;
     }
 }

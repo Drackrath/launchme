@@ -6,6 +6,7 @@
 
 #include <Windows.h>
 #include <appmodel.h>
+#include <objbase.h>
 #include <shellapi.h>
 #include <algorithm>
 #include <cwctype>
@@ -590,4 +591,54 @@ GameAction uninstallAction(const Game& game, const std::vector<InstalledProgram>
     // MsiExec.exe /X{...} names a system program; an installer's own uninstaller runs in its folder.
     if (std::filesystem::path(action.target).is_absolute()) action.working_directory = std::filesystem::path(action.target).parent_path();
     return action;
+}
+
+bool innoUninstaller(const GameAction& action) {
+    const auto name = lower(std::filesystem::path(action.target).filename().wstring());
+    // Inno Setup names its uninstaller unins000.exe (unins001.exe… beside another install's).
+    return std::filesystem::path(action.target).is_absolute() && name.size() == 12 && name.starts_with(L"unins") && name.ends_with(L".exe") &&
+        std::all_of(name.begin() + 5, name.begin() + 8, [](wchar_t c) { return c >= L'0' && c <= L'9'; });
+}
+
+GameAction silentUninstallAction(const GameAction& interactive) {
+    if (!innoUninstaller(interactive)) return {};
+    GameAction action = interactive;
+    // The entry's own switches stay (e.g. /LOG); only the ones that make it windowless are added.
+    for (const auto* option : {L"/VERYSILENT", L"/SUPPRESSMSGBOXES", L"/NORESTART"}) {
+        if (lower(action.arguments).find(lower(option)) != std::wstring::npos) continue;
+        if (!action.arguments.empty()) action.arguments += L' ';
+        action.arguments += option;
+    }
+    return action;
+}
+
+UninstallResult runSilentUninstaller(const GameAction& action, void* owner, const std::function<bool()>& cancel) {
+    if (!innoUninstaller(action) || !file(action.target)) return UninstallResult::failed;
+    const auto com = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    struct Com { HRESULT result; ~Com() { if (SUCCEEDED(result)) CoUninitialize(); } } initialized{com};
+    const auto folder = action.working_directory.empty() ? std::filesystem::path(action.target).parent_path() : action.working_directory;
+    SHELLEXECUTEINFOW info{sizeof(info)};
+    info.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI;
+    info.hwnd = static_cast<HWND>(owner);
+    info.lpFile = action.target.c_str();
+    info.lpParameters = action.arguments.empty() ? nullptr : action.arguments.c_str();
+    info.lpDirectory = folder.c_str();
+    info.nShow = SW_HIDE;
+    // A game under Program Files asks Windows (UAC) itself; declining is not a failure.
+    if (!ShellExecuteExW(&info)) return GetLastError() == ERROR_CANCELLED ? UninstallResult::refused : UninstallResult::failed;
+    if (!info.hProcess) return UninstallResult::failed;
+    struct Process { HANDLE value; ~Process() { CloseHandle(value); } } process{info.hProcess};
+    while (WaitForSingleObject(info.hProcess, 100) == WAIT_TIMEOUT) if (cancel()) return UninstallResult::failed;
+    DWORD code = 0;
+    GetExitCodeProcess(info.hProcess, &code);
+    // Inno's first phase copies itself to %TEMP% and the copy removes the game, deleting the
+    // uninstaller last: its disappearance is the end. A failed first phase gets a short grace.
+    const auto started = GetTickCount64();
+    const uint64_t limit = code == 0 ? 30ull * 60 * 1000 : 5000;
+    while (GetTickCount64() - started < limit) {
+        if (!file(action.target)) return UninstallResult::done;
+        if (cancel()) return UninstallResult::failed;
+        Sleep(250);
+    }
+    return file(action.target) ? UninstallResult::failed : UninstallResult::done;
 }

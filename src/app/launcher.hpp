@@ -1767,12 +1767,18 @@ private:
     std::optional<int> exit_prompt_; // Selected exit_prompt::Choice while asking.
     // The same three-button prompt also asks whether downloaded videos follow a new video folder.
     enum class PromptKind { exit, move_videos, uninstall };
-    Game uninstall_game_; // PromptKind::uninstall: the game Launchme itself would remove (Legendary).
-    // Szczegóły → … → Odinstaluj: Steam's own dialog, the uninstaller the game's installer registered
-    // in Windows, Legendary for games Launchme installed, else the store client. Never a guess.
+    Game uninstall_game_; // PromptKind::uninstall: the game Launchme itself would remove (Legendary, GOG silently).
+    GameAction uninstall_silent_; // ...and for a GOG game, its Inno uninstaller with the silent switches.
+    // Szczegóły → … → Odinstaluj (also the game's menu): Steam's own dialog, GOG's Inno uninstaller
+    // silently after Launchme's question, the uninstaller another installer registered in Windows
+    // (EA, Ubisoft, Battle.net, Amazon…), Legendary for games Launchme installed, else the store
+    // client. Never a guess.
     bool canUninstall(const Game& game) const;
     void uninstallGame(const Game& game);
-    void uninstallManagedGame(const Game& game); // After the question: Legendary on a worker.
+    void uninstallManagedGame(const Game& game, const GameAction& silent = {}); // After the question, on a worker.
+    // Injectable: UI tests never read this PC's uninstall registry or start a real uninstaller.
+    std::function<std::vector<InstalledProgram>()> installed_programs_ = installedPrograms;
+    std::function<UninstallResult(const GameAction&, void*, const std::function<bool()>&)> silent_uninstall_ = runSilentUninstaller;
     PromptKind prompt_kind_ = PromptKind::exit;
     std::filesystem::path video_move_from_, video_move_to_;
     uint64_t video_move_bytes_ = 0;

@@ -147,6 +147,20 @@ int LauncherUiTest::settingsDevices(HWND window) {
     if (!app.settingsOpen() || app.settings_state_.category != static_cast<int>(Category::controllers)) return 3223;
     app.syncSettingsDevices();
     if (app.settings_device_panel_ != devices::Panel::controllers) return 3224;
+    // Windows' Bluetooth off: a paired pad stays, greyed, and its action opens Windows' Bluetooth page.
+    {
+        devices::Controller off{L"bluetooth:4cb99b80d184", L"DualSense Wireless Controller", L"Bluetooth", devices::Picture::dualsense};
+        off.connected = false; off.radio_off = true;
+        backend->data.controllers.push_back(off); refresh();
+        const auto& pads = app.settings_rows_[0];
+        if (pads.tiles.size() != 5 || pads.tiles[3].value != L"wyłączony" || pads.tiles[3].connected ||
+            pads.tiles[3].action != L"Ustawienia" || !pads.tiles[3].key.empty() || !pads.tiles[4].pair) return 3246;
+        select(0); app.settings_state_.tile = 3; dispatched.clear();
+        if (!capture(L"settings-devices-controllers-radio-off.png")) return 3247;
+        app.settingsActivate();
+        if (dispatched != std::vector<std::wstring>{L"ms-settings:bluetooth"} || app.devicesOpen()) return 3248;
+        backend->data.controllers.pop_back(); refresh();
+    }
 
     // Hints: the active pad's family by position, keys after the keyboard, none when switched off.
     ViewContext context;

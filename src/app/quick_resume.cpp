@@ -98,13 +98,14 @@ context_menu::Rows Launcher::menuRows() const {
     const auto& game = cards_[selected_].game;
     if (screen_ == ScreenMode::details) {
         context_menu::Rows rows{false, 0, false, true, !gameFolder(game).empty(), canExclude(game), !hideableCopies(game).empty()};
-        rows.uninstall = canUninstall(game);
+        rows.uninstall = canUninstall(game) && sessionState(game) == SessionState::none; // Never while it runs.
         rows.launch = launchEditable(game);
         return rows;
     }
     const auto state = sessionState(game);
     context_menu::Rows rows{settings_.quick_resume && state == SessionState::running, static_cast<int>(pluginContext(game).size()), state != SessionState::none};
     rows.secondary_only = psfiveActive();
+    rows.uninstall = canUninstall(game);
     return rows;
 }
 
@@ -358,7 +359,8 @@ void Launcher::exitPromptAccept() {
         prompt_kind_ = PromptKind::exit;
         const int index = static_cast<int>(choice); // 0 uninstall, 1 open its folder first, 2 cancel.
         const auto game = std::exchange(uninstall_game_, Game{});
-        if (index == 0) uninstallManagedGame(game);
+        const auto silent = std::exchange(uninstall_silent_, GameAction{});
+        if (index == 0) uninstallManagedGame(game, silent);
         else if (index == 1 && game.install_directory.is_absolute())
             execute_(hwnd_, GameAction{game.install_directory.wstring(), {}, {}, ActionKind::open_client});
         return;

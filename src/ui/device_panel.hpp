@@ -84,9 +84,10 @@ struct State {
             rows.push_back({Kind::bluetooth, L"bluetooth", tr(L"Sparuj kontroler"), L"Bluetooth"});
             for (const auto& pad : data.controllers) {
                 Row row{Kind::controller, pad.bluetooth_id.empty() ? pad.id : L"controller:" + pad.bluetooth_id,
-                    pad.name, pad.connection + L" · " + (pad.connected ? devices::batteryLabel(pad) : std::wstring(tr(L"Rozłączono")))};
+                    pad.name, pad.connection + L" · " + (pad.connected ? devices::batteryLabel(pad) :
+                    std::wstring(pad.radio_off ? tr(L"wyłączony") : tr(L"Rozłączono")))};
                 if (!pad.bluetooth_id.empty()) { row.action = pad.connected ? Kind::disconnect : Kind::connect; row.target = pad.bluetooth_id; }
-                else if (pad.connection == L"Bluetooth LE") row.action = Kind::windows_bluetooth;
+                else if (pad.connection == L"Bluetooth LE" || pad.radio_off) row.action = Kind::windows_bluetooth;
                 rows.push_back(std::move(row));
             }
         } else if (panel == devices::Panel::audio) {

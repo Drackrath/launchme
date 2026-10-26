@@ -1,6 +1,7 @@
 #pragma once
 #include "store_adapter.hpp"
 
+#include <functional>
 #include <string_view>
 
 struct NativeInstall {
@@ -49,6 +50,15 @@ GameAction connectPcClient(GameSource source, const std::vector<StoreClient>& cl
 // folder. Steam's own steam://uninstall/<id> (Steam asks first). Empty when none is known:
 // the launcher then never guesses a command.
 GameAction uninstallAction(const Game& game, const std::vector<InstalledProgram>& programs);
+// GOG's installers are Inno Setup: its uninstaller (an absolute ...\unins000.exe) also runs
+// without a window. silentUninstallAction adds /VERYSILENT /SUPPRESSMSGBOXES /NORESTART to the
+// registered command; empty for anything that is not an Inno Setup uninstaller.
+bool innoUninstaller(const GameAction& action);
+GameAction silentUninstallAction(const GameAction& interactive);
+// Runs a silent Inno uninstaller (Windows asks for elevation when the game needs it) and waits
+// until it has removed itself: the end of Inno's second phase. refused: UAC was declined.
+enum class UninstallResult { done, failed, refused };
+UninstallResult runSilentUninstaller(const GameAction& action, void* owner, const std::function<bool()>& cancel);
 // The registered uninstall entries (both registry views, machine and user); a worker or a
 // user's explicit request reads them, never a frame.
 std::vector<InstalledProgram> installedPrograms();

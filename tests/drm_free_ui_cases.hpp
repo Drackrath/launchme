@@ -104,6 +104,14 @@ int LauncherUiTest::drmFree(HWND window) {
         app.settings_rows_[0].description != L"Celeste.exe" || app.settings_rows_[1].title != L"Hollow Knight" || !list_layout.compact ||
         list_layout.rowHeight(0) >= Layout::row_height || app.settings_state_.row() != 0) return 2133;
     if (!capture(L"drm-free-games.png")) return 2134;
+    {
+        // A long path and its notes stay on one line of the thin row (ellipsis), in both faces.
+        const auto saved = app.settings_rows_[1].description;
+        app.settings_rows_[1].description = L"Games\\Team Cherry\\Hollow Knight Voidheart Edition\\Binaries\\Win64\\Shipping\\hollow_knight_voidheart_edition.exe"
+                                            L" · wybrany plik · nie rozpoznano w RAWG · Brak pliku";
+        if (!capture(L"drm-free-games-long.png")) return 2190;
+        app.settings_rows_[1].description = saved;
+    }
     // A click on the second thin row hits that row (geometry shared with drawing).
     const auto second = list_layout.row(1, app.settings_state_.offset());
     if (list_layout.hitRow(second.left + 30, second.top + 10, 2, app.settings_state_.offset()) != 1) return 2135;

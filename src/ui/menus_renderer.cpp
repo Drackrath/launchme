@@ -127,8 +127,10 @@ void Renderer::drawContextMenu() {
     if (!isGame(active.game)) return;
     const float alpha = smoothFade(context_->menu_progress);
     const bool beside = context_->menu_beside;
-    const context_menu::Rows rows{context_->menu_suspend, static_cast<int>(context_->menu_plugins.size()), context_->menu_session,
-                                 context_->menu_detail_options, context_->menu_folder, context_->menu_exclude, context_->menu_hide, context_->psfive};
+    context_menu::Rows rows{context_->menu_suspend, static_cast<int>(context_->menu_plugins.size()), context_->menu_session,
+                            context_->menu_detail_options, context_->menu_folder, context_->menu_exclude, context_->menu_hide, context_->psfive};
+    rows.uninstall = context_->menu_uninstall;
+    rows.launch = context_->menu_launch;
     const auto bounds = context_menu::bounds(active, rows, beside, viewport_.width, viewport_.height, context_->menu_anchor);
     const float x = bounds.left, width = bounds.right - bounds.left;
     const float y = bounds.top + (1.0f - alpha) * (context_->menu_anchor && bounds.top > context_->menu_anchor->top ? -19.0f : 19.0f);
@@ -173,9 +175,15 @@ void Renderer::drawContextMenu() {
     for (int row = 0; row < context_menu::rows(rows); ++row) {
         const float row_y = y + 8 + row * 53.0f;
         const auto entry = context_menu::item(row, rows);
-        // "Zamknij grę" is destructive: a soft red, as used for save errors in Settings.
+        // "Zamknij grę" and "Odinstaluj" are destructive: a soft red, as used for save errors in Settings.
+        const bool destructive = entry == context_menu::Item::close || entry == context_menu::Item::uninstall;
+        if (entry == context_menu::Item::uninstall && row > 0) {
+            // Set apart from the rows above by a hairline, the way the desktop menu separates it.
+            brush(color(0.90f, 0.90f, 0.90f, 0.12f * alpha));
+            target_->FillRectangle(D2D1::RectF(x + 26, row_y - 2.5f, x + width - 26, row_y - 1.5f), solid_.Get());
+        }
         text(entry == context_menu::Item::plugin ? context_->menu_plugins[row - context_menu::row(context_menu::Item::plugin, rows)].c_str() : label(entry), x + 32, row_y + 11, width - 50, 35,
-             menu_font_.Get(), entry == context_menu::Item::close ? palette::danger(alpha) :
+             menu_font_.Get(), destructive ? palette::danger(alpha) :
              (entry != context_menu::Item::primary || context_->primary_enabled) ? color(0.96f, 0.96f, 0.96f, alpha) :
              color(0.53f, 0.53f, 0.53f, 0.75f * alpha));
     }

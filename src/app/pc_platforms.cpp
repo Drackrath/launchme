@@ -2,6 +2,7 @@
 #include "../ui/grid_layout.hpp"
 #include "../store/epic_legendary.hpp"
 #include "../library/ubisoft_catalog.hpp"
+#include "../platform/text_encoding.hpp"
 #include <algorithm>
 #include <map>
 
@@ -165,23 +166,27 @@ bool Launcher::canUninstall(const Game& game) const {
 }
 
 void Launcher::uninstallGame(const Game& game) {
-    if (!canUninstall(game)) return;
+    if (!canUninstall(game) || sessionState(game) != SessionState::none) return; // Never a running or suspended game.
     dismissMenu();
-    if (game.epic_managed) {
-        // Legendary deletes without asking: the launcher asks first (the store's dialogs do it themselves).
+    const auto ask = [&](GameAction silent) {
+        // Legendary and a silent GOG uninstaller delete without asking: the launcher asks first
+        // (Steam's and the other stores' dialogs do it themselves).
         uninstall_game_ = game;
+        uninstall_silent_ = std::move(silent);
         prompt_kind_ = PromptKind::uninstall;
         exit_prompt_ = 1; // "Otwórz folder gry" is the safe default; Odinstaluj is one step up.
         audio_.context();
         InvalidateRect(hwnd_, nullptr, FALSE);
-        return;
-    }
+    };
+    if (game.epic_managed) { ask({}); return; }
+    if (game.source == GameSource::gog)
+        if (auto silent = silentUninstallAction(uninstallAction(game, installed_programs_()))) { ask(std::move(silent)); return; }
     if (game.source == GameSource::xbox) { // Packaged games: Windows' own Apps list removes them.
         if (execute_(hwnd_, GameAction{L"ms-settings:appsfeatures", {}, {}, ActionKind::open_client}) > 32)
             showNotification(NotificationKind::launch, game.name, tr(L"Odinstaluj w Ustawieniach Windows → Aplikacje."));
         return;
     }
-    const auto action = game.source == GameSource::steam ? uninstallAction(game, {}) : uninstallAction(game, installedPrograms());
+    const auto action = game.source == GameSource::steam ? uninstallAction(game, {}) : uninstallAction(game, installed_programs_());
     if (!action) {
         // No uninstaller registered in Windows: the store's client does it.
         const auto client = connectPcClient(game.source, pc_clients_);
@@ -197,11 +202,23 @@ void Launcher::uninstallGame(const Game& game) {
     // and Steam's manifest folder too.
 }
 
-void Launcher::uninstallManagedGame(const Game& game) {
-    work_.start([window = hwnd_, alive = alive_, game, root = userConfigDirectory()] {
+void Launcher::uninstallManagedGame(const Game& game, const GameAction& silent) {
+    if (!game.epic_managed && !silent) return;
+    work_.start([window = hwnd_, alive = alive_, game, silent, run = silent_uninstall_, root = userConfigDirectory()] {
         auto message = std::make_unique<StoreChangeMessage>();
         message->uninstalled = game.name;
-        message->failed = !epic::uninstallManaged(root, game, [&] { return !alive->load(); });
+        const auto cancel = [&] { return !alive->load(); };
+        if (game.epic_managed) message->failed = !epic::uninstallManaged(root, game, cancel);
+        else {
+            const auto result = run(silent, window, cancel);
+            if (result == UninstallResult::refused) message->uninstalled.clear(); // UAC declined: nothing to report.
+            message->failed = result == UninstallResult::failed;
+            if (result == UninstallResult::done && validStoreGameId(GameSource::gog, game.source_id)) {
+                // A game Launchme's GOG installer put there: its marker would list a leftover folder.
+                std::error_code ec;
+                std::filesystem::remove(root / L"installed" / L"gog" / (text_encoding::wide(game.source_id) + L".path"), ec);
+            }
+        }
         if (alive->load() && PostMessageW(window, store_change_message, 0, reinterpret_cast<LPARAM>(message.get()))) message.release();
     });
     showNotification(NotificationKind::launch, game.name, tr(L"Odinstalowywanie…"));

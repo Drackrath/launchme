@@ -163,6 +163,10 @@ public:
     void resetGlanceThumbnails(size_t count) { glance_thumbnails_.clear(); glance_thumbnails_.resize(count); }
     void setGlanceThumbnail(size_t index, ImageBytes pixels);
     void measureGlance(glance_ui::State& state);
+    // Tryb TV's rows with tags (Pluginy): Row::lines from the description's wrapped length at the
+    // row's text width, so the row grows to hold it above its tags. The desktop window and thin
+    // rows keep the default (their descriptions end with an ellipsis).
+    void fitSettingsDescriptions(std::vector<settings_ui::Row>& rows, const settings_ui::State& state, bool desktop);
     // Tarot's result cards (src/ui/tarot_renderer.cpp): a poster each, or a cover until it comes.
     void resetTarotImages(size_t count) { tarot_images_.clear(); tarot_images_.resize(count); tarot_posters_.assign(count, false); }
     void setTarotImage(size_t index, ImageBytes pixels, bool poster);

@@ -136,6 +136,8 @@ void Launcher::paint(bool overlay) {
     context.logo_pending = selectedLogoPending();
     context.settings_rows = &settings_rows_;
     if (settingsOpen()) {
+        // Before drawing, and so before the next click or scroll: rows with tags grow to hold their description.
+        renderer_.fitSettingsDescriptions(settings_rows_, settings_state_, desktop_mode_);
         context.settings_toggles.reserve(settings_rows_.size());
         for (const auto& item : settings_rows_) {
             const auto key = std::to_string(static_cast<int>(item.id)) + '|' + item.key + '|' + item.plugin_setting + '|' +
@@ -244,6 +246,8 @@ void Launcher::paint(bool overlay) {
     context.menu_folder = menu_rows.folder;
     context.menu_exclude = menu_rows.exclude;
     context.menu_hide = menu_rows.hide;
+    context.menu_uninstall = menu_rows.uninstall;
+    context.menu_launch = menu_rows.launch;
     // Kept while the menu fades out so its height does not jump mid-animation.
     if (!cards_.empty()) for (const auto& action : pluginContext(cards_[selected_].game)) context.menu_plugins.push_back(action.item.title.localized());
     context.menu_beside = menuBeside();

@@ -91,5 +91,28 @@ int main() {
     StoreLibrary local; local.visible.push_back(trial);
     const auto without_apps = mergeEpicLibrary(local, {trial, owned_game}, "account");
     if (without_apps.visible.size() != 1 || without_apps.visible[0].name != L"Fortnite" || !epicExcludedTitle(L"TWINMOTION") || epicExcludedTitle(L"Twine")) return 12;
-    std::cout << "Native PC manifests/registry inputs, store actions, offline GOG and visibility overrides passed\n";
+    // Odinstaluj: GOG's "<id>_is1" Inno entry, run silently; other installers' own commands as registered.
+    const auto unins = (gog / "unins000.exe").wstring();
+    std::vector<InstalledProgram> programs{
+        {L"Unrelated", L"Other", L"Someone", L"MsiExec.exe /X{00000000-0000-0000-0000-000000000000}", root / "other"},
+        {L"123_is1", L"Offline game", L"GOG.com", L"\"" + unins + L"\"", gog},
+        {L"{EA-FIXTURE}", L"EA Fixture", L"Electronic Arts", L"\"C:\\Program Files\\Common Files\\EAInstaller\\Fixture\\Cleanup.exe\" uninstall_game -autologging", ea}};
+    const auto removal = uninstallAction(*game, programs);
+    if (removal.target != unins || !removal.arguments.empty() || removal.working_directory != gog || !innoUninstaller(removal)) return 15;
+    const auto silent = silentUninstallAction(removal);
+    if (silent.target != unins || silent.arguments != L"/VERYSILENT /SUPPRESSMSGBOXES /NORESTART" || silent.working_directory != gog) return 16;
+    auto logged = removal; logged.arguments = L"/LOG /verysilent";
+    if (silentUninstallAction(logged).arguments != L"/LOG /verysilent /SUPPRESSMSGBOXES /NORESTART") return 17;
+    Game ea_game; ea_game.kind = GameKind::store; ea_game.source = GameSource::ea; ea_game.name = L"EA Fixture"; ea_game.install_directory = ea;
+    const auto ea_removal = uninstallAction(ea_game, programs);
+    if (ea_removal.target != L"C:\\Program Files\\Common Files\\EAInstaller\\Fixture\\Cleanup.exe" ||
+        ea_removal.arguments != L"uninstall_game -autologging" || innoUninstaller(ea_removal) || silentUninstallAction(ea_removal)) return 18;
+    for (const auto* name : {L"unins.exe", L"uninstall.exe", L"unins00a.exe", L"unins0000.exe"})
+        if (innoUninstaller(GameAction{(gog / name).wstring()})) return 19;
+    if (innoUninstaller(GameAction{L"unins000.exe"})) return 20; // A bare name could be anything on PATH.
+    // A missing uninstaller is a failure, never a started process.
+    if (runSilentUninstaller(silent, nullptr, [] { return false; }) != UninstallResult::failed) return 21;
+    Game steam_game{620, L"Portal 2"};
+    if (uninstallAction(steam_game, {}).target != L"steam://uninstall/620") return 22;
+    std::cout << "Native PC manifests/registry inputs, store actions, offline GOG, uninstallers and visibility overrides passed\n";
 }

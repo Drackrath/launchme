@@ -71,7 +71,8 @@ Settings → System → Help → **Open folder** (the version row) opens it.
   paste the token page), Ubisoft from the signed-in client.
 - **Artwork**: SteamGridDB covers, heroes, logos and posters with OCR-assisted cropping and a variant browser.
 - **Details**: Steam metadata, playtime (also for non-Steam games), achievements, Steam and RAWG ratings,
-  versions of the same game across stores, uninstall from the game menu. Achievements of games outside
+  versions of the same game across stores, uninstall from the game menu (Steam's own dialog, GOG games
+  silently after Launchme asks, other stores through the uninstaller they registered). Achievements of games outside
   Steam come from the Achievements plugin: GOG and Epic (with their accounts connected),
   RetroAchievements for emulated games (user name and Web API key in the plugin's settings), RPCS3 and
   shadPS4 trophies. An achievement opens its card: a larger icon, the description, when it was earned and

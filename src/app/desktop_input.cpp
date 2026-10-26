@@ -1144,7 +1144,7 @@ void Launcher::desktopOpenGameMenu(float x, float y, bool keyboard) {
             items.push_back({Action::hide, hidden ? tr(L"Pokaż w bibliotece") : tr(L"Ukryj"), {}, hidden ? glyph::view : glyph::hide});
         }
         if (canExclude(game)) { MenuItem exclude{Action::exclude, tr(L"Wyklucz z biblioteki"), {}, glyph::remove}; exclude.danger = true; items.push_back(std::move(exclude)); }
-        if (canUninstall(game)) {
+        if (canUninstall(game) && session == SessionState::none) { // Never while it runs or is suspended.
             if (hideableCopies(game).empty() && !canExclude(game)) separator();
             MenuItem uninstall{Action::uninstall, tr(L"Odinstaluj…"), {}, glyph::remove};
             uninstall.danger = true;

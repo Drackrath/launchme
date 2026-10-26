@@ -233,12 +233,14 @@ void Renderer::drawDesktopSettings() {
         const float text_width = (tall ? right - 16 : controls_left - 20) - text_left;
         const auto title_ink = item.locked ? gray(0.55f) : gray(0.94f);
         if (tall || !item.description.empty()) {
-            const float title_y = tall ? r.top + 30 : r.top + 24;
+            // Thin rows (DRM-free games) hold the title and one line of description, centred.
+            const bool thin = !tall && state.at(settings_ui::Page::drm_games);
+            const float title_y = tall ? r.top + 30 : thin ? r.top + 17 : r.top + 24;
             textLine(item.title, text_left, title_y, text_width, desktop_strong_font_.Get(), title_ink);
             if (!item.description.empty()) {
                 const auto m = typeMetrics(desktop_small_font_.Get());
                 paragraph(item.description, text_left, title_y + 10 - (m.baseline - m.cap) + 2, text_width, desktop_small_font_.Get(), palette::muted(),
-                          tall ? 1 : std::max(2, item.lines));
+                          tall || thin ? 1 : std::max(2, item.lines));
             }
         } else textLine(item.title, text_left, cy, text_width, desktop_strong_font_.Get(), title_ink);
         const float toggle_on = i < static_cast<int>(context_->settings_toggles.size()) ?

@@ -305,6 +305,7 @@ struct ViewContext {
     bool menu_session = false; // Running or suspended: "Zamknij grę" replaces "Ponów grafiki".
     bool menu_detail_options = false, menu_folder = false, menu_exclude = false;
     bool menu_hide = false, menu_hidden = false; // Details options: "Ukryj" / "Pokaż".
+    bool menu_uninstall = false, menu_launch = false; // "Odinstaluj" (red, last) / Details' "Opcje uruchamiania".
     bool menu_beside = false;  // The game menu opens beside the card (XMB, Flix, list view).
     std::optional<settings_ui::Rect> menu_anchor;
     // With Quick Resume off, failed recoveries still show their frozen state.

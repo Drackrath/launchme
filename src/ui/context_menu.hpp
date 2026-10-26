@@ -20,7 +20,7 @@ struct Rows {
     bool session = false;
     bool detail_options = false, folder = false, exclude = false, hide = false;
     bool secondary_only = false; // PSfive has a separate primary button; Details leads its menu.
-    bool uninstall = false;      // Details' "…": an installed game Launchme knows how to remove.
+    bool uninstall = false;      // Details' "…" and the game's menu: an installed game Launchme knows how to remove.
     bool launch = false;         // Details' "…": Launcher::launchEditable.
 };
 constexpr auto order(Rows options) {
@@ -37,7 +37,8 @@ constexpr bool visible(Item entry, Rows options) {
     case Item::plugin: return options.plugins > 0;
     case Item::retry: return !options.session;
     case Item::close: return options.session;
-    case Item::folder: case Item::hide: case Item::exclude: case Item::uninstall: case Item::launch: return false;
+    case Item::uninstall: return options.uninstall && !options.session; // Last and red in the game's menu too ("…" on PSfive); never while it runs.
+    case Item::folder: case Item::hide: case Item::exclude: case Item::launch: return false;
     default: return true;
     }
 }

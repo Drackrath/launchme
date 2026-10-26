@@ -543,10 +543,10 @@ void Launcher::buildSettingsRows() {
             tile.connected = pad.connected;
             tile.battery = pad.connected ? pad.battery : std::nullopt;
             tile.charging = pad.charging;
-            tile.value = pad.connected ? devices::batteryLabel(pad) : std::wstring(tr(L"Rozłączono"));
+            tile.value = pad.connected ? devices::batteryLabel(pad) : std::wstring(pad.radio_off ? tr(L"wyłączony") : tr(L"Rozłączono"));
             tile.key = pad.bluetooth_id;
             if (!pad.bluetooth_id.empty()) tile.action = pad.connected ? tr(L"Rozłącz") : tr(L"Połącz");
-            else if (pad.connection == L"Bluetooth LE") tile.action = tr(L"Ustawienia");
+            else if (pad.connection == L"Bluetooth LE" || pad.radio_off) tile.action = tr(L"Ustawienia"); // Windows' Bluetooth settings.
             pads.tiles.push_back(std::move(tile));
         }
         Tile pair;
@@ -662,6 +662,7 @@ void Launcher::buildSettingsRows() {
         settings_state_.tile = std::clamp(settings_state_.tile, 0, std::max(0, static_cast<int>(tiles.size()) - 1));
     }
     settings_state_.clamp(static_cast<int>(settings_rows_.size()));
+    renderer_.fitSettingsDescriptions(settings_rows_, settings_state_, desktop_mode_); // Heights before scrolling to the row.
     ensureSettingVisible();
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
