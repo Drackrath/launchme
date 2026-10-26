@@ -76,11 +76,13 @@ public:
     // viewport whatever the current screen (hit tests between two frames).
     void setDesktopViewport(bool desktop) { if (desktop_viewport_ != desktop) { desktop_viewport_ = desktop; updateViewport(); } }
     Viewport desktopViewport() const;
-    // As drawn last: the pane's content height and its collection chips, "+" chip and rating link.
+    // As drawn last: the pane's content height and its collection chips, "+" chip, rating link and
+    // achievements number (empty when the game has none: nothing to open).
     float desktopPaneHeight() const { return desktop_pane_height_; }
     const std::vector<settings_ui::Rect>& desktopChips() const { return desktop_chips_; }
     settings_ui::Rect desktopChipAdd() const { return desktop_chip_add_; }
     settings_ui::Rect desktopRating() const { return desktop_rating_; }
+    settings_ui::Rect desktopAchievements() const { return desktop_achievements_; }
     // Desktop dialogs measured while drawn: their controls (topmost last) and content height.
     const std::vector<desktop_ui::SheetHotspot>& desktopHotspots() const { return desktop_hotspots_; }
     // Tryb TV's dialogs drawn as desktop dialogs in the last frame (Kolekcje, Dodaj grę, Zidentyfikuj
@@ -1025,7 +1027,7 @@ private:
     bool desktop_viewport_ = false;
     float desktop_pane_height_ = 0;
     std::vector<settings_ui::Rect> desktop_chips_;
-    settings_ui::Rect desktop_chip_add_{}, desktop_rating_{};
+    settings_ui::Rect desktop_chip_add_{}, desktop_rating_{}, desktop_achievements_{};
     std::vector<desktop_ui::SheetHotspot> desktop_hotspots_;
     desktop_ui::DialogKind desktop_modal_ = desktop_ui::DialogKind::none;
     std::vector<desktop_ui::SheetHotspot> desktop_modal_hotspots_;

@@ -1650,6 +1650,7 @@ constexpr Entry entries[] = {
     {L"Zidentyfikuj grę…", L"Identify game…"},
     {L"Otwórz folder gry", L"Open game folder"},
     {L"Pokaż w bibliotece", L"Show in library"},
+    {L"Pokaż osiągnięcia", L"Show achievements"},
     {L"Wyklucz z biblioteki", L"Exclude from library"},
     {L"Zaznaczone: ", L"Selected: "},
     {L"Ukryj zaznaczone", L"Hide selected"},

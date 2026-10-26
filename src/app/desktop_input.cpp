@@ -118,6 +118,7 @@ desktop_ui::Hit Launcher::desktopHit(float x, float y) const {
         for (int i = 0; i < static_cast<int>(chips.size()); ++i) if (chips[static_cast<size_t>(i)].contains(x, y)) return {Target::pane_chip, i};
         if (renderer_.desktopChipAdd().contains(x, y)) return {Target::pane_chip_add, 0};
         if (renderer_.desktopRating().contains(x, y)) return {Target::pane_rating, 0};
+        if (renderer_.desktopAchievements().contains(x, y)) return {Target::pane_achievements, 0};
         return {};
     }
     if (L.sortButton().contains(x, y)) return {Target::sort, 0};
@@ -399,7 +400,7 @@ void Launcher::desktopContextClick(float mouse_x, float mouse_y) {
         return;
     }
     case Target::pane_primary: case Target::pane_favorite: case Target::pane_more: case Target::pane_quick: case Target::pane_chip:
-    case Target::pane_chip_add: case Target::pane_rating:
+    case Target::pane_chip_add: case Target::pane_rating: case Target::pane_achievements:
         desktopOpenGameMenu(x, y, false);
         return;
     default: return;
@@ -565,6 +566,11 @@ void Launcher::desktopActivate(const desktop_ui::Hit& hit) {
         return;
     }
     case Target::pane_rating: openRatingSource(); return;
+    case Target::pane_achievements: // Szczegóły with its achievements list open (Wstecz: the details).
+        if (cards_.empty()) return;
+        openDetails(cards_[selected_].game);
+        openAchievements();
+        return;
     case Target::bulk: {
         const auto games = desktopTargets();
         const auto r = desktopLayout().paneBulk(hit.index);
@@ -1557,6 +1563,7 @@ std::wstring Launcher::desktopTooltip(const desktop_ui::Hit& hit) const {
         if (hit.index == 2 && !cards_.empty() && gameFolder(cards_[selected_].game).empty()) return tr(L"Gra nie jest zainstalowana");
         return {};
     case Target::pane_chip_add: return tr(L"Dodaj do kolekcji");
+    case Target::pane_achievements: return tr(L"Pokaż osiągnięcia");
     default: return {};
     }
 }
@@ -1600,6 +1607,7 @@ desktop_ui::Rect Launcher::desktopTooltipAnchor(const desktop_ui::Hit& hit) cons
     case Target::pane_more: return L.paneMore(desktop_pane_scroll_);
     case Target::pane_quick: return L.paneQuick(hit.index, desktop_pane_scroll_);
     case Target::pane_chip_add: return renderer_.desktopChipAdd();
+    case Target::pane_achievements: return renderer_.desktopAchievements();
     default: return {};
     }
 }

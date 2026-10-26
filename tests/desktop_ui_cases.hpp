@@ -252,6 +252,33 @@ int LauncherUiTest::desktop(HWND window) {
     app.desktopPageActivate({SheetHit::Kind::close}, false);
     if (app.screen_ != ScreenMode::shelves) return 7628;
 
+    // The pane's achievements number opens Szczegóły with its list; with none, nothing to click.
+    {
+        const float scale = app.desktopScale();
+        app.desktopFocus(0); app.desktop_zone_ = 1;
+        app.paint();
+        if (app.renderer_.desktopAchievements().right > app.renderer_.desktopAchievements().left) return 7653;
+        const auto app_id = app.cards_[0].game.app_id;
+        PreviewMessage known; known.app_id = app_id; known.generation = app.preview_.generation();
+        known.details.achievements_total = 10; known.details.achievements_unlocked = 4;
+        if (!app.preview_.accept(std::move(known))) return 7654;
+        app.paint();
+        const auto r = app.renderer_.desktopAchievements();
+        const float x = (r.left + r.right) * 0.5f, y = (r.top + r.bottom) * 0.5f;
+        const auto hit = app.desktopHit(x, y);
+        if (r.right <= r.left || hit.target != Target::pane_achievements || app.desktopTooltip(hit).empty() ||
+            app.desktopCursor(x * scale, y * scale) != IDC_HAND) return 7655;
+        app.desktop_hover_ = hit;
+        if (!capture(L"desktop-pane-achievements.png")) return 7656;
+        app.desktop_hover_ = {};
+        app.desktopActivate(hit);
+        if (app.screen_ != ScreenMode::details || !app.achievementsOpen() || app.achievements_.app_id != app_id) return 7657;
+        app.closeAchievements();
+        app.desktopPageActivate({SheetHit::Kind::close}, false);
+        if (app.screen_ != ScreenMode::shelves || !app.desktopActive()) return 7658;
+        settle();
+    }
+
     // The panes: the sidebar narrow (its icons, no headings; the toggle by the logo, animated) and
     // the right pane wider by its edge (fewer columns); both kept in the settings.
     {

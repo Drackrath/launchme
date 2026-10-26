@@ -226,7 +226,7 @@ void Renderer::drawDesktop() {
     layout.tools = static_cast<int>(view.tools.size());
     layout.companion_card = view.companion_card;
     layout.narrow = view.sidebar_narrow; layout.pane_width = view.pane_width;
-    desktop_chips_.clear(); desktop_chip_add_ = {}; desktop_rating_ = {};
+    desktop_chips_.clear(); desktop_chip_add_ = {}; desktop_rating_ = {}; desktop_achievements_ = {};
     desktop_hotspots_.clear(); // Widżety record their controls here.
     companion_bubble_ = {};
     brush(app_bg);
@@ -946,10 +946,17 @@ void Renderer::drawDesktopPane(const Layout& layout, const View& view) {
     desktopFill(stats, 10, card_bg);
     desktopStroke(stats, 10, gray(1, 0.05f));
     const float column = (stats.right - stats.left) / 3;
-    const auto stat = [&](int i, const wchar_t* label, const std::wstring& value, float share) {
+    const auto stat = [&](int i, const wchar_t* label, const std::wstring& value, float share, bool link = false) {
         const float cx = stats.left + column * static_cast<float>(i) + 14;
+        if (link) { // The number opens its list: hover, press and a chevron.
+            const Rect cell{cx - 10, stats.top + 4, stats.left + column * static_cast<float>(i + 1) - 4, stats.bottom - 4};
+            const bool hover = view.hover.target == Target::pane_achievements;
+            if (hover) desktopFill(cell, 7, gray(1, view.pressed.target == Target::pane_achievements ? 0.04f : 0.07f));
+            desktopGlyph(glyph::chevron_right, cell.right - 12, stats.top + 43, 9, gray(hover ? 0.95f : 0.55f));
+            desktop_achievements_ = cell;
+        }
         textLine(upper(tr(label)), cx, stats.top + 20, column - 20, desktop_label_font_.Get(), palette::muted());
-        textLine(value.empty() ? L"—" : value, cx, stats.top + 43, column - 20, desktop_strong_font_.Get(), palette::text());
+        textLine(value.empty() ? L"—" : value, cx, stats.top + 43, column - (link ? 36 : 20), desktop_strong_font_.Get(), palette::text());
         if (share >= 0) {
             desktopFill({cx, stats.bottom - 9, cx + column - 28, stats.bottom - 6}, 1.5f, gray(1, 0.1f));
             desktopFill({cx, stats.bottom - 9, cx + (column - 28) * share, stats.bottom - 6}, 1.5f, uiAccent());
@@ -958,7 +965,7 @@ void Renderer::drawDesktopPane(const Layout& layout, const View& view) {
     };
     stat(0, trKey(L"Czas gry"), pane.playtime, -1);
     stat(1, trKey(L"Ostatnio"), pane.last_played, -1);
-    stat(2, trKey(L"Osiągnięcia"), pane.achievements, pane.achievements_share);
+    stat(2, trKey(L"Osiągnięcia"), pane.achievements, pane.achievements_share, pane.achievements_link);
     // Quick actions.
     const wchar_t quick_glyphs[] = {glyph::info, glyph::picture, glyph::folder_open, pane.hidden ? glyph::view : glyph::hide};
     const std::wstring quick_labels[] = {tr(L"Szczegóły"), tr(L"Grafika"), tr(L"Folder"), pane.hidden ? std::wstring(tr(L"Pokaż")) : std::wstring(tr(L"Ukryj"))};

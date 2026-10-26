@@ -174,7 +174,7 @@ enum class Target {
     companion_bubble, card, card_play, card_check, popover_clear, popover_action, scrollbar, sort, installed, size_slider, pane_primary, pane_favorite,
     pane_more, pane_quick, pane_chip, pane_chip_add, pane_rating, bulk, menu_item, submenu_item, popover_row, popover_all,
     empty_primary, empty_secondary, grid, widget_friend, widget_item, widget_all, widget_panel, library_add, library_refresh, companion_more,
-    sidebar_toggle, pane_resize
+    sidebar_toggle, pane_resize, pane_achievements
 };
 struct Hit {
     Target target = Target::none;
@@ -194,6 +194,7 @@ struct Pane {
     float favorite_pulse = 0; // 1 → 0 after toggling favourite: the star pops.
     std::wstring playtime, last_played, achievements, rating;
     float achievements_share = -1;
+    bool achievements_link = false; // The number opens Szczegóły → Osiągnięcia.
     std::vector<std::pair<std::wstring, std::string>> collections; // Name, sidebar entry id.
     bool folder = false, hideable = false, hidden = false;
     GameDetails details;
