@@ -199,6 +199,9 @@ void Renderer::drawViewDrawer() {
             case View::overview: label = tr(L"Liczba kolumn"); value = std::to_wstring(state.options.overview_columns); break;
             case View::coverflow: label = tr(L"Opakowanie"); value = state.options.coverflow_cd ? tr(L"Piracka płyta") : L"Steelbook"; break;
             case View::list_plus: label = tr(L"Efekt steelbooka"); toggle = true; checked = state.options.list_plus_steelbook; break;
+            case View::bookshelf:
+                label = i == 0 ? tr(L"Szare pudełka z boku") : tr(L"Platforma na grzbiecie"); toggle = true;
+                checked = i == 0 ? state.options.bookshelf_gray : state.options.bookshelf_platform; break;
             default: break;
             }
             if (toggle) {
@@ -364,8 +367,12 @@ void Renderer::drawLibraryList() {
                                     !game.installed && localFileGame(game.source) ? std::wstring(tr(L"Brak pliku")) : std::wstring();
         const float text_left = card.x + card.size + 18;
         const float title_right = detailed ? right - 20 : columns.titleRight();
-        textGroup(game.name, status, text_left, card.y + card.size * 0.5f, title_right - text_left, menu_font_.Get(),
-                  gray(focused ? 0.98f : 0.86f, card.opacity), settings_body_font_.Get(), gray(focused ? 0.66f : 0.5f, card.opacity), 1);
+        // A name too long for its row fades out on the right; the focused one glides to its end and back.
+        if (status.empty() && textAdvance(game.name, menu_font_.Get()) > title_right - text_left)
+            fadingLine(game.name, text_left, card.y + card.size * 0.5f, title_right - text_left, menu_font_.Get(),
+                       gray(focused ? 0.98f : 0.86f, card.opacity), focused && i == selected_);
+        else textGroup(game.name, status, text_left, card.y + card.size * 0.5f, title_right - text_left, menu_font_.Get(),
+                       gray(focused ? 0.98f : 0.86f, card.opacity), settings_body_font_.Get(), gray(focused ? 0.66f : 0.5f, card.opacity), 1);
         if (!detailed) {
             const auto found = context_->library_rows.find(i);
             const auto* facts = found == context_->library_rows.end() ? nullptr : &found->second;
@@ -395,6 +402,11 @@ void Renderer::drawLibraryListPlus() {
     auto* image = selected_ < heroes_.size() && heroes_[selected_].bitmap ? &heroes_[selected_] :
         selected_ < covers_.size() ? &covers_[selected_] : nullptr;
     if (image) fillImage(*image, hero, 12, fade * reveal(*image), false);
+    // The game's video (Filmy w tle) takes the picture's place once it plays.
+    if (videoShown()) {
+        Microsoft::WRL::ComPtr<ID2D1RoundedRectangleGeometry> rounded;
+        if (SUCCEEDED(factory_->CreateRoundedRectangleGeometry(D2D1::RoundedRect(hero, 12, 12), rounded.GetAddressOf()))) drawVideoIn(hero, rounded.Get(), fade);
+    }
     float y = hero.bottom + 20;
     y += paragraph(game.name, left, y, width, category_font_.Get(), palette::text(fade), 2) + 12;
     std::wstring facts;

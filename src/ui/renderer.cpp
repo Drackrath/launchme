@@ -340,6 +340,7 @@ void Renderer::paint(const std::vector<GameCard>& cards, size_t selected, bool s
     companion_bubble_ = {}; // Set again by whichever tile of hers shows her line this frame.
     companion_links_.clear();
     companion_videos_.clear();
+    marquee_active_ = false; // Set again by a gliding name (fadingLine).
     const auto started = std::chrono::steady_clock::now();
     PAINTSTRUCT ps{};
     BeginPaint(hwnd_, &ps);

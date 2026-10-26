@@ -177,12 +177,24 @@ void Renderer::drawRectangularCard(const GameCard& card, size_t index, float alp
     } else if (poster || cover) {
         // A stand-in cover of another shape (square, or a wide header) would lose its sides and often
         // its title to the tile's crop: shown whole over a dimmed fill of itself instead.
-        const auto standIn = [&](Cover& image, float opacity) {
+        const auto ratioOf = [](const Cover& image) {
             const auto pixels = image.bitmap->GetPixelSize();
-            const float ratio = static_cast<float>(pixels.width) / static_cast<float>(std::max(1u, pixels.height));
-            if (cinematic || std::abs(ratio / (tile_w / tile_h) - 1) < 0.12f) {
-                fillImage(image, rect, tile_radius, opacity, frozen, shape.Get(), cinematic); return;
+            return static_cast<float>(pixels.width) / static_cast<float>(std::max(1u, pixels.height));
+        };
+        const float tile_ratio = tile_w / std::max(1.0f, tile_h);
+        // Landscape tiles: the picture always spans the tile's width. A narrower one (a 616x353
+        // capsule, a 16:9 screenshot) loses some of its top and bottom (by its crop focus), a wider
+        // one (a hero) leaves bands above and below; the sides are never cut or banded.
+        const auto fillWidth = [&](Cover& image, float opacity) {
+            fillImage(image, rect, tile_radius, opacity, frozen, shape.Get(), ratioOf(image) >= tile_ratio);
+        };
+        const auto standIn = [&](Cover& image, float opacity) {
+            const float ratio = ratioOf(image);
+            if (std::abs(ratio / tile_ratio - 1) < 0.12f || (cinematic && ratio >= 1.5f)) {
+                if (cinematic) fillWidth(image, opacity); else fillImage(image, rect, tile_radius, opacity, frozen, shape.Get());
+                return;
             }
+            // A square or portrait cover waiting for its capsule: whole, over a dimmed fill of itself.
             fillImage(image, rect, tile_radius, opacity, frozen, shape.Get());
             brush(D2D1::ColorF(0.008f, 0.011f, 0.015f, 0.62f * opacity)); target_->FillGeometry(shape.Get(), solid_.Get());
             fillImage(image, rect, tile_radius, opacity, frozen, shape.Get(), true);
@@ -190,10 +202,16 @@ void Renderer::drawRectangularCard(const GameCard& card, size_t index, float alp
         const float shown = poster ? reveal(*poster) : 0.0f;
         // The poster fades in over the cover it replaces, never over the bare tile.
         if (cover && shown < 1) standIn(*cover, transparency * card.cover_opacity * reveal(*cover));
-        if (poster) fillImage(*poster, rect, tile_radius, transparency * shown, frozen, shape.Get(), cinematic);
+        if (poster) {
+            if (cinematic) fillWidth(*poster, transparency * shown);
+            else fillImage(*poster, rect, tile_radius, transparency * shown, frozen, shape.Get());
+        }
     } else if (!(index < posters_.size() && posters_[index].decoding) && !(index < covers_.size() && covers_[index].decoding)) {
         text(game.name, x + 14, y + tile_h * 0.5f - 24, tile_w - 28, 48, button_font_.Get(), gray(0.92f, transparency));
     }
+    // Kinowy: the focused tile turns into the game's video once it plays (Filmy w tle).
+    if (focused && isGame(game) && context_->screen == ScreenMode::library && context_->library_mode == library_view::View::cinematic)
+        drawVideoIn(rect, shape.Get(), transparency);
     if (isGame(game)) {
         if (frozen) {
             brush(D2D1::ColorF(0.015f, 0.018f, 0.022f, 0.34f * transparency));

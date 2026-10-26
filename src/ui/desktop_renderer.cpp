@@ -891,6 +891,8 @@ void Renderer::drawDesktopPane(const Layout& layout, const View& view) {
         if (auto* tint = blurredArt(covers_[selected_])) target_->DrawBitmap(tint, banner, 0.85f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
     if (desktop_hero_previous_ && fade < 1) desktopBitmapFill(desktop_hero_previous_.Get(), banner, 1 - fade);
     if (hero) desktopBitmapFill(hero, banner, fade);
+    // After the delay on one game (Filmy w tle), its video plays in the picture's place.
+    drawVideoIn(banner, nullptr, 1);
     {
         ComPtr<ID2D1GradientStopCollection> stops;
         ComPtr<ID2D1LinearGradientBrush> shade;

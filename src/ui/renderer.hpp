@@ -156,6 +156,10 @@ public:
     void setVideoFrame(const uint8_t* bgra, uint32_t width, uint32_t height);
     void clearVideo();
     bool videoShown() const { return video_bitmap_ != nullptr; }
+    bool marqueeActive() const { return marquee_active_; } // The last frame had a gliding name (fadingLine): paint the next one too.
+    float videoFade() const; // 0..1: the playing video's 600 ms fade-in (0 without one).
+    // The playing video cover-fitted into ect (clipped to clip when given), faded in; false when none shows.
+    bool drawVideoIn(D2D1_RECT_F rect, ID2D1Geometry* clip, float opacity);
     void setFriendAvatar(uint64_t id, std::vector<uint8_t> pixels);
     void clearFriendAvatars();
     void resetPluginThumbnails(size_t count) { plugin_thumbnails_.clear(); plugin_thumbnails_.resize(count); }
@@ -268,6 +272,7 @@ public:
     // Background layers: visible level of the shown picture and whether another one fades out.
     float heroLevelForTest() const { return hero_shown_.pixels ? hero_shown_.level : 0; }
     bool heroShownForTest() const { return hero_shown_.bitmap != nullptr; }
+    void settleVideoForTest() { video_started_ -= std::chrono::seconds(2); } // Past its fade-in.
     bool heroLeavingForTest() const { return hero_leaving_.pixels != nullptr; }
     ID2D1Bitmap* heroBitmapForTest(size_t index) const { return index < heroes_.size() ? heroes_[index].bitmap.Get() : nullptr; }
     HRESULT draw_result_for_test = S_OK;
@@ -352,6 +357,9 @@ private:
     // One line whose capitals are centred on `center_y` (a row's or control's centre line).
     void textLine(const std::wstring& value, float x, float center_y, float width, IDWriteTextFormat* format,
                   D2D1_COLOR_F ink, std::optional<DWRITE_TEXT_ALIGNMENT> alignment = {});
+    // textLine for a name that may not fit: instead of an ellipsis it fades out on the right and, while
+    // moving (the focused row), glides to its end and back with a pause at each end (marqueeActive).
+    void fadingLine(const std::wstring& value, float x, float center_y, float width, IDWriteTextFormat* format, D2D1_COLOR_F ink, bool moving);
     // A title (one line, ellipsis) with an optional description directly beneath it, wrapped to
     // `max_lines` and then cut with an ellipsis. The group from the title's capitals to the last
     // description baseline is centred on `y`, or starts at `y` with `top_aligned`.
@@ -606,6 +614,8 @@ private:
     bool createShelfResources();
     ID2D1Bitmap* blurredArt(Cover& image); // Cover::blurred, made on first use.
     ID2D1Bitmap* desaturatedArt(Cover& image); // Cover::desaturated (Saturation effect), else the WIC grey copy.
+    // Półka: a spine's print (the name; with a band, the platform's colour and logo at its top), cached.
+    ID2D1Bitmap* shelfSpine(const std::wstring& name, const std::wstring& platform, std::optional<D2D1_COLOR_F> band);
     void drawMediaCard(const GameCard& card, size_t index); // Kartridż Switch.
     void drawFloppy(const GameCard& card, size_t index);
     void createMediaMaterials();
@@ -915,6 +925,8 @@ private:
     // shading and gloss, and the light behind the focused cover.
     Microsoft::WRL::ComPtr<ID2D1LinearGradientBrush> shelf_floor_, shelf_fade_, shelf_shade_, shelf_gloss_;
     Microsoft::WRL::ComPtr<ID2D1RadialGradientBrush> shelf_glow_;
+    std::unordered_map<std::wstring, Microsoft::WRL::ComPtr<ID2D1Bitmap>> shelf_spines_; // shelfSpine, by content.
+    std::wstring marquee_text_; std::chrono::steady_clock::time_point marquee_since_{}; bool marquee_active_ = false; // fadingLine.
     uint64_t slot_generation_ = 0; // resetCovers/keepCovers/remapCovers.
     // Procedural backdrop for the All games tile, blended with the hero transition.
     bool library_backdrop_active_ = false;

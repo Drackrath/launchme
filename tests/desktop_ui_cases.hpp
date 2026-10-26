@@ -47,6 +47,16 @@ int LauncherUiTest::desktop(HWND window) {
     if (entry("all") < 0 || entry("recent") < 0 || entry("favorites") < 0 || entry("source:steam") < 0 || entry("collection:desktop-shooters") < 0) return 7602;
     if (app.cards_.size() != 18 || app.desktop_entries_[static_cast<size_t>(entry("favorites"))].count != 2) return 7603;
     if (!capture(L"desktop-library.png")) return 7604;
+    {
+        // After the delay on a game (Filmy w tle) its video plays in the pane's picture.
+        std::vector<uint8_t> video(64 * 36 * 4, 0); for (size_t p = 0; p < video.size(); p += 4) { video[p] = 40; video[p + 1] = 200; video[p + 2] = 90; video[p + 3] = 255; }
+        wchar_t folder[4096]{};
+        const auto count = GetEnvironmentVariableW(L"LAUNCHME_UI_CAPTURE_DIR", folder, 4096);
+        // The capture's own target: the frame is uploaded there, already faded in.
+        if (count && count < 4096 && !app.renderer_.captureForTest(std::filesystem::path(folder) / L"desktop-library-video.png", [&] {
+                app.renderer_.setVideoFrame(video.data(), 64, 36); app.renderer_.settleVideoForTest(); app.paint(); })) return 2791;
+        app.renderer_.clearVideo();
+    }
 
     // Sections: Ostatnio grane orders by last played; Ulubione keeps its two.
     app.desktopShowSection("recent"); settle();

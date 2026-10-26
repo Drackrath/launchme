@@ -69,6 +69,12 @@ bool parseRow(const std::string& line, LibraryState& result) {
                     options.cinematic_column = column != 0 && !options.cinematic_horizontal;
                     options.cinematic_platform = platform != 0; options.cinematic_played = played != 0; options.cinematic_playtime = playtime != 0;
                 }
+                // Półka's grey side cases and platform band, appended after that (on when absent).
+                if (!endOfRow(row)) {
+                    int gray = 1, platform = 1;
+                    if (!(row >> gray >> platform) || !bit(gray) || !bit(platform)) return {};
+                    options.bookshelf_gray = gray != 0; options.bookshelf_platform = platform != 0;
+                }
             }
         } else if (kind == "collection-name") {
             std::string scope, name;
@@ -177,7 +183,7 @@ bool saveLibraryState(const LibraryState& state, const std::filesystem::path& fi
                << options.list_playtime << ' ' << options.list_rating << ' ' << options.cinematic_horizontal << ' '
                << options.overview_columns << ' ' << options.coverflow_cd << ' ' << options.list_plus_steelbook << ' '
                << options.grid_landscape << ' ' << options.cinematic_column << ' ' << options.cinematic_platform << ' '
-               << options.cinematic_played << ' ' << options.cinematic_playtime << '\n';
+               << options.cinematic_played << ' ' << options.cinematic_playtime << ' ' << options.bookshelf_gray << ' ' << options.bookshelf_platform << '\n';
         if (!bounded()) return false;
     }
     for (const auto* history : {&state.first_seen, &state.last_played, &state.playtime_ms}) for (const auto& [key, time] : *history) {

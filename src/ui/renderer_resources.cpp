@@ -218,7 +218,7 @@ void Renderer::discardTarget() {
         image.steelbook->surface_transform.Reset(); image.steelbook->printed.Reset();
     }
     steelbook_edge_.Reset(); steelbook_light_.Reset(); steelbook_sheen_.Reset(); steelbook_haze_.Reset();
-    shelf_floor_.Reset(); shelf_fade_.Reset(); shelf_shade_.Reset(); shelf_gloss_.Reset(); shelf_glow_.Reset();
+    shelf_floor_.Reset(); shelf_fade_.Reset(); shelf_shade_.Reset(); shelf_gloss_.Reset(); shelf_glow_.Reset(); shelf_spines_.clear();
     steelbook_streak_.Reset(); steelbook_surface_.Reset();
     media_plastic_.Reset(); media_edge_.Reset(); media_grain_.Reset();
     floppy_plastic_.Reset(); floppy_metal_.Reset(); floppy_paper_.Reset();

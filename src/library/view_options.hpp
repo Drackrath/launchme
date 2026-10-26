@@ -63,6 +63,8 @@ struct Options {
     int overview_columns = 5;
     bool coverflow_cd = false;
     bool list_plus_steelbook = false; // Lista+: the poster turns into Coverflow's steelbook (no disc).
+    bool bookshelf_gray = true;       // Półka: the cases beside the middle one lose their colour.
+    bool bookshelf_platform = true;   // Półka: the platform's logo on a band of its colour atop the spine.
     bool operator==(const Options&) const = default;
 };
 inline bool metadata(const Options& options) {

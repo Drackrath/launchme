@@ -255,6 +255,7 @@ struct ViewContext {
     std::optional<float> library_choice_glide;
     std::optional<float> library_flow; // Półka: Cover Flow's gliding centre (fractional card index); none = the focused card.
     const GameDetails* preview = nullptr;                          // List view: focused game's description.
+    bool preview_waiting = false;                                  // ...still on its way (a Steam game's store details).
     struct LibraryRow { std::wstring year, playtime, rating; };
     std::map<size_t, LibraryRow> library_rows; // Visible rows only, assembled from memory before rendering.
     // Library category tabs (title, games), the shown one and its gliding position.

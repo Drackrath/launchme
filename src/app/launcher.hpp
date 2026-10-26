@@ -2154,6 +2154,7 @@ private:
     float ambient_time_ = 0;
     std::chrono::steady_clock::time_point last_input_ = std::chrono::steady_clock::now();
     float arrived_ = 0;
+    size_t entrance_selected_ = 0; // The focus the tile entrance started with (a move ends the entrance).
     // The next tile wave opens a fresh Tryb TV screen (startup, from the desktop window, a new layout):
     // the PS5-like entrance waits a moment on the bare background first. Other rebuilds (another
     // shelf, a filter) start at once.

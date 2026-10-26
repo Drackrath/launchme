@@ -117,10 +117,9 @@ void Renderer::drawBackground() {
             cinematic_changed_ = std::chrono::steady_clock::now();
         }
         const float fade = smoothFade(std::chrono::duration<float>(std::chrono::steady_clock::now() - cinematic_changed_).count() / 0.35f);
-        drawWallpaper(cinematic_previous_hero_.Get(), 0.85f * (1 - fade) * picture_share);
-        drawWallpaper(cinematic_hero_.Get(), 0.85f * fade * picture_share);
-        drawVideo(0.85f * video);
-        art = video_bitmap_ ? video : 0.0f;
+        // Kinowy plays the video in its focused tile (drawRectangularCard): the wallpaper stays.
+        drawWallpaper(cinematic_previous_hero_.Get(), 0.85f * (1 - fade));
+        drawWallpaper(cinematic_hero_.Get(), 0.85f * fade);
         if (fade >= 1) cinematic_previous_hero_.Reset();
     } else if (cards_ && !cards_->empty()) {
         const float fade = smoothFade(detail_);
@@ -306,4 +305,26 @@ void Renderer::drawHeroFacts(float center, float top, float min_left, float alph
         } else shadowed(facts[i].value, x, value_y, w, menu_font_.Get(), palette::text(alpha));
         x += w + gap;
     }
+}
+
+float Renderer::videoFade() const {
+    if (!video_bitmap_) return 0;
+    return smoothFade(std::chrono::duration<float>(std::chrono::steady_clock::now() - video_started_).count() / 0.6f);
+}
+
+bool Renderer::drawVideoIn(D2D1_RECT_F rect, ID2D1Geometry* clip, float opacity) {
+    const float shown = videoFade() * opacity;
+    if (shown <= 0.001f) return false;
+    const auto size = video_bitmap_->GetPixelSize();
+    const float w = rect.right - rect.left, h = rect.bottom - rect.top;
+    if (!size.width || !size.height || w < 1 || h < 1) return false;
+    // Cover-fit: it fills the rectangle, centred, cut on the longer side.
+    const float zoom = std::max(w / size.width, h / size.height);
+    const float vw = size.width * zoom, vh = size.height * zoom;
+    const auto destination = D2D1::RectF(rect.left + (w - vw) * 0.5f, rect.top + (h - vh) * 0.5f, rect.left + (w + vw) * 0.5f, rect.top + (h + vh) * 0.5f);
+    if (clip) target_->PushLayer(D2D1::LayerParameters(rect, clip), nullptr);
+    else target_->PushAxisAlignedClip(rect, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+    target_->DrawBitmap(video_bitmap_.Get(), destination, shown, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+    if (clip) target_->PopLayer(); else target_->PopAxisAlignedClip();
+    return true;
 }

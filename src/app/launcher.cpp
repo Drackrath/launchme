@@ -518,6 +518,13 @@ void Launcher::tick() {
                                carousel::smallSize(cards_.size(), view.width - shelf_inset, fixed_row);
     const float ease_x = ease(dt, 12.0f), ease_size = ease(dt, 10.5f), ease_opacity = ease(dt, 8.0f), ease_cover = ease(dt, 7.0f);
     const auto entrance = settings_.tile_entrance;
+    // A move while the tiles still grow in (the grow entrance places them at their targets, which a
+    // new focus just moved): the entrance ends there and every tile glides on from where it is,
+    // instead of the row jumping at once. A focus restored before the tiles appear keeps the wave.
+    constexpr float grow_entrance_end = 0.28f + 0.85f + 0.72f; // lead + longest delay + grow (below).
+    if (entrance == AppSettings::TileEntrance::grow && selected_ != entrance_selected_ && arrived_ > 0.3f && arrived_ < grow_entrance_end)
+        arrived_ = grow_entrance_end;
+    entrance_selected_ = selected_;
     // One spring for the lift, rather than stacking the slow drawer fade and
     // card easing. About 95% of the 100px movement completes in 170ms.
     const float ease_y = ease(dt, quick_open_ || quick_progress_ > 0.003f ? 18.0f : 9.0f);
@@ -772,6 +779,7 @@ void Launcher::tick() {
     updateScreensaver(now, dt);
     if (screensaverActive()) needs_paint = true;
     tickVideo(needs_paint); // After the screensaver: it stops the video the moment it starts.
+    if (renderer_.marqueeActive() && GetForegroundWindow() == hwnd_) needs_paint = true; // A long focused name glides (fadingLine).
     if (GetForegroundWindow() == hwnd_) watchEsde(); // Every 20 s: did ES-DE scrape meanwhile?
     if (profiler_.enabled()) profiler_.tick(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - now).count(),
         std::chrono::duration<double, std::milli>(input_finished - input_started).count(),

@@ -433,6 +433,8 @@ constexpr Entry entries[] = {
     {L"Opakowanie", L"Case"},
     {L"Piracka płyta", L"Burned CD"},
     {L"Efekt steelbooka", L"Steelbook finish"},
+    {L"Szare pudełka z boku", L"Grey cases at the sides"},
+    {L"Platforma na grzbiecie", L"Platform on the spine"},
     {L"Wpisz devid i devpassword.", L"Enter the devid and devpassword."},
     {L"Działa", L"Working"},
     {L"dziś", L"today"},

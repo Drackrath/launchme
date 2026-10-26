@@ -39,6 +39,7 @@ bool Renderer::font(ComPtr<IDWriteTextFormat>& destination, float size, DWRITE_F
 
 bool Renderer::createFonts() {
     type_metrics_.clear();
+    shelf_spines_.clear(); // Printed in the interface's font.
     text_layouts_.clear();
     cd_pen_font_.Reset();
     if (FAILED(dwrite_->CreateTextFormat(L"Segoe Print", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
@@ -242,4 +243,36 @@ float Renderer::textGroup(const std::wstring& title, const std::wstring& descrip
     brush(body_ink);
     target_->DrawTextLayout(D2D1::Point2F(x, description_top), paragraph.Get(), solid_.Get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
     return description_top + lines * body.line;
+}
+
+void Renderer::fadingLine(const std::wstring& value, float x, float center_y, float width, IDWriteTextFormat* format, D2D1_COLOR_F ink, bool moving) {
+    const float advance = textAdvance(value, format);
+    constexpr float fade = 34, speed = 46, hold = 1.3f;
+    if (advance <= width || width <= 2 * fade || !format) { textLine(value, x, center_y, width, format, ink); return; }
+    float offset = 0;
+    if (moving) {
+        const auto now = std::chrono::steady_clock::now();
+        if (value != marquee_text_) { marquee_text_ = value; marquee_since_ = now; }
+        // Far enough for its last letter to clear the fade; there and back, resting at both ends.
+        const float travel = advance - width + fade, glide = travel / speed, period = 2 * (hold + glide);
+        const float t = std::fmod(std::chrono::duration<float>(now - marquee_since_).count(), period);
+        const auto eased = [](float v) { v = std::clamp(v, 0.0f, 1.0f); return v * v * (3 - 2 * v); };
+        offset = t < hold ? 0.0f : t < hold + glide ? travel * eased((t - hold) / glide) :
+                 t < 2 * hold + glide ? travel : travel * (1 - eased((t - 2 * hold - glide) / glide));
+        marquee_active_ = true;
+    }
+    // Opaque in the middle, transparent at the right edge (and at the left one once it has moved).
+    const float left_fade = std::min(fade, offset) / width, right_fade = 1 - fade / width;
+    const D2D1_GRADIENT_STOP stops[] = {{0, palette::gray(1, offset > 0.5f ? 0.0f : 1.0f)}, {std::max(0.001f, left_fade), palette::gray(1, 1)},
+                                        {right_fade, palette::gray(1, 1)}, {1, palette::gray(1, 0)}};
+    ComPtr<ID2D1GradientStopCollection> collection;
+    ComPtr<ID2D1LinearGradientBrush> mask;
+    const auto metrics = typeMetrics(format);
+    const auto bounds = D2D1::RectF(x, center_y - metrics.line, x + width, center_y + metrics.line);
+    if (FAILED(target_->CreateGradientStopCollection(stops, 4, collection.GetAddressOf())) ||
+        FAILED(target_->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({x, center_y}, {x + width, center_y}), collection.Get(),
+                                                  mask.GetAddressOf()))) { textLine(value, x, center_y, width, format, ink); return; }
+    target_->PushLayer(D2D1::LayerParameters(bounds, nullptr, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1::IdentityMatrix(), 1, mask.Get()), nullptr);
+    textLine(value, x - offset, center_y, advance + 8, format, ink);
+    target_->PopLayer();
 }

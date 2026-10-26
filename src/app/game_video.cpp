@@ -13,8 +13,11 @@
 const Game* Launcher::videoCandidate() const {
     if ((!settings_.game_videos && !settings_.steam_trailers) || !runtime_started_ || pending_launch_ || launchAnimationActive() ||
         screensaverActive() || gameOverlayOpen()) return nullptr;
-    const bool cinematic = screen_ == ScreenMode::library && libraryCinematic(); // The library's full-screen backdrop view.
-    if (screen_ != ScreenMode::shelves && screen_ != ScreenMode::platform_games && screen_ != ScreenMode::details && !cinematic) return nullptr;
+    // The library's views with a picture of the focused game: Kinowy (its focused tile) and Lista+ (its panel).
+    const bool library = screen_ == ScreenMode::library && (libraryCinematic() || libraryListPlus());
+    if (screen_ != ScreenMode::shelves && screen_ != ScreenMode::platform_games && screen_ != ScreenMode::details && !library) return nullptr;
+    // The desktop window: in its pane's picture, while nothing covers the library.
+    if (desktop_mode_ && (screen_ != ScreenMode::shelves || desktop_menu_)) return nullptr;
     if (menu_open_ || cards_.empty() || IsIconic(hwnd_) || GetForegroundWindow() != hwnd_) return nullptr;
     const auto& game = cards_[screen_ == ScreenMode::details ? 0 : std::min(selected_, cards_.size() - 1)].game;
     if (settings_.game_videos && game.kind == GameKind::nonsteam && game.platform != L"PC" && game.app_id) return &game;

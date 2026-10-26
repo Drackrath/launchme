@@ -17,6 +17,7 @@ int main() {
     state.options["42:all"] = {library_view::Order::last_played, false, library_view::View::cinematic};
     state.options["42:steam"] = {library_view::Order::alphabetical, true, library_view::View::detailed};
     state.options["43:steam"] = {library_view::Order::last_played, false, library_view::View::bookshelf};
+    state.options["43:steam"].bookshelf_gray = false; // Półka's options, the last appended columns.
     state.options["43:epic"] = {library_view::Order::added, false, library_view::View::coverflow};
     state.options["44:all"] = {library_view::Order::last_played, false, library_view::View::floppy};
     state.options["44:steam"] = {library_view::Order::alphabetical, false, library_view::View::cartridge_switch};
@@ -151,7 +152,7 @@ int main() {
     if (!saveLibraryState(*legacy, file)) return 22;
     {
         std::ifstream written(file); const std::string text{std::istreambuf_iterator<char>{written}, {}};
-        if (text.find("\" 2 0 0 0 1 1 1 0 5 0 0 0 0 0 0 0\n") == std::string::npos || text.find("\" 0 0") != std::string::npos) return 23;
+        if (text.find("\" 2 0 0 0 1 1 1 0 5 0 0 0 0 0 0 0 1 1\n") == std::string::npos || text.find("\" 0 0") != std::string::npos) return 23;
     }
     // Removed views keep their numbers out of new files: Plakat (4) reads as Lista+, Kartridż NES (8)
     // as Kartridż Switch; 12 is out of range. Rows of seven options (before the steelbook) still load.

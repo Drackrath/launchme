@@ -19,7 +19,7 @@ constexpr float aspect = 2.0f / 3.0f;
 constexpr float turn = 1.2f;         // The side covers' turn, radians (about 69°).
 constexpr float reflection = 0.32f;  // Share of a cover's height its reflection fades over.
 constexpr float depth = 0.09f;       // A game case's thickness, of its width.
-constexpr float corner = 0.055f;     // Its rounded corners' radius, of its width (as the posters').
+constexpr float corner = 0.012f;     // The case's corners: barely rounded plastic (of its width); the art is square.
 struct Layout {
     float width, height;
     float coverHeight() const { return std::max(1.0f, std::min({height * 0.47f, width * 0.27f, 540.0f})); }

@@ -463,6 +463,7 @@ bool Launcher::adjustLibraryView(int amount) {
     case View::overview: options.overview_columns = std::clamp(options.overview_columns + (amount ? amount : options.overview_columns == 5 ? -3 : 1), 2, 5); break;
     case View::coverflow: toggle(options.coverflow_cd); break;
     case View::list_plus: toggle(options.list_plus_steelbook); break;
+    case View::bookshelf: toggle(library_controls_.view_row <= 1 ? options.bookshelf_gray : options.bookshelf_platform); break;
     default: return true;
     }
     if (options != before) { applyLibraryOptions(); audio_.navigate(); }

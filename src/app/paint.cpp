@@ -97,6 +97,8 @@ void Launcher::paint(bool overlay) {
             local_preview.playtime_minutes = localPlaytime(game);
             context.preview = &local_preview;
         }
+        // A Steam game's store details are on their way (the worker always answers, empty on failure).
+        context.preview_waiting = steamArtwork(game) && game.app_id && !preview_.find(game);
     }
     if (libraryTabsShown()) {
         const auto tabs = libraryTabs();

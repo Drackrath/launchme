@@ -343,6 +343,16 @@ int LauncherUiTest::libraryViews(HWND window) {
     settle();
     if (std::abs(app.cards_[0].aspect - 920.0f / 430.0f) > 0.001f || !app.renderer_.hasPoster(0) || app.libraryColumns() < 2) return 1951;
     if (!capture(L"library-cinematic.png")) return 1952;
+    {
+        // Kinowy: a playing video (Filmy w tle) fills the focused tile, not the whole screen.
+        std::vector<uint8_t> video(64 * 36 * 4, 0); for (size_t p = 0; p < video.size(); p += 4) { video[p] = 40; video[p + 1] = 200; video[p + 2] = 90; video[p + 3] = 255; }
+        wchar_t folder[4096]{};
+        const auto count = GetEnvironmentVariableW(L"LAUNCHME_UI_CAPTURE_DIR", folder, 4096);
+        // The capture's own target: the frame is uploaded there, already faded in.
+        if (count && count < 4096 && !app.renderer_.captureForTest(std::filesystem::path(folder) / L"library-cinematic-video.png", [&] {
+                app.renderer_.setVideoFrame(video.data(), 64, 36); app.renderer_.settleVideoForTest(); app.paint(); })) return 2789;
+        app.renderer_.clearVideo();
+    }
     // A queued logo suppresses the title before the renderer even receives bytes. A known
     // miss permits the fallback; a later successful lookup binds the logo to the same game.
     if (!app.selectedLogoPending()) return 2631;
@@ -434,6 +444,17 @@ int LauncherUiTest::libraryViews(HWND window) {
     app.onPreview(std::move(detailed_preview));
     settle();
     if (!capture(L"library-detailed.png")) return 1965;
+    {
+        // A name too long for its row fades out on the right; the focused one glides (and asks for frames).
+        const auto saved = app.cards_[0].game.name, other = app.cards_[2].game.name;
+        app.cards_[0].game.name = app.cards_[2].game.name = L"The Legend of Heroes: Trails through Daybreak II Deluxe Edition";
+        app.paint();
+        if (!app.renderer_.marqueeActive()) return 2786;
+        if (!capture(L"library-detailed-long-title.png")) return 2787;
+        app.cards_[0].game.name = saved; app.cards_[2].game.name = other;
+        app.paint();
+        if (app.renderer_.marqueeActive()) return 2788;
+    }
     // A very long title and missing art/data still leave the actions, description and facts in their cards.
     {
         app.focusCard(1); settle();
@@ -739,6 +760,18 @@ int LauncherUiTest::libraryViews(HWND window) {
             app.cardHit(3, cx, shelf.floor() + 30)) return 2674;
         if (!app.preview_.find(app.cards_[3].game) || app.libraryButtons()) return 2675;
         if (!capture(L"library-bookshelf.png")) return 2676;
+        // Its two options in the view drawer: grey side cases (on) and the platform band atop each spine (on).
+        if (library_ui::views::optionCount(library_view::View::bookshelf) != 2 || !app.library_controls_.options.bookshelf_gray ||
+            !app.library_controls_.options.bookshelf_platform) return 2780;
+        app.library_controls_.view_row = 1; app.adjustLibraryView(0); settle();
+        if (app.library_controls_.options.bookshelf_gray || !app.libraryPresentation().bookshelf_platform) return 2781;
+        if (!capture(L"library-bookshelf-colour.png")) return 2782;
+        app.library_controls_.view_row = 2; app.adjustLibraryView(0); settle();
+        if (app.libraryPresentation().bookshelf_platform || app.libraryPresentation().bookshelf_gray) return 2783;
+        if (!capture(L"library-bookshelf-plain-spines.png")) return 2784;
+        app.library_controls_.view_row = 1; app.adjustLibraryView(1); app.library_controls_.view_row = 2; app.adjustLibraryView(1);
+        app.library_controls_.view_row = 0; settle();
+        if (!app.libraryPresentation().bookshelf_gray || !app.libraryPresentation().bookshelf_platform) return 2785;
         // A click on a turned cover glides it to the middle; halfway it is turning.
         app.mouse_transition_until_ = 0;
         app.click(rx * scale, ry * scale, false);
@@ -888,6 +921,16 @@ int LauncherUiTest::libraryViews(HWND window) {
         app.cardHit(1, plus.poster().left + 10, plus.poster().top + 10) ||
         app.cardHit(2, plus.infoLeft() + 20, plus.hero().top + 20)) return 2811;
     if (!capture(L"library-list-plus.png")) return 2812;
+    {
+        // Lista+: the video plays in its panel's picture.
+        std::vector<uint8_t> video(64 * 36 * 4, 0); for (size_t p = 0; p < video.size(); p += 4) { video[p] = 40; video[p + 1] = 200; video[p + 2] = 90; video[p + 3] = 255; }
+        wchar_t folder[4096]{};
+        const auto count = GetEnvironmentVariableW(L"LAUNCHME_UI_CAPTURE_DIR", folder, 4096);
+        // The capture's own target: the frame is uploaded there, already faded in.
+        if (count && count < 4096 && !app.renderer_.captureForTest(std::filesystem::path(folder) / L"library-list-plus-video.png", [&] {
+                app.renderer_.setVideoFrame(video.data(), 64, 36); app.renderer_.settleVideoForTest(); app.paint(); })) return 2790;
+        app.renderer_.clearVideo();
+    }
     {
         // Its one option: Coverflow's steelbook finish on the poster, without the disc. It shows at
         // once behind the open drawer, and is saved with the view.
@@ -1085,7 +1128,7 @@ int LauncherUiTest::libraryViews(HWND window) {
     if (!options_saved || options_saved->options.at("1:all") != app.library_controls_.options ||
         !options_saved->options.at("1:all").coverflow_cd || options_saved->options.at("1:all").overview_columns != 2) return 2858;
     // The pinned footer is reachable with/without options and from the expanded list.
-    for (const auto mode : {library_view::View::list, library_view::View::bookshelf}) {
+    for (const auto mode : {library_view::View::list, library_view::View::detailed}) {
         chooseView(mode); app.openLibraryPanel(library_ui::Panel::views); settle();
         const auto before = app.library_controls_.options;
         app.changeCategory(20);

@@ -61,7 +61,9 @@ Settings → System → Help → **Open folder** (the version row) opens it.
   The sidebar folds to its icons (the button by the logo) and the details pane is as wide as you drag
   its edge (double-click it for the default).
 - **Library views**: grid (squares, posters or landscape tiles), list, cinematic, detailed, poster,
-  coverflow and novelty cartridge/floppy views; sorting, filters, search and remembered positions.
+  coverflow, a shelf of game cases (their spines carry the name and the platform) and novelty
+  cartridge/floppy views; sorting, filters, search and remembered positions. With game videos on, the
+  video plays in List+'s picture, in Cinematic's focused tile and in the desktop window's details pane.
 - **Steam accounts and installs**: Play on a game installed by another remembered Steam account switches
   Steam to that account first; Install picks the Steam library (with its free space) in Launchme's own
   dialog. Both can be turned off in Settings → Library → Launching.
