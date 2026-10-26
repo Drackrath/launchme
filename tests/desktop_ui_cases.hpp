@@ -274,6 +274,9 @@ int LauncherUiTest::desktop(HWND window) {
         const auto rows = app.desktopRows();
         if (narrow.sidebarRight() != sidebar_narrow || narrow.columns() <= columns ||
             std::any_of(rows.begin(), rows.end(), [](const Row& row) { return row.heading; }) || narrow.companion_card) return 7822;
+        // Collections leave the icons (each a folder alone); they are back when it is wide.
+        if (std::any_of(rows.begin(), rows.end(), [](const Row& row) { return row.group == Group::collections; }) ||
+            std::none_of(app.desktop_entries_.begin(), app.desktop_entries_.end(), [](const Entry& e) { return e.group == Group::collections; })) return 7833;
         const auto first = narrow.sidebarRow(rows[0], app.desktop_sidebar_scroll_);
         const auto title = app.desktopTooltip(app.desktopHit((first.left + first.right) * 0.5f, (first.top + first.bottom) * 0.5f));
         if (title.empty() || title != app.desktop_entries_[static_cast<size_t>(rows[0].entry)].title) return 7823;

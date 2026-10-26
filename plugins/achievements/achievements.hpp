@@ -61,12 +61,16 @@ bool applyEpicPlayer(EpicSchema& schema, std::string_view body);
 
 // RetroAchievements.
 using Get = std::function<HttpResponse(const std::wstring& url)>;
-int retroConsole(const std::string& platform, const std::filesystem::path& rom); // 0: not a console RA knows here.
+// RA's console ID by the ROM's system folder (roms\psx\…), the platform or the extension.
+// 0: not a console RA has achievements for (Switch, Wii U, PS3…) or not known here.
+int retroConsole(const std::string& platform, const std::filesystem::path& rom);
 // RA's hash of a ROM for its console (rcheevos' cartridge rules; a zip's first file); empty when
 // the console is hashed another way (discs) or the file cannot be read.
 std::string retroHash(int console, const std::filesystem::path& rom);
-std::optional<uint32_t> parseRetroGameId(std::string_view body);       // dorequest.php?r=gameid
-std::optional<uint32_t> retroGameByTitle(std::string_view game_list, const std::string& title); // API_GetGameList
+// API_GetGameList.php?i=<console>&f=1&h=1: a JSON array of {Title, ID, Hashes}.
+bool retroGameList(std::string_view body);
+std::optional<uint32_t> retroGameByHash(std::string_view game_list, const std::string& hash);
+std::optional<uint32_t> retroGameByTitle(std::string_view game_list, const std::string& title);
 std::optional<List> parseRetroProgress(std::string_view body);          // API_GetGameInfoAndUserProgress
 std::string md5Hex(const std::vector<uint8_t>& bytes);
 

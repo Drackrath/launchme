@@ -912,7 +912,10 @@ private:
     std::shared_ptr<launcher_queues::StoreGateway> store_gateway_ = std::make_shared<launcher_queues::StoreGateway>();
     std::optional<plugins::Action> pluginAchievementsProvider(const Game& game) const;
     const PluginAchievements* pluginAchievements(const Game& game) const;
-    void requestPluginAchievements(const Game& game, bool force = false);
+    // background: the desktop pane's selected game; a newer selection drops it from the queue.
+    void requestPluginAchievements(const Game& game, bool force = false, bool background = false);
+    std::string plugin_achievements_focus_; // The pane's game last asked about (once per selection).
+    void requestFocusedAchievements(const Game& game);
     bool receivePluginAchievements(const plugins::Result& message);
     void showAchievementList(const SteamAchievements& list, bool final); // Fills achievements_ (the open screen).
     library_manager_ui::State library_dialog_;

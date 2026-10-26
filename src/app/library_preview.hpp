@@ -16,6 +16,7 @@ public:
     ~LibraryPreview() { stop(); }
     bool start(BackgroundWork& work, HWND window, Reader reader = {});
     void settle(Clock::time_point now = Clock::now()) { due_ = now + std::chrono::milliseconds(320); }
+    bool settled(Clock::time_point now = Clock::now()) const { return now >= due_; } // The selection rests.
     bool request(const Game& game, uint64_t account, Clock::time_point now = Clock::now()) {
         if (!started_ || now < due_ || !steamArtwork(game) || !game.app_id ||
             cache_.contains(game.app_id) || requested_ == game.app_id) return false;

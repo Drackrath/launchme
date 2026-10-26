@@ -119,10 +119,14 @@ json::Value Service::retro(const GameInfo& game, const json::Value& settings, bo
     const auto user = text(settings, "ra_user"), key = text(settings, "ra_key");
     const int console = retroConsole(game.platform, game.rom);
     if (user.empty() || key.empty() || !console) return none();
-    const auto auth = L"z=" + url_encoding::component(user) + L"&y=" + url_encoding::component(key);
+    // The web API authenticates with the key alone (y); the user is the one whose progress is read.
+    const auto auth = L"y=" + url_encoding::component(key);
     const std::wstring api = L"https://retroachievements.org/API/";
-    // The game's RA ID: remembered per game (a miss for a week), else by the ROM's hash, else by title.
-    const auto id_file = "ra-" + key_codec::encode(game.key) + ".id";
+    const auto denied = [&] { return message(say("RetroAchievements: sprawdź nazwę użytkownika i klucz Web API.", "RetroAchievements: check the user name and Web API key.")); };
+    const auto silent = [&] { return message(say("RetroAchievements nie odpowiada.", "RetroAchievements did not answer.")); };
+    // The game's RA ID: remembered per game (a miss for a week), else from the console's game list
+    // (cached a week, as the API asks): by the ROM's hash, else by title.
+    const auto id_file = "ra-id-" + key_codec::encode(game.key) + ".id";
     std::optional<uint32_t> id;
     if (const auto known = cached(id_file, refresh ? 0 : 7 * 86400)) {
         uint32_t value = 0;
@@ -132,29 +136,23 @@ json::Value Service::retro(const GameInfo& game, const json::Value& settings, bo
         }
     }
     if (!id) {
-        if (const auto hash = retroHash(console, game.rom); !hash.empty()) {
-            const auto reply = get(L"https://retroachievements.org/dorequest.php?r=gameid&m=" + text_encoding::wideLenient(hash));
-            if (reply.status == 200) id = parseRetroGameId(body(reply));
-            else if (reply.status == 0 || reply.status >= 500) return message(say("RetroAchievements nie odpowiada.", "RetroAchievements did not answer."));
+        const auto list_file = "ra-games-" + std::to_string(console) + ".json";
+        auto list = cached(list_file, 7 * 86400);
+        if (!list) {
+            const auto reply = get(api + L"API_GetGameList.php?" + auth + L"&i=" + std::to_wstring(console) + L"&f=1&h=1");
+            if (reply.status == 401 || reply.status == 403) return denied();
+            if (reply.status != 200 || !retroGameList(body(reply))) return silent();
+            list = body(reply);
+            cache(list_file, *list);
         }
-        if (!id) {
-            const auto list_file = "ra-console-" + std::to_string(console) + ".json";
-            auto list = cached(list_file, 7 * 86400);
-            if (!list) {
-                const auto reply = get(api + L"API_GetGameList.php?" + auth + L"&i=" + std::to_wstring(console) + L"&f=1");
-                if (reply.status == 401 || reply.status == 403) return message(say("RetroAchievements: sprawdź nazwę użytkownika i klucz Web API.", "RetroAchievements: check the user name and Web API key."));
-                if (reply.status != 200) return message(say("RetroAchievements nie odpowiada.", "RetroAchievements did not answer."));
-                list = body(reply);
-                cache(list_file, *list);
-            }
-            id = retroGameByTitle(*list, game.name);
-        }
+        if (const auto hash = retroHash(console, game.rom); !hash.empty()) id = retroGameByHash(*list, hash);
+        if (!id) id = retroGameByTitle(*list, game.name);
         cache(id_file, std::to_string(id.value_or(0)));
         if (!id) return none();
     }
     const auto reply = get(api + L"API_GetGameInfoAndUserProgress.php?" + auth + L"&u=" + url_encoding::component(user) + L"&g=" + std::to_wstring(*id));
-    if (reply.status == 401 || reply.status == 403) return message(say("RetroAchievements: sprawdź nazwę użytkownika i klucz Web API.", "RetroAchievements: check the user name and Web API key."));
-    if (reply.status != 200) return message(say("RetroAchievements nie odpowiada.", "RetroAchievements did not answer."));
+    if (reply.status == 401 || reply.status == 403) return denied();
+    if (reply.status != 200) return silent();
     const auto list = parseRetroProgress(body(reply));
     if (!list) return message(say("RetroAchievements: nieoczekiwana odpowiedź.", "RetroAchievements: unexpected answer."));
     return list->items.empty() ? none() : listJson(*list);

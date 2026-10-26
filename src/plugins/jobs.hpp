@@ -19,7 +19,8 @@ struct Job {
     std::optional<uint64_t> session_started, playtime_seconds;
     bool active_game = false;
     bool refresh = false;    // command: F5 or a page's periodic refresh (params.refresh).
-    bool background = false; // command: the periodic refresh, which does not block other commands.
+    bool background = false; // command: the periodic refresh, which does not block other commands;
+                             // achievements: the desktop pane's selection, replaced by the next one.
     bool management() const { return kind <= Kind::remove; }
 };
 struct Queue {

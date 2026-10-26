@@ -62,14 +62,15 @@ inline constexpr float heading_h = 30, row_h = 32, heading_gap = 12, companion_h
 
 // Headings and entries in order; a collapsed group keeps only its heading. Collections always keep
 // their heading (its "+" makes a new one), the others only when they have entries. The narrow
-// sidebar (icons only) has no headings: every entry, a gap between the groups.
+// sidebar (icons only) has no headings: every entry, a gap between the groups, but no
+// collections (one folder icon each, nothing to tell them apart).
 inline std::vector<Row> layoutRows(const std::vector<Entry>& entries, const std::array<bool, group_count>& collapsed, bool narrow = false) {
     std::vector<Row> rows;
     float y = 2;
     for (int g = 0; g < group_count; ++g) {
         const auto group = static_cast<Group>(g);
         const bool any = std::any_of(entries.begin(), entries.end(), [&](const Entry& e) { return e.group == group; });
-        if (narrow && !any) continue;
+        if (narrow && (!any || group == Group::collections)) continue;
         if (!any && group != Group::collections) continue;
         if (!rows.empty()) y += heading_gap;
         if (!narrow) {

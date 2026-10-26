@@ -88,6 +88,27 @@ int LauncherUiTest::pluginAchievements(HWND window) {
         message->response = *json::parse(R"({"achievements":null})"); app.onPlugins(std::move(message));
     }
     if (!app.pluginAchievements(other) || app.pluginAchievements(other)->list.total || app.details_.achievements_total || app.achievementsDetailAction() != -2) return 4114;
+    // The desktop pane asks for its selected game once per selection; moving on drops the previous
+    // unanswered question (asked again when it comes back), one asked in Szczegóły stays queued.
+    {
+        Game first; first.source = GameSource::gog; first.kind = GameKind::store; first.source_id = "11"; first.name = L"First";
+        Game second = first; second.source_id = "12"; second.name = L"Second";
+        Game third = first; third.source_id = "13"; third.name = L"Third";
+        app.plugin_jobs_->jobs.clear(); app.plugin_achievements_focus_.clear();
+        app.runtime_started_ = true;
+        app.requestFocusedAchievements(first); app.requestFocusedAchievements(first);
+        if (app.plugin_jobs_->jobs.size() != 1 || !app.plugin_jobs_->jobs.front().background) return 4115;
+        app.requestFocusedAchievements(second);
+        if (app.plugin_jobs_->jobs.size() != 1 || gameKey(app.plugin_jobs_->jobs.front().game) != gameKey(second) ||
+            app.plugin_achievements_[gameKey(first)].pending) return 4116;
+        app.requestPluginAchievements(second); // Szczegóły of the same game: its question stays and is no longer the pane's.
+        if (app.plugin_jobs_->jobs.size() != 1 || app.plugin_jobs_->jobs.front().background) return 4117;
+        app.requestFocusedAchievements(third);
+        if (app.plugin_jobs_->jobs.size() != 2 || gameKey(app.plugin_jobs_->jobs.back().game) != gameKey(third)) return 4118;
+        app.requestFocusedAchievements(first); // Back to the first: asked again.
+        if (app.plugin_jobs_->jobs.size() != 2 || gameKey(app.plugin_jobs_->jobs.back().game) != gameKey(first)) return 4119;
+        app.runtime_started_ = false; app.plugin_jobs_->jobs.clear();
+    }
     std::error_code ignored; std::filesystem::remove(icon_file, ignored);
     return 0;
 }

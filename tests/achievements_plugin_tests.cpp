@@ -115,23 +115,44 @@ int retroAchievements(const std::filesystem::path& root) {
         CHECK(write(root / L"zipped.zip", zipped) && retroHash(7, root / L"zipped.zip") == plain);
     }
     CHECK(retroHash(27, L"C:\\mame\\sf2.zip") == md5Hex({'s', 'f', '2'}) && retroHash(12, root / L"plain.nes").empty()); // Arcade by name; discs by title.
-    CHECK(parseRetroGameId(R"({"Success":true,"GameID":1446})") == 1446u && !parseRetroGameId(R"({"Success":true,"GameID":0})") && !parseRetroGameId("{}"));
-    CHECK(retroGameByTitle(R"([{"Title":"Legend of Zelda, The: A Link to the Past","ID":5},{"Title":"Pokemon Red Version | Pokemon Blue Version","ID":9}])",
-                           "The Legend of Zelda - A Link to the Past") == 5u);
-    CHECK(retroGameByTitle(R"([{"Title":"Pokemon Red Version | Pokemon Blue Version","ID":9}])", "Pokemon Blue Version") == 9u);
+    CHECK(retroHash(16, root / L"plain.nes").empty() && retroHash(76, root / L"plain.nes").empty()); // GameCube, PC Engine CD: discs.
+    // ES-DE / EmuDeck system folders decide first; systems RA has no achievements for stop there.
+    CHECK(retroConsole("PS1", L"K:\\Emulation\\roms\\psx\\Castlevania.chd") == 12 && retroConsole("Retro", L"K:\\Emulation\\roms\\snes\\Mario.zip") == 3);
+    CHECK(retroConsole("GameCube", L"K:\\Emulation\\roms\\gc\\Zelda.iso") == 16 && retroConsole("PS2", L"K:\\roms\\ps2\\RE.chd") == 21);
+    CHECK(retroConsole("Retro", L"K:\\roms\\megadrive\\Japan\\Sonic.md") == 1); // Sub-folders of a system folder.
+    CHECK(retroConsole("Switch", L"K:\\Emulation\\roms\\switch\\Zelda.nsp") == 0 && retroConsole("Wii U", L"K:\\Emulation\\roms\\wiiu\\Mario.wux") == 0);
+    CHECK(retroConsole("Wii", L"K:\\Emulation\\roms\\wii\\Galaxy.rvz") == 0 && retroConsole("Switch", L"D:\\games\\Zelda.nsp") == 0);
+    // A plain zip: by the file inside.
+    CHECK(retroConsole("Retro", root / L"zipped.zip") == 7);
+    // The console's game list (API_GetGameList, f=1&h=1): by hash, then by title without dump tags.
+    const std::string list = R"([{"Title":"Legend of Zelda, The: A Link to the Past","ID":5,"Hashes":["AB12CD34AB12CD34AB12CD34AB12CD34"]},
+        {"Title":"Pokemon Red Version | Pokemon Blue Version","ID":9,"Hashes":[]},
+        {"Title":"~Hack~ Castlevania: Symphony of the Night","ID":30,"Hashes":[]},
+        {"Title":"Castlevania: Symphony of the Night [Subset - Bonus]","ID":31,"Hashes":[]},
+        {"Title":"Castlevania: Symphony of the Night","ID":32,"Hashes":[]}])";
+    CHECK(retroGameList(list) && !retroGameList("<html></html>") && !retroGameList(R"({"message":"x"})"));
+    CHECK(retroGameByHash(list, "ab12cd34ab12cd34ab12cd34ab12cd34") == 5u && !retroGameByHash(list, "00000000000000000000000000000000") && !retroGameByHash(list, ""));
+    CHECK(retroGameByTitle(list, "The Legend of Zelda - A Link to the Past") == 5u && retroGameByTitle(list, "Pokemon Blue Version") == 9u);
+    CHECK(retroGameByTitle(list, "Castlevania - Symphony of the Night (USA) [Disc 1]") == 32u && retroGameByTitle(list, "Castlevania: Symphony of the Night") == 32u);
+    CHECK(!retroGameByTitle(list, "Castlevania"));
     const auto progress = parseRetroProgress(R"({"Title":"Game","NumDistinctPlayers":200,"Achievements":{
         "2":{"ID":2,"Title":"Second","Description":"Two","BadgeName":"00222","NumAwarded":50,"DisplayOrder":2},
         "1":{"ID":1,"Title":"First","Description":"One","BadgeName":"00111","NumAwarded":150,"DisplayOrder":1,"DateEarned":"2024-03-05 10:20:30"}}})");
     CHECK(progress && progress->items.size() == 2 && progress->items[0].id == "1" && progress->items[0].achieved && progress->items[0].unlocked_at == 1709634030);
     CHECK(progress->items[0].icon == "https://media.retroachievements.org/Badge/00111.png" && progress->items[1].icon == "https://media.retroachievements.org/Badge/00222_lock.png");
     CHECK(progress->items[0].percent == 75 && progress->items[1].percent == 25);
-    // The service: by hash, remembered, then the progress (the key stays in the request, never in an answer).
+    // The service: the console's list (documented web API, key in y), the ROM's hash in it,
+    // remembered, then the progress (the key stays in the request, never in an answer).
     Service service;
     std::vector<std::wstring> asked;
     service.get = [&](const std::wstring& url) {
         asked.push_back(url);
-        if (url.find(L"dorequest.php?r=gameid&m=" + text_encoding::wideLenient(plain)) != std::wstring::npos) return reply(R"({"Success":true,"GameID":77})");
-        if (url.find(L"API_GetGameInfoAndUserProgress.php?z=player&y=secret-key&u=player&g=77") != std::wstring::npos)
+        if (url == L"https://retroachievements.org/API/API_GetGameList.php?y=secret-key&i=7&f=1&h=1")
+            return reply(R"([{"Title":"Other","ID":76,"Hashes":["ffffffffffffffffffffffffffffffff"]},{"Title":"Not Mario","ID":77,"Hashes":[")" + plain + R"("]}])");
+        if (url == L"https://retroachievements.org/API/API_GetGameList.php?y=secret-key&i=12&f=1&h=1")
+            return reply(R"([{"Title":"Castlevania: Symphony of the Night","ID":11240,"Hashes":["0123456789abcdef0123456789abcdef"]}])");
+        if (url == L"https://retroachievements.org/API/API_GetGameInfoAndUserProgress.php?y=secret-key&u=player&g=77" ||
+            url == L"https://retroachievements.org/API/API_GetGameInfoAndUserProgress.php?y=secret-key&u=player&g=11240")
             return reply(R"({"NumDistinctPlayers":4,"Achievements":{"9":{"ID":9,"Title":"Done","Description":"d","BadgeName":"1","NumAwarded":1,"DateEarnedHardcore":"2024-03-05 10:20:30"}}})");
         return reply("", 404);
     };
@@ -144,6 +165,21 @@ int retroAchievements(const std::filesystem::path& root) {
     asked.clear();
     answer = service.dispatch(request(game));
     CHECK(asked.size() == 1); // The game ID is remembered.
+    // A disc (EmuDeck's roms\psx): by title in the PlayStation list; the list is cached for the next game.
+    const auto disc = R"({"key":"shortcut:12","name":"Castlevania: Symphony of the Night","source":"custom","shortcut":true,"platform":"PS1","rom":"K:\\Emulation\\roms\\psx\\Castlevania - Symphony of the Night.chd"})";
+    asked.clear();
+    CHECK(field(field(service.dispatch(request(disc)), "achievements"), "items").elements.size() == 1 && asked.size() == 2);
+    const auto other = R"({"key":"shortcut:13","name":"Unknown Game","source":"custom","shortcut":true,"platform":"PS1","rom":"K:\\Emulation\\roms\\psx\\Unknown.chd"})";
+    asked.clear();
+    CHECK(field(service.dispatch(request(other)), "achievements").type == json::Value::Type::null_value && asked.empty());
+    // Switch, Wii U: no RetroAchievements, nothing asked.
+    const auto nsp = R"({"key":"shortcut:14","name":"Zelda","source":"custom","shortcut":true,"platform":"Switch","rom":"K:\\Emulation\\roms\\switch\\Zelda.nsp"})";
+    CHECK(field(service.dispatch(request(nsp)), "achievements").type == json::Value::Type::null_value && asked.empty());
+    // A wrong key: said so, nothing remembered.
+    service.get = [&](const std::wstring& url) { asked.push_back(url); return reply(R"({"message":"Unauthenticated."})", 401); };
+    const auto snes = R"({"key":"shortcut:15","name":"Mario World","source":"custom","shortcut":true,"platform":"Retro","rom":"K:\\Emulation\\roms\\snes\\World.sfc"})";
+    CHECK(text(service.dispatch(request(snes)), "message").find("Web API key") != std::string::npos);
+    CHECK(text(service.dispatch(request(snes)), "message").find("Web API key") != std::string::npos && asked.size() == 2);
     // Without a key: nothing to ask.
     auto keyless = request(game); keyless.properties["settings"].properties["ra_key"] = plugins::wire::string("");
     asked.clear();

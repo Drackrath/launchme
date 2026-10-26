@@ -50,13 +50,33 @@ const Launcher::PluginAchievements* Launcher::pluginAchievements(const Game& gam
     return found == plugin_achievements_.end() || !found->second.answered ? nullptr : &found->second;
 }
 
-void Launcher::requestPluginAchievements(const Game& game, bool force) {
+void Launcher::requestFocusedAchievements(const Game& game) {
+    const auto key = gameKey(game);
+    if (key.empty() || key == plugin_achievements_focus_) return;
+    plugin_achievements_focus_ = key;
+    requestPluginAchievements(game, false, true);
+}
+
+void Launcher::requestPluginAchievements(const Game& game, bool force, bool background) {
     if (!runtime_started_) return;
     const auto provider = pluginAchievementsProvider(game);
     if (!provider) return;
     const auto key = gameKey(game);
     const std::string locale = i18n::language() == i18n::Language::pl ? "pl" : "en";
     const auto now = GetTickCount64();
+    const auto achievementsJob = [](const plugins::Job& j) { return j.kind == plugins::Job::Kind::achievements; };
+    {
+        std::lock_guard lock(plugin_jobs_->mutex);
+        for (auto& j : plugin_jobs_->jobs) // Asked for in Szczegóły: the pane's queued question stays.
+            if (!background && achievementsJob(j) && gameKey(j.game) == key) j.background = false;
+        // The pane moved on: the previous selection's unanswered question leaves the queue.
+        if (background) std::erase_if(plugin_jobs_->jobs, [&](const plugins::Job& j) {
+            if (!achievementsJob(j) || !j.background || gameKey(j.game) == key) return false;
+            if (const auto found = plugin_achievements_.find(gameKey(j.game)); found != plugin_achievements_.end() && found->second.generation == j.generation)
+                found->second.pending = false;
+            return true;
+        });
+    }
     auto& cache = plugin_achievements_[key];
     const bool same = cache.plugin == provider->plugin && cache.locale == locale && cache.name == game.name;
     // One question at a time per game; an answer is good for ten minutes (a lost one after a minute).
@@ -64,7 +84,7 @@ void Launcher::requestPluginAchievements(const Game& game, bool force) {
     if (!same) { cache = {}; cache.plugin = provider->plugin; cache.locale = locale; cache.name = game.name; }
     cache.pending = true; cache.checked_at = now; cache.generation = ++plugin_achievements_generation_;
     plugins::Job job; job.kind = plugins::Job::Kind::achievements; job.plugin = provider->plugin; job.key = provider->item.id; job.game = game;
-    job.generation = cache.generation;
+    job.generation = cache.generation; job.background = background;
     job.value = object();
     job.value.properties["game"] = *json::parse(plugins::achievementGameJson(game));
     job.value.properties["command"] = string(provider->item.command);

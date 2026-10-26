@@ -579,6 +579,8 @@ bool Launcher::tickDesktop(float dt) {
     if (desktop_search_focus_) { static ULONGLONG phase = 0; const auto now_phase = ms / 530; if (now_phase != phase) { phase = now_phase; paint = true; } }
     // The selected game's description for the pane (debounced by the preview worker).
     if (runtime_started_ && !cards_.empty()) preview_.request(cards_[selected_].game, account_);
+    // Its achievements outside Steam (GOG, Epic, RetroAchievements…) once the selection rests.
+    if (runtime_started_ && !cards_.empty() && preview_.settled()) requestFocusedAchievements(cards_[selected_].game);
     // Pobierania: the shortcut's ring and the open list follow the sources.
     if (ms - desktop_downloads_at_ >= (desktop_downloads_open_ ? 400u : 1500u)) {
         desktop_downloads_at_ = ms;
