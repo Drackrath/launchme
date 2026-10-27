@@ -9,7 +9,7 @@ inline const wchar_t* notice() {
 enum class Page { setup, game, cloud, dlc, versions, branches, workshop, friends, chat, libraries };
 enum class Action {
     none, toggle, helper, repository, login, logout, reconnect, refresh, close, game, cloud, dlc, versions, branches, workshop, friends,
-    sync, resolve_cloud, resolve_local, install, update, verify, cancel, uninstall, steam, play,
+    sync, resolve_cloud, resolve_local, install, update, verify, cancel, uninstall, steam, play, auto_cloud,
     enable_dlc, disable_dlc, pin, unpin, downgrade, set_branch, move, choose_library,
     workshop_install, workshop_subscribe, workshop_unsubscribe, chat, send, presence, confirm, dismiss
 };

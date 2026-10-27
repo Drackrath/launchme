@@ -176,9 +176,9 @@ AppSettings parseAppSettings(std::string_view text) {
         if (parseLookSetting(settings, key, value)) continue; // Kept apart: MSVC caps one if/else chain's depth.
         if (key == "aurelia") { if (value == "0" || value == "1") settings.aurelia = value == "1"; continue; }
         if (key == "aurelia_intro_done") { if (value == "0" || value == "1") settings.aurelia_intro_done = value == "1"; continue; }
-        if (key == "aurelia_standalone") {
+        if (key == "aurelia_standalone" || key == "aurelia_auto_cloud") {
             if (!value.empty() && value.size() <= 10 && std::all_of(value.begin(), value.end(), [](char c) { return c >= '0' && c <= '9'; }))
-                settings.aurelia_standalone.insert(std::string(value));
+                (key == "aurelia_standalone" ? settings.aurelia_standalone : settings.aurelia_auto_cloud).insert(std::string(value));
             continue;
         }
         if (key == "show_uninstalled" && (value == "0" || value == "1")) settings.show_uninstalled = value == "1";
@@ -709,6 +709,7 @@ bool saveAppSettings(const AppSettings& settings, const std::filesystem::path& f
     output << "steam_install_dialog=" << settings.steam_install_dialog << '\n';
     output << "aurelia=" << settings.aurelia << '\n' << "aurelia_intro_done=" << settings.aurelia_intro_done << '\n';
     for (const auto& id : settings.aurelia_standalone) output << "aurelia_standalone=" << id << '\n';
+    for (const auto& id : settings.aurelia_auto_cloud) output << "aurelia_auto_cloud=" << id << '\n';
     output << "game_videos=" << settings.game_videos << '\n';
     output << "video_delay=" << settings.video_delay << '\n';
     output << "video_volume=" << settings.video_volume << '\n';

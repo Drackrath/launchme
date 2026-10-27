@@ -957,6 +957,9 @@ void Launcher::launchGame(const Game& original) {
     Game active = original; active.version_group.clear();
     if (pending_launch_ || launchAnimationActive() || !isGame(active)) return;
     if (switchToGame(active)) { focusPlayedGame(gameKey(active)); return; }
+    if (aurelia_active_ && aurelia::validGame(active) && (aurelia_operations_.contains(active.app_id) || aurelia_playing_.contains(active.app_id))) {
+        showNotification(NotificationKind::error, L"Aurelia", tr(L"Operacja dla tej gry już trwa")); return;
+    }
     if (aurelia_active_ && aurelia::validGame(active) &&
         (!active.installed || active.installation.active() || settings_.aurelia_standalone.contains(std::to_string(active.app_id)))) {
         aureliaLaunch(active); return;

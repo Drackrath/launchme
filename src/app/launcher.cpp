@@ -217,7 +217,7 @@ bool Launcher::initialize(HWND hwnd) {
     initializeStore();
     initializePlugins();
     if (aurelia_active_) preview_.start(work_, hwnd_, [invoke = aurelia_transport_, alive = alive_](uint32_t app, uint64_t) {
-        aurelia::Request request{aurelia::Command::info, app}; request.language = i18n::english() ? L"english" : L"polish";
+        aurelia::Request request{aurelia::Command::info, app}; request.language = i18n::steamLanguage();
         const auto reply = invoke ? invoke(request, [alive] { return !alive->load(); }, {}) : aurelia::Reply{};
         auto details = reply.ok ? aurelia::details(reply.data) : GameDetails{}; details.error = reply.error;
         if (reply.ok && invoke && alive->load()) {

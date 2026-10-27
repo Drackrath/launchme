@@ -37,7 +37,7 @@ void Launcher::initializeStore() {
                 result->installation_checked = false; // The shared Steam observer owns live install facts.
                 if (job.metadata && alive->load() && queue->generation.load() == job.generation) {
                     if (aurelia) {
-                        aurelia::Request request{aurelia::Command::info, job.app_id}; request.language = i18n::english() ? L"english" : L"polish";
+                        aurelia::Request request{aurelia::Command::info, job.app_id}; request.language = i18n::steamLanguage();
                         const auto reply = invoke ? invoke(request, [&] { return !alive->load() || queue->generation.load() != job.generation; }, {}) : aurelia::Reply{};
                         result->info = reply.ok ? aurelia::details(reply.data) : GameDetails{}; result->info.error = reply.error;
                         if (reply.ok && invoke && alive->load()) {

@@ -886,6 +886,7 @@ private:
     std::map<uint32_t, aurelia::Download> aurelia_downloads_;
     std::set<uint32_t> aurelia_operations_;
     std::set<uint32_t> aurelia_playing_;
+    std::map<uint64_t, std::wstring> aurelia_chat_drafts_; // Session/account scoped; retained across reconnects.
     json::Value aurelia_page_data_;
     aurelia_ui::Action aurelia_library_action_ = aurelia_ui::Action::install;
     void initializeAurelia();

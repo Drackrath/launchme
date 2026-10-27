@@ -6,6 +6,15 @@ namespace i18n {
 namespace {
 constexpr Entry entries[] = {
     // Optional Aurelia integration (Windows).
+    {L"Aurelia jest aktualna", L"Aurelia is up to date"},
+    {L"Nie można potwierdzić tożsamości daemona Aurelii. Spróbuj ponownie po zakończeniu jego uruchamiania.", L"Could not verify the Aurelia daemon identity. Retry after it has finished starting."},
+    {L"Biblioteka Aurelii z pamięci podręcznej · offline", L"Cached Aurelia library · offline"},
+    {L"Sprawdzanie uruchomienia przez Aurelię…", L"Checking Aurelia launch…"},
+    {L"Synchronizacja zapisów nie powiodła się", L"Save synchronization failed"},
+    {L"Synchronizuj przed grą i po niej", L"Sync before and after playing"},
+    {L"Tylko przy uruchamianiu bez Steam. Konflikt lub niepełne zapisy zatrzymują start gry.", L"Only when launching without Steam. Conflicts or incomplete saves prevent the game from starting."},
+    {L"Ta gra wymaga klienta Steam lub potwierdzenia własności. Wyłącz „Uruchamiaj bez Steam”.", L"This game requires the Steam client or confirmed ownership. Turn off Launch without Steam."},
+    {L"Aurelia nie udostępnia zainstalowanej wersji Windows bez Steam dla tej gry.", L"Aurelia does not offer an installed standalone Windows build for this game."},
     {L"Repozytorium Aurelii", L"Aurelia repository"},
     {L"Zmiana integracji będzie aktywna po ponownym uruchomieniu Launchme.", L"The integration change takes effect after restarting Launchme."},
     {L"Najpierw zainstaluj Aurelię", L"Install Aurelia first"},

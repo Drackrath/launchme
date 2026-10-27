@@ -75,6 +75,11 @@ Reply installRelease(const std::filesystem::path& root, const Release& release, 
     const auto partial = root / L"download.part";
     const HANDLE lock = CreateFileW((root / L"install.lock").c_str(), GENERIC_WRITE, 0, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (lock == INVALID_HANDLE_VALUE) { r.error = tr(L"Instalacja Aurelii już trwa"); return r; }
+    struct Lock { HANDLE handle; ~Lock() { CloseHandle(handle); } } held{lock};
+    const auto current = installed(root);
+    if (current.version == release.version && updater::sha256File(current.executable) == release.sha256) {
+        r.ok = true; r.data = json::object(); r.data.properties["already_current"] = json::boolean(true); return r;
+    }
     // A new release must never resume the partial of an older release.
     const auto identity = readSmall(root / L"download.sha256");
     if (identity != release.sha256) { std::filesystem::remove(partial, ec); atomic_file::write(root / L"download.sha256", release.sha256); }
@@ -83,7 +88,6 @@ Reply installRelease(const std::filesystem::path& root, const Release& release, 
         [&](uint64_t done) { if (progress) progress(done, release.size); }, allowedDownload);
     r.cancelled = stopped();
     r.ok = !r.cancelled && error == DownloadError::none && publish(root, release, partial);
-    CloseHandle(lock);
     if (!r.ok) r.error = r.cancelled ? tr(L"Anulowano") : tr(L"Nie udało się pobrać lub zweryfikować Aurelii");
     return r;
 }

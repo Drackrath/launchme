@@ -81,7 +81,7 @@ void Launcher::initializeAchievements() {
             message->generation = job.generation;
             if (!job.icon) {
                 if (aurelia) {
-                    aurelia::Request request{aurelia::Command::achievements, job.app_id}; request.language = i18n::english() ? L"english" : L"polish";
+                    aurelia::Request request{aurelia::Command::achievements, job.app_id}; request.language = i18n::steamLanguage();
                     const auto reply = invoke ? invoke(request, [&] { return !alive->load() || queue->generation.load() != job.generation; }, {}) : aurelia::Reply{};
                     if (reply.ok) message->list = aurelia::achievements(reply.data);
                     message->final = true; post(std::move(message)); continue;

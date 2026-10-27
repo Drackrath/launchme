@@ -45,13 +45,14 @@ std::vector<std::wstring> arguments(const Request& r) {
     std::vector<std::wstring> args{L"--json"};
     const auto add = [&](std::initializer_list<std::wstring> values) { args.insert(args.end(), values); };
     switch (r.command) {
+    case C::standalone: return {};
     case C::health: add({L"login", L"--health"}); break;
     case C::login: return {L"login"}; // An owned console; no credential ever enters Launchme's command line.
     case C::logout: add({L"logout"}); break;
     case C::reconnect: add({L"login", L"--reconnect"}); break;
     case C::library: add({L"list"}); break;
     case C::libraries: add({L"libraries"}); break;
-    case C::info: add({L"info", app, L"--lang", r.language}); break;
+    case C::info: add({L"info", app, L"--extended", L"--lang", r.language}); break;
     case C::achievements: add({L"achievements", app, L"--lang", r.language}); break;
     case C::friends: add({L"friends"}); break;
     case C::presence: if (r.text != L"online" && r.text != L"invisible" && r.text != L"away" && r.text != L"busy") return {}; add({L"config", L"presence", r.text}); break;
@@ -64,7 +65,7 @@ std::vector<std::wstring> arguments(const Request& r) {
     case C::update: add({L"update", app}); break;
     case C::verify: add({L"verify", app}); break;
     case C::uninstall: add({L"uninstall", app}); break;
-    case C::play: add({L"play", app, L"--windows", L"--no-update"}); if (r.steam) add({L"--steam"}); else add({L"--steam-mode", L"none"}); break;
+    case C::play: add({L"play", app, L"--windows", L"--no-update"}); if (r.steam) add({L"--steam"}); else add({L"--steam-mode", L"none", L"--platform", L"windows"}); break;
     case C::launch_targets: add({L"launch-targets", app}); break;
     case C::running: add({L"running"}); break;
     case C::stop: add({L"stop", app}); break;
@@ -175,10 +176,21 @@ Cloud cloud(const Reply& reply, bool sync) {
     const auto status = text(reply.data, "status");
     c.state = status == "ok" ? CloudState::synced : status == "conflicts" ? CloudState::conflicts :
               status == "incomplete" ? CloudState::incomplete : CloudState::failed;
-    if (const auto* conflicts = reply.data.get("conflicts")) c.conflicts = conflicts->elements.size();
-    if (c.conflicts) c.state = CloudState::conflicts;
-    for (const auto* key : {"failed", "skipped"}) if (const auto* a = reply.data.get(key); a && !a->elements.empty())
-        c.state = std::string_view(key) == "failed" ? CloudState::failed : c.state == CloudState::failed ? c.state : CloudState::incomplete;
+    for (const auto* key : {"conflicts", "failed", "skipped"}) {
+        const auto* items = reply.data.get(key);
+        if ((!items && status == "ok") || (items && items->type != Type::array)) { c.state = CloudState::failed; c.error = tr(L"Nieprawidłowa odpowiedź Aurelii"); return c; }
+        if (!items || items->elements.empty()) continue;
+        if (std::string_view(key) == "conflicts") c.conflicts = items->elements.size();
+        else if (std::string_view(key) == "failed") c.state = CloudState::failed;
+        else if (c.state != CloudState::failed) c.state = CloudState::incomplete;
+        for (const auto& item : items->elements) {
+            auto issue = wideLenient(text(item, "filename"));
+            const auto detail = text(item, "error").empty() ? text(item, "reason") : text(item, "error");
+            if (!detail.empty()) issue += L" · " + wideLenient(detail);
+            if (!issue.empty() && c.issues.size() < 100) c.issues.push_back(std::move(issue));
+        }
+    }
+    if (c.conflicts) c.state = CloudState::conflicts; // Resolution remains available even when other files also failed.
     return c;
 }
 const wchar_t* cloudLabel(CloudState state) {

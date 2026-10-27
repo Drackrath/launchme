@@ -19,7 +19,8 @@ enum class Command {
     chat_history, chat_send, chat_live, install, downloads, cancel_install, update, verify, uninstall,
     play, launch_targets, running, stop, available, cloud_list, cloud_sync, dlc, enable_dlc, disable_dlc,
     manifests, pin, unpin, downgrade, branches, set_branch, move,
-    workshop_browse, workshop_status, workshop_install, workshop_subscribe, workshop_unsubscribe
+    workshop_browse, workshop_status, workshop_install, workshop_subscribe, workshop_unsubscribe,
+    standalone // Host-side workflow; never passed directly to the CLI.
 };
 struct Request {
     Command command = Command::health;
@@ -30,6 +31,7 @@ struct Request {
     bool steam = true;
     std::wstring language = L"english";
     enum class Direction { both, down, up } direction = Direction::both;
+    bool auto_cloud = false;
 };
 struct Reply {
     bool ok = false, cancelled = false;
@@ -44,6 +46,10 @@ using Transport = std::function<Reply(const Request&, const Cancel&, const Event
 std::vector<std::wstring> arguments(const Request& request);
 Reply invoke(const Runtime& runtime, const Request& request, const Cancel& cancelled, const Event& event = {});
 Transport transport(Runtime runtime);
+Reply checked(const Request& request, Reply reply);
+Reply launchStandalone(const Transport& invoke, Request request, const Cancel& cancel, const Event& event = {});
+bool saveLibraryCache(const std::filesystem::path& folder, uint64_t account, const json::Value& games);
+std::optional<json::Value> loadLibraryCache(const std::filesystem::path& folder, uint64_t account);
 InstallationInfo installed(const std::filesystem::path& root);
 std::optional<Release> parseRelease(std::string_view body);
 bool allowedDownload(std::wstring_view url);
@@ -66,7 +72,10 @@ struct Download {
 };
 std::optional<std::vector<Download>> downloads(const json::Value& value);
 enum class CloudState { unknown, checking, files, empty, syncing, synced, conflicts, incomplete, failed };
-struct Cloud { CloudState state = CloudState::unknown; size_t files = 0, conflicts = 0; uint64_t checked = 0; std::wstring error; };
+struct Cloud {
+    CloudState state = CloudState::unknown; size_t files = 0, conflicts = 0; uint64_t checked = 0; std::wstring error;
+    std::vector<std::wstring> issues;
+};
 Cloud cloud(const Reply& reply, bool sync);
 const wchar_t* cloudLabel(CloudState state);
 struct Dlc { uint32_t app = 0; std::wstring name; std::optional<bool> owned, installed, disabled; };

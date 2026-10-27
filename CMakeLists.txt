@@ -97,6 +97,7 @@ set(LAUNCHME_EPIC_SOURCES src/store/epic_api.cpp src/store/epic_vault.cpp src/st
 set(LAUNCHME_APP_SOURCES
     src/store/aurelia.cpp
     src/store/aurelia_process.cpp
+    src/store/aurelia_lifecycle.cpp
     src/store/aurelia_install.cpp
     src/app/aurelia.cpp
     src/app/aurelia_ui.cpp

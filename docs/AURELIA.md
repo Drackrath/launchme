@@ -24,6 +24,9 @@ the previous selection. Binaries are downloaded on demand, not bundled with Laun
 `AURELIA_CONFIG_DIR` is supplied only to the child process and points to `%LOCALAPPDATA%\Launchme\aurelia`.
 This session is separate from standalone Aurelia and from the Steam client's remembered accounts.
 The launcher never changes its own process environment to select that session.
+The child also receives a dedicated `AURELIA_DAEMON_SOCKET`: a Windows named pipe derived from the
+canonical profile path and current user's SID. An existing endpoint without a usable daemon identity
+marker is refused, avoiding the upstream fallback that stops all Aurelia daemons.
 
 ## Games and downloads
 
@@ -42,6 +45,14 @@ Open a game's context menu → **Manage · Aurelia** in desktop or TV mode:
   On launches through Aurelia without `--steam`, for a compatible standalone game. The Aurelia path
   uses `--no-update` so launching cannot silently replace a deliberately selected build; updates are
   explicit actions. The global integration alone never reroutes an installed game's launch.
+  Before standalone play, Launchme checks ownership/Family Sharing and `launch-targets`, and explicitly
+  selects `--platform windows --steam-mode none`. An unavailable standalone build is an error, not a
+  silent fallback to Steam. Borrowed/Family-Shared games must use the normal Steam route.
+
+The library cache is scoped by the account reported by Aurelia. A known account can retain its last
+valid library when offline; cached installations are checked for their folders on disk. A cache is
+never used to guess an unknown account or import another account's games. Metadata and achievement
+requests follow the interface's Steam language, including Brazilian Portuguese and Spanish.
 
 Aurelia's daemon owns background transfers. Closing Launchme detaches its CLI processes; it does not
 terminate Steam or running games. Reopening the launcher discovers active transfers through `install list`.
@@ -55,8 +66,12 @@ successful sync. Conflicts, skipped paths, transfer failures and unknown state s
 
 **Cloud saves → Sync saves** uses Aurelia's conflict-detecting default. No conflict winner is selected
 automatically. **Use cloud saves** or **Use local saves** requires confirmation. File/save operations are
-blocked while the launcher knows that the game is running. Synchronization is an explicit action;
-listing cloud status neither uploads nor overwrites saves.
+blocked while the launcher knows that the game is running. **Sync before and after playing** is a
+separate per-game opt-in, off by default: it downloads before standalone play and uploads after the
+game has finished. A failed, partial or conflicting pre-launch sync prevents launch; resolve it in
+the Cloud page and retry. A failed upload is reported separately from a launch failure. The ordinary
+Steam launch path leaves save synchronization to Steam. Listing status never uploads or overwrites saves,
+and a delayed file-list reply cannot erase a newer sync outcome.
 
 ## DLC, versions and Workshop
 
@@ -79,6 +94,8 @@ The existing friends drawer uses Aurelia's roster. Selecting a friend opens a na
 recent history, incoming messages, echoes from other clients and typing notifications. Messages are sent
 as a separate bounded command; a failed send retains the draft. **F5** reconnects a dropped conversation.
 Closing a conversation cancels its listener; late responses cannot change another conversation.
+Drafts survive closing/reconnecting within the current account's session and are cleared on account
+change/logout. History is reconciled again after the listener is armed to cover the connection gap.
 
 Keyboard: arrows, Enter, Esc, Tab for the text field, Ctrl+V, PgUp/PgDn. Gamepad: D-pad, A/B, X for the
 on-screen keyboard, Y to refresh, LB/RB to scroll. Long messages scroll within the conversation.
@@ -90,6 +107,8 @@ including the JSON command handlers and NDJSON progress/chat events. The install
 the latest stable release; incompatible responses are reported rather than guessed.
 
 - `src/store/aurelia*`: typed requests/parsers, Win32 child-process transport, release installer.
+- `src/store/aurelia_lifecycle.cpp`: semantic operation results, standalone preflight, ordered cloud/play
+  workflow and account-scoped library cache.
 - `src/app/aurelia*`: workers, account epochs, operation ownership, native pages and input.
 - `src/ui/aurelia*`: shared desktop/TV presentation and geometry.
 - `aurelia_tests`: parser/64-bit identity/installer tests and a real child-process fixture for output,

@@ -43,7 +43,7 @@ int main(int argc, char** argv) {
     CHECK(aurelia::arguments(request).back() == request.text && aurelia::arguments(request)[4] == L"--");
     request.text.assign(4001, L'a'); CHECK(aurelia::arguments(request).empty());
     request = {C::play, 902}; CHECK(aurelia::arguments(request).back() == L"--steam");
-    request.steam = false; CHECK(aurelia::arguments(request).back() == L"none" && aurelia::arguments(request)[5] == L"--steam-mode");
+    request.steam = false; CHECK(aurelia::arguments(request)[6] == L"none" && aurelia::arguments(request)[5] == L"--steam-mode");
     request = {C::presence}; request.text = L"bogus"; CHECK(aurelia::arguments(request).empty());
     request = {C::move, 902}; request.folder = L"relative"; CHECK(aurelia::arguments(request).empty());
     CHECK(aurelia::arguments({C::uninstall, 0}).empty());
@@ -71,6 +71,9 @@ int main(int argc, char** argv) {
     CHECK(cloud.state == aurelia::CloudState::conflicts && cloud.conflicts == 1);
     CHECK(aurelia::cloud({true, false, parsed(R"({"status":"incomplete","skipped":[{}]})")}, true).state == aurelia::CloudState::incomplete);
     CHECK(aurelia::cloud({true, false, parsed(R"({"status":"ok","conflicts":[],"failed":[],"skipped":[]})")}, true).state == aurelia::CloudState::synced);
+    CHECK(aurelia::cloud({true, false, parsed(R"({"status":"ok","conflicts":"broken"})")}, true).state == aurelia::CloudState::failed);
+    CHECK(!aurelia::checked({C::install, 902}, {true, false, parsed(R"({"app_id":902,"status":"cancelled"})")}).ok);
+    CHECK(!aurelia::checked({C::verify, 902}, {true, false, parsed(R"({"app_id":903,"status":"verified"})")}).ok);
     const auto dlc = aurelia::dlcs(parsed(R"({"dlc":[{"app_id":903,"name":"DLC","owned":null,"installed":false,"disabled":false}]})"));
     CHECK(dlc && !dlc->front().owned.has_value());
     const auto progress = aurelia::downloads(parsed(R"([{"app_id":902,"downloaded_bytes":0,"total_bytes":9000000000,"is_downloading":true}])"));
@@ -95,6 +98,36 @@ int main(int argc, char** argv) {
     const auto root = std::filesystem::temp_directory_path() / (L"launchme-aurelia-test-" + std::to_wstring(GetCurrentProcessId()));
     std::filesystem::create_directories(root);
     struct Cleanup { std::filesystem::path root; ~Cleanup() { std::error_code e; std::filesystem::remove_all(root, e); } } cleanup{root};
+    const auto roster = parsed(R"([{"app_id":902,"name":"Owned","is_installed":true,"is_owned":true}])");
+    CHECK(aurelia::saveLibraryCache(root / L"cache", 76561198000000001ULL, roster));
+    CHECK(aurelia::loadLibraryCache(root / L"cache", 76561198000000001ULL));
+    CHECK(!aurelia::loadLibraryCache(root / L"cache", 76561198000000002ULL));
+    CHECK(!aurelia::saveLibraryCache(root / L"cache", 0, roster));
+    std::vector<C> calls; bool shared = false, target = true, conflict = false, upload_failure = false;
+    aurelia::Transport workflow = [&](const aurelia::Request& r, const aurelia::Cancel&, const aurelia::Event&) {
+        calls.push_back(r.command);
+        auto reply = [&](std::string_view value) { return aurelia::Reply{true, false, parsed(value)}; };
+        if (r.command == C::library) return shared ? reply(R"([{"app_id":902,"name":"Borrowed","is_owned":false,"is_family_shared":true}])") : aurelia::Reply{true, false, roster};
+        if (r.command == C::launch_targets) return target ? reply(R"({"targets":[{"platform":"windows","steam_mode":"none","available":true}]})") : reply(R"({"targets":[{"platform":"windows","steam_mode":"host","available":true}]})");
+        if (r.command == C::play) return reply(R"({"app_id":902,"status":"finished"})");
+        if (r.command == C::cloud_sync) {
+            if (conflict && r.direction == aurelia::Request::Direction::down) return reply(R"({"status":"conflicts","conflicts":[{"filename":"save.dat"}]})");
+            if (upload_failure && r.direction == aurelia::Request::Direction::up) return reply(R"({"status":"failed","failed":[{"filename":"save.dat"}]})");
+            return reply(R"({"status":"ok","failed":[],"skipped":[],"conflicts":[]})");
+        }
+        return aurelia::Reply{};
+    };
+    request = {C::standalone, 902}; request.auto_cloud = true;
+    CHECK(aurelia::launchStandalone(workflow, request, [] { return false; }).ok);
+    CHECK(calls == std::vector<C>({C::library, C::launch_targets, C::cloud_sync, C::play, C::cloud_sync}));
+    shared = true; calls.clear(); CHECK(!aurelia::launchStandalone(workflow, request, [] { return false; }).ok && calls.size() == 1);
+    shared = false; target = false; calls.clear(); CHECK(!aurelia::launchStandalone(workflow, request, [] { return false; }).ok && calls.size() == 2);
+    target = true; conflict = true; calls.clear();
+    auto blocked = aurelia::launchStandalone(workflow, request, [] { return false; });
+    CHECK(!blocked.ok && !aurelia::flag(blocked.data, "launch_finished") && calls.size() == 3);
+    conflict = false; upload_failure = true; calls.clear();
+    auto failed_upload = aurelia::launchStandalone(workflow, request, [] { return false; });
+    CHECK(!failed_upload.ok && aurelia::flag(failed_upload.data, "launch_finished") && calls.size() == 5);
     // Minimal PE header: validates architecture, never executed.
     std::string image(4096, '\0'); IMAGE_DOS_HEADER dos{}; dos.e_magic = IMAGE_DOS_SIGNATURE; dos.e_lfanew = 128;
     memcpy(image.data(), &dos, sizeof(dos)); const DWORD sig = IMAGE_NT_SIGNATURE; memcpy(image.data() + 128, &sig, 4);
@@ -113,6 +146,14 @@ int main(int argc, char** argv) {
     const auto pipe = aurelia::daemonEndpoint(runtime.profile);
     CHECK(pipe.starts_with(L"\\\\.\\pipe\\launchme-aurelia-") && pipe != aurelia::daemonEndpoint(root / L"other-profile"));
     CHECK(pipe == aurelia::daemonEndpoint(root / L"." / L"profile"));
+    // An existing endpoint without its identity marker must never invoke the CLI's broad stale-daemon fallback.
+    const HANDLE server = CreateNamedPipeW(pipe.c_str(), PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED, PIPE_TYPE_BYTE, 1, 4096, 4096, 0, nullptr);
+    CHECK(server != INVALID_HANDLE_VALUE);
+    OVERLAPPED pending{}; pending.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    ConnectNamedPipe(server, &pending);
+    auto unidentified = aurelia::invoke(runtime, {C::health}, [] { return false; });
+    CHECK(!unidentified.ok);
+    CancelIoEx(server, &pending); WaitForSingleObject(pending.hEvent, 1000); CloseHandle(server); CloseHandle(pending.hEvent);
     std::cout << "Aurelia native runner: query" << std::endl;
     const auto never = [] { return false; };
     auto reply = aurelia::invoke(runtime, {C::health}, never);

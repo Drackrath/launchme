@@ -7,6 +7,7 @@
 #include <sddl.h>
 #include <algorithm>
 #include <map>
+#include <fstream>
 
 namespace aurelia {
 namespace {
@@ -21,6 +22,24 @@ struct Handle {
 bool longCommand(Command c) {
     return c == Command::install || c == Command::update || c == Command::verify || c == Command::downgrade ||
            c == Command::move || c == Command::workshop_install || c == Command::workshop_subscribe || c == Command::play || c == Command::chat_live;
+}
+bool daemonIdentified(const std::wstring& endpoint) {
+    // Upstream's stale-daemon fallback can stop every Aurelia daemon when its marker is
+    // missing. Never enter that path for an existing endpoint without a usable PID marker.
+    if (!WaitNamedPipeW(endpoint.c_str(), 1)) {
+        const auto error = GetLastError();
+        if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND) return true;
+        if (error != ERROR_SEM_TIMEOUT && error != ERROR_PIPE_BUSY) return false;
+    }
+    auto name = endpoint;
+    for (auto& c : name) if (!((c >= L'a' && c <= L'z') || (c >= L'A' && c <= L'Z') || (c >= L'0' && c <= L'9') || c == L'-' || c == L'.')) c = L'-';
+    std::error_code error; const auto temp = std::filesystem::temp_directory_path(error); if (error) return false;
+    std::ifstream file(temp / (name + L".info"), std::ios::binary | std::ios::ate);
+    if (!file || file.tellg() <= 0 || file.tellg() > 65536) return false;
+    std::string content(static_cast<size_t>(file.tellg()), '\0'); file.seekg(0);
+    if (!file.read(content.data(), content.size())) return false;
+    const auto value = json::parse(content); const auto pid = value ? integer(value->get("pid")) : std::nullopt;
+    return pid && *pid > 0 && *pid <= UINT32_MAX && !text(*value, "version").empty();
 }
 }
 std::wstring daemonEndpoint(const std::filesystem::path& profile) {
@@ -67,6 +86,9 @@ Reply invoke(const Runtime& runtime, const Request& request, const Cancel& cance
     const auto endpoint = daemonEndpoint(runtime.profile);
     if (endpoint.empty()) { result.error = tr(L"Nie można utworzyć profilu Aurelii"); return result; }
     env[L"AURELIA_DAEMON_SOCKET"] = endpoint;
+    if (request.command != Command::login && !daemonIdentified(endpoint)) {
+        result.error = tr(L"Nie można potwierdzić tożsamości daemona Aurelii. Spróbuj ponownie po zakończeniu jego uruchamiania."); return result;
+    }
     env[L"NO_COLOR"] = L"1";
     std::vector<wchar_t> environment;
     for (const auto& [key, value] : env) {

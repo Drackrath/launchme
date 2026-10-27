@@ -223,6 +223,7 @@ struct AppSettings {
     bool aurelia = false;
     bool aurelia_intro_done = false;
     std::unordered_set<std::string> aurelia_standalone; // Per-game opt-in; Steam integration is the default.
+    std::unordered_set<std::string> aurelia_auto_cloud; // Explicit opt-in to sync before/after standalone play.
     // Videos downloaded from ScreenScraper: <video_folder>\<ES-DE system>\videos\<ROM name>.mp4, the
     // layout of ES-DE's downloaded_media (pointing it there shares them). Empty: <config>\media.
     std::filesystem::path video_folder;

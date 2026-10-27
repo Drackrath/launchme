@@ -33,6 +33,17 @@ PR against `main` contains the complete series. PRs remain unmerged for the owne
 Shared foundations may be grouped when splitting would leave an uncompilable intermediate state.
 Any grouping and remaining upstream limitations are recorded in the affected PR.
 
+### Implemented review slices
+
+- [#7](https://github.com/uxandai/launchme/pull/7), `feat/aurelia-runtime`: runtime, protocol parsers and installer.
+- [#8](https://github.com/uxandai/launchme/pull/8), `feat/aurelia-setup`: grouped setup/native UI foundation and
+  working library, launch routing, downloads, manual cloud, DLC/versions/Workshop and friends/chat pages.
+  The shared modal and Launcher declarations ship together so this intermediate state builds and runs.
+- Next slice, `feat/aurelia-lifecycle`: account-bound offline cache, standalone target/ownership validation,
+  optional ordered pre/post-game cloud sync, semantic completion validation and chat reconnect/draft handling.
+
+Each slice is validated from a staged-files-only source snapshot, excluding parallel local changes.
+
 ## References and translation approach
 
 - Heroic [PR #5679](https://github.com/Heroic-Games-Launcher/HeroicGamesLauncher/pull/5679), reviewed at

@@ -49,12 +49,13 @@ void Launcher::aureliaRequest(aurelia::Request request, std::function<void(Launc
     if (!work_.start([=] {
         try {
             const auto stopped = [=] { return !alive->load() || epoch->load() != generation || (cancel && cancel->load()); };
-            finish(send(request, stopped, [=](const json::Value& value) {
+            const aurelia::Event emit = [=](const json::Value& value) {
                 if (!progress || stopped()) return;
                 auto message = std::make_unique<RemoteMessage>();
                 message->run = [=](Launcher& app) { if (epoch->load() == generation && (!cancel || !cancel->load())) progress(app, value); };
                 if (PostMessageW(hwnd, remote_message, 0, reinterpret_cast<LPARAM>(message.get()))) message.release();
-            }));
+            };
+            finish(request.command == C::standalone ? aurelia::launchStandalone(send, request, stopped, emit) : aurelia::checked(request, send(request, stopped, emit)));
         } catch (...) { finish({false, false, {}, tr(L"Polecenie Aurelii nie powiodło się")}); }
     })) done(*this, {false, false, {}, tr(L"Nie można uruchomić zadania Aurelii")});
 }
@@ -73,7 +74,7 @@ void Launcher::installAurelia() {
             if (reply.ok) {
                 app.aurelia_installation_ = aurelia::installed(helperRoot());
                 app.aurelia_version_ = version;
-                app.aurelia_setup_status_ = tr(L"Aurelia jest zainstalowana. Uruchom ponownie Launchme, aby użyć tej wersji.");
+                app.aurelia_setup_status_ = aurelia::flag(reply.data, "already_current") ? tr(L"Aurelia jest aktualna") : tr(L"Aurelia jest zainstalowana. Uruchom ponownie Launchme, aby użyć tej wersji.");
                 // A first installation can sign in now, before restarting into the enabled backend.
 #ifndef LAUNCHME_UI_TEST
                 if (!app.aurelia_transport_ && !app.aurelia_installation_.executable.empty())
@@ -114,15 +115,30 @@ void Launcher::startAureliaLibraryWorker() {
             const auto cancel = [=] { return !alive->load() || epoch->load() != generation; };
             try {
                 auto health = invoke ? invoke({C::health}, cancel, {}) : aurelia::Reply{false, false, {}, tr(L"Najpierw zainstaluj Aurelię")};
-                const uint64_t account = health.ok && aurelia::flag(health.data, "logged_in") ? aurelia::integer(health.data.get("steam_id")).value_or(0) : 0;
+                if (health.ok) {
+                    const auto* logged = health.data.get("logged_in");
+                    if (!logged || logged->type != json::Value::Type::boolean || (logged->flag && !aurelia::integer(health.data.get("steam_id")).value_or(0))) {
+                        health.ok = false; health.error = tr(L"Nieprawidłowa odpowiedź Aurelii");
+                    }
+                }
+                const uint64_t account = health.ok ? aurelia::integer(health.data.get("steam_id")).value_or(0) : 0;
+                const bool authenticated = health.ok && aurelia::flag(health.data, "logged_in");
                 auto message = std::make_unique<LibraryMessage>(); message->account = account; message->refresh = !first;
                 bool valid = health.ok || !invoke;
                 if (account) {
-                    auto reply = invoke({C::library}, cancel, {});
+                    const auto cache = userConfigDirectory() / L"aurelia-library";
+                    auto reply = authenticated ? invoke({C::library}, cancel, {}) : aurelia::Reply{};
+                    bool cached = false;
+                    if (reply.ok && aurelia::library(reply.data, account)) aurelia::saveLibraryCache(cache, account, reply.data);
+                    else if (const auto saved = aurelia::loadLibraryCache(cache, account)) { reply = {true, false, *saved}; cached = true; health.error = tr(L"Biblioteka Aurelii z pamięci podręcznej · offline"); }
                     auto games = reply.ok ? aurelia::library(reply.data, account) : std::nullopt;
                     if (!games) { valid = false; health.error = reply.error.empty() ? tr(L"Nieprawidłowa odpowiedź Aurelii") : reply.error; }
                     else {
                         message->games = std::move(*games);
+                        if (cached) for (auto& game : message->games) {
+                            std::error_code error;
+                            game.installed = game.installed && game.install_directory.is_absolute() && std::filesystem::is_directory(game.install_directory, error);
+                        }
                         // Local visibility/shortcuts remain useful; only the matching Steam account's
                         // data may supplement Aurelia's identity. No client IPC or Web API is used.
                         const auto root = findSteamRoot();
@@ -137,7 +153,7 @@ void Launcher::startAureliaLibraryWorker() {
                 if (cancel()) continue;
                 auto snapshot = std::shared_ptr<LibraryMessage>(message.release());
                 auto state = std::make_unique<RemoteMessage>();
-                state->run = [account, health, epoch, generation, snapshot, valid](Launcher& app) {
+                state->run = [account, health, authenticated, epoch, generation, snapshot, valid](Launcher& app) {
                     if (epoch->load() != generation) return;
                     const bool changed = health.ok && app.aurelia_account_ != account;
                     if (changed) {
@@ -148,9 +164,10 @@ void Launcher::startAureliaLibraryWorker() {
                         app.aurelia_ui_.busy = app.aurelia_ui_.sending = false;
                         app.closeAchievements();
                         if (app.aurelia_ui_.open && app.aurelia_ui_.page != P::setup) app.closeAurelia();
+                        app.aurelia_chat_drafts_.clear(); // closeAurelia may have just saved the old conversation's draft.
                     }
                     if (health.ok) {
-                        app.aurelia_account_ = account; app.aurelia_authenticated_ = account != 0;
+                        app.aurelia_account_ = account; app.aurelia_authenticated_ = account != 0 && authenticated;
                         app.aurelia_account_name_ = text_encoding::wideLenient(aurelia::text(health.data, "account"));
                     }
                     app.aurelia_setup_status_ = health.error;
@@ -225,10 +242,12 @@ void Launcher::aureliaCheckCloud(const Game& game, bool force) {
     if (known.state == aurelia::CloudState::checking || known.state == aurelia::CloudState::syncing ||
         (!force && known.checked && GetTickCount64() - known.checked < 5 * 60 * 1000)) return;
     // A previously observed conflict/incomplete sync stays visible until the user syncs again.
-    if (!force && (known.state == aurelia::CloudState::conflicts || known.state == aurelia::CloudState::incomplete)) return;
+    if (known.state == aurelia::CloudState::conflicts || known.state == aurelia::CloudState::incomplete || known.state == aurelia::CloudState::synced) return;
     known.state = aurelia::CloudState::checking; known.checked = GetTickCount64();
     aureliaRequest({C::cloud_list, game.app_id}, [id = game.app_id](Launcher& app, aurelia::Reply reply) {
-        auto& c = app.aurelia_cloud_[id]; c = aurelia::cloud(reply, false); c.checked = GetTickCount64();
+        auto& c = app.aurelia_cloud_[id];
+        if (c.state != aurelia::CloudState::checking) return; // A sync started while this listing was in flight.
+        c = aurelia::cloud(reply, false); c.checked = GetTickCount64();
         InvalidateRect(app.hwnd_, nullptr, FALSE);
     });
 }
@@ -290,16 +309,39 @@ void Launcher::aureliaLaunch(const Game& game) {
     if (!game.installed) { openAurelia(&game); aurelia_library_action_ = A::install; aureliaPage(P::libraries); return; }
     if (aurelia_downloads_.contains(game.app_id)) { openAurelia(&game); return; }
     aurelia_playing_.insert(game.app_id);
-    aurelia::Request request{C::play, game.app_id}; request.steam = false; // Per-game "Uruchamiaj bez Steam" only.
-    dismissMenu(); closeAurelia(); startLaunchAnimation(game); audio_.launch(); audio_.stopMusic();
-    beginGameSession(game, default_focus_ms);
+    aurelia::Request request{C::standalone, game.app_id}; request.steam = false;
+    request.auto_cloud = settings_.aurelia_auto_cloud.contains(std::to_string(game.app_id));
+    dismissMenu(); closeAurelia();
+    showNotification(NotificationKind::launch, game.name, tr(L"Sprawdzanie uruchomienia przez Aurelię…"));
     // play waits for the game to exit. Closing Launchme only detaches its CLI; it never kills the game.
     aureliaRequest(request, [game](Launcher& app, aurelia::Reply reply) {
-        app.aurelia_playing_.erase(game.app_id); app.stopLaunchAnimation();
-        if (!reply.ok && !reply.cancelled) app.showNotification(NotificationKind::error, tr(L"Nie udało się uruchomić gry"), reply.error);
+        app.aurelia_playing_.erase(game.app_id);
+        if (app.launch_artwork_key_ == gameKey(game)) app.stopLaunchAnimation();
+        if (const auto* outcome = reply.data.get("cloud_result")) {
+            auto& state = app.aurelia_cloud_[game.app_id]; state = aurelia::cloud({true, false, *outcome}, true); state.checked = GetTickCount64();
+        } else app.aurelia_cloud_.erase(game.app_id);
+        if (!reply.ok && !reply.cancelled) {
+            app.showNotification(NotificationKind::error, aurelia::flag(reply.data, "launch_finished") ? tr(L"Synchronizacja zapisów nie powiodła się") : tr(L"Nie udało się uruchomić gry"), reply.error);
+            if (reply.data.get("cloud_result") && app.topModal() == Modal::none) { app.openAurelia(&game); app.aureliaPage(P::cloud); }
+        }
+        // The CLI has ended. Let the normal activity observer account for any actually running
+        // process, but a rejected preflight must not leave a phantom starting session behind.
+        const auto key = gameKey(game);
+        if (const auto it = app.game_sessions_.find(key); it != app.game_sessions_.end() && !it->second.running()) {
+            app.game_sessions_.erase(it);
+            app.launched_here_.erase(key);
+            std::lock_guard lock(app.game_activity_jobs_->mutex); app.game_activity_jobs_->active.erase(key);
+        }
         if (!app.anyActiveSession()) app.audio_.resumeMusic();
-        // Save state is now unknown: do not report a previous successful sync as current.
-        app.aurelia_cloud_.erase(game.app_id); app.aureliaCheckCloud(game, true);
         app.steam_rescan_->wake();
+    }, [game](Launcher& app, json::Value event) {
+        const auto kind = aurelia::text(event, "event");
+        if (kind == "launchme-cloud-down" || kind == "launchme-cloud-up") {
+            app.aurelia_cloud_[game.app_id].state = aurelia::CloudState::syncing;
+        } else if (kind == "launchme-starting") {
+            app.startLaunchAnimation(game); app.audio_.launch(); app.audio_.stopMusic(); app.beginGameSession(game, default_focus_ms);
+            app.aurelia_cloud_.erase(game.app_id); // The game may change its saves.
+        }
+        InvalidateRect(app.hwnd_, nullptr, FALSE);
     });
 }

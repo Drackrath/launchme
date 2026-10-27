@@ -27,6 +27,8 @@ int LauncherUiTest::aureliaIntegration(HWND window) {
         std::mutex mutex; std::vector<aurelia::Request> calls;
         std::atomic_bool send_failure{false}, download{false}, stop_download{false}, helper_failure{false};
         std::atomic_int helper_calls{0};
+        std::atomic_bool logged_in{true}, bad_health{false};
+        std::atomic_uint64_t account{76561198000000001ULL};
         int count(C c) { std::lock_guard lock(mutex); return static_cast<int>(std::count_if(calls.begin(), calls.end(), [c](const auto& r) { return r.command == c; })); }
         aurelia::Request last(C c) { std::lock_guard lock(mutex); for (auto it = calls.rbegin(); it != calls.rend(); ++it) if (it->command == c) return *it; return {}; }
     };
@@ -35,9 +37,13 @@ int LauncherUiTest::aureliaIntegration(HWND window) {
         { std::lock_guard lock(fake->mutex); fake->calls.push_back(r); }
         const auto ok = [](std::string_view s) { return aurelia::Reply{true, false, *json::parse(s)}; };
         switch (r.command) {
-        case C::health: return ok(R"({"logged_in":true,"steam_id":76561198000000001,"account":"Aurelia fixture"})");
+        case C::health: return fake->bad_health ? ok(R"({"unexpected":true})") : ok(std::string("{\"logged_in\":") +
+            (fake->logged_in ? "true" : "false") + ",\"steam_id\":" + std::to_string(fake->account.load()) + ",\"account\":\"Aurelia fixture\"}");
         case C::library: return ok(R"([{"app_id":902,"name":"The Moonlit Archive","is_installed":true,"is_owned":true,"install_path":"D:\\SteamLibrary\\Fixture"},{"app_id":906,"name":"Library worker fixture","is_installed":false,"is_owned":true}])");
         case C::available: return ok(R"({"app_id":902,"available":true,"pinned":true})");
+        case C::launch_targets: return ok(R"({"app_id":902,"targets":[{"platform":"windows","steam_mode":"none","available":true}]})");
+        case C::play: return ok(R"({"app_id":902,"status":"finished"})");
+        case C::downgrade: return ok(R"({"app_id":902,"status":"downgraded","pinned":true})");
         case C::cloud_list: return ok(R"({"app_id":902,"files":[{"filename":"save/slot-1.dat","size":8192},{"filename":"settings.ini","size":123}]})");
         case C::cloud_sync: return r.text.empty() ? ok(R"({"status":"conflicts","conflicts":[{"filename":"slot-1.dat"}]})") : ok(R"({"status":"ok","conflicts":[],"skipped":[],"failed":[]})");
         case C::dlc: return ok(R"({"dlc":[{"app_id":903,"name":"The Moonlit Archive","owned":true,"installed":true,"disabled":false},{"app_id":904,"name":"Beyond the Fog","owned":true,"installed":false,"disabled":false},{"app_id":905,"name":"Soundtrack","owned":false,"installed":false,"disabled":false}]})");
@@ -134,7 +140,7 @@ int LauncherUiTest::aureliaIntegration(HWND window) {
     if (!wait([&] { return app.aurelia_operations_.empty(); }) || !fake->stop_download) return 10331;
     app.aureliaPage(P::friends); if (!wait([&] { return !app.aurelia_ui_.busy; })) return 10332;
     app.aureliaActivate(app.aurelia_ui_.rows.back());
-    if (!wait([&] { return app.aurelia_ui_.live && app.aurelia_ui_.messages.size() == 3; })) return 10333;
+    if (!wait([&] { return app.aurelia_ui_.live && app.aurelia_ui_.messages.size() == 3; }) || app.aurelia_ui_.friend_name != L"Luna") return 10333;
     app.aurelia_ui_.input = L"--help & hello, Luna!"; app.aureliaSubmit();
     if (!wait([&] { return !app.aurelia_ui_.sending; }) || !app.aurelia_ui_.input.empty() || fake->last(C::chat_send).text != L"--help & hello, Luna!") return 10334;
     if (!capture(L"aurelia-chat-tv.png")) return 10335;
@@ -147,6 +153,9 @@ int LauncherUiTest::aureliaIntegration(HWND window) {
     app.keyboardBackspace(); app.closeKeyboard();
     if (app.aurelia_ui_.input != L"Keep my draft") return 10339;
     app.closeAurelia(); if (!app.aurelia_chat_cancel_->load()) return 10340;
+    app.aureliaOpenChat(76561198000000002ULL, L"Luna");
+    if (!wait([&] { return app.aurelia_ui_.live; }) || app.aurelia_ui_.input != L"Keep my draft") return 10354;
+    app.closeAurelia();
     // A stale page result cannot reopen or replace the next page.
     app.openAurelia(&game); app.aureliaPage(P::dlc); app.aureliaPage(P::versions);
     if (!wait([&] { return !app.aurelia_ui_.busy; }) || app.aurelia_ui_.page != P::versions) return 10341;
@@ -164,12 +173,29 @@ int LauncherUiTest::aureliaIntegration(HWND window) {
     app.startAureliaLibraryWorker();
     if (!wait([&] { return app.installed_library_.size() == 2 && fake->count(C::library) > 0; })) return 10349;
     // The integration is additive: normal Play still dispatches Steam, per-game opt-in dispatches Aurelia.
-    dispatched.clear(); Game routed{907, L"Routing fixture"};
+    dispatched.clear(); Game routed{902, L"Routing fixture"};
     app.launchGame(routed); app.finishLaunch();
-    if (dispatched != std::vector<std::wstring>{L"steam://rungameid/907"} || fake->count(C::play)) return 10352;
+    if (dispatched != std::vector<std::wstring>{L"steam://rungameid/902"} || fake->count(C::play)) return 10352;
     app.game_sessions_.clear(); app.game_activity_jobs_->active.clear();
-    app.settings_.aurelia_standalone.insert("907"); dispatched.clear();
+    app.settings_.aurelia_standalone.insert("902"); dispatched.clear();
     app.launchGame(routed);
-    if (!wait([&] { return !app.aurelia_playing_.contains(907); }) || !dispatched.empty() || fake->last(C::play).steam) return 10353;
+    if (!wait([&] { return !app.aurelia_playing_.contains(902); }) || !dispatched.empty() || fake->last(C::play).steam) return 10353;
+    app.settings_.aurelia_auto_cloud.insert("902");
+    const auto before_play = fake->count(C::play);
+    app.launchGame(routed);
+    if (!wait([&] { return !app.aurelia_playing_.contains(902) && !app.aurelia_ui_.busy; }) || fake->count(C::play) != before_play ||
+        app.aurelia_cloud_[902].state != aurelia::CloudState::conflicts) return 10355;
+    app.closeAurelia();
+    fake->logged_in = false; app.steam_rescan_->wake();
+    if (!wait([&] { return !app.aurelia_authenticated_ && app.aurelia_setup_status_.find(L"offline") != std::wstring::npos; }) || app.installed_library_.size() != 2) return 10356;
+    fake->bad_health = true; app.steam_rescan_->wake();
+    if (!wait([&] { return app.aurelia_setup_status_ == tr(L"Nieprawidłowa odpowiedź Aurelii"); }) || app.account_ != 76561198000000001ULL || app.installed_library_.size() != 2) return 10357;
+    fake->bad_health = false; fake->logged_in = true; app.steam_rescan_->wake();
+    if (!wait([&] { return app.aurelia_authenticated_; })) return 10358;
+    app.aureliaOpenChat(76561198000000002ULL, L"Luna");
+    if (!wait([&] { return app.aurelia_ui_.live; })) return 10359;
+    app.aurelia_ui_.input = L"Private account draft";
+    fake->account = 76561198000000003ULL; app.steam_rescan_->wake();
+    if (!wait([&] { return app.account_ == 76561198000000003ULL; }) || !app.aurelia_chat_drafts_.empty() || app.aurelia_ui_.open) return 10360;
     return 0;
 }
