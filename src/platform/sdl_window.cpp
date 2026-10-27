@@ -56,6 +56,16 @@ std::optional<AppEvent> translateSdlEvent(const SDL_Event& event) {
             event.gbutton.which, gamepadButton(event.gbutton.button)};
     case SDL_EVENT_TEXT_INPUT:
         return TextEvent{event.text.text ? event.text.text : ""};
+    case SDL_EVENT_MOUSE_MOTION:
+        return MouseMoveEvent{event.motion.x, event.motion.y, event.motion.xrel, event.motion.yrel};
+    case SDL_EVENT_MOUSE_BUTTON_DOWN:
+    case SDL_EVENT_MOUSE_BUTTON_UP:
+        return MouseButtonEvent{event.button.button, event.button.x, event.button.y,
+                                event.type == SDL_EVENT_MOUSE_BUTTON_DOWN};
+    case SDL_EVENT_WINDOW_FOCUS_GAINED:
+        return WindowFocusEvent{true};
+    case SDL_EVENT_WINDOW_FOCUS_LOST:
+        return WindowFocusEvent{false};
     default:
         return std::nullopt;
     }

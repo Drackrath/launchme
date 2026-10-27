@@ -11,7 +11,7 @@ Windows build is unchanged in behaviour.
 | Build (`cmake/Linux.cmake`) | Configures with CMake + Ninja, Clang or GCC, C++20 without GNU extensions |
 | Shared core (`launchme_core`) | 71 of 124 sources build on Linux |
 | Tests | 14 CTest suites build and pass (search, Steam visibility and shortcuts, play journal, artwork LRU/retry, workers, screensaver, gestures, …) |
-| Launcher window | SDL3 library browser with keyboard/gamepad navigation and selected-game details |
+| Launcher window | SDL3 library browser with keyboard/gamepad navigation and selected-game details; SDL window/input event boundary is available |
 | Renderer, web view | Not started (phases 3–4) |
 
 ## Building on Linux
@@ -116,7 +116,9 @@ This is the largest phase: 48 files in `src/ui` and `src/app` call Direct2D and 
 (`ID2D1RenderTarget`, geometries, effects, `IDWriteTextLayout`), and about 50 use `HWND`.
 
 1. **Window and input**: SDL3 for the window, DPI, keyboard, mouse, touch and text input (IME). The
-   `WM_*` handling in `main.cpp` and `app/input.cpp` moves behind a small event interface.
+   `platform/sdl_window` event boundary now covers window resize/focus, keyboard, text, mouse and
+   gamepad events. The `WM_*` handling in `main.cpp` and `app/input.cpp` still needs to move behind
+   this interface before the real Launcher can build.
 2. **Renderer**: introduce a `Canvas` interface that covers the Direct2D subset Launchme actually uses (rects,
    rounded rects, paths, linear and radial gradients, bitmaps with opacity masks, blur and shadow, clip
    layers, text layouts). Port the Windows renderer onto it first, with identical pixels (the UI tests

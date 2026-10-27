@@ -63,7 +63,26 @@ struct TextEvent {
     std::string text;
 };
 
-using AppEvent = std::variant<QuitEvent, ResizeEvent, KeyEvent, GamepadEvent, TextEvent>;
+struct MouseMoveEvent {
+    float x = 0;
+    float y = 0;
+    float dx = 0;
+    float dy = 0;
+};
+
+struct MouseButtonEvent {
+    std::uint8_t button = 0;
+    float x = 0;
+    float y = 0;
+    bool pressed = false;
+};
+
+struct WindowFocusEvent {
+    bool focused = false;
+};
+
+using AppEvent = std::variant<QuitEvent, ResizeEvent, KeyEvent, GamepadEvent, TextEvent,
+                              MouseMoveEvent, MouseButtonEvent, WindowFocusEvent>;
 
 // Converts one SDL event without changing SDL state. This is also useful to
 // platform-independent consumers that want to test their event handling.
