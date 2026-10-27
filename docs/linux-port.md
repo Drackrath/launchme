@@ -11,17 +11,24 @@ Windows build is unchanged in behaviour.
 | Build (`cmake/Linux.cmake`) | Configures with CMake + Ninja, Clang or GCC, C++20 without GNU extensions |
 | Shared core (`launchme_core`) | 71 of 124 sources build on Linux |
 | Tests | 14 CTest suites build and pass (search, Steam visibility and shortcuts, play journal, artwork LRU/retry, workers, screensaver, gestures, …) |
-| Launcher window, renderer, web view | Not started (phases 3–4) |
+| Launcher window | SDL3 library browser with keyboard/gamepad navigation and selected-game details |
+| Renderer, web view | Not started (phases 3–4) |
 
 ## Building on Linux
 
-Packages (Arch names): `cmake ninja clang icu openssl libsecret pkgconf`.
+Packages (Arch names): `cmake ninja clang icu openssl libsecret pkgconf sdl3`.
 
 ```sh
 cmake -S . -B build/linux -G Ninja -DCMAKE_BUILD_TYPE=Debug
 cmake --build build/linux
+./build/linux/launchme
 ctest --test-dir build/linux --output-on-failure
 ```
+
+The SDL3 launcher opens a native window, discovers installed Steam games, and shows the
+selected game's basic details. Use the arrow keys or a gamepad D-pad to navigate; **Escape**
+or the gamepad Back button closes the window. SDL, SDL_ttf, renderer, and font failures are
+reported on stderr.
 
 The data folder is `$XDG_DATA_HOME/launchme` (normally `~/.local/share/launchme`); `LAUNCHME_CONFIG_DIR`
 still overrides it.
