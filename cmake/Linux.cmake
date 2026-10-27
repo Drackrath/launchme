@@ -12,6 +12,10 @@ find_package(ICU REQUIRED COMPONENTS uc i18n)
 find_package(OpenSSL REQUIRED COMPONENTS Crypto)
 pkg_check_modules(LIBSECRET REQUIRED IMPORTED_TARGET libsecret-1)
 find_package(CURL REQUIRED)
+find_path(SDL3_INCLUDE_DIR SDL3/SDL.h REQUIRED)
+find_library(SDL3_LIBRARY NAMES SDL3 REQUIRED)
+find_path(SDL3_TTF_INCLUDE_DIR SDL3_ttf/SDL_ttf.h REQUIRED)
+find_library(SDL3_TTF_LIBRARY NAMES SDL3_ttf REQUIRED)
 
 set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
@@ -130,6 +134,7 @@ set(LAUNCHME_CORE_LIBS miniz Threads::Threads ICU::uc ICU::i18n OpenSSL::Crypto 
 
 # Processes: launching games and store clients, suspending them, /proc.
 set(LAUNCHME_LINUX_PROCESS_SOURCES
+    src/platform/launch.cpp
 )
 
 # Image decoding and encoding (WIC on Windows).
@@ -170,6 +175,11 @@ target_include_directories(launchme_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src
 target_link_libraries(launchme_core PUBLIC ${LAUNCHME_CORE_LIBS})
 get_target_property(miniz_includes miniz INTERFACE_INCLUDE_DIRECTORIES)
 set_target_properties(miniz PROPERTIES INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${miniz_includes}")
+
+add_executable(launchme src/linux/main.cpp)
+launchme_target_defaults(launchme)
+target_include_directories(launchme PRIVATE "${SDL3_INCLUDE_DIR}" "${SDL3_TTF_INCLUDE_DIR}")
+target_link_libraries(launchme PRIVATE launchme_core "${SDL3_LIBRARY}" "${SDL3_TTF_LIBRARY}")
 
 # Same signature as the Windows build's helper (the WIN32 flag is ignored).
 function(launchme_executable name)

@@ -192,11 +192,14 @@ manual (network, real accounts).
 
 ### Linux (work in progress)
 
-A native Linux port is under way; so far the shared core and its tests build, but not the launcher itself.
+A native Linux port is under way. The Linux build now includes a native SDL3 launcher shell;
+the full library UI, renderer and web view are still being ported.
 Status, plan and conventions: [docs/linux-port.md](docs/linux-port.md).
 
 ```sh
-cmake -S . -B build/linux -G Ninja && cmake --build build/linux && ctest --test-dir build/linux
+cmake -S . -B build/linux -G Ninja -DCMAKE_BUILD_TYPE=Debug
+cmake --build build/linux
+./build/linux/launchme
 ```
 
 ## License

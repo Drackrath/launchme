@@ -1,14 +1,27 @@
 #include "launch.hpp"
 #ifdef _WIN32
 #include <shellapi.h>
-#endif
-
 #include <algorithm>
 #include <cwctype>
 #include <filesystem>
 #include <string>
+#else
+#include <cerrno>
+#include <codecvt>
+#include <filesystem>
+#include <locale>
+#include <spawn.h>
+#include <string>
+#include <unistd.h>
+#include <vector>
+#if defined(__GLIBC__)
+#include <spawn.h>
+#endif
+extern char** environ;
+#endif
 
 namespace {
+#ifdef _WIN32
 thread_local HANDLE launched_process = nullptr;
 
 std::wstring lowerExtension(const std::wstring& target) {
@@ -24,15 +37,61 @@ std::wstring systemPowerShell() {
     if (!length || length >= MAX_PATH) return L"powershell.exe";
     return (std::filesystem::path(folder) / L"WindowsPowerShell" / L"v1.0" / L"powershell.exe").wstring();
 }
+#else
+thread_local HANDLE launched_process = 0;
+
+std::string utf8(const std::wstring& value) {
+    return std::wstring_convert<std::codecvt_utf8<wchar_t>>{}.to_bytes(value);
+}
+
+std::vector<std::string> splitArguments(const std::string& command_line) {
+    std::vector<std::string> result;
+    std::string argument;
+    bool quoted = false;
+    for (size_t i = 0; i < command_line.size(); ++i) {
+        const char character = command_line[i];
+        if (character == '\\' && i + 1 < command_line.size() && command_line[i + 1] == '"') {
+            argument += command_line[++i];
+        } else if (character == '"') {
+            quoted = !quoted;
+        } else if (character == ' ' || character == '\t') {
+            if (!argument.empty() || quoted) {
+                result.push_back(std::move(argument));
+                argument.clear();
+            }
+        } else {
+            argument += character;
+        }
+    }
+    if (!argument.empty() || quoted) result.push_back(std::move(argument));
+    return result;
+}
+
+INT_PTR spawnError(int error) {
+    switch (error) {
+    case ENOENT: return launch_error::file_missing;
+    case ENOTDIR: return launch_error::path_missing;
+    case EACCES: case EPERM: return launch_error::denied;
+    case ENOEXEC: return launch_error::no_handler;
+    default: return launch_error::other;
+    }
+}
+#endif
 }
 
 HANDLE takeLaunchedProcess() {
+#ifdef _WIN32
     const HANDLE process = launched_process;
     launched_process = nullptr;
+#else
+    const HANDLE process = launched_process;
+    launched_process = 0;
+#endif
     return process;
 }
 
 INT_PTR executeGameAction(HWND window, const GameAction& action) {
+#ifdef _WIN32
     if (launched_process) { CloseHandle(launched_process); launched_process = nullptr; }
     if (!action) return launch_error::other;
     // URI launches may go through an already running Steam/store process rather than a new
@@ -70,4 +129,43 @@ INT_PTR executeGameAction(HWND window, const GameAction& action) {
     case ERROR_NO_ASSOCIATION: case ERROR_DDE_FAIL: return launch_error::no_handler;
     default: return launch_error::other;
     }
+#else
+    (void)window;
+    launched_process = 0;
+    if (!action) return launch_error::other;
+
+    const bool is_uri = action.target.find(L"://") != std::wstring::npos;
+    std::vector<std::string> arguments;
+    std::string executable;
+    if (is_uri) {
+        executable = "xdg-open";
+        arguments.push_back(utf8(action.target));
+    } else {
+        executable = utf8(action.target);
+        arguments.push_back(executable);
+        for (auto& argument : splitArguments(utf8(action.arguments))) arguments.push_back(std::move(argument));
+    }
+
+    std::vector<char*> argv;
+    argv.reserve(arguments.size() + 1);
+    for (auto& argument : arguments) argv.push_back(argument.data());
+    argv.push_back(nullptr);
+
+    posix_spawn_file_actions_t file_actions;
+    if (posix_spawn_file_actions_init(&file_actions) != 0) return launch_error::other;
+#if defined(__GLIBC__)
+    const auto directory = action.working_directory.string();
+    if (!directory.empty() && posix_spawn_file_actions_addchdir_np(&file_actions, directory.c_str()) != 0) {
+        posix_spawn_file_actions_destroy(&file_actions);
+        return launch_error::path_missing;
+    }
+#endif
+    pid_t process = 0;
+    const int error = is_uri ? posix_spawnp(&process, executable.c_str(), &file_actions, nullptr, argv.data(), environ)
+                             : posix_spawn(&process, executable.c_str(), &file_actions, nullptr, argv.data(), environ);
+    posix_spawn_file_actions_destroy(&file_actions);
+    if (error != 0) return spawnError(error);
+    launched_process = process;
+    return 33;
+#endif
 }

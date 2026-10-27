@@ -2,6 +2,12 @@
 #include "../model/game.hpp"
 #ifdef _WIN32
 #include <Windows.h>
+#else
+#include <cstdint>
+#include <sys/types.h>
+using HWND = void*;
+using HANDLE = pid_t;
+using INT_PTR = std::intptr_t;
 #endif
 
 using ActionExecutor = INT_PTR (*)(HWND, const GameAction&);
