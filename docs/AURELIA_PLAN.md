@@ -39,10 +39,20 @@ Any grouping and remaining upstream limitations are recorded in the affected PR.
 - [#8](https://github.com/uxandai/launchme/pull/8), `feat/aurelia-setup`: grouped setup/native UI foundation and
   working library, launch routing, downloads, manual cloud, DLC/versions/Workshop and friends/chat pages.
   The shared modal and Launcher declarations ship together so this intermediate state builds and runs.
-- Next slice, `feat/aurelia-lifecycle`: account-bound offline cache, standalone target/ownership validation,
+- [#9](https://github.com/uxandai/launchme/pull/9), `feat/aurelia-lifecycle`: account-bound offline cache, standalone target/ownership validation,
   optional ordered pre/post-game cloud sync, semantic completion validation and chat reconnect/draft handling.
 
 Each slice is validated from a staged-files-only source snapshot, excluding parallel local changes.
+
+### Final verification (2026-10-27)
+
+- VS 2026 Release application and full test build passed from the isolated source snapshot.
+- All **110/110 CTest tests passed** after the last code change (`f5e6e0a`).
+- Aurelia process/protocol tests and native end-to-end UI tests passed with synthetic accounts and transports.
+- Desktop/TV PNGs were inspected: setup, standalone toggle, cloud status/conflicts, DLC, versions,
+  downgrade confirmation and live chat. Inspection caught and fixed a dangling friend-name reference.
+- No real sign-in, Steam account switch, game install or save mutation was used for these checks.
+- PRs remain open for review; the integration branch targets `main`. Version 0.4.0 is a later release decision.
 
 ## References and translation approach
 
