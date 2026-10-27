@@ -4,6 +4,7 @@
 #include "../ui/launch_animation.hpp"
 #include "launcher_internal.hpp"
 #include "../library/search.hpp"
+#include "../platform/text_encoding.hpp"
 #include "../ui/category_menu.hpp"
 #include "../ui/context_menu.hpp"
 #include "../ui/grid_layout.hpp"
@@ -137,13 +138,16 @@ void Launcher::openLibrary() {
 
 void Launcher::openCategoryLibrary(const std::string& id) {
     const auto category = std::find_if(categories_.begin(), categories_.end(), [&](const Category& item) { return item.id == id; });
-    if (category == categories_.end() || std::none_of(category->games.begin(), category->games.end(), [](const Game& game) { return isGame(game); })) return;
+    // Wydawcy and Developerzy: a board of their logos; a logo opens its games (openPlatform).
+    const bool board = studioCategory(id);
+    if (category == categories_.end() || (!board && std::none_of(category->games.begin(), category->games.end(), [](const Game& game) { return isGame(game); })) ||
+        category->games.empty()) return;
     rememberPlace(); library_controls_ = {};
-    pc_source_.reset(); library_console_.clear();
+    pc_source_.reset(); library_console_.clear(); studio_board_return_.clear();
     library_category_ = id;
     category_library_title_ = category->title;
     category_library_.clear();
-    for (const auto& game : category->games) if (isGame(game)) category_library_.push_back(game);
+    for (const auto& game : category->games) if (board || isGame(game)) category_library_.push_back(game);
     screen_ = ScreenMode::library;
     grid_scroll_ = 0;
     closeQuick();
@@ -154,15 +158,19 @@ void Launcher::openCategoryLibrary(const std::string& id) {
 
 const std::vector<Game>& Launcher::librarySource() const {
     static const std::vector<Game> none;
-    if (!library_console_.empty()) { const auto found = platform_games_.find(library_console_); return found == platform_games_.end() ? none : found->second; }
+    if (!library_console_.empty()) { const auto* games = consoleGames(library_console_); return games ? *games : none; }
     return pc_source_ ? pc_library_ : !library_category_.empty() ? category_library_ : grouped_library_;
 }
 
 // A console's games: a library like a PC store's (its own view, order, filter and search,
 // saved as "console:<name>"), in every home layout.
 void Launcher::openPlatform(const std::wstring& name) {
-    const auto found = platform_games_.find(name);
-    if (found == platform_games_.end() || found->second.empty()) return;
+    const auto* games = consoleGames(name); // A console's, or a publisher's or developer's.
+    if (!games || games->empty()) return;
+    // From a board of logos (Wydawcy, Developerzy): Back returns to it.
+    // Another studio's tab keeps it.
+    const bool studio_tab = studios::parse(text_encoding::utf8(library_console_)) && studios::parse(text_encoding::utf8(name));
+    studio_board_return_ = studioBoard() ? library_category_ : studio_tab ? studio_board_return_ : std::string{};
     rememberPlace(); library_controls_ = {};
     pc_source_.reset();
     library_category_.clear(); category_library_.clear();
@@ -198,6 +206,7 @@ void Launcher::back() {
     case Modal::companion_picker: companionPicker(false); return;
     case Modal::file_browser: closeFileBrowser(); return; // Over every panel that opens it.
     case Modal::custom_editor: closeCustomEditor(); return;
+    case Modal::metadata: desktopMetaClose(); return;
     case Modal::identify: closeIdentify(); return;
     case Modal::gog_install: gogInstallKey(VK_ESCAPE, false); return;
     case Modal::tarot: closeTarot(); return;
@@ -292,6 +301,13 @@ void Launcher::back() {
     }
     if (screen_ == ScreenMode::store) { store_jobs_->generation.fetch_add(1); store_loading_ = false; }
     if (screen_ == ScreenMode::platform_games) { showCategory(category_); return; }
+    if (screen_ == ScreenMode::library && !library_console_.empty() && !studio_board_return_.empty()) {
+        // A studio's games opened from the board of logos: back to the board, on its logo.
+        const auto studio = library_console_;
+        openCategoryLibrary(std::exchange(studio_board_return_, {}));
+        for (size_t i = 0; i < cards_.size(); ++i) if (cards_[i].game.platform == studio) { focusCard(i); break; }
+        return;
+    }
     if (screen_ != ScreenMode::shelves) { showCategory(category_); return; }
     if (xmbActive() && xmb_row_ >= 0) { xmbFocus(xmb_column_, -1); audio_.navigate(); return; }
     if (flixActive() && flix_row_ > 0) { flixFocus(0, categories_.empty() ? 0 : categories_[0].selected); audio_.navigate(); return; }
@@ -311,6 +327,7 @@ void Launcher::onCharacter(wchar_t character) {
     case Modal::file_browser: fileBrowserCharacter(character); return;
     case Modal::library_dialog: collectionDialogEdit(character); return;
     case Modal::custom_editor: customEditorInsert(std::wstring_view(&character, 1)); return;
+    case Modal::metadata: desktopMetaChar(character); return;
     case Modal::identify: identifyEdit(character); return;
     case Modal::gog_install: case Modal::companion_picker: case Modal::tarot: case Modal::whats_new: case Modal::profile: return;
     default: break; // No dialog, or one without a text field (Pobierz brakujące okładki).
@@ -842,6 +859,7 @@ void Launcher::menuAccept() {
     case Item::exclude: excludeGame(game); break;
     case Item::uninstall: uninstallGame(game); break;
     case Item::launch: dismissMenu(); openLaunchEditor(game); break;
+    case Item::metadata: dismissMenu(); if (desktop_mode_) desktopMetaOpen(game); else openMetadata(game); break;
     default: openArtworkBrowser(game); break;
     }
 }

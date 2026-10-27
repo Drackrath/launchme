@@ -13,7 +13,8 @@ namespace context_menu {
 // is suspended, "close" takes the place of "retry". Plugin rows follow the primary actions.
 // The crop editor opens from "Zmień grafikę" (the artwork browser's "Popraw kadr").
 // "launch": Details' "…" → Opcje uruchamiania (a game's file, options and folder; Steam: its options).
-enum class Item { primary, suspend, plugin, details, artwork, retry, close, folder, hide, exclude, uninstall, launch };
+// "metadata": Details' "…" → Edytuj metadane (the player's own title, studios, dates and play time).
+enum class Item { primary, suspend, plugin, details, artwork, retry, close, folder, hide, exclude, uninstall, launch, metadata };
 struct Rows {
     bool suspend = false;
     int plugins = 0;
@@ -22,14 +23,15 @@ struct Rows {
     bool secondary_only = false; // PSfive has a separate primary button; Details leads its menu.
     bool uninstall = false;      // Details' "…" and the game's menu: an installed game Launchme knows how to remove.
     bool launch = false;         // Details' "…": Launcher::launchEditable.
+    bool metadata = false;       // Details' "…": a game with its own key.
 };
 constexpr auto order(Rows options) {
     return options.secondary_only ?
-        std::array{Item::details, Item::primary, Item::suspend, Item::plugin, Item::artwork, Item::retry, Item::close, Item::folder, Item::launch, Item::hide, Item::exclude, Item::uninstall} :
-        std::array{Item::primary, Item::suspend, Item::plugin, Item::details, Item::artwork, Item::retry, Item::close, Item::folder, Item::launch, Item::hide, Item::exclude, Item::uninstall};
+        std::array{Item::details, Item::primary, Item::suspend, Item::plugin, Item::artwork, Item::retry, Item::close, Item::folder, Item::launch, Item::metadata, Item::hide, Item::exclude, Item::uninstall} :
+        std::array{Item::primary, Item::suspend, Item::plugin, Item::details, Item::artwork, Item::retry, Item::close, Item::folder, Item::launch, Item::metadata, Item::hide, Item::exclude, Item::uninstall};
 }
 constexpr bool visible(Item entry, Rows options) {
-    if (options.detail_options) return entry == Item::artwork || (entry == Item::launch && options.launch) || (entry == Item::folder && options.folder) ||
+    if (options.detail_options) return entry == Item::artwork || (entry == Item::launch && options.launch) || (entry == Item::metadata && options.metadata) || (entry == Item::folder && options.folder) ||
         (entry == Item::hide && options.hide) || (entry == Item::exclude && options.exclude) || (entry == Item::uninstall && options.uninstall);
     switch (entry) {
     case Item::primary: return !options.secondary_only;
@@ -38,7 +40,7 @@ constexpr bool visible(Item entry, Rows options) {
     case Item::retry: return !options.session;
     case Item::close: return options.session;
     case Item::uninstall: return options.uninstall && !options.session; // Last and red in the game's menu too ("…" on PSfive); never while it runs.
-    case Item::folder: case Item::hide: case Item::exclude: case Item::launch: return false;
+    case Item::folder: case Item::hide: case Item::exclude: case Item::launch: case Item::metadata: return false;
     default: return true;
     }
 }

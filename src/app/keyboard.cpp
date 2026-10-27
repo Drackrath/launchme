@@ -9,6 +9,7 @@ bool Launcher::textFieldActive() const {
     return (libraryDialogOpen() && library_dialog_.textField() && library_dialog_.focus == -2) ||
            (identifyOpen() && identify_state_.query_focus) ||
            (customEditorOpen() && custom_game_ui::field(custom_editor_.focus) >= 0) ||
+           (metadataOpen() && desktop_meta_.focus < desktop_ui::meta_fields) ||
            editingArtworkSearch() || editingSecret() || searching();
 }
 
@@ -24,6 +25,7 @@ void Launcher::openKeyboard() {
             library_dialog_.focus = -2;
         } else if (identifyOpen()) { identify_state_.query_focus = true; identify_state_.back_focus = false; }
         else if (customEditorOpen()) customEditorFocus(custom_game_ui::Item::name);
+        else if (metadataOpen()) { desktop_meta_.focus = 0; desktop_meta_.caret = desktop_meta_.fields[0].size(); } // Tytuł.
         else if (artworkOpen()) {
             if (artwork_state_.applying) return;
             artwork_state_.gallery = false; artwork_state_.search_focus = true; artwork_state_.query_selected = true;
@@ -81,6 +83,7 @@ void Launcher::keyboardBackspace() {
     if (libraryDialogOpen()) libraryDialogKey(VK_BACK, false);
     else if (identifyOpen()) identifyKey(VK_BACK, false);
     else if (customEditorOpen()) customEditorKey(VK_BACK, false);
+    else if (metadataOpen()) desktopMetaKey(VK_BACK);
     else if (editingSecret() || editingArtworkSearch()) eraseSecret();
     else if (searching()) eraseSearchCharacter();
 }
@@ -90,6 +93,7 @@ void Launcher::keyboardBackspace() {
 // Enter would start the first result, so they only hide the keyboard.
 void Launcher::keyboardDone() {
     closeKeyboard();
+    if (metadataOpen()) return; // The field keeps its text; Zapisz saves them all.
     if ((screen_ == ScreenMode::search || screen_ == ScreenMode::store) && !libraryDialogOpen() && !identifyOpen() && !customEditorOpen()) return;
     enterDown(false);
     enterUp();
@@ -105,6 +109,7 @@ void Launcher::keyboardCaret(int amount) {
         audio_.navigate();
     };
     if (customEditorOpen() && custom_game_ui::field(custom_editor_.focus) >= 0) customEditorKey(amount < 0 ? VK_LEFT : VK_RIGHT, false);
+    else if (metadataOpen() && desktop_meta_.focus < desktop_ui::meta_fields) desktopMetaKey(amount < 0 ? VK_LEFT : VK_RIGHT);
     else if (pluginPageTyping() || companionTyping()) navigationBoundary(); // Append-only.
     else if (libraryTyping()) step(library_controls_.after, library_controls_.query.size());
     else if (searching()) step(search_after_, search_query_.size());
@@ -113,7 +118,8 @@ void Launcher::keyboardCaret(int amount) {
 
 size_t Launcher::keyboardPreviewCaret() const {
     if (customEditorOpen() && custom_game_ui::field(custom_editor_.focus) >= 0) return custom_editor_.caret;
-    if (!libraryDialogOpen() && !identifyOpen() && !customEditorOpen() && !artworkOpen() && !editingSecret() && !pluginPageTyping() && !companionTyping()) {
+    if (metadataOpen() && desktop_meta_.focus < desktop_ui::meta_fields) return desktop_meta_.caret;
+    if (!libraryDialogOpen() && !identifyOpen() && !customEditorOpen() && !metadataOpen() && !artworkOpen() && !editingSecret() && !pluginPageTyping() && !companionTyping()) {
         if (libraryTyping()) return library_controls_.caret();
         return searchCaret();
     }
@@ -129,7 +135,7 @@ void Launcher::autoKeyboard() {
     const bool entered = field && !text_field_shown_;
     text_field_shown_ = field;
     if (!entered || keyboard_.open || !pad_input_) return; // pad_input_ is only set with the launcher in front.
-    if (customEditorOpen() || artworkOpen() || identifyOpen() || companionOpen()) return; // Her chat: A or X on the field.
+    if (customEditorOpen() || metadataOpen() || artworkOpen() || identifyOpen() || companionOpen()) return; // Her chat: A or X on the field.
     if (libraryDialogOpen() && library_dialog_.page != library_manager_ui::Page::name) return;
     osk::open(keyboard_);
     audio_.drawer();
@@ -143,6 +149,7 @@ std::wstring Launcher::keyboardPreview() const {
         const int field = custom_game_ui::field(custom_editor_.focus);
         return field >= 0 ? custom_editor_.fields[static_cast<size_t>(field)] : std::wstring{};
     }
+    if (metadataOpen()) return desktop_meta_.focus < desktop_ui::meta_fields ? desktop_meta_.fields[static_cast<size_t>(desktop_meta_.focus)] : std::wstring{};
     if (artworkOpen()) return artwork_state_.query;
     if (editingSecret()) {
         // Keys and callbacks stay hidden, as in their field.

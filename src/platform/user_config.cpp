@@ -216,15 +216,17 @@ AppSettings parseAppSettings(std::string_view text) {
         else if (key == "desktop_sort" && value.size() == 1 && value[0] >= '1' && value[0] <= '4') settings.desktop_sort = value[0] - '0';
         else if ((key == "desktop_section" || key == "desktop_game") && value.size() < 400 &&
                  value.find_first_of("\r\n") == std::string_view::npos) (key == "desktop_section" ? settings.desktop_section : settings.desktop_game) = std::string(value);
-        else if (key == "desktop_collapsed") {
+        else if (key == "desktop_collapsed" || key == "desktop_expanded") {
             while (!value.empty()) {
                 const auto comma = value.find(',');
                 const auto group = trim(value.substr(0, comma));
-                if (group == "library" || group == "platforms" || group == "emulation" || group == "collections") settings.desktop_collapsed.emplace(group);
+                if (group == "library" || group == "platforms" || group == "emulation" || group == "collections" || group == "publishers" || group == "developers")
+                    (key == "desktop_collapsed" ? settings.desktop_collapsed : settings.desktop_expanded).emplace(group);
                 value = comma == std::string_view::npos ? std::string_view{} : value.substr(comma + 1);
             }
         }
         else if (key == "show_emulation" && (value == "0" || value == "1")) settings.show_emulation = value == "1";
+        else if (key == "studio_libraries" && (value == "0" || value == "1")) settings.studio_libraries = value == "1";
         else if (key == "show_private" && (value == "0" || value == "1")) settings.show_private = value == "1";
         else if (key == "show_store" && (value == "0" || value == "1")) settings.show_store = value == "1";
         else if (key == "show_categories" && (value == "0" || value == "1")) settings.show_categories = value == "1";
@@ -478,7 +480,7 @@ AppSettings parseAppSettings(std::string_view text) {
                 }
                 value = comma == value.npos ? std::string_view{} : value.substr(comma + 1);
             }
-        } else if (key == "hidden_collections" || key == "collection_order" || key == "pc_platforms") {
+        } else if (key == "hidden_collections" || key == "collection_order" || key == "pc_platforms" || key == "hidden_studios" || key == "studio_order") {
             while (!value.empty()) {
                 const auto comma = value.find(',');
                 const auto id = trim(value.substr(0, comma));
@@ -488,6 +490,8 @@ AppSettings parseAppSettings(std::string_view text) {
                             id == "multimc")
                             settings.enabled_pc_sources.emplace(id);
                     } else if (key == "hidden_collections") settings.hidden_collections.emplace(id);
+                    else if (key == "hidden_studios") settings.hidden_studios.emplace(id);
+                    else if (key == "studio_order") { if (std::find(settings.studio_order.begin(), settings.studio_order.end(), id) == settings.studio_order.end()) settings.studio_order.emplace_back(id); }
                     else settings.collection_order.emplace_back(id);
                 }
                 value = comma == std::string_view::npos ? std::string_view{} : value.substr(comma + 1);
@@ -556,6 +560,7 @@ bool saveAppSettings(const AppSettings& settings, const std::filesystem::path& f
            << "drawer_fade_fraction=" << settings.drawer.fade_fraction << '\n'
            << "show_uninstalled=" << settings.show_uninstalled << '\n'
            << "show_emulation=" << settings.show_emulation << '\n'
+           << "studio_libraries=" << settings.studio_libraries << '\n'
            << "show_private=" << settings.show_private << '\n'
            << "show_store=" << settings.show_store << '\n'
            << "quick_resume=" << settings.quick_resume << '\n'
@@ -712,13 +717,26 @@ bool saveAppSettings(const AppSettings& settings, const std::filesystem::path& f
         output << id;
         first = false;
     }
+    output << "\nhidden_studios=";
+    std::vector<std::string> hidden_studios(settings.hidden_studios.begin(), settings.hidden_studios.end());
+    std::sort(hidden_studios.begin(), hidden_studios.end());
+    for (size_t i = 0; i < hidden_studios.size(); ++i) output << (i ? "," : "") << hidden_studios[i];
+    output << "\nstudio_order=";
+    for (size_t i = 0; i < settings.studio_order.size(); ++i) output << (i ? "," : "") << settings.studio_order[i];
     output << '\n';
     if (settings.desktop_window[2] > 0 && settings.desktop_window[3] > 0)
         output << "desktop_window=" << settings.desktop_window[0] << ',' << settings.desktop_window[1] << ','
                << settings.desktop_window[2] << ',' << settings.desktop_window[3] << '\n';
     output << "desktop_collapsed=";
     first = true;
-    for (const auto* group : {"library", "platforms", "emulation", "collections"}) if (settings.desktop_collapsed.contains(group)) {
+    for (const auto* group : {"library", "platforms", "emulation", "collections", "publishers", "developers"}) if (settings.desktop_collapsed.contains(group)) {
+        if (!first) output << ',';
+        output << group;
+        first = false;
+    }
+    output << "\ndesktop_expanded=";
+    first = true;
+    for (const auto* group : {"publishers", "developers"}) if (settings.desktop_expanded.contains(group)) {
         if (!first) output << ',';
         output << group;
         first = false;

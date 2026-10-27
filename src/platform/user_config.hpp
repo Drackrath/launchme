@@ -41,6 +41,8 @@ struct AppSettings {
     std::string desktop_section = "all";
     std::string desktop_game;
     std::unordered_set<std::string> desktop_collapsed;
+    // Sidebar groups folded by default (Wydawcy, Developerzy): the ones the player opened.
+    std::unordered_set<std::string> desktop_expanded;
     bool show_uninstalled = true;
     bool show_emulation = true;
     // Steam games the account marked hidden or private appear like the others (shelves.cpp).
@@ -241,6 +243,11 @@ struct AppSettings {
     LanguageChoice language = LanguageChoice::system;
     std::unordered_set<std::string> hidden_collections;
     std::vector<std::string> collection_order;
+    // Wydawcy and Developerzy (src/app/studio_libraries.cpp): the libraries of the publishers and developers
+    // with a logo; hidden ones ("publisher:capcom") and the player's order.
+    bool studio_libraries = true;
+    std::unordered_set<std::string> hidden_studios;
+    std::vector<std::string> studio_order;
     bool quick_resume = false; // Experimental: suspend/resume running games from the game menu.
     // Guide/PS opens the launcher menu (hold: power). Off when Game Bar or Steam
     // already own that button on this PC.

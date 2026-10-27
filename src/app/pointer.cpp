@@ -50,6 +50,7 @@ void Launcher::click(float mouse_x, float mouse_y, bool double_click) {
     case Modal::file_browser: fileBrowserClick(x, y, double_click); return;
     case Modal::library_dialog: if (!double_click) collectionDialogClick(x, y); return;
     case Modal::custom_editor: if (!double_click) customEditorClick(x, y); return;
+    case Modal::metadata: if (!double_click) metadataClick(x, y); return;
     case Modal::bulk_covers: {
         const int hit = bulk_covers_ui::Layout{view.width, view.height, bulk_ui_.buttons()}.hit(x, y);
         if (hit >= 0 && !double_click) { bulk_ui_.focus = hit; bulkCoversKey(VK_RETURN, false); }
@@ -288,6 +289,7 @@ bool Launcher::hoverButton(float mouse_x, float mouse_y) const {
         const auto hit = custom_game_ui::Layout{view.width, view.height}.hit(x, y, custom_editor_.editing());
         return hit && custom_game_ui::field(*hit) < 0;
     }
+    case Modal::metadata: return desktop_ui::MetaLayout{view.width, view.height}.hit(x, y) >= desktop_ui::meta_fields;
     case Modal::bulk_covers: return bulk_covers_ui::Layout{view.width, view.height, bulk_ui_.buttons()}.hit(x, y) >= 0;
     case Modal::identify: {
         const identify_ui::Layout layout{view.width, view.height};
@@ -449,6 +451,11 @@ void Launcher::mouseMove(float mouse_x, float mouse_y) {
     if (topModal() == Modal::profile) {
         const auto view = renderer_.viewport();
         profilePointer(mouse_x / view.scale, mouse_y / view.scale);
+        return;
+    }
+    if (topModal() == Modal::metadata) {
+        const auto view = renderer_.viewport();
+        metadataPointer(mouse_x / view.scale, mouse_y / view.scale);
         return;
     }
     if (desktopTextDrag(mouse_x)) return; // Selecting in a desktop field.

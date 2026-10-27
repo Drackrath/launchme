@@ -79,7 +79,11 @@ void Launcher::paint(bool overlay) {
     context.rating_label = ratingLabel();
     context.detail_rating = ratingDetailAction();
     context.detail_identify = identifyDetailAction();
-    context.library_controls = libraryControls() ? &library_controls_ : nullptr;
+    // The board of logos has no order, filter or view of its own: what it is says a line under its tabs.
+    context.library_controls = libraryControls() && !studioBoard() ? &library_controls_ : nullptr;
+    if (studioBoard()) context.library_note = library_category_ == "publishers" ?
+        tr(L"Wydawcy gier z Twojej biblioteki, którzy mają logo. Wybierz logo, aby zobaczyć ich gry.") :
+        tr(L"Twórcy gier z Twojej biblioteki, którzy mają logo. Wybierz logo, aby zobaczyć ich gry.");
     context.library_menu_progress = library_menu_progress_;
     context.library_views_progress = library_views_progress_;
     context.library_dropdown_progress = library_dropdown_progress_;
@@ -103,7 +107,7 @@ void Launcher::paint(bool overlay) {
     }
     if (libraryTabsShown()) {
         const auto tabs = libraryTabs();
-        for (const auto& tab : tabs) context.library_tabs.push_back({tab.title, tab.count});
+        for (const auto& tab : tabs) context.library_tabs.push_back({tab.title, tab.count, tab.mark});
         context.library_tab = libraryTabIndex(tabs);
         if (library_tab_glide_.valid) context.library_tab_glide = library_tab_glide_.value.value;
     }
@@ -238,6 +242,7 @@ void Launcher::paint(bool overlay) {
         context.primary_enabled = actionEnabled(cards_[selected_].game);
     }
     context.grid_scroll = grid_scroll_;
+    context.perfect_games = perfect_games_.empty() ? nullptr : &perfect_games_;
     context.main_row = category_ == 0;
     context.category = categories_.empty() ? tr(L"Ostatnio grane") : categories_[category_].title;
     if (screen_ == ScreenMode::platform_games) context.category = nested_platform_;
@@ -254,6 +259,7 @@ void Launcher::paint(bool overlay) {
     context.menu_hide = menu_rows.hide;
     context.menu_uninstall = menu_rows.uninstall;
     context.menu_launch = menu_rows.launch;
+    context.menu_metadata = menu_rows.metadata;
     // Kept while the menu fades out so its height does not jump mid-animation.
     if (!cards_.empty()) for (const auto& action : pluginContext(cards_[selected_].game)) context.menu_plugins.push_back(action.item.title.localized());
     context.menu_beside = menuBeside();
@@ -457,8 +463,7 @@ void Launcher::paint(bool overlay) {
                     std::count_if(category.games.begin(), category.games.end(), [](const Game& item) { return isGame(item); })));
                 context.psfive_caption = game.name == category.title ? count : category.title + L" · " + count;
             } else if (game.kind == GameKind::platform) { // A console tile (Emulacja from the category menu): its games.
-                if (const auto found = platform_games_.find(game.platform); found != platform_games_.end())
-                    context.psfive_caption = gameCount(found->second.size());
+                if (const auto* games = consoleGames(game.platform)) context.psfive_caption = gameCount(games->size());
             }
         }
     }
@@ -523,6 +528,7 @@ void Launcher::paint(bool overlay) {
     if (profile_.open || profile_.alpha > 0.003f) { context.profile = &profile_; context.hint_device = hintDevice(); }
     if (whats_new_.open) context.whats_new = &whats_new_;
     if (customEditorOpen()) context.custom_editor = &custom_editor_;
+    if (metadataOpen()) context.tv_meta = &desktop_meta_;
     if (fileBrowserOpen()) context.file_browser = &file_browser_;
     if (color_editor_.open && settingsOpen()) context.color_editor = &color_editor_;
     screensaver::View screensaver;

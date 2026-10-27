@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(launchme VERSION 0.2.2 LANGUAGES C CXX)
+project(launchme VERSION 0.2.3 LANGUAGES C CXX)
 
 if(NOT WIN32)
     message(FATAL_ERROR "This native Direct2D prototype currently targets Windows.")
@@ -136,6 +136,7 @@ set(LAUNCHME_APP_SOURCES
     src/app/glance.cpp
     src/app/tarot.cpp
     src/app/profile.cpp
+    src/app/studio_libraries.cpp
     src/app/companion.cpp
     src/app/companion_picker.cpp
     src/app/companion_events.cpp
@@ -303,6 +304,7 @@ set(LAUNCHME_APP_SOURCES
     src/library/metadata_overrides.cpp
     src/library/play_journal.cpp
     src/library/achievement_history.cpp
+    src/library/studios.cpp
     src/library/drm_free.cpp
     src/library/drm_free_titles.cpp
     src/library/pc_platforms.cpp
@@ -568,6 +570,15 @@ add_custom_target(launchme_audio ALL
     DEPENDS "${LAUNCHME_RES_DIR}/HorizonsTheme.mp3" VERBATIM)
 add_dependencies(launchme launchme_audio)
 install(FILES res/HorizonsTheme.mp3 DESTINATION assets COMPONENT Runtime)
+# Publisher and developer logos (src/library/studios.cpp; HVR88's Monochrome Gaming Logos, see README).
+file(GLOB LAUNCHME_STUDIO_LOGOS CONFIGURE_DEPENDS "${LAUNCHME_RES_DIR}/studios/*.png")
+add_custom_target(launchme_studios ALL
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/assets/studios"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${LAUNCHME_STUDIO_LOGOS} "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/assets/studios/"
+    DEPENDS ${LAUNCHME_STUDIO_LOGOS} VERBATIM)
+add_dependencies(launchme launchme_studios)
+install(FILES ${LAUNCHME_STUDIO_LOGOS} DESTINATION assets/studios COMPONENT Runtime)
+install(FILES res/studios/LICENSE.txt DESTINATION assets/studios COMPONENT Runtime)
 
 # Bundled extensions are separate DLL/ZIPs, built by the normal launcher target.
 # Packaging also runs for manifest-only edits, without relying on a DLL relink.
@@ -789,6 +800,8 @@ add_test(NAME uninstall_from_game_menus COMMAND launcher_ui_tests --uninstall)
     set_tests_properties(glance_shortcut_navigation_and_hints PROPERTIES TIMEOUT 60)
     add_test(NAME tarot_reading_cards_and_results COMMAND launcher_ui_tests --tarot)
     add_test(NAME profile_page_widget_week_achievements COMMAND launcher_ui_tests --profile)
+    add_test(NAME publisher_developer_libraries_and_tv_metadata COMMAND launcher_ui_tests --studios)
+    add_dependencies(launcher_ui_tests launchme_studios) # The logos beside the test, as beside the program.
     add_test(NAME launchme_updates_and_whats_new COMMAND launcher_ui_tests --updates)
     set_tests_properties(tarot_reading_cards_and_results PROPERTIES TIMEOUT 60)
     add_test(NAME companion_home_chat_and_settings COMMAND launcher_ui_tests --companion)
@@ -817,6 +830,8 @@ add_test(NAME uninstall_from_game_menus COMMAND launcher_ui_tests --uninstall)
         SOURCES tests/drm_free_tests.cpp)
     launchme_executable(profile_data_tests TEST play_journal_achievement_history_and_playtime
         SOURCES tests/profile_data_tests.cpp)
+    launchme_executable(studios_tests SOURCES tests/studios_tests.cpp)
+    add_test(NAME publisher_developer_logos_and_matching COMMAND studios_tests "${CMAKE_CURRENT_SOURCE_DIR}")
     launchme_executable(custom_games_tests TEST user_added_games
         SOURCES tests/custom_games_tests.cpp src/library/custom_games.cpp src/library/store_adapter.cpp
             src/library/steam.cpp src/library/visibility.cpp src/net/json.cpp

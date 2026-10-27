@@ -4,6 +4,7 @@
 #include "launcher.hpp"
 #include "../library/search.hpp"
 #include "../ui/brand_icons.hpp"
+#include "../platform/text_encoding.hpp"
 
 #include <algorithm>
 #include <cwctype>
@@ -71,12 +72,25 @@ void Launcher::desktopQuickUpdate() {
             QuickItem item;
             item.kind = QuickItem::Kind::section;
             item.title = entry.title;
-            item.detail = entry.kind == EntryKind::collection ? std::wstring(tr(L"Kolekcja")) : std::wstring(tr(L"Biblioteka"));
+            item.detail = entry.kind == EntryKind::collection ? std::wstring(tr(L"Kolekcja")) :
+                          entry.group == Group::publishers ? std::wstring(tr(L"Wydawca")) : entry.group == Group::developers ? std::wstring(tr(L"Developer")) :
+                          std::wstring(tr(L"Biblioteka"));
             item.icon = entry.icon;
             item.brand = entry.brand;
             item.target = entry.id;
             items.push_back(std::move(item));
             ++sections;
+        }
+        // Who made them, with a logo or not: every game of that developer or publisher (the search field).
+        std::vector<std::pair<std::wstring, size_t>> studios_found;
+        studioSearch(quick.query, &studios_found);
+        size_t studios_shown = 0;
+        for (const auto& [name, count] : studios_found) {
+            if (studios_shown >= max_sections) break;
+            if (std::any_of(items.begin(), items.end(), [&](const QuickItem& item) { return item.kind == QuickItem::Kind::section && lower(item.title) == lower(name); })) continue;
+            items.push_back({QuickItem::Kind::section, name, tr(L"Wydawca lub developer") + std::wstring(L" · ") + std::to_wstring(count), glyph::tag, {},
+                             "studio:" + text_encoding::utf8(name)});
+            ++studios_shown;
         }
         // The pages of Ustawienia (by their own name, or all of them for "ustawienia").
         const bool all_settings = matchScore(tr(L"Ustawienia"), query) != 0;
@@ -137,7 +151,9 @@ void Launcher::desktopQuickRun(int index, bool play) {
         if (play) launchGame(cards_[*at].game);
         return;
     }
-    case QuickItem::Kind::section: desktopShowSection(item.target); return;
+    case QuickItem::Kind::section:
+        if (item.target.starts_with("studio:")) { desktopFilterStudio(text_encoding::wide(item.target.substr(7))); return; }
+        desktopShowSection(item.target); return;
     case QuickItem::Kind::setting: {
         openSettings();
         if (!settingsOpen()) return;

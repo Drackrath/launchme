@@ -112,6 +112,23 @@ void Renderer::drawFooter() {
              category_font_.Get(), color(0.96f, 0.96f, 0.96f));
 }
 
+bool Renderer::hasPlatformMark(const std::wstring& platform) const {
+    const auto found = platform_badges_.find(platform);
+    return found != platform_badges_.end() && found->second.bitmap;
+}
+
+// The width drawPlatformMark gives a logo at this height (0 without one).
+float Renderer::platformMarkWidth(const std::wstring& platform, float height, float max_width) const {
+    const auto found = platform_badges_.find(platform);
+    if (found == platform_badges_.end() || !found->second.bitmap) return 0;
+    const auto& badge = found->second;
+    const auto size = badge.bitmap->GetPixelSize();
+    const auto source = badge.has_ink_bounds ? badge.ink_bounds : D2D1::RectF(0, 0, static_cast<float>(size.width), static_cast<float>(size.height));
+    const float ink_w = source.right - source.left, ink_h = source.bottom - source.top;
+    if (ink_w < 1 || ink_h < 1) return 0;
+    return ink_w * std::min(max_width / ink_w, height / ink_h);
+}
+
 float Renderer::drawPlatformMark(const std::wstring& platform, float x, float center_y, float height, float max_width, float alpha,
                                  IDWriteTextFormat* fallback) {
     if (platform.empty() || max_width < 4) return 0;

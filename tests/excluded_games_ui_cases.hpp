@@ -40,8 +40,8 @@ int LauncherUiTest::excludedGames(HWND window) {
         app.click(x, y, false); return true;
     };
     app.openPcLibrary(GameSource::gog); app.openDetails(gog);
-    // Artwork, folder, hide, exclude and (installed) uninstall.
-    if (!options() || context_menu::rows(app.menuRows()) != 5 || context_menu::row(Item::uninstall, app.menuRows()) != 4) return 3101;
+    // Artwork, folder, Edytuj metadane, hide, exclude and (installed) uninstall.
+    if (!options() || context_menu::rows(app.menuRows()) != 6 || context_menu::row(Item::uninstall, app.menuRows()) != 5) return 3101;
     app.menu_progress_ = 1;
     if (!capture(L"details-options-exclude.png")) return 3102;
     const auto launches = dispatched.size();
@@ -55,7 +55,7 @@ int LauncherUiTest::excludedGames(HWND window) {
     if (!app.private_shelf_ || !absent(gog) || !present(app.public_library_, private_game)) return 3108;
     // Uninstalled Epic: no folder. Keyboard/pad selection acts on the menu, not the page beneath.
     app.openPcLibrary(GameSource::epic); app.openDetails(epic);
-    if (!options() || context_menu::rows(app.menuRows()) != 3 || context_menu::row(Item::folder, app.menuRows()) != -1) return 3109;
+    if (!options() || context_menu::rows(app.menuRows()) != 4 || context_menu::row(Item::folder, app.menuRows()) != -1) return 3109;
     app.changeCategory(context_menu::row(Item::exclude, app.menuRows())); app.enterDown(false); app.enterUp();
     if (!absent(epic) || app.screen_ == ScreenMode::details || dispatched.size() != launches + 1) return 3110;
     // A game already hidden by its store must also disappear from the private category.

@@ -488,6 +488,7 @@ void Renderer::paint(const std::vector<GameCard>& cards, size_t selected, bool s
             if (context.identify) drawIdentify();
             drawBulkCovers();
             drawCustomGameEditor();
+            if (context.tv_meta) drawDesktopMeta(*context.tv_meta); // Edytuj metadane from the game's menu.
             drawLibraryManager();
             drawFileBrowser(); // Opened from the panels above; the power menu and exit prompt stay over it.
             drawKeyboard(); // Over the field's dialog it types into.

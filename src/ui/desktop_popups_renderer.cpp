@@ -372,8 +372,7 @@ void Renderer::drawDesktopQuick(const View& view) {
 
 // ---- Edytuj metadane ---------------------------------------------------------------------------
 
-void Renderer::drawDesktopMeta(const View& view) {
-    const auto& meta = view.meta;
+void Renderer::drawDesktopMeta(const MetaView& meta) {
     if (!meta.open) return;
     brush(rgb(0.01f, 0.012f, 0.016f, 0.12f)); // Barely dimmed, as the window's dialogs.
     target_->FillRectangle(D2D1::RectF(0, 0, viewport_.width, viewport_.height), solid_.Get());
@@ -383,7 +382,8 @@ void Renderer::drawDesktopMeta(const View& view) {
     desktopFill(p, 14, panel_bg);
     desktopStroke(p, 14, gray(1, 0.12f));
     textLine(std::wstring(tr(L"Edytuj metadane")) + L" \u00b7 " + meta.game, p.left + 24, p.top + 30, p.right - p.left - 90, desktop_title_font_.Get(), palette::text());
-    textLine(tr(L"Puste pole: wartość automatyczna. Ctrl+Enter zapisuje, Esc anuluje."), p.left + 24, p.top + 56, p.right - p.left - 48,
+    textLine(meta.pad ? tr(L"Puste pole: wartość automatyczna. A wpisuje w pole, B zamyka.") : tr(L"Puste pole: wartość automatyczna. Ctrl+Enter zapisuje, Esc anuluje."),
+             p.left + 24, p.top + 56, p.right - p.left - 48,
              desktop_small_font_.Get(), palette::muted());
     const auto close = layout.close();
     if (meta.hover == static_cast<int>(MetaItem::close)) desktopFill(close, 8, gray(1, 0.08f));

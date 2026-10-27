@@ -62,7 +62,7 @@ enum class Id { font, home_layout, ui_accent, accent, uninstalled, emulation, co
                    // System → Aktualizacje: Launchme's own update (src/app/updates.cpp) and whether to look for one.
                    update, update_check,
                    // Platformy PC → MultiMC / Prism: the launcher picked by hand (portable MultiMC).
-                   multimc_path };
+                   multimc_path, studio_libraries, studio_hidden };
 inline bool hasOptionsButton(Id id) { return id == Id::plugin_enabled || id == Id::pc_platform; }
 // layout: drawn preview tiles in the row (one per home layout); Row::choice is the active one.
 // count: Row::value as a large number with a chevron; activating opens a sub-list.

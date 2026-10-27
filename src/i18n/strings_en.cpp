@@ -2054,6 +2054,20 @@ constexpr Entry entries[] = {
     {L"Ostatnie 12 miesięcy", L"Last 12 months"},
     {L"Najbardziej ukończone", L"Most completed"},
     {L"Gry z osiągnięciami pojawią się tutaj, ułożone od najbliższych 100%.", L"Games with achievements show up here, closest to 100% first."},
+    // Wydawcy and Developerzy (src/app/studio_libraries.cpp).
+    {L"Wydawcy", L"Publishers"},
+    {L"Developerzy", L"Developers"},
+    {L"Wydawca lub developer", L"Publisher or developer"},
+    {L"Wydawcy i developerzy", L"Publishers and developers"},
+    {L"Gry wydawców i twórców z logo: rzędy na ekranie głównym i sekcje okna desktopowego.",
+     L"Games of the publishers and developers with a logo: rows on the home screen and sections of the desktop window."},
+    {L"Ukryci wydawcy i developerzy", L"Hidden publishers and developers"},
+    {L"Pokaż wszystkich", L"Show all"},
+    {L"Wydawcy gier z Twojej biblioteki, którzy mają logo. Wybierz logo, aby zobaczyć ich gry.",
+     L"Publishers of the games in your library that have a logo. Choose a logo to see their games."},
+    {L"Twórcy gier z Twojej biblioteki, którzy mają logo. Wybierz logo, aby zobaczyć ich gry.",
+     L"Developers of the games in your library that have a logo. Choose a logo to see their games."},
+    {L"Puste pole: wartość automatyczna. A wpisuje w pole, B zamyka.", L"An empty field uses the automatic value. A types into a field, B closes."},
     // Entries of extras built only on this machine (local/i18n), when present.
 #if __has_include("strings_en_local.inc")
 #include "strings_en_local.inc"

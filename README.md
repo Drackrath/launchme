@@ -74,7 +74,7 @@ Settings → System → Help → **Open folder** (the version row) opens it.
   paste the token page), Ubisoft from the signed-in client, and MultiMC / Prism Launcher instances as games.
 - **Artwork**: SteamGridDB covers, heroes, logos and posters with OCR-assisted cropping and a variant browser.
 - **Details**: Steam metadata, playtime (also for non-Steam games, Epic's and Prism's counts, or your own value from
-  *Edit metadata*), achievements, Steam and RAWG ratings,
+  *Edit metadata*, in both modes), achievements, Steam and RAWG ratings,
   versions of the same game across stores, uninstall from the game menu (Steam's own dialog, GOG games
   silently after Launchme asks, other stores through the uninstaller they registered). Achievements of games outside
   Steam come from the Achievements plugin: GOG and Epic (with their accounts connected),
@@ -88,6 +88,9 @@ Settings → System → Help → **Open folder** (the version row) opens it.
   library or to buy on Steam.
 - **AI companion** (optional): a chat character that knows your library, with an optional voice and photo feed
   — see [AI companion](#ai-companion).
+- **Publishers and developers**: rows of their logos on the TV home (a board of all of them, then a studio's games),
+  folded sections in the desktop window, links in the details pane, and search by studio (also `Ctrl+K`).
+  Games with every achievement unlocked have a gold border.
 - **Widgets drawer**: clock, Steam friends, Discord, CPU/GPU temperatures, controllers, audio and Bluetooth.
 - **Profile** (the drawer's *Profile* widget): this week's play time, games and launches with a chart, the latest
   achievements, a year of achievement history, the games closest to 100 % and every platform with its hours.
@@ -178,4 +181,6 @@ manual (network, real accounts).
 ## License
 
 [MIT](LICENSE). Third-party licenses (miniz, PresentMon, WebView2 SDK, SuccessStory for the Achievements
-plugin, see [its notice](plugins/achievements/NOTICE.md)) ship in `plugin-packages/licenses/`.
+plugin, see [its notice](plugins/achievements/NOTICE.md)) ship in `plugin-packages/licenses/`. The publisher and
+developer logos are from HVR88's [Monochrome Gaming Logos](https://github.com/HVR88/Monochrome-Gaming-Logos)
+(their note: `assets/studios/LICENSE.txt`); the trademarks belong to their owners.

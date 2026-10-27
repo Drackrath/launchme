@@ -239,7 +239,7 @@ void Renderer::drawDesktop() {
     layout.tools = static_cast<int>(view.tools.size());
     layout.companion_card = view.companion_card;
     layout.narrow = view.sidebar_narrow; layout.pane_width = view.pane_width;
-    desktop_chips_.clear(); desktop_chip_add_ = {}; desktop_rating_ = {}; desktop_achievements_ = {};
+    desktop_chips_.clear(); desktop_chip_add_ = {}; desktop_rating_ = {}; desktop_achievements_ = {}; desktop_studios_ = {};
     desktop_hotspots_.clear(); // Widżety record their controls here.
     companion_bubble_ = {};
     brush(app_bg);
@@ -265,7 +265,7 @@ void Renderer::drawDesktop() {
     if (view.dragging) drawDesktopDrag(layout, view);
     drawDesktopTooltip(layout, view);
     drawDesktopQuick(view); // Ctrl+K over everything.
-    drawDesktopMeta(view);  // Edytuj metadane.
+    drawDesktopMeta(view.meta);  // Edytuj metadane.
     // A restored window: a hairline along its top edge, where its frame no longer draws one.
     if (!view.maximized) { brush(gray(1, 0.07f)); target_->FillRectangle(D2D1::RectF(0, 0, viewport_.width, 1.0f / viewport_.scale), solid_.Get()); }
 }
@@ -410,7 +410,8 @@ void Renderer::drawDesktopSidebar(const Layout& layout, const View& view) {
     const float top = layout.sidebarTop(), bottom = layout.sidebarBottom();
     target_->PushAxisAlignedClip(D2D1::RectF(0, top, side.right - 1, bottom), D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
     const auto* entries = view.entries;
-    constexpr const wchar_t* groups[] = {trKey(L"Biblioteka"), trKey(L"Platformy"), trKey(L"Emulacja"), trKey(L"Kolekcje")};
+    constexpr const wchar_t* groups[] = {trKey(L"Biblioteka"), trKey(L"Platformy"), trKey(L"Emulacja"), trKey(L"Kolekcje"), trKey(L"Wydawcy"),
+                                         trKey(L"Developerzy")};
     // The active section's pill and left bar glide between entries on a spring.
     if (view.active_y) {
         bool drop_on_active = false;
@@ -551,8 +552,13 @@ void Renderer::drawDesktopCompanion(const Layout& layout, const View& view) {
 void Renderer::drawDesktopHeader(const Layout& layout, const View& view) {
     const float ty = layout.headerTitleY();
     const float title_room = layout.titleRight() - layout.gridLeft() - 70;
-    const float title_width = std::min(textAdvance(view.title, desktop_heading_font_.Get()), title_room);
-    textLine(view.title, layout.gridLeft(), ty, title_width + 2, desktop_heading_font_.Get(), palette::text());
+    float title_width = 0;
+    if (!view.title_mark.empty() && hasPlatformMark(view.title_mark)) // A studio: its logo is the title.
+        title_width = drawPlatformMark(view.title_mark, layout.gridLeft(), ty, 36, std::min(title_room, 360.0f), 1.0f / 0.9f, desktop_heading_font_.Get());
+    else {
+        title_width = std::min(textAdvance(view.title, desktop_heading_font_.Get()), title_room);
+        textLine(view.title, layout.gridLeft(), ty, title_width + 2, desktop_heading_font_.Get(), palette::text());
+    }
     if (!view.scanning) {
         const auto count = std::to_wstring(view.count);
         const float w = textAdvance(count, desktop_small_font_.Get()) + 16;
@@ -769,9 +775,14 @@ void Renderer::drawDesktopPoster(const Layout& layout, const View& view, size_t 
     if (frozen) fill(rgb(0.015f, 0.018f, 0.022f, 0.34f * alpha));
     if (installing || session != SessionState::none) drawCardStatusShade(0, 0, local.right, local.bottom, alpha, shape);
     if (selected && view.launch > 0.01f) fill(gray(1, 0.18f * std::sin(smooth(view.launch) * std::numbers::pi_v<float>) * alpha));
-    brush(gray(1, (0.07f + 0.16f * hover) * alpha));
-    if (shaped->outline) realizer_->DrawGeometryRealization(shaped->outline.Get(), solid_.Get());
-    else target_->DrawGeometry(shape, solid_.Get(), 1);
+    if (perfectGame(game)) { // Every achievement unlocked: a gold edge.
+        brush(rgb(perfect_gold.r, perfect_gold.g, perfect_gold.b, 0.95f * alpha));
+        target_->DrawGeometry(shape, solid_.Get(), 2.2f);
+    } else {
+        brush(gray(1, (0.07f + 0.16f * hover) * alpha));
+        if (shaped->outline) realizer_->DrawGeometryRealization(shaped->outline.Get(), solid_.Get());
+        else target_->DrawGeometry(shape, solid_.Get(), 1);
+    }
     target_->SetTransform(base);
     if (ring_shape) {
         brush(uiAccent((selected ? (view.keyboard && view.zone == 1 ? 1.0f : 0.92f) : 0.6f) * alpha));
@@ -1070,8 +1081,20 @@ void Renderer::drawDesktopPane(const Layout& layout, const View& view) {
         const float label_width = std::min(96.0f, width * 0.34f);
         for (const auto& [label, value] : facts) {
             textLine(tr(label), left, y + 12, label_width, desktop_font_.Get(), palette::muted());
-            const float h = paragraph(*value, left + label_width + 10, y + 12 - typeMetrics(desktop_font_.Get()).baseline + typeMetrics(desktop_font_.Get()).cap * 0.5f,
-                                      width - label_width - 10, desktop_font_.Get(), gray(0.88f), 3);
+            // Developer and Wydawca: links to the studio's games (its section, or the search for it).
+            const int studio = value == &details.developer ? 0 : value == &details.publisher ? 1 : -1;
+            const bool hover = studio >= 0 && view.hover == Hit{Target::pane_studio, studio};
+            const auto ink = studio < 0 ? gray(0.88f) : uiAccent(hover ? 1.0f : 0.85f);
+            const float value_left = left + label_width + 10, value_top = y + 12 - typeMetrics(desktop_font_.Get()).baseline + typeMetrics(desktop_font_.Get()).cap * 0.5f;
+            const float h = paragraph(*value, value_left, value_top, width - label_width - 10, desktop_font_.Get(), ink, 3);
+            if (studio >= 0) {
+                const float w = std::min(textAdvance(*value, desktop_font_.Get()) + 2, width - label_width - 10);
+                desktop_studios_[static_cast<size_t>(studio)] = {value_left - 2, y, value_left + w + 2, y + std::max(24.0f, h + 4)};
+                if (h < 30) { // Underlined: it opens the studio's games (stronger under the pointer).
+                    brush(hover ? uiAccent(0.7f) : gray(1, 0.22f));
+                    target_->FillRectangle(D2D1::RectF(value_left, y + 21, value_left + w, y + 22), solid_.Get());
+                }
+            }
             y += std::max(26.0f, h + 6);
         }
     }

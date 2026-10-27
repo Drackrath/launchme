@@ -118,6 +118,7 @@ desktop_ui::Hit Launcher::desktopHit(float x, float y) const {
         for (int i = 0; i < static_cast<int>(chips.size()); ++i) if (chips[static_cast<size_t>(i)].contains(x, y)) return {Target::pane_chip, i};
         if (renderer_.desktopChipAdd().contains(x, y)) return {Target::pane_chip_add, 0};
         if (renderer_.desktopRating().contains(x, y)) return {Target::pane_rating, 0};
+        for (int i = 0; i < 2; ++i) if (renderer_.desktopStudios()[static_cast<size_t>(i)].contains(x, y)) return {Target::pane_studio, i};
         if (renderer_.desktopAchievements().contains(x, y)) return {Target::pane_achievements, 0};
         return {};
     }
@@ -400,7 +401,7 @@ void Launcher::desktopContextClick(float mouse_x, float mouse_y) {
         return;
     }
     case Target::pane_primary: case Target::pane_favorite: case Target::pane_more: case Target::pane_quick: case Target::pane_chip:
-    case Target::pane_chip_add: case Target::pane_rating: case Target::pane_achievements:
+    case Target::pane_chip_add: case Target::pane_rating: case Target::pane_studio: case Target::pane_achievements:
         desktopOpenGameMenu(x, y, false);
         return;
     default: return;
@@ -566,6 +567,14 @@ void Launcher::desktopActivate(const desktop_ui::Hit& hit) {
         return;
     }
     case Target::pane_rating: openRatingSource(); return;
+    case Target::pane_studio: { // Developer or Wydawca: that studio's games.
+        if (cards_.empty()) return;
+        bool loading = false;
+        const auto& details = desktopDetails(cards_[selected_].game, loading);
+        const auto& value = hit.index == 0 ? details.developer : details.publisher;
+        desktopFilterStudio(value.substr(0, value.find(L", ")), hit.index == 0 ? studios::Role::developer : studios::Role::publisher);
+        return;
+    }
     case Target::pane_achievements: // Szczegóły with its achievements list open (Wstecz: the details).
         if (cards_.empty()) return;
         openDetails(cards_[selected_].game);
@@ -1210,6 +1219,21 @@ void Launcher::desktopOpenSectionMenu(int entry_index, float x, float y) {
         add(Action::section_down, tr(L"Przenieś niżej"), glyph::chevron_down).enabled = at != shown.end() && at + 1 != shown.end();
         menu.items.push_back(line);
         add(Action::section_delete, localCollection(*collection) ? tr(L"Usuń kolekcję…") : tr(L"Przywróć przypisania Steam…"), glyph::remove).danger = true;
+    } else if (entry.kind == EntryKind::studio) {
+        // A publisher or developer: its place among the others, or hidden (Ustawienia brings it back).
+        std::vector<std::string> shown;
+        for (const auto& item : desktop_entries_) if (item.kind == EntryKind::studio && item.group == entry.group) shown.push_back(item.id);
+        const auto at = std::find(shown.begin(), shown.end(), entry.id);
+        const auto add = [&](Action action, std::wstring label, wchar_t icon) -> MenuItem& {
+            MenuItem item{action, std::move(label), {}, icon};
+            item.key = entry.id;
+            menu.items.push_back(std::move(item));
+            return menu.items.back();
+        };
+        add(Action::section_up, tr(L"Przenieś wyżej"), glyph::chevron_down).enabled = at != shown.begin();
+        add(Action::section_down, tr(L"Przenieś niżej"), glyph::chevron_down).enabled = at != shown.end() && at + 1 != shown.end();
+        MenuItem line; line.separator = true; menu.items.push_back(line);
+        add(Action::section_hide, tr(L"Ukryj"), glyph::hide);
     } else return;
     desktop_menu_ = std::move(menu);
     InvalidateRect(hwnd_, nullptr, FALSE);
@@ -1381,8 +1405,9 @@ void Launcher::desktopMenuPick(const desktop_ui::MenuItem& item, bool /*from_sub
     case Action::section_games: desktopCollectionDialog(item.key, Page::games); return;
     case Action::section_options: desktopCollectionDialog(item.key, Page::collection); return;
     case Action::section_delete: desktopCollectionDialog(item.key, Page::collection, true); return;
-    case Action::section_up: desktopMoveCollection(item.key, -1); return;
-    case Action::section_down: desktopMoveCollection(item.key, 1); return;
+    case Action::section_up: if (studios::parse(item.key)) moveStudio(item.key, -1); else desktopMoveCollection(item.key, -1); return;
+    case Action::section_down: if (studios::parse(item.key)) moveStudio(item.key, 1); else desktopMoveCollection(item.key, 1); return;
+    case Action::section_hide: hideStudio(item.key); return;
     case Action::section_tv: {
         const auto* collection = desktopCollection(item.key);
         if (!collection) return;

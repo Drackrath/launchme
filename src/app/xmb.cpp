@@ -19,8 +19,7 @@ const std::vector<Game>* Launcher::xmbColumn(const Game& tile) const {
     if (tile.kind == GameKind::category && tile.app_id < categories_.size() && !categories_[tile.app_id].games.empty())
         return &categories_[tile.app_id].games;
     if (tile.kind == GameKind::platform) {
-        const auto found = platform_games_.find(tile.platform);
-        if (found != platform_games_.end() && !found->second.empty()) return &found->second;
+        if (const auto* games = consoleGames(tile.platform); games && !games->empty()) return games;
     }
     return nullptr;
 }

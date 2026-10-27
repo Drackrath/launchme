@@ -34,13 +34,15 @@ inline constexpr wchar_t library = 0xE8F1, history = 0xE81C, star = 0xE734, star
 
 // ---- Sidebar ----------------------------------------------------------------------------------
 
-enum class Group { library, platforms, emulation, collections };
-inline constexpr int group_count = 4;
-enum class EntryKind { all, recent, favorites, hidden, source, console, collection };
+// publishers, developers: the studios with a logo (src/app/studio_libraries.cpp), folded by default.
+enum class Group { library, platforms, emulation, collections, publishers, developers };
+inline constexpr int group_count = 6;
+inline bool studioGroup(Group group) { return group == Group::publishers || group == Group::developers; }
+enum class EntryKind { all, recent, favorites, hidden, source, console, collection, studio };
 struct Entry {
     EntryKind kind = EntryKind::all;
     Group group = Group::library;
-    std::string id;        // "all", "recent", "favorites", "hidden", "source:gog", "console:PS2", "collection:<id>".
+    std::string id;        // "all", "recent", "favorites", "hidden", "source:gog", "console:PS2", "collection:<id>", "publisher:capcom".
     std::wstring title;
     size_t count = 0;
     GameSource source = GameSource::steam;
@@ -63,14 +65,14 @@ inline constexpr float heading_h = 30, row_h = 32, heading_gap = 12, companion_h
 // Headings and entries in order; a collapsed group keeps only its heading. Collections always keep
 // their heading (its "+" makes a new one), the others only when they have entries. The narrow
 // sidebar (icons only) has no headings: every entry, a gap between the groups, but no
-// collections (one folder icon each, nothing to tell them apart).
+// collections or studios (one icon each, nothing to tell them apart).
 inline std::vector<Row> layoutRows(const std::vector<Entry>& entries, const std::array<bool, group_count>& collapsed, bool narrow = false) {
     std::vector<Row> rows;
     float y = 2;
     for (int g = 0; g < group_count; ++g) {
         const auto group = static_cast<Group>(g);
         const bool any = std::any_of(entries.begin(), entries.end(), [&](const Entry& e) { return e.group == group; });
-        if (narrow && (!any || group == Group::collections)) continue;
+        if (narrow && (!any || group == Group::collections || studioGroup(group))) continue;
         if (!any && group != Group::collections) continue;
         if (!rows.empty()) y += heading_gap;
         if (!narrow) {
@@ -93,7 +95,7 @@ inline float rowsHeight(const std::vector<Row>& rows) { return rows.empty() ? 0 
 enum class Action {
     none, play, suspend, close_game, details, favorite, collections, collection_toggle, collection_new, collection_manage,
     versions, artwork, retry_art, identify, folder, hide, exclude, plugin, sort, section_rename, section_games,
-    section_options, section_delete, section_up, section_down, section_tv, clear_marks, select_all, store_page, downloads, metadata, companion_change, companion_mind,
+    section_options, section_delete, section_up, section_down, section_tv, section_hide, clear_marks, select_all, store_page, downloads, metadata, companion_change, companion_mind,
     companion_settings, uninstall, launch_options
 };
 struct MenuItem {
@@ -172,7 +174,7 @@ inline int stepItem(const std::vector<MenuItem>& items, int from, int direction)
 enum class Target {
     none, caption, minimize, maximize, close, search, search_clear, tool, sidebar_row, sidebar_add, companion_card,
     companion_bubble, card, card_play, card_check, popover_clear, popover_action, scrollbar, sort, installed, size_slider, pane_primary, pane_favorite,
-    pane_more, pane_quick, pane_chip, pane_chip_add, pane_rating, bulk, menu_item, submenu_item, popover_row, popover_all,
+    pane_more, pane_quick, pane_chip, pane_chip_add, pane_rating, pane_studio, bulk, menu_item, submenu_item, popover_row, popover_all,
     empty_primary, empty_secondary, grid, widget_friend, widget_item, widget_all, widget_panel, library_add, library_refresh, companion_more,
     sidebar_toggle, pane_resize, pane_achievements
 };
@@ -259,6 +261,7 @@ struct MetaView {
     bool selected = false;                       // Ctrl+A: typing replaces the field.
     int hover = -1;
     bool overridden = false;                     // Przywróć automatyczne has something to undo.
+    bool pad = false;                            // Tryb TV: the pad's hint under the heading.
 };
 struct MetaLayout {
     float width = 0, height = 0;
@@ -318,6 +321,7 @@ struct View {
     float refresh_angle = 0;  // Radians.
     std::vector<Tool> tools;  // Left to right.
     std::wstring title;
+    std::wstring title_mark; // A studio's section: its logo (a platform badge) in place of the title.
     size_t count = 0;
     std::wstring query;
     size_t caret = 0;

@@ -189,4 +189,10 @@ void Launcher::onGameIndex(std::unique_ptr<GameIndexMessage> message) {
     // Szczegóły left with gaps fill in as the index learns more.
     if (screen_ == ScreenMode::details && !detail_games_.empty() && !details_loading_ && completeDetails(details_, detail_games_[0]))
         InvalidateRect(hwnd_, nullptr, FALSE);
+    // Wydawcy and Developerzy follow what it learns of each game's studios; a game it now knows
+    // complete takes its gold border.
+    const auto studios_before = studio_groups_;
+    if (!refreshStudios()) return;
+    if (studio_groups_ != studios_before && !scanning_) refreshRecentGames();
+    else InvalidateRect(hwnd_, nullptr, FALSE);
 }

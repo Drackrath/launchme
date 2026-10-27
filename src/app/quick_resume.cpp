@@ -100,6 +100,7 @@ context_menu::Rows Launcher::menuRows() const {
         context_menu::Rows rows{false, 0, false, true, !gameFolder(game).empty(), canExclude(game), !hideableCopies(game).empty()};
         rows.uninstall = canUninstall(game) && sessionState(game) == SessionState::none; // Never while it runs.
         rows.launch = launchEditable(game);
+        rows.metadata = isGame(game) && game.kind != GameKind::catalog && !gameKey(game).empty(); // Not a store's offer.
         return rows;
     }
     const auto state = sessionState(game);

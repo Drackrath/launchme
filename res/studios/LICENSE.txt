@@ -1,0 +1,15 @@
+Publisher and developer logos
+
+These PNG files come from "Monochrome (Retro) Gaming Logos" by HVR88:
+https://github.com/HVR88/Monochrome-Gaming-Logos
+
+The author's usage note: "While this collection includes many of my original designs, some images
+are covered by third-party copyrights and many are trade or service marks of their brand owners.
+The specific recreations hosted here are works of artistic expression, made under a fair-use
+principle and provided as-is for identification purposes, without any claimed affiliation or
+endorsement from any rights holders. Use them freely in your collections or projects and please
+include a note and link back to this repository to help maintain the collection and realize future
+edits."
+
+Launchme shows them only to identify the publisher or developer of games in the player's own
+library. All trademarks belong to their owners; no affiliation or endorsement is implied.

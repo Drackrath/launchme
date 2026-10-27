@@ -1,4 +1,4 @@
-// Edytuj metadane (desktop mode): the player's own title, description, developer, publisher, release
+// Edytuj metadane (the desktop window; in Tryb TV from the game's menu): the player's own title, description, developer, publisher, release
 // date and genres for one game, over what the stores and databases found (a PC port matched as the
 // console game it came from). Only fields changed in the dialog become overrides; an emptied field
 // goes back to the automatic value, and Przywróć automatyczne forgets them all.
@@ -164,11 +164,13 @@ std::optional<uint32_t> Launcher::desktopSteamPlaytime(const Game& game) const {
 }
 
 void Launcher::desktopMetaOpen(const Game& game) {
-    if (!desktopActive() || gameKey(game).empty()) return;
-    desktopCloseMenu();
-    desktopQuickClose();
-    desktop_downloads_open_ = desktop_widgets_open_ = false;
-    desktopSearchFocus(false);
+    if ((desktop_mode_ && !desktopActive()) || !isGame(game) || gameKey(game).empty()) return;
+    if (desktop_mode_) {
+        desktopCloseMenu();
+        desktopQuickClose();
+        desktop_downloads_open_ = desktop_widgets_open_ = false;
+        desktopSearchFocus(false);
+    }
     bool loading = false;
     const GameDetails details = desktopDetails(game, loading); // As the pane shows them, overrides included.
     auto& meta = desktop_meta_;
@@ -193,6 +195,7 @@ void Launcher::desktopMetaOpen(const Game& game) {
     meta.shown = meta.fields;
     meta.overridden = metadataOverride(game) != nullptr;
     meta.caret = meta.fields[0].size();
+    meta.pad = !desktop_mode_;
     desktop_meta_key_ = gameKey(game);
     MSG pending; // The key that opened it must not type into the title.
     while (PeekMessageW(&pending, hwnd_, WM_CHAR, WM_CHAR, PM_REMOVE)) {}
@@ -383,4 +386,95 @@ bool Launcher::desktopMetaPointer(float mouse_x, float mouse_y, bool press, bool
     }
     desktopMetaActivate(hit);
     return true;
+}
+
+// ---- Tryb TV ------------------------------------------------------------------------------------
+// The same dialog as a layer over the TV canvas: the D-pad moves between its fields (rows as
+// drawn) and buttons, A types into a field with the on-screen keyboard (a physical keyboard types
+// straight in), B closes it.
+
+void Launcher::openMetadata(const Game& game) {
+    if (desktop_mode_ || metadataOpen()) return;
+    dismissMenu(); closeQuick(); closeKeyboard();
+    desktopMetaOpen(game);
+    if (!desktop_meta_.open) return;
+    desktop_meta_.focus = 0;
+    audio_.drawer();
+}
+
+namespace {
+// Rows of the dialog as drawn: Tytuł; Opis; Producent | Wydawca; Data premiery | Czas przejścia | Gatunki;
+// Czas gry; Przywróć | Zapisz | Anuluj.
+const std::vector<std::vector<int>>& metaRows() {
+    static const std::vector<std::vector<int>> rows{
+        {0}, {1}, {2, 3}, {4, 6, 5}, {7},
+        {static_cast<int>(MetaItem::restore), static_cast<int>(MetaItem::save), static_cast<int>(MetaItem::cancel)}};
+    return rows;
+}
+}
+
+void Launcher::metadataKey(WPARAM key, bool repeated) {
+    auto& meta = desktop_meta_;
+    if (!metadataOpen()) return;
+    const bool field = meta.focus >= 0 && meta.focus < meta_fields;
+    const auto& rows = metaRows();
+    int row = 0, column = 0;
+    for (int r = 0; r < static_cast<int>(rows.size()); ++r)
+        for (int c = 0; c < static_cast<int>(rows[static_cast<size_t>(r)].size()); ++c)
+            if (rows[static_cast<size_t>(r)][static_cast<size_t>(c)] == meta.focus) { row = r; column = c; }
+    const auto focus = [&](int item) {
+        if (item == meta.focus) { navigationBoundary(); return; }
+        meta.focus = item;
+        meta.selected = false;
+        if (item < meta_fields) meta.caret = meta.fields[static_cast<size_t>(item)].size();
+        audio_.navigate();
+        InvalidateRect(hwnd_, nullptr, FALSE);
+    };
+    switch (key) {
+    case VK_ESCAPE: if (!repeated) { desktopMetaClose(); audio_.navigate(); } return;
+    case VK_UP: case VK_DOWN: {
+        const int next = std::clamp(row + (key == VK_DOWN ? 1 : -1), 0, static_cast<int>(rows.size()) - 1);
+        const auto& line = rows[static_cast<size_t>(next)];
+        focus(line[std::min(static_cast<size_t>(column), line.size() - 1)]);
+        return;
+    }
+    case VK_LEFT: case VK_RIGHT:
+        // A physical keyboard moves the caret in a field; the pad moves between the row's items.
+        if (field && !pad_input_) { desktopMetaKey(key); return; }
+        {
+            const auto& line = rows[static_cast<size_t>(row)];
+            focus(line[static_cast<size_t>(std::clamp(column + (key == VK_RIGHT ? 1 : -1), 0, static_cast<int>(line.size()) - 1))]);
+        }
+        return;
+    case VK_RETURN: case VK_SPACE:
+        if (repeated) return;
+        if (!field) { desktopMetaActivate(meta.focus); return; }
+        if (key == VK_SPACE) return; // Typed as a character.
+        if (pad_input_) { openKeyboard(); return; }
+        desktopMetaKey(key); // Enter saves (a new line in Opis).
+        return;
+    default: desktopMetaKey(key); return; // Backspace, Delete, Home, End, Tab, Ctrl+A, Ctrl+V.
+    }
+}
+
+void Launcher::metadataClick(float x, float y) {
+    if (!metadataOpen()) return;
+    const auto view = renderer_.viewport();
+    const int hit = MetaLayout{view.width, view.height}.hit(x, y); // Logical coordinates.
+    if (hit < 0) return; // Outside: it stays.
+    if (hit < meta_fields) {
+        desktop_meta_.focus = hit;
+        desktop_meta_.caret = desktop_meta_.fields[static_cast<size_t>(hit)].size();
+        desktop_meta_.selected = false;
+        InvalidateRect(hwnd_, nullptr, FALSE);
+        return;
+    }
+    desktopMetaActivate(hit);
+}
+
+void Launcher::metadataPointer(float x, float y) {
+    if (!metadataOpen()) return;
+    const auto view = renderer_.viewport();
+    const int hit = MetaLayout{view.width, view.height}.hit(x, y); // Logical coordinates.
+    if (hit != desktop_meta_.hover) { desktop_meta_.hover = hit; InvalidateRect(hwnd_, nullptr, FALSE); }
 }

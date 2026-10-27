@@ -131,6 +131,7 @@ void Renderer::drawContextMenu() {
                             context_->menu_detail_options, context_->menu_folder, context_->menu_exclude, context_->menu_hide, context_->psfive};
     rows.uninstall = context_->menu_uninstall;
     rows.launch = context_->menu_launch;
+    rows.metadata = context_->menu_metadata;
     const auto bounds = context_menu::bounds(active, rows, beside, viewport_.width, viewport_.height, context_->menu_anchor);
     const float x = bounds.left, width = bounds.right - bounds.left;
     const float y = bounds.top + (1.0f - alpha) * (context_->menu_anchor && bounds.top > context_->menu_anchor->top ? -19.0f : 19.0f);
@@ -165,6 +166,7 @@ void Renderer::drawContextMenu() {
         case context_menu::Item::exclude: return tr(L"Wyklucz");
         case context_menu::Item::uninstall: return tr(L"Odinstaluj");
         case context_menu::Item::launch: return tr(L"Opcje uruchamiania");
+        case context_menu::Item::metadata: return tr(L"Edytuj metadane");
         }
         return L"";
     };

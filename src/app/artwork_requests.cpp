@@ -351,8 +351,8 @@ std::vector<Game> Launcher::backdropGames(const Game& tile) {
     constexpr size_t limit = 200;
     std::vector<const Game*> pool;
     if (tile.kind == GameKind::platform) {
-        if (const auto games = platform_games_.find(tile.platform); games != platform_games_.end())
-            for (const auto& game : games->second) pool.push_back(&game);
+        if (const auto* games = consoleGames(tile.platform))
+            for (const auto& game : *games) pool.push_back(&game);
     } else if (tile.kind == GameKind::pc_platform) {
         // The games its library page lists (openPcLibrary).
         for (const auto& game : public_library_)

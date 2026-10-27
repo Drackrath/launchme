@@ -144,10 +144,21 @@ void Launcher::buildDesktopSidebar() {
         entry.collection = c.id;
         entry.droppable = entry.reorderable = true;
     }
+    // Wydawcy and Developerzy (src/app/studio_libraries.cpp): folded by default.
+    for (const auto role : {studios::Role::publisher, studios::Role::developer})
+        for (const auto& studio : studio_groups_[static_cast<size_t>(role)]) {
+            const auto key = studios::key(role, studio.studio->id);
+            const auto* games = consoleGames(text_encoding::wide(key));
+            if (!games || games->empty()) continue;
+            add(EntryKind::studio, role == studios::Role::publisher ? Group::publishers : Group::developers, key, std::wstring(studio.studio->name),
+                games->size(), glyph::tag);
+        }
     desktop_entries_ = std::move(entries);
     // A section not (yet) in the list shows every game meanwhile: stores and consoles may still be
     // scanning. A collection missing once the library is read is gone.
     if (desktopEntryIndex(desktop_section_) < 0 && !scanning_ && desktop_section_.starts_with("collection:")) desktop_section_ = "all";
+    if (desktopEntryIndex(desktop_section_) < 0 && studios::parse(desktop_section_) && (!studiosShown() || settings_.hidden_studios.contains(desktop_section_)))
+        desktop_section_ = "all"; // Switched off or hidden; one the index has not described yet may still come.
 }
 
 std::vector<desktop_ui::Row> Launcher::desktopRows() const { return layoutRows(desktop_entries_, desktop_collapsed_, settings_.desktop_narrow); }
@@ -208,6 +219,7 @@ std::vector<Game> Launcher::desktopSource() const {
     case EntryKind::console:
         if (const auto found = platform_games_.find(entry->console); found != platform_games_.end()) return found->second;
         return games;
+    case EntryKind::studio: return studioGames(entry->id);
     case EntryKind::collection:
         if (const auto* collection = desktopCollection(entry->collection))
             for (auto& shelf : managedShelves(account_, {*collection}, library_state_.collections, public_library_, private_shelf_))
@@ -229,12 +241,13 @@ std::vector<Game> Launcher::desktopGames() const {
     const bool include_private = private_shelf_ || (entry && !gameEntry(entry->kind));
     auto games = library_view::arrange(desktopSource(), options, library_state_.first_seen, include_private, &released);
     std::erase_if(games, [](const Game& game) { return !isGame(game); });
-    // Search: the title, or a genre/tag the game index knows ("rpg", "roguelike").
+    // Search: the title, a genre/tag the game index knows ("rpg", "roguelike") or its developer or publisher.
     const auto typed = trimmed(desktop_query_);
     const auto query = foldGameTitle(typed);
     if (!query.empty()) {
         std::unordered_set<std::string> labelled;
         if (game_index_) for (auto& key : game_index_->read([&](const game_index::Index& index) { return index.withLabel(typed); })) labelled.insert(std::move(key));
+        labelled.merge(studioSearch(typed)); // Or who made it: "capcom", "devolver".
         std::erase_if(games, [&](const Game& game) { return !titleMatch(foldGameTitle(game.name), query) && !labelled.contains(gameKey(game)); });
     }
     return games;
@@ -649,6 +662,7 @@ void Launcher::desktopView(desktop_ui::View& view) {
     view.tools = desktopTools();
     const auto* entry = desktopEntry();
     view.title = entry ? entry->title : std::wstring(tr(L"Wszystkie gry"));
+    view.title_mark = entry && entry->kind == EntryKind::studio ? text_encoding::wide(entry->id) : std::wstring{}; // Its logo instead.
     view.count = cards_.size();
     view.query = desktop_query_;
     view.caret = std::min(desktop_caret_, desktop_query_.size());
@@ -836,13 +850,18 @@ void Launcher::desktopSaveState() {
     if (!desktop_mode_) return;
     const auto section = desktop_section_;
     const auto game = !cards_.empty() && selected_ < desktop_keys_.size() && desktopActive() ? desktop_keys_[selected_] : settings_.desktop_game;
-    std::unordered_set<std::string> collapsed;
-    constexpr const char* names[] = {"library", "platforms", "emulation", "collections"};
-    for (int i = 0; i < group_count; ++i) if (desktop_collapsed_[static_cast<size_t>(i)]) collapsed.insert(names[i]);
-    if (settings_.desktop_section != section || settings_.desktop_game != game || settings_.desktop_collapsed != collapsed) {
+    std::unordered_set<std::string> collapsed, expanded;
+    constexpr const char* names[] = {"library", "platforms", "emulation", "collections", "publishers", "developers"};
+    for (int i = 0; i < group_count; ++i) {
+        const bool folded = desktop_collapsed_[static_cast<size_t>(i)];
+        if (studioGroup(static_cast<Group>(i))) { if (!folded) expanded.insert(names[i]); } // Folded unless opened.
+        else if (folded) collapsed.insert(names[i]);
+    }
+    if (settings_.desktop_section != section || settings_.desktop_game != game || settings_.desktop_collapsed != collapsed || settings_.desktop_expanded != expanded) {
         settings_.desktop_section = section;
         settings_.desktop_game = game;
         settings_.desktop_collapsed = std::move(collapsed);
+        settings_.desktop_expanded = std::move(expanded);
         settings_dirty_ = true; settings_save_failed_ = false; settings_edited_ = std::chrono::steady_clock::now();
     }
 }

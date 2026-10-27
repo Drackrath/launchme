@@ -34,6 +34,7 @@ Launcher::Modal Launcher::topDialog() const {
     if (fileBrowserOpen()) return Modal::file_browser; // Opened from the panels below it.
     if (libraryDialogOpen()) return Modal::library_dialog;
     if (customEditorOpen()) return Modal::custom_editor;
+    if (metadataOpen()) return Modal::metadata; // From the game's menu.
     if (bulkCoversOpen()) return Modal::bulk_covers;
     if (identifyOpen()) return Modal::identify;
     if (gogInstallOpen()) return Modal::gog_install;
@@ -48,7 +49,7 @@ bool Launcher::homeKeyIsGuide() const {
     // The installer and the power menu leave Home to the Guide gesture (short: menu, hold: power).
     const auto modal = topModal();
     return (modal == Modal::none || modal == Modal::power_menu || modal == Modal::gog_install) &&
-           !searching() && !editingSecret() && !editingArtworkSearch() && !customEditorOpen() && !fileBrowserOpen();
+           !searching() && !editingSecret() && !editingArtworkSearch() && !customEditorOpen() && !metadataOpen() && !fileBrowserOpen();
 }
 
 bool Launcher::modalKey(WPARAM key, bool repeated) {
@@ -61,6 +62,7 @@ bool Launcher::modalKey(WPARAM key, bool repeated) {
     case Modal::file_browser: fileBrowserKey(key, repeated); break;
     case Modal::library_dialog: libraryDialogKey(key, repeated); break;
     case Modal::custom_editor: customEditorKey(key, repeated); break;
+    case Modal::metadata: metadataKey(key, repeated); break;
     case Modal::bulk_covers: bulkCoversKey(key, repeated); break;
     case Modal::identify: identifyKey(key, repeated); break;
     case Modal::gog_install: gogInstallKey(key, repeated); break;
@@ -669,6 +671,18 @@ bool Launcher::modalPad(const PadReading& state, WORD buttons, ULONGLONG now) {
         if (pressed(XINPUT_GAMEPAD_A)) { noteUserInput(); customEditorKey(VK_RETURN, false); }
         else if (pressed(XINPUT_GAMEPAD_B)) { noteUserInput(); customEditorKey(VK_ESCAPE, false); }
         else if (pressed(XINPUT_GAMEPAD_X)) { noteUserInput(); openKeyboard(); } // The focused field, else the name.
+        break;
+    case Modal::metadata:
+        // Edytuj metadane: D-pad moves between fields and buttons, A types into a field (the on-screen
+        // keyboard) or presses a button, X brings the keyboard up, B closes it.
+        controllerNavigate(0);
+        if (direction && (direction != controller_direction_ || now >= controller_repeat_)) {
+            noteUserInput(); metadataKey(direction, false);
+            controller_repeat_ = now + (direction != controller_direction_ ? 280 : 170);
+        }
+        if (pressed(XINPUT_GAMEPAD_A)) { noteUserInput(); metadataKey(VK_RETURN, false); }
+        else if (pressed(XINPUT_GAMEPAD_B)) { noteUserInput(); metadataKey(VK_ESCAPE, false); }
+        else if (pressed(XINPUT_GAMEPAD_X)) { noteUserInput(); openKeyboard(); }
         break;
     default: return false; // No layer; the identify dialog takes the screen's paths (D-pad, A, B, X).
     }

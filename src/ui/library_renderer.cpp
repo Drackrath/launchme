@@ -825,6 +825,12 @@ void Renderer::drawLibraryTabs() {
         const float focus = std::clamp(1 - std::abs(offset), 0.0f, 1.0f);
         const float alpha = std::clamp(2.0f - std::abs(position), 0.0f, 1.0f) * bar;
         const auto r = library_tabs::tab(offset, width, glide);
+        if (!tabs[i].mark.empty() && hasPlatformMark(tabs[i].mark)) {
+            // A studio's tab: its logo, with no name beside it.
+            const float logo_w = platformMarkWidth(tabs[i].mark, 24, r.right - r.left - 40);
+            drawPlatformMark(tabs[i].mark, (r.left + r.right) * 0.5f - logo_w * 0.5f, cy, 24, r.right - r.left - 40, alpha * std::lerp(0.5f, 1.0f, focus), button_font_.Get());
+            continue;
+        }
         std::wstring title = tabs[i].title;
         if (!title.empty()) CharUpperBuffW(title.data(), static_cast<DWORD>(title.size()));
         const std::wstring count = std::to_wstring(tabs[i].count);

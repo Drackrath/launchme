@@ -1,6 +1,8 @@
 #pragma once
 
 #include "../model/notification.hpp"
+#include <string>
+#include <unordered_set>
 #include "../friends/steam_friends.hpp"
 #include "settings_view.hpp"
 #include "../model/game_details.hpp"
@@ -177,6 +179,8 @@ struct CompanionView {
     MindTelemetry mind_telemetry;
 };
 
+namespace desktop_ui { struct MetaView; }
+
 struct ViewContext {
     // Desktop mode's library (src/ui/desktop_renderer.cpp) instead of a Tryb TV home; toasts then
     // rise in the bottom-right corner, clear of its top bar.
@@ -263,8 +267,9 @@ struct ViewContext {
     struct LibraryRow { std::wstring year, playtime, rating; };
     std::map<size_t, LibraryRow> library_rows; // Visible rows only, assembled from memory before rendering.
     // Library category tabs (title, games), the shown one and its gliding position.
-    struct LibraryTab { std::wstring title; size_t count = 0; };
+    struct LibraryTab { std::wstring title; size_t count = 0; std::wstring mark; }; // mark: a studio's logo in place of the title.
     std::vector<LibraryTab> library_tabs;
+    std::wstring library_note; // Under the tabs: what the screen is (the board of studio logos).
     int library_tab = 0;
     std::optional<float> library_tab_glide;
     bool grid_back = false; // Library, Search, Store: Back (top left) has the keyboard/pad focus.
@@ -278,6 +283,7 @@ struct ViewContext {
     const tarot_ui::State* tarot = nullptr; // Tarot's reading, while open or fading out.
     const profile_ui::State* profile = nullptr; // Profil, while open or fading out.
     update_ui::WhatsNew* whats_new = nullptr; // Co nowego after an update; the renderer records the text's height.
+    const desktop_ui::MetaView* tv_meta = nullptr; // Tryb TV: Edytuj metadane (the desktop dialog, on the TV canvas).
     const custom_game_ui::State* custom_editor = nullptr; // Settings → Library add/edit panel.
     const file_browser::State* file_browser = nullptr;    // The launcher's file picker, over everything.
     const settings_ui::ColorEditor* color_editor = nullptr; // Settings: "Inny…" colour.
@@ -297,6 +303,8 @@ struct ViewContext {
     std::wstring primary_action;
     bool primary_enabled = true;
     float grid_scroll = 0;
+    // Games with every achievement unlocked (their keys): a gold edge on their tiles and posters.
+    const std::unordered_set<std::string>* perfect_games = nullptr;
     std::wstring category;
     std::wstring platform;
     bool main_row = true;
@@ -313,6 +321,7 @@ struct ViewContext {
     bool menu_detail_options = false, menu_folder = false, menu_exclude = false;
     bool menu_hide = false, menu_hidden = false; // Details options: "Ukryj" / "Pokaż".
     bool menu_uninstall = false, menu_launch = false; // "Odinstaluj" (red, last) / Details' "Opcje uruchamiania".
+    bool menu_metadata = false; // Details' "Edytuj metadane".
     bool menu_beside = false;  // The game menu opens beside the card (XMB, Flix, list view).
     std::optional<settings_ui::Rect> menu_anchor;
     // With Quick Resume off, failed recoveries still show their frozen state.

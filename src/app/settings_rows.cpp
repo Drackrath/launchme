@@ -306,6 +306,10 @@ void Launcher::buildSettingsRows() {
             }
             add({Id::emulation, Control::toggle, tr(L"Emulacja"),
                 tr(L"Osobny rząd konsol ze skrótami aktywnego konta Steam, zamiast kolekcji Steam ROM Manager."), {}, settings_.show_emulation});
+            add({Id::studio_libraries, Control::toggle, tr(L"Wydawcy i developerzy"),
+                tr(L"Gry wydawców i twórców z logo: rzędy na ekranie głównym i sekcje okna desktopowego."), {}, settings_.studio_libraries});
+            if (settings_.studio_libraries && !settings_.hidden_studios.empty())
+                add({Id::studio_hidden, Control::action, tr(L"Ukryci wydawcy i developerzy"), std::to_wstring(settings_.hidden_studios.size()), tr(L"Pokaż wszystkich")});
             // User-added games as one total, like "Znalezione gry" of DRM-free: the list is its own page.
             const auto missing = std::count_if(custom_games_.begin(), custom_games_.end(), [&](const auto& entry) {
                 const auto found = custom_installed_.find(entry.id);

@@ -58,6 +58,22 @@ std::vector<Launcher::LibraryTab> Launcher::libraryTabs() const {
         }
         return tabs;
     }
+    if (const auto studio = studios::parse(text_encoding::utf8(library_console_))) {
+        // A publisher's or developer's games: the others of its row, as their logos.
+        const auto role = studio->first;
+        for (const auto& entry : studio_groups_[static_cast<size_t>(role)]) {
+            auto tile = studioTile(role, entry);
+            const auto* games = consoleGames(tile.platform);
+            if (games && !games->empty()) tabs.push_back({text_encoding::utf8(tile.platform), tile.name, games->size(), tile.platform});
+        }
+        return tabs;
+    }
+    if (studioBoard()) {
+        // The boards of logos: Wydawcy, Developerzy.
+        for (const auto& category : categories_)
+            if (studioCategory(category.id) && !category.games.empty()) tabs.push_back({category.id, category.title, category.games.size()});
+        return tabs;
+    }
     if (!library_console_.empty()) {
         // The consoles of the Emulacja shelf.
         if (const auto* consoles = shelf("emulation")) for (const auto& tile : consoles->games) {
@@ -119,7 +135,7 @@ void Launcher::switchLibraryTab(int amount) {
         library_category_ = tab.id;
         category_library_title_ = category->title;
         category_library_.clear();
-        for (const auto& game : category->games) if (isGame(game)) category_library_.push_back(game);
+        for (const auto& game : category->games) if (isGame(game) || studioCategory(tab.id)) category_library_.push_back(game);
     }
     auto options = libraryOptions();
     if (options.view != view) { options.view = view; library_state_.options[libraryScope()] = options; library_state_dirty_ = true; }
@@ -315,6 +331,7 @@ std::string Launcher::libraryScope() const {
         ((!epic_state_.account.empty() && (pc_source_ == GameSource::epic || scope == "all")) ? ":epic:" + epic_state_.account : "");
 }
 library_view::Options Launcher::libraryOptions() const {
+    if (studioBoard()) return {}; // The board of logos: square tiles, its own order.
     const auto found = library_state_.options.find(libraryScope());
     return found == library_state_.options.end() ? library_view::Options{} : found->second;
 }
@@ -554,6 +571,7 @@ bool Launcher::libraryVertical(int amount) {
         if (next != library_controls_.choice) audio_.navigate();
         library_controls_.choice = next;
     } else if (library_controls_.focus >= 0) { if (amount > 0 && !cards_.empty()) { library_controls_.focus = -1; focusCard(selected_); } }
+    else if (amount < 0 && studioBoard() && selected_ < static_cast<size_t>(libraryColumns())) { navigationBoundary(); return true; } // The board has no order or filter.
     else if (amount < 0 && (screen_ == ScreenMode::platform_games || libraryCarousel() || libraryHorizontalCinematic() || selected_ < static_cast<size_t>(libraryColumns()))) {
         // With the search field open, Up returns to it.
         library_controls_.focus = library_controls_.search ? library_ui::search_button : library_ui::filters_button;

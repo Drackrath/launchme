@@ -30,6 +30,7 @@
 #include "../library/rawg.hpp"
 #include "../library/game_index_service.hpp"
 #include "../library/play_journal.hpp"
+#include "../library/studios.hpp"
 #include "../net/companion_memory.hpp"
 #include "../net/companion_mood.hpp"
 #include "../net/companion_photos.hpp"
@@ -168,6 +169,8 @@ public:
     bool screensaverInput(UINT message, WPARAM wparam, LPARAM lparam);
     // User-added games: Settings → Library editor panel (src/app/my_games.cpp).
     bool customEditorOpen() const { return custom_editor_.open; }
+    // Tryb TV's Edytuj metadane (the game's menu): the desktop window's dialog as a layer.
+    bool metadataOpen() const { return desktop_meta_.open && !desktop_mode_; }
     bool libraryDialogOpen() const { return library_dialog_.open; }
     void libraryDialogKey(WPARAM key, bool repeated);
     void customEditorKey(WPARAM key, bool repeated);
@@ -745,7 +748,7 @@ public:
     // topmost open one takes keys, pad buttons, the wheel and clicks before any screen, drawer or
     // menu. The on-screen keyboard is not a layer: it types into the field of the layer beneath.
     enum class Modal { none, exit_prompt, power_menu, tour, file_browser, library_dialog, custom_editor, bulk_covers, identify, gog_install, companion_picker, tarot,
-                       whats_new, profile };
+                       whats_new, profile, metadata };
     Modal topModal() const;
     // The topmost of the dialogs under the walkthrough (file picker … installer): Back and typed
     // characters reach it even under the exit prompt or the power menu.
@@ -1144,7 +1147,7 @@ private:
     bool libraryBookshelf() const; // Półka.
     bool libraryLandscape() const; // Kinowy or Przegląd: 920:430 tiles.
     // The categories of the tab strip: "Wszystkie gry" (empty id), then every shelf with games.
-    struct LibraryTab { std::string id; std::wstring title; size_t count = 0; };
+    struct LibraryTab { std::string id; std::wstring title; size_t count = 0; std::wstring mark; }; // mark: a studio's logo.
     std::vector<LibraryTab> libraryTabs() const;
     int libraryTabIndex(const std::vector<LibraryTab>& tabs) const;
     bool libraryListPlus() const;
@@ -1418,6 +1421,20 @@ private:
     void drmIdentified(const Game& game, const rawg::Metadata& metadata);
     std::wstring drmSummary() const;
     void openPlatform(const std::wstring& name);
+    // Wydawcy and Developerzy (src/app/studio_libraries.cpp): the studios with a logo, from the game index.
+    bool refreshStudios();                       // True when the studios or the perfect games changed.
+    bool studiosShown() const { return settings_.studio_libraries; }
+    std::vector<Game> studioGames(const std::string& key) const;
+    const std::vector<Game>* consoleGames(const std::wstring& name) const; // A console's or a studio's games.
+    Game studioTile(studios::Role role, const studios::Entry& entry) const;
+    void requestStudioBadges();
+    void showStudios();                          // Every hidden one again (Ustawienia).
+    void hideStudio(const std::string& key);
+    void moveStudio(const std::string& key, int direction);
+    void desktopFilterStudio(const std::wstring& name, std::optional<studios::Role> role = std::nullopt);
+    std::unordered_set<std::string> studioSearch(const std::wstring& typed, std::vector<std::pair<std::wstring, size_t>>* names = nullptr) const;
+    bool studioBoard() const { return screen_ == ScreenMode::library && studioCategory(library_category_); }
+    static bool studioCategory(const std::string& id) { return id == "publishers" || id == "developers"; }
     void openSearch();
     void openSettings();
     // Ustawienia → Asystent (desktop: the companion card's "…" menu).
@@ -1981,6 +1998,12 @@ private:
     std::function<std::filesystem::path(HWND)> pick_image_; // Tests only ("Zmień grafikę → Z dysku…").
     std::vector<Game> shortcut_library_, nested_games_;
     std::unordered_map<std::wstring, std::vector<Game>> platform_games_;
+    // Wydawcy and Developerzy: each studio's game keys (most games first) and its games by its key
+    // (L"publisher:capcom"); the games with every achievement unlocked (a gold border).
+    std::array<std::vector<studios::Entry>, studios::role_count> studio_groups_;
+    std::unordered_map<std::wstring, std::vector<Game>> studio_games_;
+    std::unordered_set<std::string> perfect_games_;
+    std::string studio_board_return_;            // The board a studio's library was opened from (Back returns there).
     std::wstring nested_platform_;
     std::vector<SteamCollection> collections_source_, settings_collections_;
     std::unordered_set<uint32_t> excluded_ids_;
@@ -2309,7 +2332,7 @@ private:
     };
     std::vector<desktop_ui::Entry> desktop_entries_;
     std::string desktop_section_ = "all";
-    std::array<bool, desktop_ui::group_count> desktop_collapsed_{};
+    std::array<bool, desktop_ui::group_count> desktop_collapsed_{false, false, false, false, true, true}; // Wydawcy, Developerzy: folded.
     std::array<float, desktop_ui::group_count> desktop_collapse_anim_{};
     bool desktop_collapse_valid_ = false;
     float desktop_narrow_anim_ = 0;   // The sidebar 0 wide … 1 narrow, easing to settings_.desktop_narrow.
@@ -2466,6 +2489,10 @@ private:
     void refreshTitleLookups(); // Once a start: older title overrides get fresh lookups.
     bool metadata_lookups_checked_ = false;
     void desktopMetaOpen(const Game& game);
+    void openMetadata(const Game& game); // Tryb TV.
+    void metadataKey(WPARAM key, bool repeated);
+    void metadataClick(float x, float y);
+    void metadataPointer(float x, float y);
     std::optional<uint32_t> desktopSteamPlaytime(const Game& game) const;
     void desktopMetaClose();
     void desktopMetadataChanged();

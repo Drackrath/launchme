@@ -310,6 +310,16 @@ void Launcher::buildShelves() {
         }
         categories_.push_back(std::move(emulation));
     }
+    // Wydawcy and Developerzy: a row of logos each (src/app/studio_libraries.cpp).
+    refreshStudios();
+    for (const auto role : {studios::Role::publisher, studios::Role::developer}) {
+        const auto& list = studio_groups_[static_cast<size_t>(role)];
+        if (list.empty()) continue;
+        Category row{role == studios::Role::publisher ? tr(L"Wydawcy") : tr(L"Developerzy")};
+        row.id = role == studios::Role::publisher ? "publishers" : "developers";
+        for (const auto& entry : list) row.games.push_back(studioTile(role, entry));
+        categories_.push_back(std::move(row));
+    }
     settings_collections_ = managedCollections(account_, collections_source_, library_state_.collections);
     std::unordered_map<std::string, size_t> positions;
     for (size_t i = 0; i < settings_.collection_order.size(); ++i)
@@ -359,7 +369,7 @@ void Launcher::buildShelves() {
     if (!library_category_.empty())
         for (const auto& category : categories_) if (category.id == library_category_) {
             category_library_title_ = category.title;
-            for (const auto& game : category.games) if (isGame(game)) category_library_.push_back(game);
+            for (const auto& game : category.games) if (isGame(game) || studioCategory(category.id)) category_library_.push_back(game); // A board: the logos.
         }
     category_ = std::min(category_, categories_.size() - 1);
     for (size_t i = 0; i < categories_.size(); ++i)
@@ -448,17 +458,20 @@ void Launcher::rebuildCards(bool preserve_background) {
         std::unordered_map<std::string, int> released;
         if (library_controls_.options.order == library_view::Order::release && game_index_)
             released = game_index_->read([](const game_index::Index& index) { return index.releases(); });
-        arranged = library_view::arrange(source, library_controls_.options, library_state_.first_seen, private_shelf_, &released);
+        // A board of logos keeps its own order (most games first, or the player's).
+        arranged = studioBoard() ? source : library_view::arrange(source, library_controls_.options, library_state_.first_seen, private_shelf_, &released);
         // The library's search field keeps the games whose title contains the typed text, in order,
-        // and the games of a typed genre or tag ("rpg", "przygodowe", "roguelike").
+        // and the games of a typed genre or tag ("rpg", "przygodowe", "roguelike") or studio ("capcom").
         if (screen_ == ScreenMode::library && library_controls_.search) {
             const auto& typed = library_controls_.query;
             const auto first = typed.find_first_not_of(L' ');
             const auto trimmed = first == std::wstring::npos ? std::wstring{} : typed.substr(first, typed.find_last_not_of(L' ') - first + 1);
             const auto query = foldGameTitle(trimmed);
             std::unordered_set<std::string> labelled;
-            if (!query.empty() && game_index_)
+            if (!query.empty() && game_index_) {
                 for (auto& key : game_index_->read([&](const game_index::Index& index) { return index.withLabel(trimmed); })) labelled.insert(std::move(key));
+                labelled.merge(studioSearch(trimmed)); // Its developer or publisher.
+            }
             if (!query.empty())
                 std::erase_if(arranged, [&](const Game& game) { return !titleMatch(foldGameTitle(game.name), query) && !labelled.contains(gameKey(game)); });
         }
@@ -569,6 +582,7 @@ bool Launcher::shelfAllTile() const {
         screen_ != ScreenMode::shelves || category_ >= categories_.size()) return false;
     // Not Recent (it ends with "Wszystkie gry"), stores or consoles, as on Flix.
     const auto& category = categories_[category_];
+    if (studioCategory(category.id)) return !category.games.empty(); // Wydawcy, Developerzy: the board of all their logos.
     return category.id != "recent" && category.id != "pc-platforms" && category.id != "emulation" &&
            std::any_of(category.games.begin(), category.games.end(), [](const Game& game) { return isGame(game); });
 }

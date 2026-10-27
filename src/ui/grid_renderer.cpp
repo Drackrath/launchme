@@ -86,6 +86,8 @@ void Renderer::drawGrid() {
         text(context_->store_status, 68, 165, width - 136, 26, settings_body_font_.Get(), color(0.6f, 0.65f, 0.65f));
     }
     drawLibraryTabs();
+    if (!context_->library_note.empty() && header_alpha > 0.004f)
+        text(context_->library_note, 68, 104 - lift, width - 136, 30, menu_font_.Get(), color(0.62f, 0.62f, 0.62f, header_alpha));
     if (!cards_ || cards_->empty()) {
         // An empty result says so instead of leaving only the header. The Store reports its own
         // state in store_status; the library's typed query has its line under the field above.

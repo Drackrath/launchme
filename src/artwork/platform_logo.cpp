@@ -2,13 +2,17 @@
 #include "../net/http.hpp"
 #include "../platform/atomic_file.hpp"
 #include "../library/emulation_platforms.hpp"
+#include "../library/studios.hpp"
+#include "../platform/text_encoding.hpp"
 
 #include <d2d1.h>
 #include <dwrite.h>
 #include <wincodec.h>
 #include <wrl/client.h>
 
+#include <Windows.h>
 #include <fstream>
+#include <optional>
 
 namespace {
 std::wstring caseLogoFilename(const std::wstring& platform) {
@@ -148,8 +152,19 @@ std::vector<uint8_t> backgroundFile(const std::wstring& slug, const std::filesys
 }
 } // namespace
 
+// A publisher's or developer's logo ("publisher:capcom"): shipped in assets\studios beside the program.
+std::optional<std::vector<uint8_t>> studioLogo(const std::wstring& platform) {
+    if (!platform.starts_with(L"publisher:") && !platform.starts_with(L"developer:")) return std::nullopt;
+    const auto parsed = studios::parse(text_encoding::utf8(platform));
+    if (!parsed) return std::vector<uint8_t>{};
+    wchar_t exe[32768]{};
+    GetModuleFileNameW(nullptr, exe, static_cast<DWORD>(std::size(exe)));
+    return logoFile(std::filesystem::path(exe).parent_path() / L"assets" / L"studios" / std::wstring(parsed->second->file));
+}
+
 std::vector<uint8_t> platformLogoCached(const std::wstring& platform,
                                         const std::filesystem::path& cache) {
+    if (auto studio = studioLogo(platform)) return std::move(*studio);
     if (platform == L"DRM-free") return drmFreeLogo();
     const auto filename = platformLogoFilename(platform);
     return filename.empty() ? std::vector<uint8_t>{} : logoFile(cache / filename);
@@ -157,6 +172,7 @@ std::vector<uint8_t> platformLogoCached(const std::wstring& platform,
 
 std::vector<uint8_t> platformLogo(const std::wstring& platform,
                                   const std::filesystem::path& cache) {
+    if (auto studio = studioLogo(platform)) return std::move(*studio);
     if (platform == L"DRM-free") return drmFreeLogo();
     const auto filename = platformLogoFilename(platform);
     if (filename.empty()) return {};

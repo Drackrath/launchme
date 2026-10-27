@@ -82,6 +82,8 @@ public:
     const std::vector<settings_ui::Rect>& desktopChips() const { return desktop_chips_; }
     settings_ui::Rect desktopChipAdd() const { return desktop_chip_add_; }
     settings_ui::Rect desktopRating() const { return desktop_rating_; }
+    // The pane's Developer and Wydawca values: a click shows that studio's games.
+    const std::array<settings_ui::Rect, 2>& desktopStudios() const { return desktop_studios_; }
     settings_ui::Rect desktopAchievements() const { return desktop_achievements_; }
     // Desktop dialogs measured while drawn: their controls (topmost last) and content height.
     const std::vector<desktop_ui::SheetHotspot>& desktopHotspots() const { return desktop_hotspots_; }
@@ -378,6 +380,8 @@ private:
     void drawLibraryBackdrop(float opacity);
     void drawHero();
     void drawCard(const GameCard& card, size_t index);
+    static constexpr D2D1_COLOR_F perfect_gold{0.98f, 0.77f, 0.30f, 1.0f}; // Every achievement unlocked.
+    bool perfectGame(const Game& game) const;
     // The soft squircle shadow under a square card (larger under the focused one).
     void drawSquareShadow(float x, float y, float size, bool selected, float transparency);
     // Experimental spring focus (ViewContext::focus_ring): the outline on its own rectangle, zoomed
@@ -423,6 +427,8 @@ private:
     void drawPlatformBadge();
     // The platform's logo (as the corner badge draws it) at most `height` tall, left-aligned at x and
     // centred on center_y; its name in `fallback` while it has no logo. Returns the width used.
+    bool hasPlatformMark(const std::wstring& platform) const;
+    float platformMarkWidth(const std::wstring& platform, float height, float max_width) const;
     float drawPlatformMark(const std::wstring& platform, float x, float center_y, float height, float max_width, float alpha,
                            IDWriteTextFormat* fallback);
     void drawContextMenu();
@@ -762,7 +768,7 @@ private:
     // A cached brand geometry (brand_icons_) filled under `transform`, tessellated once per device scale.
     void fillBrandGeometry(const std::string& key, ID2D1Geometry* geometry, const D2D1_MATRIX_3X2_F& transform, D2D1_COLOR_F ink);
     void drawDesktopQuick(const desktop_ui::View& view);
-    void drawDesktopMeta(const desktop_ui::View& view);
+    void drawDesktopMeta(const desktop_ui::MetaView& meta); // Also Tryb TV's, from the game's menu.
     void desktopSelection(const std::wstring& value, float left, float cy, float width, IDWriteTextFormat* format); // Its highlight, if any.
     void desktopFill(settings_ui::Rect r, float radius, D2D1_COLOR_F ink);
     void desktopStroke(settings_ui::Rect r, float radius, D2D1_COLOR_F ink, float width = 1);
@@ -1069,6 +1075,7 @@ private:
     float desktop_pane_height_ = 0;
     std::vector<settings_ui::Rect> desktop_chips_;
     settings_ui::Rect desktop_chip_add_{}, desktop_rating_{}, desktop_achievements_{};
+    std::array<settings_ui::Rect, 2> desktop_studios_{};
     std::vector<desktop_ui::SheetHotspot> desktop_hotspots_;
     desktop_ui::DialogKind desktop_modal_ = desktop_ui::DialogKind::none;
     std::vector<desktop_ui::SheetHotspot> desktop_modal_hotspots_;
