@@ -100,6 +100,9 @@ Settings → System → Help → **Open folder** (the version row) opens it.
   write your own with the [Plugin SDK](docs/plugins/README.md).
 - **Updates**: Launchme looks for a new release on GitHub, says so, and updates itself with one click
   (Settings → System → Updates, or the icon on the desktop window's top bar), then shows what is new.
+- **Low memory mode** (Settings → System → Performance, on by default): artwork decoded at its size on
+  screen, fewer images kept in memory, and while a game runs in front of the launcher it gives its graphics
+  and artwork back (GPU memory to zero). Optional *Artwork compression (BC1)* for 8× less graphics memory.
 - Background music, screensaver, start with Windows, single instance, crash dumps.
 
 ## Controls

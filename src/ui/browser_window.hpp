@@ -28,6 +28,9 @@ public:
     Status status() const;
     void command(Command command);
     void scroll(int pixels);
+    // AppSettings::low_memory: while inactive the page is asked to use less memory
+    // (MemoryUsageTargetLevel), and minimized it is hidden and suspended until shown again.
+    void setLowMemory(bool enabled);
     static bool supportedUrl(const std::wstring& url);
     static bool runtimeAvailable();
 #ifdef LAUNCHME_UI_TEST
@@ -42,6 +45,7 @@ public:
 private:
     struct State;
     std::shared_ptr<State> state_;
+    bool low_memory_ = false;
 #ifdef LAUNCHME_UI_TEST
     std::wstring test_html_;
     bool test_missing_ = false;

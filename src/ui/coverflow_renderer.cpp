@@ -604,7 +604,7 @@ void Renderer::createSteelbookStreak() {
 
 void Renderer::uploadSteelbook(Cover& image) {
     if (!image.steelbook) return;
-    if (image.steelbook->source != image.pixels) { image.steelbook.reset(); return; }
+    if (image.steelbook->source != image.encoded()) { image.steelbook.reset(); return; }
     auto& material = *image.steelbook;
     if (!material.decoding || !material.decoding->done.load(std::memory_order_acquire) || !target_) return;
     const auto ticket = std::move(material.decoding);
@@ -681,15 +681,15 @@ void Renderer::drawSteelbook(Cover& image, D2D1_RECT_F rect, ID2D1Geometry* clip
     if (!steelbook_for_test) return;
 #endif
     if (!image.bitmap || !clip) return;
-    if (!image.steelbook || image.steelbook->source != image.pixels) {
+    if (!image.steelbook || image.steelbook->source != image.encoded()) {
         image.steelbook = std::make_shared<SteelbookMaterial>();
-        image.steelbook->source = image.pixels;
+        image.steelbook->source = image.encoded();
     }
     auto& material = *image.steelbook;
     // Visible neighbours prepare their maps while still plain, so selecting one can start
     // its finish at once instead of waiting for the worker.
     if (!material.bitmap && !material.decoding && !material.failed)
-        material.decoding = decoder_.submit(image.pixels, {false, false, false, 0, true});
+        material.decoding = decoder_.submit(material.source, {false, false, false, 0, true});
     uploadSteelbook(image);
     if (opacity < 0.002f) return;
     const float w = rect.right - rect.left, h = rect.bottom - rect.top;

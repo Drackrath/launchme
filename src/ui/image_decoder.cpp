@@ -1,5 +1,6 @@
 #include "image_decoder.hpp"
 #include "steelbook_material.hpp"
+#include "../artwork/block_compression.hpp"
 
 #include <wincodec.h>
 #include <wrl/client.h>
@@ -170,6 +171,11 @@ DecodedImage decodeImage(IWICImagingFactory* wic, std::span<const uint8_t> bytes
         target_width = std::max(1u, static_cast<UINT>(target_width * scale));
         target_height = std::max(1u, static_cast<UINT>(target_height * scale));
     }
+    // Whole 4×4 blocks for BC1: at most 3 px less on a side (under 1% of a cover's shape).
+    if (kind.block_compress && !kind.steelbook && target_width >= 4 && target_height >= 4) {
+        target_width -= target_width % 4;
+        target_height -= target_height % 4;
+    }
     // A JPEG decoded at half, a quarter or an eighth of its size by the codec itself (its DCT
     // scaling) when the target is at most that large: the full image is never reconstructed.
     // The final size still comes from the Fant scaler below.
@@ -219,7 +225,9 @@ DecodedImage decodeImage(IWICImagingFactory* wic, std::span<const uint8_t> bytes
         if (any(gloss)) result.gloss = std::move(gloss);
         if (any(matte)) result.matte = std::move(matte);
     }
-    result.width = width; result.height = height; result.pixels = std::move(pixels);
+    result.width = width; result.height = height;
+    if (kind.block_compress && !kind.steelbook) result.blocks = block_compression::encodeBc1(pixels.data(), width, height);
+    if (result.blocks.empty()) result.pixels = std::move(pixels); // Not opaque or not whole blocks: as decoded.
     return result;
 } catch (...) { return {}; } // Allocation/codec failures complete the ticket without terminating a worker.
 
@@ -295,7 +303,7 @@ void ImageDecoder::decode(Job& job, IWICImagingFactory* wic, bool wait) try {
     auto image = decodeImage(wic, *job.bytes, job.kind);
     decode_us_.fetch_add(static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - started).count()), std::memory_order_relaxed);
     if (image.valid()) {
-        reservation->shrink(image.pixels.size() + image.gloss.size() + image.matte.size() + image.relief.size());
+        reservation->shrink(image.pixels.size() + image.blocks.size() + image.gloss.size() + image.matte.size() + image.relief.size());
         image.reservation = std::move(reservation);
     }
     job.ticket->image = std::move(image);

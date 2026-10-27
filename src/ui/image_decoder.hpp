@@ -31,6 +31,18 @@ inline ImageBytes shareImage(std::vector<uint8_t> bytes) {
     return bytes.empty() ? ImageBytes{} : std::make_shared<const std::vector<uint8_t>>(std::move(bytes));
 }
 inline size_t imageSize(const ImageBytes& bytes) { return bytes ? bytes->size() : 0; }
+// FNV-1a of encoded bytes, eight at a time: recognises a picture read from disk again (low memory).
+inline uint64_t imageHash(const std::vector<uint8_t>& bytes) {
+    uint64_t hash = 14695981039346656037ull;
+    size_t i = 0;
+    for (; i + 8 <= bytes.size(); i += 8) {
+        uint64_t word = 0;
+        for (int k = 0; k < 8; ++k) word |= static_cast<uint64_t>(bytes[i + k]) << (8 * k);
+        hash = (hash ^ word) * 1099511628211ull;
+    }
+    for (; i < bytes.size(); ++i) hash = (hash ^ bytes[i]) * 1099511628211ull;
+    return hash ^ bytes.size();
+}
 // How a background picture is shown: a game's own art, a console logo standing in for one
 // (faint), or a random game's art behind a console tile (dimmed).
 enum class HeroTone : uint8_t { full, logo, dimmed };
@@ -46,6 +58,9 @@ struct DecodeKind {
     // short_edge is a size wanted on screen rather than a limit: within 25% of it the image is
     // kept at its own size (a resample would cost more than the smaller upload saves).
     bool loose_edge = false;
+    // Low memory mode on a GPU that samples BC1: the size is rounded to whole 4×4 blocks and an
+    // opaque result is kept as BC1 blocks (DecodedImage::blocks) instead of BGRA pixels.
+    bool block_compress = false;
 };
 
 struct DecodedImage {
@@ -58,13 +73,17 @@ struct DecodedImage {
     // Declared before pixels so their storage is freed before returning the
     // decoder's reservation. Completed tickets keep it until upload/discard.
     std::shared_ptr<DecodeMemoryReservation> reservation;
-    std::vector<uint8_t> pixels;             // 32bpp premultiplied BGRA, stride = width * 4.
+    std::vector<uint8_t> pixels;             // 32bpp premultiplied BGRA, stride = width * 4; empty when `blocks` holds the image.
+    std::vector<uint8_t> blocks;             // DecodeKind::block_compress: BC1 blocks (block_compression.hpp), else empty.
     std::vector<uint8_t> gloss;              // Steelbook only: A8 polished dark ink, stride = width; empty if none.
     std::vector<uint8_t> matte;              // Steelbook only: A8 grainy matte print, stride = width; empty if none.
     std::vector<uint8_t> relief;             // Steelbook only: opaque BGRA edge relief (steelbook_material::emboss); empty if none.
     float accent[3]{0.94f, 0.96f, 0.97f};   // Poster accent; the neutral fallback otherwise.
     InkBounds ink;                           // Logos only.
-    bool valid() const { return width && height && pixels.size() == static_cast<size_t>(width) * height * 4; }
+    bool valid() const {
+        return width && height && (pixels.size() == static_cast<size_t>(width) * height * 4 ||
+                                   (pixels.empty() && !blocks.empty() && blocks.size() == static_cast<size_t>(width / 4) * (height / 4) * 8));
+    }
 };
 
 // Pure WIC decode, callable on any thread that owns `wic`. Returns an invalid

@@ -1714,6 +1714,24 @@ private:
     static constexpr size_t art_budget = size_t{128} << 20;
     // Called after art_ grows: trims it to the budget and lets dropped keys be requested again.
     void trimArt();
+    void forgetArtRequests(const std::vector<std::string>& keys); // Dropped from art_: requestable again.
+    // System → Wydajność → Tryb niskiego zużycia RAM (src/app/memory.cpp). applyLowMemory passes
+    // the setting to the renderer, art_ and the browser window.
+    static constexpr size_t low_memory_art_budget = size_t{32} << 20;
+    void applyLowMemory();
+    // Every frame: the launcher behind a game (its window in front on this monitor, covering it) or
+    // minimized for release_delay gives its graphics and artwork back (releaseMemory); in front
+    // again, the next paint builds them anew (restoreMemory). Lost art slots are bound again.
+    static constexpr uint64_t memory_release_delay_ms = 8000;
+    void pollMemory();
+    bool launcherHidden() const;
+    void releaseMemory();
+    void restoreMemory();
+    // Low memory: background pictures only around the focused card (Flix's first row keeps its capsules').
+    void releaseFarHeroes();
+    bool memory_released_ = false;
+    uint64_t memory_hidden_since_ = 0;
+    std::function<HWND()> foreground_window_; // Tests: the window in front; GetForegroundWindow otherwise.
     void startArtworkWorkers(bool network = true); // Tests can run the actual disk lane alone.
     // One game of the slideshow bound to a renderer image slot (0-2; the three items
     // keep distinct slots and swap them as the show advances).

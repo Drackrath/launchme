@@ -27,6 +27,12 @@ std::wstring lowered(std::wstring text) {
 }
 
 void Launcher::paint(bool overlay) {
+    // Behind a game with its graphics given back (src/app/memory.cpp): nothing is drawn until the
+    // launcher is in front again, or a paint would build the whole device back.
+    if (memory_released_ && !overlay) {
+        if (settings_.low_memory && launcherHidden()) { ValidateRect(hwnd_, nullptr); return; }
+        restoreMemory();
+    }
     // Desktop mode's library is laid out in DIPs at the window's DPI; every other screen (and Tryb
     // TV) on the TV canvas. Switched first: the context below reads the viewport.
     const bool desktop = !overlay && desktopActive() && !launchAnimationActive();

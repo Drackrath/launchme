@@ -131,6 +131,23 @@ public:
     }
     size_t artBytes(size_t index) const;
     void setCoverFocus(size_t index, CropFocus focus) { if (index < covers_.size()) covers_[index].focus = focus; }
+    // System → Wydajność → Tryb niskiego zużycia RAM (AppSettings::low_memory): card art is decoded at
+    // the size it is drawn (and again larger when drawn larger), and covers, posters, logos and discs let
+    // their encoded bytes go once uploaded (the launcher's cache or the disk has them). lock_compress`n    // (AppSettings::low_memory_bc1): opaque art goes to the GPU as BC1 blocks where the device samples them.
+    // From the next decode on.
+    void setLowMemory(bool enabled, bool block_compress = false) { low_memory_ = enabled; block_compress_ = enabled && block_compress; }
+    bool lowMemory() const { return low_memory_; }
+    // The launcher waits behind a game: every device resource goes (bitmaps, brushes, the Direct2D
+    // target and with it its GPU device), and so do the card art slots and cached text layouts. The
+    // next paint makes the target again; takeArtLost() then asks the launcher to bind the art again.
+    void releaseGraphics();
+    // Card art slots emptied since the last call (releaseGraphics, or a slot whose bytes were let go
+    // and whose bitmap went with the device): the launcher binds them again from its cache or disk.
+    bool takeArtLost() { const bool lost = art_lost_; art_lost_ = false; return lost; }
+    // A card's background picture given back (low memory: only the focused card's neighbours keep one).
+    void releaseHero(size_t index) { if (index < heroes_.size()) heroes_[index] = {}; }
+    // A card's cover, poster or disc still holds its encoded bytes (waiting for its decode or upload).
+    bool artPending(size_t index) const;
     // True once bytes were handed over; the bitmap itself may still be decoding.
     bool hasCover(size_t index) const { return index < covers_.size() && covers_[index].loaded(); }
     // Drops a card's cover bitmap and bytes (a grid card scrolled far away); set again to show it.
@@ -258,6 +275,17 @@ public:
     bool steelbook_for_test = true; // Comparison captures of the original print and its subtle finish.
     bool posterReadyForTest(size_t index) const { return index < posters_.size() && posters_[index].bitmap; }
     bool coverReadyForTest(size_t index) const { return index < covers_.size() && covers_[index].bitmap; }
+    // Low memory (low_memory_ui_cases.hpp).
+    ID2D1Bitmap* coverBitmapForTest(size_t index) const { return index < covers_.size() ? covers_[index].bitmap.Get() : nullptr; }
+    bool coverBytesDroppedForTest(size_t index) const { return index < covers_.size() && covers_[index].dropped && !covers_[index].pixels; }
+    bool coverCompressedForTest(size_t index) const {
+        return index < covers_.size() && covers_[index].bitmap && covers_[index].bitmap->GetPixelFormat().format == DXGI_FORMAT_BC1_UNORM;
+    }
+    bool bc1ForTest() const { return bc1_supported_; }
+    bool targetForTest() const { return target_ != nullptr; }
+    void discardTargetForTest() { discardTarget(); } // As on device loss.
+    uint32_t coverEdgeForTest() const { return coverEdge(); }
+    void wantEdgeForTest(size_t index, float magnify) { if (index < covers_.size()) wantEdge(covers_[index], magnify); }
     bool steelbookReadyForTest(size_t index) const {
         return index < posters_.size() && posters_[index].steelbook && posters_[index].steelbook->brush;
     }
@@ -301,10 +329,25 @@ private:
         bool failed = false;
     };
     struct Cover {
-        ImageBytes pixels; // Encoded bytes; kept to rebuild the bitmap after device loss.
+        ImageBytes pixels; // Encoded bytes; kept to rebuild the bitmap after device loss (low memory: see dropped).
         std::shared_ptr<DecodeTicket> decoding; // In flight on the decoder workers.
         std::chrono::steady_clock::time_point revealed{}; // Async arrival; drives a short fade-in.
-        bool loaded() const { return pixels && !pixels->empty(); }
+        // Low memory: `pixels` let go once uploaded (droppable slots only). `source` still finds them
+        // while the launcher's cache keeps them; size and hash recognise the same picture read again.
+        bool droppable = false, dropped = false;
+        std::weak_ptr<const std::vector<uint8_t>> source;
+        size_t source_size = 0;
+        uint64_t source_hash = 0;
+        bool loaded() const { return (pixels && !pixels->empty()) || dropped; }
+        ImageBytes encoded() const { return pixels ? pixels : source.lock(); } // Null once nobody keeps them.
+        // `other` is the picture bound here (the same buffer, or the same bytes read again).
+        bool same(const ImageBytes& other) const {
+            if (!other || other->empty()) return false;
+            if (other == pixels) return true;
+            if (!dropped) return false;
+            if (source.lock() == other) return true;
+            return other->size() == source_size && imageHash(*other) == source_hash;
+        }
         CropFocus focus;
         uint32_t short_edge = 0; // Decode cap (DecodeKind::short_edge); 0 = full size.
         bool loose_edge = false; // DecodeKind::loose_edge: the desktop grid's cell size.
@@ -332,11 +375,25 @@ private:
               DWRITE_FONT_WEIGHT weight, DWRITE_TEXT_ALIGNMENT alignment = DWRITE_TEXT_ALIGNMENT_LEADING);
     bool createFonts();
     void loadLocalFonts();
+    bool ensureFactory();
     bool createTarget();
     bool createTargetResources();
     void discardTarget();
     void createBitmap(Cover& cover);
     void redecode(Cover& cover, uint32_t short_edge);
+    // Low memory (renderer_resources.cpp): the decode request for a slot; a new picture bound to a
+    // droppable slot; the same picture bound again; bytes let go after an upload.
+    DecodeKind decodeKind(const Cover& cover) const;
+    void bindPicture(Cover& cover, ImageBytes pixels);
+    void rebindPicture(Cover& cover, const ImageBytes& pixels);
+    void dropBytes(Cover& cover);
+    // Default decode caps: 1024 px covers and 256 px thumbnails; in low memory the size a card is
+    // drawn at on this screen (and wantEdge raises it where one is drawn larger).
+    uint32_t coverEdge() const;
+    uint32_t thumbnailEdge() const;
+    // Low memory: `magnify` device pixels per bitmap pixel at this draw; well above 1, the picture is
+    // decoded again at the size drawn (its shown bitmap stays meanwhile).
+    void wantEdge(Cover& cover, float magnify);
     void upload(Cover& cover, bool reveal);
     void uploadDecoded();
     float reveal(const Cover& cover) const;
@@ -805,6 +862,9 @@ private:
 
     HWND hwnd_ = nullptr;
     bool layered_ = false;
+    bool low_memory_ = false, block_compress_ = false; // setLowMemory.
+    bool bc1_supported_ = false; // The target samples BC1 bitmaps (ID2D1DeviceContext, Windows 8.1+).
+    bool art_lost_ = false; // takeArtLost.
     LayeredSurface layered_surface_;
     ImageDecoder decoder_;
     uint64_t decoded_seen_ = 0;

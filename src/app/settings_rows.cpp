@@ -623,6 +623,14 @@ void Launcher::buildSettingsRows() {
         pageRow(Page::screensaver, tr(L"Wygaszacz ekranu"), tr(L"Grafiki gier, gdy launcher jest bezczynny: styl, czas i podgląd."),
                 settings_.screensaver ? tr(L"Po ") + std::to_wstring(screensaver::normalizedMinutes(settings_.screensaver_minutes)) + tr(L" min") :
                                         std::wstring(tr(L"Wyłączony")));
+        section(tr(L"Wydajność"));
+        add({Id::low_memory, Control::toggle, tr(L"Tryb niskiego zużycia RAM"),
+            tr(L"Grafiki w rozmiarze z ekranu i mniej trzymanych w pamięci; gdy gra działa, launcher oddaje pamięć."),
+            {}, settings_.low_memory});
+        if (settings_.low_memory)
+            add({Id::low_memory_bc1, Control::toggle, tr(L"Kompresja grafik (BC1)"),
+                tr(L"Grafiki w pamięci karty graficznej 8 razy mniejsze, kosztem dłuższego wczytywania i odrobiny jakości."),
+                {}, settings_.low_memory_bc1});
         section(tr(L"Eksperymentalne"));
         add({Id::quick_resume, Control::toggle, tr(L"Szybkie wznawianie"),
             tr(L"Wstrzymaj grę w jej menu i wróć do niej później. Gry online mogą się rozłączyć."), {}, settings_.quick_resume});

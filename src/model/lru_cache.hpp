@@ -17,6 +17,7 @@ public:
     explicit LruCache(size_t budget = static_cast<size_t>(-1)) : budget_(budget) {}
 
     size_t budget() const { return budget_; }
+    void setBudget(size_t budget) { budget_ = budget; } // Applied by the next trim().
     size_t bytes() const { return bytes_; }
     size_t size() const { return entries_.size(); }
     bool empty() const { return entries_.empty(); }

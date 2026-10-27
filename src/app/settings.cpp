@@ -671,6 +671,16 @@ void Launcher::settingsToggle(const Row& row) {
         if (settings_.update_check) checkForUpdate(true);
         settingsChanged(); audio_.context(); return;
     }
+    else if (row.id == Id::low_memory) {
+        settings_.low_memory = !settings_.low_memory;
+        applyLowMemory(); // Takes effect for artwork decoded from now on (src/app/memory.cpp).
+        settingsChanged(); audio_.context(); return; // Rows rebuilt: Kompresja grafik shows only under it.
+    }
+    else if (row.id == Id::low_memory_bc1) {
+        settings_.low_memory_bc1 = !settings_.low_memory_bc1;
+        applyLowMemory();
+        settingsChanged(); audio_.context(); return;
+    }
     else if (row.id == Id::collection && settings_state_.row() < static_cast<int>(settings_collections_.size())) {
         if (row.locked) { navigationBoundary(); return; } // SRM collection covered by Emulacja.
         const auto key = collectionKey(account_, settings_collections_[settings_state_.row()]);

@@ -25,6 +25,13 @@ ImageBytes shared(std::vector<uint8_t> bytes) { return shareImage(std::move(byte
 // An empty buffer counts as no image, as with the vector setters.
 ImageBytes shared(ImageBytes bytes) { return bytes && !bytes->empty() ? std::move(bytes) : ImageBytes{}; }
 constexpr auto reveal_duration = std::chrono::milliseconds(140);
+// GPU bytes of an uploaded picture: 4 a pixel, half a byte as BC1 (low memory).
+size_t bitmapBytes(ID2D1Bitmap* bitmap) {
+    if (!bitmap) return 0;
+    const auto size = bitmap->GetPixelSize();
+    const size_t pixels = static_cast<size_t>(size.width) * size.height;
+    return bitmap->GetPixelFormat().format == DXGI_FORMAT_BC1_UNORM ? pixels / 2 : pixels * 4;
+}
 // Decode caps by drawn size. The largest card (focused shelf card at 4K, launch zoom)
 // is ~760 px and the crop preview ~1250 px; posters rarely exceed 600x900 anyway. XMB
 // collection thumbnails are drawn at most ~160 px.
@@ -159,11 +166,11 @@ void Renderer::setTileThumbnail(size_t index, int slot, ImageBytes pixels, CropF
     auto& thumbnail = tile_thumbnails_[index][slot];
     pixels = shared(std::move(pixels));
     // The bytes already bound (a kept tile rebinding its preview): no decode or fade again.
-    if (pixels && pixels == thumbnail.pixels) { thumbnail.focus = focus; createBitmap(thumbnail); return; }
-    thumbnail.pixels = std::move(pixels);
+    if (thumbnail.same(pixels)) { rebindPicture(thumbnail, pixels); thumbnail.focus = focus; createBitmap(thumbnail); return; }
+    bindPicture(thumbnail, std::move(pixels));
     thumbnail.decoding.reset();
     thumbnail.focus = focus;
-    thumbnail.short_edge = thumbnail_short_edge;
+    thumbnail.short_edge = thumbnailEdge();
     thumbnail.bitmap.Reset();
     thumbnail.brush.Reset();
     createBitmap(thumbnail);
@@ -174,10 +181,15 @@ void Renderer::setCover(size_t index, ImageBytes pixels, CropFocus focus, uint32
     Cover& cover = covers_[index];
     pixels = shared(std::move(pixels));
     const bool loose = short_edge != 0;
-    if (!short_edge) short_edge = cover_short_edge;
+    if (!short_edge) short_edge = coverEdge();
     // The bytes already bound (a rebind of the same art): keep the decoded bitmap, no fade again.
-    if (pixels && pixels == cover.pixels) { cover.focus = focus; cover.loose_edge = loose; redecode(cover, short_edge); return; }
-    cover.pixels = std::move(pixels);
+    // A bitmap decoded larger for a larger draw (wantEdge) stays as it is.
+    if (cover.same(pixels)) {
+        rebindPicture(cover, pixels); cover.focus = focus; cover.loose_edge = loose;
+        redecode(cover, low_memory_ && !loose ? std::max(short_edge, cover.short_edge) : short_edge);
+        return;
+    }
+    bindPicture(cover, std::move(pixels));
     cover.decoding.reset();
     cover.focus = focus;
     cover.short_edge = short_edge;
@@ -195,12 +207,16 @@ void Renderer::setPoster(size_t index, ImageBytes pixels, uint32_t short_edge) {
     Cover& poster = posters_[index];
     pixels = shared(std::move(pixels));
     const bool loose = short_edge != 0;
-    if (!short_edge) short_edge = cover_short_edge;
+    if (!short_edge) short_edge = coverEdge();
     // Rebinding the bytes already shown (another row's copy of the game, a rebuilt row) must not
     // drop the bitmap: it would decode and fade in again.
-    if (pixels && pixels == poster.pixels) { poster.loose_edge = loose; redecode(poster, short_edge); return; }
+    if (poster.same(pixels)) {
+        rebindPicture(poster, pixels); poster.loose_edge = loose;
+        redecode(poster, low_memory_ && !loose ? std::max(short_edge, poster.short_edge) : short_edge);
+        return;
+    }
     poster = {};
-    poster.pixels = std::move(pixels);
+    bindPicture(poster, std::move(pixels));
     poster.short_edge = short_edge;
     poster.loose_edge = loose;
     createBitmap(poster);
@@ -211,9 +227,9 @@ void Renderer::redecode(Cover& cover, uint32_t short_edge) {
     if (cover.short_edge != short_edge && cover.loaded() && target_) {
         cover.short_edge = short_edge;
         if (cover.bitmap || cover.decoding) { // A decode at the old size is dropped; the shown bitmap stays.
-            DecodeKind kind{!cover.hero && !cover.logo, cover.hero, cover.logo, cover.short_edge};
-            kind.loose_edge = cover.loose_edge;
-            cover.decoding = decoder_.submit(cover.pixels, kind);
+            auto bytes = cover.encoded();
+            if (!bytes) return; // Low memory: nobody keeps the bytes; the shown bitmap stays at its size.
+            cover.decoding = decoder_.submit(std::move(bytes), decodeKind(cover));
             if (cover.decoding->done.load(std::memory_order_acquire)) upload(cover, false);
             return;
         }
@@ -231,18 +247,67 @@ void Renderer::rankArt(size_t index, int rank) {
 size_t Renderer::artBytes(size_t index) const {
     size_t bytes = 0;
     for (const auto* list : {&posters_, &covers_})
-        if (index < list->size() && (*list)[index].bitmap) {
-            const auto size = (*list)[index].bitmap->GetPixelSize();
-            bytes += static_cast<size_t>(size.width) * size.height * 4;
-        }
+        if (index < list->size()) bytes += bitmapBytes((*list)[index].bitmap.Get());
     return bytes;
+}
+
+bool Renderer::artPending(size_t index) const {
+    for (const auto* list : {&covers_, &posters_, &discs_})
+        if (index < list->size() && (*list)[index].pixels) return true;
+    return false;
+}
+
+// The largest card of Tryb TV's layouts is about 320 DIPs on its shorter side (the focused shelf
+// card); a card drawn larger (the launch zoom, Szczegóły, the crop editor) raises its own cap.
+uint32_t Renderer::coverEdge() const {
+    if (!low_memory_) return cover_short_edge;
+    const auto edge = static_cast<uint32_t>(std::ceil(320.0f * viewport_.scale / 64.0f)) * 64;
+    return std::clamp(edge, 256u, cover_short_edge);
+}
+uint32_t Renderer::thumbnailEdge() const { // XMB's collection previews: about 72 DIPs.
+    if (!low_memory_) return thumbnail_short_edge;
+    const auto edge = static_cast<uint32_t>(std::ceil(72.0f * viewport_.scale / 32.0f)) * 32;
+    return std::clamp(edge, 96u, thumbnail_short_edge);
+}
+
+void Renderer::wantEdge(Cover& cover, float magnify) {
+    if (!low_memory_ || magnify < 1.3f || cover.decoding || !cover.bitmap || !cover.short_edge || cover.hero || cover.logo) return;
+    const auto size = cover.bitmap->GetPixelSize();
+    const uint32_t shorter = std::min(size.width, size.height);
+    // Smaller than its cap (less the BC1 block rounding): the source itself is no larger.
+    if (shorter + 4 < cover.short_edge || cover.short_edge >= cover_short_edge) return;
+    const auto wanted = static_cast<uint32_t>(std::ceil(static_cast<float>(shorter) * magnify / 64.0f)) * 64;
+    const uint32_t edge = std::min(wanted, cover_short_edge);
+    if (edge <= cover.short_edge) return;
+    auto bytes = cover.encoded();
+    if (!bytes) return; // Nobody keeps the bytes now: the bitmap stays as it is.
+    // Uploaded with the next frame's finished decodes, never here: this bitmap is being drawn.
+    cover.short_edge = edge;
+    cover.decoding = decoder_.submit(std::move(bytes), decodeKind(cover));
+}
+
+void Renderer::releaseGraphics() {
+    discardTarget();
+    const auto empty = [&](Cover& cover) { if (cover.loaded()) art_lost_ = true; cover = {}; };
+    for (auto* list : {&covers_, &logos_, &heroes_, &posters_, &discs_}) for (auto& cover : *list) empty(cover);
+    for (auto& tile : tile_thumbnails_) for (auto& thumbnail : tile) empty(thumbnail);
+    kept_hero_ = {};
+    for (auto& [id, image] : companion_feed_images_) image.decoding.reset();
+    text_layouts_.clear();
+    type_metrics_.clear();
+    // The factory keeps its Direct3D device while anything it made lives: its geometries and stroke
+    // styles go too, and createTarget makes a new factory and the shapes again.
+    capped_shapes_.clear(); compact_shapes_.clear(); brand_icons_.clear(); controller_art_.clear(); poster_shapes_.clear();
+    squircle_.Reset(); squircle_compact_.Reset(); power_arc_.Reset(); controller_glyph_.Reset(); play_glyph_.Reset();
+    controller_art_stroke_.Reset(); companion_stroke_.Reset(); tarot_stroke_.Reset();
+    factory_.Reset();
 }
 
 void Renderer::setDisc(size_t index, ImageBytes pixels) {
     if (index >= discs_.size()) return;
     auto& disc = discs_[index]; pixels = shared(std::move(pixels));
-    if (pixels && pixels == disc.pixels) { createBitmap(disc); return; }
-    disc = {}; disc.pixels = std::move(pixels); disc.short_edge = cover_short_edge;
+    if (disc.same(pixels)) { rebindPicture(disc, pixels); createBitmap(disc); return; }
+    disc = {}; bindPicture(disc, std::move(pixels)); disc.short_edge = coverEdge();
     createBitmap(disc);
 }
 
@@ -251,7 +316,7 @@ void Renderer::setPlatformCover(size_t index, ImageBytes pixels) {
     auto& cover = covers_[index];
     cover.logo = true; // Crop transparent gutters before fitting the logo inside the tile.
     cover.short_edge = 0;
-    cover.pixels = shared(std::move(pixels));
+    bindPicture(cover, shared(std::move(pixels)));
     cover.decoding.reset();
     cover.bitmap.Reset();
     cover.brush.Reset();
@@ -263,7 +328,7 @@ void Renderer::setLogo(size_t index, ImageBytes pixels) {
     Cover& logo = logos_[index];
     if ((logo.bitmap || logo.decoding) && logo.loaded()) return;
     logo.logo = true;
-    logo.pixels = shared(std::move(pixels));
+    bindPicture(logo, shared(std::move(pixels)));
     logo.decoding.reset();
     logo.bitmap.Reset();
     logo.brush.Reset();
@@ -574,6 +639,7 @@ bool Renderer::createShape() {
 #ifdef LAUNCHME_UI_TEST
 bool Renderer::captureForTest(const std::filesystem::path& file, const std::function<void()>& draw) {
     discardTarget();
+    if (!ensureFactory()) return false;
     RECT bounds{};
     GetClientRect(hwnd_, &bounds);
     const auto width = static_cast<UINT>(std::max(1L, bounds.right));
@@ -632,8 +698,7 @@ Renderer::TextureStats Renderer::textureStats() const {
     TextureStats stats;
     const auto count = [&](const Cover& cover) {
         if (!cover.bitmap) return;
-        const auto size = cover.bitmap->GetPixelSize();
-        ++stats.bitmaps; stats.bytes += static_cast<size_t>(size.width) * size.height * 4;
+        ++stats.bitmaps; stats.bytes += bitmapBytes(cover.bitmap.Get());
         if (cover.steelbook && cover.steelbook->bitmap) {
             const auto material = cover.steelbook->bitmap->GetPixelSize();
             ++stats.bitmaps; stats.bytes += static_cast<size_t>(material.width) * material.height * 4;
@@ -656,13 +721,15 @@ ID2D1BitmapBrush* Renderer::grayBrush(Cover& cover) {
     // A failure is remembered: this runs while painting, and a broken image would be decoded
     // again on every frame.
     cover.gray_failed = true;
+    const auto bytes = cover.encoded(); // Low memory: gone once nobody keeps them; the colour picture stays.
+    if (!bytes) return nullptr;
     ComPtr<IWICStream> stream;
     ComPtr<IWICBitmapDecoder> decoder;
     ComPtr<IWICBitmapFrameDecode> frame;
     ComPtr<IWICBitmapScaler> scaler;
     ComPtr<IWICFormatConverter> gray, converter;
     if (FAILED(wic_->CreateStream(stream.GetAddressOf())) ||
-        FAILED(stream->InitializeFromMemory(const_cast<BYTE*>(cover.pixels->data()), static_cast<DWORD>(cover.pixels->size()))) ||
+        FAILED(stream->InitializeFromMemory(const_cast<BYTE*>(bytes->data()), static_cast<DWORD>(bytes->size()))) ||
         FAILED(wic_->CreateDecoderFromStream(stream.Get(), nullptr, WICDecodeMetadataCacheOnLoad, decoder.GetAddressOf())) ||
         FAILED(decoder->GetFrame(0, frame.GetAddressOf()))) return nullptr;
     // Same pixel size as the colour bitmap (decode caps), so the fill transform matches.

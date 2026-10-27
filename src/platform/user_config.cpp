@@ -179,6 +179,8 @@ AppSettings parseAppSettings(std::string_view text) {
         else if (key == "launch_tv_mode" && (value == "0" || value == "1")) settings.launch_tv_mode = value == "1";
         else if (key == "pc_sources_detected" && (value == "0" || value == "1")) settings.pc_sources_detected = value == "1";
         else if (key == "autostart" && (value == "0" || value == "1")) settings.autostart = value == "1";
+        else if (key == "low_memory" && (value == "0" || value == "1")) settings.low_memory = value == "1";
+        else if (key == "low_memory_bc1" && (value == "0" || value == "1")) settings.low_memory_bc1 = value == "1";
         else if (key == "tv_monitor" && value.size() < 64 && value.starts_with("\\\\.\\")) settings.tv_monitor = text_encoding::wideLenient(value);
         else if (key == "desktop_platform_badges" && (value == "0" || value == "1")) settings.desktop_platform_badges = value == "1";
         else if (key == "desktop_gray_uninstalled" && (value == "0" || value == "1")) settings.desktop_gray_uninstalled = value == "1";
@@ -546,6 +548,8 @@ bool saveAppSettings(const AppSettings& settings, const std::filesystem::path& f
            << "launch_tv_mode=" << settings.launch_tv_mode << '\n'
            << "pc_sources_detected=" << settings.pc_sources_detected << '\n'
            << "autostart=" << settings.autostart << '\n'
+           << "low_memory=" << settings.low_memory << '\n'
+           << "low_memory_bc1=" << settings.low_memory_bc1 << '\n'
            << "tv_monitor=" << (settings.tv_monitor.find_first_of(L"\r\n") == std::wstring::npos ? text_encoding::utf8(settings.tv_monitor) : std::string()) << '\n'
          << "desktop_platform_badges=" << settings.desktop_platform_badges << '\n'
          << "desktop_gray_uninstalled=" << settings.desktop_gray_uninstalled << '\n'

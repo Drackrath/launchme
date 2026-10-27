@@ -53,6 +53,11 @@ int LauncherUiTest::profileDesktop(HWND window, int seconds) {
     app.desktop_mode_ = true;
     if (!app.renderer_.initialize(window)) return 1;
     app.renderer_.startDecoderForTest();
+    wchar_t full_ram[4]{};
+    app.settings_.low_memory = !(GetEnvironmentVariableW(L"LAUNCHME_PERF_FULL_RAM", full_ram, 4) == 1 && full_ram[0] == L'1');
+    wchar_t bc1[4]{};
+    app.settings_.low_memory_bc1 = GetEnvironmentVariableW(L"LAUNCHME_PERF_BC1", bc1, 4) == 1 && bc1[0] == L'1';
+    app.applyLowMemory();
     app.initializeLibraryPreferences();
     app.renderer_.profile(true);
     app.profiler_.configure();
@@ -288,5 +293,15 @@ int LauncherUiTest::profileDesktop(HWND window, int seconds) {
     K32GetProcessMemoryInfo(GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&memory), sizeof(memory));
     std::cout << "end: card bitmaps=" << textures.bitmaps << " (" << textures.bytes / 1048576.0 << " MB); art_ RAM=" << app.art_.bytes() / 1048576.0
               << " MB in " << app.art_.size() << " entries; private MB=" << memory.PrivateUsage / 1048576.0 << '\n';
+    std::cout << memoryReport("end");
+    if (app.settings_.low_memory) {
+        app.releaseMemory(); // A game in front of the launcher (memory.cpp).
+        Sleep(300);
+        std::cout << memoryReport("behind a game");
+        app.restoreMemory();
+        app.desktopRequestArt(); InvalidateRect(window, nullptr, FALSE);
+        run("back", 15000, [](double) { return true; }, true);
+        std::cout << "back: complete at=" << phases.back().complete_ms << " ms; " << memoryReport("back in front");
+    }
     return 0;
 }

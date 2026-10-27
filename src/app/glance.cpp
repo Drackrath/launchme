@@ -208,6 +208,7 @@ void Launcher::openGlanceBrowser(const std::wstring& url, bool embedded) {
         return;
     }
     if (!browser_) browser_=std::make_unique<BrowserWindow>();
+    browser_->setLowMemory(settings_.low_memory);
     BrowserWindow::Options options;
     options.closed=[this] { noteUserInput(); cancelEnterHold(); cancelTabHold(); InvalidateRect(hwnd_,nullptr,FALSE); };
     options.external=[this](const std::wstring& target) {

@@ -42,6 +42,7 @@ struct BrowserWindow::State : std::enable_shared_from_this<State> {
     uint64_t generation = 0, navigation = 0;
     bool loading = true, can_back = false, can_forward = false, owner_enabled = false, restore = true, notify = true;
     bool return_focus = false, video = false;
+    bool low_memory = false; // AppSettings::low_memory: inactive pages use less memory, minimized ones are suspended.
     int focus = 2, hover = -1;
     int buttons() const { return status==Status::missing_runtime || (video && status==Status::ready) ? 4 : 3; }
 #ifdef LAUNCHME_UI_TEST
@@ -63,6 +64,23 @@ struct BrowserWindow::State : std::enable_shared_from_this<State> {
     void resize() {
         if (controller) { auto r=client(); r.top=px(84); r.bottom=std::max(r.top,r.bottom-px(42)); controller->put_Bounds(r); controller->NotifyParentWindowPositionChanged(); }
         invalidate();
+    }
+    // Low memory: the page asks for less memory while the window is inactive, normal again when used.
+    void memoryTarget(std::optional<bool> active = {}) {
+        ComPtr<ICoreWebView2_19> memory;
+        if (!web || FAILED(web.As(&memory))) return;
+        const bool used = active ? *active : window && (GetForegroundWindow()==window || IsChild(window,GetForegroundWindow()));
+        const bool inactive = low_memory && !used;
+        memory->put_MemoryUsageTargetLevel(inactive ? COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW : COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL);
+    }
+    // Low memory: minimized, the page is hidden and suspended (scripts and timers stop); shown again it resumes.
+    void minimized(bool hidden) {
+        if (!controller) return;
+        if (!hidden) { controller->put_IsVisible(TRUE); memoryTarget(); return; }
+        if (!low_memory) return;
+        controller->put_IsVisible(FALSE);
+        ComPtr<ICoreWebView2_3> suspend;
+        if (web && SUCCEEDED(web.As(&suspend))) suspend->TrySuspend(nullptr);
     }
     void fail(Status value, std::wstring text) { status=value; error=std::move(text); loading=false; invalidate(); }
     void release() {
@@ -100,7 +118,7 @@ struct BrowserWindow::State : std::enable_shared_from_this<State> {
                         if (FAILED(result) || !control) { state->fail(Status::failed,tr(L"Nie można uruchomić przeglądarki WebView2.")); return S_OK; }
                         state->controller=control;
                         if (FAILED(control->get_CoreWebView2(&state->web)) || !state->web) { state->fail(Status::failed,tr(L"Nie można uruchomić przeglądarki WebView2.")); return S_OK; }
-                        state->configure(); state->resize(); state->status=Status::ready; control->put_IsVisible(TRUE);
+                        state->configure(); state->resize(); state->status=Status::ready; control->put_IsVisible(TRUE); state->memoryTarget();
                         state->navigate(state->url);
                         return S_OK;
                     }).Get());
@@ -299,7 +317,8 @@ struct BrowserWindow::State : std::enable_shared_from_this<State> {
         }
         case WM_ERASEBKGND: return 1;
         case WM_PAINT: s->paint(); return 0;
-        case WM_SIZE: s->resize(); return 0;
+        case WM_SIZE: s->minimized(wp==SIZE_MINIMIZED); if (wp!=SIZE_MINIMIZED) s->resize(); return 0;
+        case WM_ACTIVATE: s->memoryTarget(LOWORD(wp)!=WA_INACTIVE); break;
         case WM_MOVE: if (s->controller) s->controller->NotifyParentWindowPositionChanged(); return 0;
         case WM_DPICHANGED: { const auto* r=reinterpret_cast<RECT*>(lp); SetWindowPos(window,nullptr,r->left,r->top,r->right-r->left,r->bottom-r->top,SWP_NOZORDER|SWP_NOACTIVATE); s->resize(); return 0; }
         case WM_GETMINMAXINFO: { auto* info=reinterpret_cast<MINMAXINFO*>(lp); info->ptMinTrackSize={s->px(700),s->px(450)}; return 0; }
@@ -363,7 +382,7 @@ bool BrowserWindow::open(HWND owner,const std::wstring& url,const std::filesyste
         if (options.activate) SetForegroundWindow(handle());
         return true;
     }
-    state_=std::make_shared<State>(); auto& s=*state_; s.owner=owner; s.url=url; s.profile=profile; s.options=std::move(options);
+    state_=std::make_shared<State>(); auto& s=*state_; s.owner=owner; s.url=url; s.profile=profile; s.options=std::move(options); s.low_memory=low_memory_;
 #ifdef LAUNCHME_UI_TEST
     s.fixture=test_html_; s.missing=test_missing_;
 #endif
@@ -398,6 +417,7 @@ HWND BrowserWindow::handle() const { return state_ ? state_->window : nullptr; }
 BrowserWindow::Status BrowserWindow::status() const { return state_ ? state_->status : Status::closed; }
 void BrowserWindow::command(Command command) { if (isOpen()) state_->command(command); }
 void BrowserWindow::scroll(int pixels) { if (isOpen()) state_->scroll(pixels); }
+void BrowserWindow::setLowMemory(bool enabled) { low_memory_=enabled; if (state_) { state_->low_memory=enabled; state_->memoryTarget(); } }
 #ifdef LAUNCHME_UI_TEST
 void BrowserWindow::testPage(std::wstring html,bool missing) { test_html_=std::move(html); test_missing_=missing; }
 void BrowserWindow::scriptForTest(const std::wstring& script,std::function<void(std::wstring)> result) {

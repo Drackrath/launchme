@@ -285,6 +285,11 @@ void Renderer::drawLibraryShelf() {
             if (!art.bitmap || opacity < 0.002f) return;
             const float sw = source.right - source.left, sh = source.bottom - source.top;
             if (sw < 1 || sh < 1) return;
+            if (low_memory_ && image && art.bitmap == image->bitmap.Get()) { // The face's height on screen against the picture's.
+                D2D1_POINT_2F corners[4];
+                part.corners(camera, corners);
+                wantEdge(*image, std::hypot(corners[3].x - corners[0].x, corners[3].y - corners[0].y) * viewport_.scale / sh);
+            }
             if (context) {
                 const auto matrix = perspective::matrix(part, sw, sh, camera);
                 context->DrawBitmap(art.bitmap, D2D1::RectF(0, 0, sw, sh), opacity, D2D1_INTERPOLATION_MODE_ANISOTROPIC, &source, &matrix);

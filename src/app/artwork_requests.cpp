@@ -178,11 +178,16 @@ void Launcher::onCover(std::unique_ptr<CoverMessage> cover) {
 void Launcher::trimArt() {
     if (art_.bytes() <= art_.budget()) return;
     // Kept: the focused card and every card whose cover is bound in the renderer (on
-    // screen or next to it); the renderer shares those buffers anyway.
+    // screen or next to it); the renderer shares those buffers anyway. In low memory the renderer
+    // lets bytes go once uploaded: only those still waiting for their decode are pinned.
     std::unordered_set<std::string> pinned;
     for (size_t i = 0; i < cards_.size(); ++i)
-        if (i == selected_ || renderer_.hasCover(i) || renderer_.hasPoster(i) || renderer_.hasDisc(i)) pinned.insert(gameKey(cards_[i].game));
-    const auto dropped = art_.trim([&](const std::string& key) { return pinned.contains(key); });
+        if (i == selected_ || (settings_.low_memory ? renderer_.artPending(i) : renderer_.hasCover(i) || renderer_.hasPoster(i) || renderer_.hasDisc(i)))
+            pinned.insert(gameKey(cards_[i].game));
+    forgetArtRequests(art_.trim([&](const std::string& key) { return pinned.contains(key); }));
+}
+
+void Launcher::forgetArtRequests(const std::vector<std::string>& dropped) {
     if (dropped.empty()) return;
     // Foreground requests stay marked as done after they arrive; a dropped image must be
     // requestable again (it is then read from the disk cache).
@@ -385,7 +390,7 @@ void Launcher::bindLibraryPoster(size_t index, bool replace) {
     const auto& game = cards_[index].game;
     if (const auto* art = art_.find(gameKey(game)); art && art->poster) {
         if (replace || !renderer_.hasPoster(index)) renderer_.setPoster(index, art->poster);
-    } else requestArt(game, CoverMessage::Kind::poster);
+    } else if (replace || !renderer_.hasPoster(index)) requestArt(game, CoverMessage::Kind::poster);
 }
 
 void Launcher::requestVisibleArt() {
@@ -424,7 +429,7 @@ void Launcher::requestVisibleArt() {
                 if (cards_[i].game.kind == GameKind::platform || cards_[i].game.kind == GameKind::pc_platform) renderer_.setPlatformCover(i, found->cover);
                 else renderer_.setCover(i, found->cover, found->focus);
             }
-        } else requestArt(cards_[i].game, CoverMessage::Kind::cover);
+        } else if (!renderer_.hasCover(i)) requestArt(cards_[i].game, CoverMessage::Kind::cover); // Shown: its bytes may be let go (low memory).
     };
     // Long lists keep cover bitmaps only near the viewport: a card far outside [keep_first,
     // keep_end) gives its bitmap back (GPU memory no longer grows with every card ever
@@ -460,7 +465,7 @@ void Launcher::requestVisibleArt() {
             if (libraryGridLandscape()) cover(i); // A stand-in while the capsule downloads (shown whole).
             if (libraryGridPosters()) bindLibraryPoster(i);
         }
-        const size_t margin = 2 * (end - first); // Two screens above and below.
+        const size_t margin = (settings_.low_memory ? 1 : 2) * (end - first); // Two screens above and below (low memory: one).
         release(first > margin ? first - margin : 0, end + margin);
     } else if (xmbActive()) {
         xmbRequestArt();
@@ -479,7 +484,8 @@ void Launcher::requestVisibleArt() {
             if (cards_[i].game.kind == GameKind::category) xmbBindThumbnails(i); // "Wszystkie": a 2x2 preview.
             else cover(i);
         }
-        release(first > 16 ? first - 16 : 0, end + 24);
+        const size_t behind = settings_.low_memory ? 6 : 16, ahead = settings_.low_memory ? 10 : 24;
+        release(first > behind ? first - behind : 0, end + ahead);
     } else if (category_ == 0) {
         const bool posters = shelfPosters();
         for (size_t i = 0; i < cards_.size(); ++i) { cover(i); if (posters) bindLibraryPoster(i); }
@@ -495,9 +501,11 @@ void Launcher::requestVisibleArt() {
             cover(i);
             if (posters) bindLibraryPoster(i);
         }
-        release(selected_ > 24 ? selected_ - 24 : 0, selected_ + 40); // A long collection shelf.
+        const size_t behind = settings_.low_memory ? 8 : 24, ahead = settings_.low_memory ? 16 : 40;
+        release(selected_ > behind ? selected_ - behind : 0, selected_ + ahead); // A long collection shelf.
     }
     cover(selected_); // Promote current focus after enqueueing surrounding cards.
+    if (settings_.low_memory) releaseFarHeroes();
     for (size_t i = 0; i < cards_.size(); ++i)
         if (!libraryCoverflow() || ((i < selected_ || i > selected_ + 1) && cards_[i].disc < 0.003f)) renderer_.releaseDisc(i);
     if (libraryCoverflow()) for (size_t i = selected_; i < std::min(cards_.size(), selected_ + 2); ++i) {

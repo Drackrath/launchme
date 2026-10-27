@@ -499,6 +499,11 @@ void Renderer::fillImage(Cover& image, D2D1_RECT_F box, float radius, float opac
     const float sx = w / static_cast<float>(pixels.width), sy = h / static_cast<float>(pixels.height);
     const float zoom = contain ? std::min(sx, sy) : std::max(sx, sy);
     const float image_w = pixels.width * zoom, image_h = pixels.height * zoom;
+    if (low_memory_) { // Drawn larger than decoded (low memory caps covers at their usual size): decode it at this size.
+        D2D1_MATRIX_3X2_F transform{};
+        target_->GetTransform(&transform);
+        wantEdge(image, zoom * std::sqrt(std::abs(transform._11 * transform._22 - transform._12 * transform._21)));
+    }
     // Rounding can leave w - image_w a hair above 0: clamp's bounds must stay ordered.
     const float left = box.left + (contain ? (w - image_w) * 0.5f : std::clamp(w * 0.5f - image.focus.x * image_w, std::min(w - image_w, 0.0f), 0.0f));
     const float top = box.top + (contain ? (h - image_h) * 0.5f : std::clamp(h * 0.5f - image.focus.y * image_h, std::min(h - image_h, 0.0f), 0.0f));

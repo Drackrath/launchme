@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(launchme VERSION 0.2.3 LANGUAGES C CXX)
+project(launchme VERSION 0.2.4 LANGUAGES C CXX)
 
 if(NOT WIN32)
     message(FATAL_ERROR "This native Direct2D prototype currently targets Windows.")
@@ -123,6 +123,7 @@ set(LAUNCHME_APP_SOURCES
     src/app/platform_settings.cpp
     src/app/ratings.cpp
     src/app/game_video.cpp
+    src/app/memory.cpp
     src/app/screenscraper_ui.cpp
     src/app/identify.cpp
     src/artwork/identified_artwork.cpp
@@ -330,6 +331,7 @@ set(LAUNCHME_APP_SOURCES
     src/artwork/esde_art.cpp
     src/artwork/screenscraper_art.cpp
     src/artwork/text_crop.cpp
+    src/artwork/block_compression.cpp
     src/artwork/failure_cache.cpp
     src/net/http.cpp
     src/net/json.cpp
@@ -348,6 +350,7 @@ set(LAUNCHME_APP_SOURCES
     src/platform/file_dialog.cpp
     src/platform/file_listing.cpp
     src/platform/performance.cpp
+    src/platform/memory_usage.cpp
     src/platform/frame_clock.cpp
     src/platform/game_activity.cpp
     src/platform/game_overlay_monitor.cpp
@@ -365,7 +368,7 @@ set(LAUNCHME_APP_SOURCES
 )
 set(LAUNCHME_APP_LIBS d2d1 dxguid dwrite windowscodecs winhttp shell32 ole32 xaudio2 dwmapi xinput advapi32
     mfplat mfreadwrite mfuuid crypt32 windowsapp hid propsys bcrypt powrprof pdh bthprops cfgmgr32 xmllite shlwapi
-    launchme_webview2 version oleaut32 normaliz)
+    launchme_webview2 version oleaut32 normaliz dxgi)
 
 # Backend/parser/platform sources have identical definitions in production, tests
 # and tools. App/UI stay separate: LAUNCHME_UI_TEST changes Renderer's class layout.
@@ -791,6 +794,7 @@ if(BUILD_TESTING)
     add_test(NAME library_organization_and_versions COMMAND launcher_ui_tests --organization)
     add_test(NAME plugin_library_supplement_merge COMMAND launcher_ui_tests --plugin-library)
 add_test(NAME uninstall_from_game_menus COMMAND launcher_ui_tests --uninstall)
+add_test(NAME low_memory_mode COMMAND launcher_ui_tests --low-memory)
     add_test(NAME hltb_details_and_active_game_widget COMMAND launcher_ui_tests --hltb-details)
     add_test(NAME plugin_achievements_for_other_stores COMMAND launcher_ui_tests --plugin-achievements)
     add_test(NAME psfive_home_layout COMMAND launcher_ui_tests --psfive)
@@ -905,6 +909,9 @@ add_test(NAME uninstall_from_game_menus COMMAND launcher_ui_tests --uninstall)
         SOURCES tests/screensaver_tests.cpp)
     launchme_executable(input_gesture_tests TEST guide_start_hold_gestures
         SOURCES tests/input_gesture_tests.cpp)
+    launchme_executable(low_memory_tests TEST low_memory_block_compression
+        SOURCES tests/low_memory_tests.cpp
+        LIBS windowscodecs ole32)
     launchme_executable(image_decoder_tests TEST background_image_decoding
         SOURCES tests/image_decoder_tests.cpp src/ui/image_decoder.cpp
         LIBS windowscodecs ole32 user32)

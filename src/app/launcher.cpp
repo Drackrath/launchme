@@ -199,6 +199,7 @@ bool Launcher::initialize(HWND hwnd) {
     renderer_.setPanelBorders(settings_.panel_borders);
     renderer_.setGlass(settings_.glass);
     renderer_.setConsoleColors(settings_.console_colors);
+    applyLowMemory(); // System → Wydajność → Tryb niskiego zużycia RAM.
     // Play a boot cue already decoded during renderer startup before initializing services.
     // Only consume our own audio payloads; do not reenter general window/input handling.
     MSG ready_audio{};
@@ -400,6 +401,7 @@ void Launcher::tick() {
     const auto now = std::chrono::steady_clock::now();
     last_tick_ms_ = GetTickCount64();
     if (closing_) { tickClose(now); return; }
+    pollMemory();
     pollGameFocus();
     startRatings();
     pollLibrarySave();

@@ -424,14 +424,14 @@ void Launcher::desktopRequestArt() {
         const auto* art = art_.find(key);
         const bool poster = art && art->poster;
         if (poster) renderer_.setPoster(i, art->poster, edge);
-        else requestArt(game, CoverMessage::Kind::poster);
+        else if (!renderer_.hasPoster(i)) requestArt(game, CoverMessage::Kind::poster); // Shown: its bytes may be let go (low memory).
         ranks.emplace(artRequestKey(game, CoverMessage::Kind::poster), static_cast<int>(place * 2));
         // The square cover in the poster's frame: only while the poster is missing.
         if (!poster && (!isGame(game) || desktop_poster_missing_.contains(key) || artBlocked(game, CoverMessage::Kind::poster))) {
             if (art && art->cover) {
                 if (!renderer_.hasCover(i)) { cards_[i].cover_opacity = 0; renderer_.setCover(i, art->cover, art->focus, edge); }
                 else renderer_.setCover(i, art->cover, art->focus, edge);
-            } else requestArt(game, CoverMessage::Kind::cover);
+            } else if (!renderer_.hasCover(i)) requestArt(game, CoverMessage::Kind::cover);
             ranks.emplace(artRequestKey(game, CoverMessage::Kind::cover), static_cast<int>(place * 2 + 1));
         }
         renderer_.rankArt(i, static_cast<int>(place));
@@ -459,7 +459,8 @@ void Launcher::desktopRequestArt() {
     }
     // Bitmaps: kept near the view; further away, a card whose art is still decoding is dropped (no
     // longer wanted), shown ones stay until their bytes pass the budget, the farthest go first.
-    constexpr size_t budget = 96u * 1024 * 1024; // About 45 posters of 600×900 beyond the kept rows.
+    // About 45 posters of 600×900 beyond the kept rows (low memory: a third, or a fair share more as BC1).
+    const size_t budget = !settings_.low_memory ? size_t{96} << 20 : settings_.low_memory_bc1 ? size_t{32} << 20 : size_t{48} << 20;
     const size_t columns = static_cast<size_t>(desktopLayout().columns());
     const size_t middle = (range.first + range.end) / 2 / columns;
     std::vector<std::pair<size_t, size_t>> shown; // Rows from the middle, card.

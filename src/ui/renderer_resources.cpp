@@ -1,5 +1,6 @@
 // Direct2D target lifetime and device-dependent resources. Screen drawing stays in *_renderer.cpp.
 #include "renderer.hpp"
+#include "../artwork/block_compression.hpp"
 #include <algorithm>
 #include <chrono>
 
@@ -10,8 +11,21 @@ D2D1_COLOR_F color(float r, float g, float b, float a = 1.0f) { return D2D1::Col
 constexpr auto upload_budget = std::chrono::microseconds(3000);
 }
 
+// After releaseGraphics: a new factory (and with it a new device) and its shapes.
+bool Renderer::ensureFactory() {
+    if (factory_) return true;
+    if (SUCCEEDED(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, factory_.GetAddressOf())) && createShape()) return true;
+    factory_.Reset();
+    return false;
+}
+
 bool Renderer::createTarget() {
     if (target_) return true;
+    // After releaseGraphics: a new factory (and with it a new device) and its shapes.
+    if (!factory_ && (FAILED(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, factory_.GetAddressOf())) || !createShape())) {
+        factory_.Reset();
+        return false;
+    }
     RECT bounds{};
     GetClientRect(hwnd_, &bounds);
     if (layered_) {
@@ -39,6 +53,10 @@ bool Renderer::createTarget() {
 
 bool Renderer::createTargetResources() {
     if (FAILED(target_->CreateSolidColorBrush(color(1, 1, 1), solid_.GetAddressOf()))) return false;
+    {
+        ComPtr<ID2D1DeviceContext> context;
+        bc1_supported_ = SUCCEEDED(target_.As(&context)) && context->IsDxgiFormatSupported(DXGI_FORMAT_BC1_UNORM);
+    }
     if (SUCCEEDED(target_.As(&realizer_)) &&
         FAILED(realizer_->CreateFilledGeometryRealization(squircle_.Get(), squircle_tolerance, squircle_fill_.GetAddressOf())))
         realizer_.Reset();
@@ -187,6 +205,7 @@ void Renderer::discardTarget() {
     hero_shown_.bitmap.Reset(); hero_leaving_ = {}; // The shown picture comes back from its slot.
     video_bitmap_.Reset(); video_blur_.Reset(); // The next video frame creates them again.
     cinematic_hero_.Reset(); cinematic_previous_hero_.Reset();
+    desktop_hero_.Reset(); desktop_hero_previous_.Reset(); // Bitmaps of the old device: the pane picks its picture again.
     platform_aura_.Reset();
     platform_aura_name_.clear();
     for (auto& glow : library_glows_) glow.Reset();
@@ -241,14 +260,43 @@ void Renderer::discardTarget() {
     aura_.Reset(); status_shade_.Reset(); install_vignette_.Reset(); shade_.Reset(); solid_.Reset(); target_.Reset(); window_target_.Reset();
 }
 
+DecodeKind Renderer::decodeKind(const Cover& cover) const {
+    DecodeKind kind{!cover.hero && !cover.logo, cover.hero, cover.logo, cover.short_edge};
+    kind.loose_edge = cover.loose_edge;
+    kind.block_compress = block_compress_ && bc1_supported_ && !cover.logo; // Logos keep their alpha.
+    return kind;
+}
+
+void Renderer::bindPicture(Cover& cover, ImageBytes pixels) {
+    cover.pixels = std::move(pixels);
+    cover.droppable = true; cover.dropped = false;
+    cover.source.reset(); cover.source_size = 0; cover.source_hash = 0;
+}
+
+void Renderer::rebindPicture(Cover& cover, const ImageBytes& pixels) {
+    if (!cover.dropped || !pixels) return;
+    if (cover.source.expired()) cover.source = pixels; // Read again: the cache's new buffer.
+    // To be decoded again (its bitmap went with the device): the bytes come back until uploaded.
+    if (!cover.bitmap) { cover.pixels = pixels; cover.dropped = false; }
+}
+
+void Renderer::dropBytes(Cover& cover) {
+    if (!low_memory_ || !cover.droppable || !cover.pixels || cover.decoding) return;
+    cover.source = cover.pixels;
+    cover.source_size = cover.pixels->size();
+    cover.source_hash = imageHash(*cover.pixels);
+    cover.pixels.reset();
+    cover.dropped = true;
+}
+
 // Hands encoded bytes to a decoder; device loss preserves a decode already in flight.
 void Renderer::createBitmap(Cover& cover) {
-    if (cover.steelbook && cover.steelbook->source != cover.pixels) cover.steelbook.reset();
+    if (cover.steelbook && cover.steelbook->source != cover.encoded()) cover.steelbook.reset();
     if (!target_ || !cover.loaded() || cover.bitmap) return;
     if (!cover.decoding) {
-        DecodeKind kind{!cover.hero && !cover.logo, cover.hero, cover.logo, cover.short_edge};
-        kind.loose_edge = cover.loose_edge;
-        cover.decoding = decoder_.submit(cover.pixels, kind);
+        auto bytes = cover.encoded();
+        if (!bytes) { cover = {}; art_lost_ = true; return; } // Low memory: let go, and the bitmap went too.
+        cover.decoding = decoder_.submit(std::move(bytes), decodeKind(cover));
     }
     if (cover.decoding->done.load(std::memory_order_acquire)) upload(cover, false);
 }
@@ -263,8 +311,25 @@ void Renderer::upload(Cover& cover, bool reveal) {
     // A redecode at another size replaces the shown bitmap in place: no second fade-in.
     const bool replacing = cover.bitmap != nullptr;
     ComPtr<ID2D1Bitmap> bitmap;
-    if (FAILED(target_->CreateBitmap(D2D1::SizeU(image.width, image.height), image.pixels.data(), image.width * 4,
-                                     properties, bitmap.GetAddressOf()))) return;
+    ComPtr<ID2D1BitmapBrush> brush;
+    if (!image.blocks.empty()) {
+        // BC1 (low memory): an eighth of the BGRA bitmap. A target that refuses it (or its brush)
+        // gets the blocks decoded here, and later pictures as BGRA.
+        ComPtr<ID2D1DeviceContext> context;
+        ComPtr<ID2D1Bitmap1> compressed;
+        if (bc1_supported_ && SUCCEEDED(target_.As(&context)) &&
+            SUCCEEDED(context->CreateBitmap(D2D1::SizeU(image.width, image.height), image.blocks.data(), (image.width / 4) * 8,
+                D2D1::BitmapProperties1(D2D1_BITMAP_OPTIONS_NONE, D2D1::PixelFormat(DXGI_FORMAT_BC1_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)),
+                compressed.GetAddressOf())) &&
+            SUCCEEDED(target_->CreateBitmapBrush(compressed.Get(), brush.GetAddressOf()))) bitmap = std::move(compressed);
+        else {
+            bc1_supported_ = false; brush.Reset();
+            const auto bgra = block_compression::decodeBc1(image.blocks.data(), image.blocks.size(), image.width, image.height);
+            if (bgra.empty() || FAILED(target_->CreateBitmap(D2D1::SizeU(image.width, image.height), bgra.data(), image.width * 4,
+                                                             properties, bitmap.GetAddressOf()))) return;
+        }
+    } else if (FAILED(target_->CreateBitmap(D2D1::SizeU(image.width, image.height), image.pixels.data(), image.width * 4,
+                                            properties, bitmap.GetAddressOf()))) return;
     cover.bitmap = std::move(bitmap);
     if (replacing) {
         cover.brush.Reset(); cover.gray_bitmap.Reset(); cover.gray_brush.Reset(); cover.gray_failed = false;
@@ -277,9 +342,12 @@ void Renderer::upload(Cover& cover, bool reveal) {
                                        static_cast<float>(image.ink.right), static_cast<float>(image.ink.bottom));
         cover.has_ink_bounds = true;
     }
-    target_->CreateBitmapBrush(cover.bitmap.Get(), cover.brush.GetAddressOf());
+    cover.brush.Reset();
+    if (brush) cover.brush = std::move(brush);
+    else target_->CreateBitmapBrush(cover.bitmap.Get(), cover.brush.GetAddressOf());
     if (cover.brush) cover.brush->SetInterpolationMode(D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
     if (reveal) cover.revealed = last_reveal_ = std::chrono::steady_clock::now();
+    dropBytes(cover); // Low memory: the launcher's cache or the disk has the picture.
     if (profiling_) { pending_upload_ms_ += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count(); ++pending_uploads_; }
 }
 

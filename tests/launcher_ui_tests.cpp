@@ -16,6 +16,7 @@
 #include "../src/platform/steam_controller.hpp"
 #include "../src/artwork/failure_cache.hpp"
 #include "../src/platform/atomic_file.hpp"
+#include "../src/platform/memory_usage.hpp"
 #define MINIZ_NO_ZLIB_COMPATIBLE_NAMES
 #include <miniz.h>
 #include <fstream>
@@ -50,6 +51,13 @@ public:
 INT_PTR fakeExecute(HWND, const GameAction& action) {
     dispatched.push_back(action.target);
     return 33;
+}
+// Benchmarks: one line of this process's memory (private, working set, GPU dedicated and shared).
+std::string memoryReport(const char* label) {
+    const auto usage = currentMemoryUsage();
+    const auto mb = [](size_t bytes) { return std::to_string(static_cast<int>(bytes / 1048576.0 + 0.5)); };
+    return std::string("memory ") + label + ": private=" + mb(usage.private_bytes) + " MB; working set=" + mb(usage.working_set) +
+        " MB; GPU local=" + mb(usage.gpu_local) + " MB; GPU shared=" + mb(usage.gpu_shared) + " MB\n";
 }
 std::vector<uint8_t> pixel() {
     std::vector<uint8_t> bmp(58, 0);
@@ -144,6 +152,7 @@ public:
     static int uninstallGames(HWND window);
     static int hltbDetails(HWND window);
     static int pluginAchievements(HWND window);
+    static int lowMemory(HWND window); // low_memory_ui_cases.hpp
     static int profileDesktop(HWND window, int seconds); // LAUNCHME_PERF_DESKTOP=1 (desktop_perf_case.hpp).
     static int profile(HWND window, int seconds) {
         const auto enabled = [](const wchar_t* name) {
@@ -164,6 +173,9 @@ public:
         }
         if (!app.renderer_.initialize(window)) return 1;
         app.renderer_.startDecoderForTest(); // Off-thread decoding, as in the app.
+        app.settings_.low_memory = !enabled(L"LAUNCHME_PERF_FULL_RAM"); // The default (low memory), or as before.
+        app.settings_.low_memory_bc1 = enabled(L"LAUNCHME_PERF_BC1"); // Kompresja grafik (BC1), off by default.
+        app.applyLowMemory();
         app.initializeLibraryPreferences();
         app.profiler_.configure();
         if (!app.profiler_.overlay()) app.profiler_.toggle();
@@ -320,6 +332,7 @@ public:
                   << "; system=" << stats.system_ms << "; draw=" << stats.draw_ms << "; EndDraw=" << stats.present_ms
                   << "; bitmap=" << stats.upload_ms << " ms\n";
         const double frames_mb = private_mb();
+        std::cout << memoryReport("after frames");
         const auto& decoder = app.renderer_.decoderForTest();
         const auto textures = app.renderer_.textureStats();
         std::cout << "decoded images=" << decoder.completed() << "; decode total=" << decoder.decodeMilliseconds() << " ms; card bitmaps="
@@ -346,6 +359,7 @@ public:
             std::cout << "grid scroll: " << app.cards_.size() / columns << " rows in " << scroll_ms << " ms; covers delivered=" << delivered
                       << "; card bitmaps now=" << after.bitmaps << " (" << after.bytes / 1048576.0 << " MB), peak=" << peak_bitmaps
                       << "; art_ RAM=" << app.art_.bytes() / 1048576.0 << " MB in " << app.art_.size() << " entries; private MB=" << private_mb() << '\n';
+            std::cout << memoryReport("after grid scroll");
         }
         // Card rebuild (category switch / screen change) outside the measured frames: CPU only, no paint.
         double rebuild_total = 0;
@@ -358,6 +372,33 @@ public:
         std::cout << "navigate avg=" << (navigations ? navigate_total / navigations : 0) << "; navigate max=" << navigate_max
                   << "; rebuildCards avg=" << rebuild_total / rebuilds << " ms; cards=" << app.cards_.size()
                   << "; private MB setup=" << setup_mb << "; after frames=" << frames_mb << "; after rebuilds=" << private_mb() << '\n';
+        std::cout << memoryReport("after rebuilds");
+        if (app.settings_.low_memory) {
+            // A game in front of the launcher (memory.cpp gives everything back), then the launcher
+            // in front again: two seconds of frames with the artwork arriving as in the app.
+            app.releaseMemory();
+            Sleep(300);
+            std::cout << memoryReport("behind a game") << std::flush;
+            app.restoreMemory();
+            const auto back = GetTickCount64();
+            std::unordered_set<std::string> served; // As the disk lane: each requested image arrives once.
+            while (GetTickCount64() - back < 2000) {
+                for (size_t i = 0; i < app.cards_.size(); ++i) {
+                    const auto& game = app.cards_[i].game;
+                    if (!isGame(game)) continue;
+                    for (const auto kind : {CoverMessage::Kind::cover, CoverMessage::Kind::hero}) {
+                        const auto key = artRequestKey(game, kind);
+                        bool wanted = false;
+                        { std::lock_guard lock(app.jobs_->mutex); wanted = app.jobs_->requested.contains(key); }
+                        if (wanted && served.insert(key).second) deliver(game, kind, kind == CoverMessage::Kind::cover ? cover : hero);
+                    }
+                }
+                MSG message{};
+                while (PeekMessageW(&message, window, 0, 0, PM_REMOVE)) { TranslateMessage(&message); DispatchMessageW(&message); }
+                app.tick(); app.paint(); Sleep(16);
+            }
+            std::cout << memoryReport("back in front");
+        }
         return 0;
     }
     static int run(HWND window) {
@@ -1271,6 +1312,7 @@ public:
 #include "snitch_ui_cases.hpp"
 #include "glance_ui_cases.hpp"
 #include "tarot_ui_cases.hpp"
+#include "low_memory_ui_cases.hpp"
 #include "profile_ui_cases.hpp"
 #include "studios_ui_cases.hpp"
 #include "update_ui_cases.hpp"
@@ -2000,6 +2042,15 @@ int main(int argc, char** argv) {
         CoUninitialize();
         if (code) std::cerr << "Tarot regression failed at checkpoint " << code << '\n';
         else std::cout << "Tarot: setting, T and View, deal, back, library and store readings, results, pad and mouse passed\n";
+        return code;
+    }
+    if (argc == 2 && std::string_view(argv[1]) == "--low-memory") {
+        std::filesystem::create_directories(root);
+        const auto code = window ? LauncherUiTest::lowMemory(window) : 99;
+        if (window) DestroyWindow(window);
+        CoUninitialize();
+        if (code) std::cerr << "Low memory regression failed at checkpoint " << code << '\n';
+        else std::cout << "Low memory: setting, decode size, BC1, bytes let go, rebinding, larger draws, heroes, device loss, hidden and back passed\n";
         return code;
     }
     if (argc == 2 && std::string_view(argv[1]) == "--profile") {
