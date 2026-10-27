@@ -23,7 +23,7 @@ inline constexpr size_t max_notes_capacity = 5000;
 inline constexpr size_t max_summaries_capacity = 5000;
 inline constexpr size_t max_summaries_per_look = 1000;
 inline constexpr size_t max_picks_capacity = 1000;
-inline constexpr size_t max_memory_file_bytes = 32 * 1024 * 1024;
+inline constexpr size_t max_memory_file_bytes = 128 * 1024 * 1024; // Includes bounded previous fact versions.
 
 struct Memory {
     // Another companion who knows a note: a guest who heard it too, or hearsay from `from`.
@@ -38,6 +38,7 @@ struct Memory {
     // feeling: her personal 1st-person emotional reaction at that moment.
     // The rest is for notes about the player only.
     struct Entry {
+        struct Previous { uint64_t from = 0, until = 0; std::wstring text; std::string source; float confidence = 0; };
         uint64_t at = 0;
         std::wstring text;
         std::string look;
@@ -51,6 +52,9 @@ struct Memory {
         std::string topic;        // "place": where the player lives; empty: anything else.
         std::vector<Knower> known; // Other companions who know it.
         uint32_t confirmations = 1; // Repeated direct evidence in distinct turns, capped at 64; recall alone never reinforces a note.
+        std::string fact_key; // Stable slot, e.g. employment.company; empty in legacy notes.
+        uint64_t valid_from = 0;
+        std::vector<Previous> previous; // Past versions, never included as current facts (up to 32).
     };
     struct Pick { uint64_t at = 0; std::string key; std::wstring title; std::string look; };
     std::vector<Entry> remarks;   // Her recent replies, shortened; newest last (≤ 30).
@@ -69,6 +73,7 @@ struct Memory {
         bool secret = false;
         bool important = false;
         std::string topic;
+        std::string fact_key;
     };
 
     void said(std::wstring_view text, uint64_t now);
@@ -100,6 +105,7 @@ struct Memory {
     std::vector<const Entry*> notesOf(std::string_view look) const;
     // Whether `look` knows where the player lives (a note on topic "place").
     bool knowsPlace(std::string_view look) const;
+    std::vector<Entry> historical(std::string_view look, std::wstring_view query, size_t limit = 4) const;
     // Deterministic retention: importance, stable facts, evidence quality, confirmations and recency.
     // The bounded recall bonus breaks relevance ties; an unrelated entry always scores zero.
     static float retentionWeight(const Entry& entry, uint64_t now);

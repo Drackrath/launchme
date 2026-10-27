@@ -48,7 +48,7 @@ float ebbinghaus(uint64_t at, uint64_t now) {
 }
 } // namespace
 
-void State::reflect(std::wstring_view text, uint64_t now, std::string_view look) {
+void State::reflect(std::wstring_view text, uint64_t now, std::string_view look, const std::vector<std::string>& evidence) {
     auto line = cleanLine(text, 280);
     if (line.size() < 6 || line == L"-") return;
     const auto stems = chats::searchWords(line, 16);
@@ -59,6 +59,7 @@ void State::reflect(std::wstring_view text, uint64_t now, std::string_view look)
         if (!look.empty() && !it->look.empty() && it->look != look) continue;
         if (game_index::fold(it->text) == game_index::fold(line)) {
             it->at = now;
+            if (!evidence.empty()) it->evidence_ids = evidence;
             return;
         }
         const auto old_stems = chats::searchWords(it->text, 16);
@@ -70,13 +71,13 @@ void State::reflect(std::wstring_view text, uint64_t now, std::string_view look)
             break;
         }
     }
-    reflections.push_back({now, std::move(line), std::string(look), std::move(evolved)});
+    reflections.push_back({now, std::move(line), std::string(look), std::move(evolved), evidence});
     if (reflections.size() > reflection_limit)
         reflections.erase(reflections.begin(), reflections.end() - static_cast<std::ptrdiff_t>(reflection_limit));
     learnHebbian(reflections.back().text, now);
 }
 
-void State::addSchema(std::wstring_view text, uint64_t now, std::string_view look) {
+void State::addSchema(std::wstring_view text, uint64_t now, std::string_view look, const std::vector<std::string>& evidence) {
     auto line = cleanLine(text, 240);
     if (line.size() < 8 || line == L"-") return;
     const auto stems = chats::searchWords(line, 16);
@@ -84,17 +85,19 @@ void State::addSchema(std::wstring_view text, uint64_t now, std::string_view loo
         if (!look.empty() && !existing.look.empty() && existing.look != look) continue;
         if (game_index::fold(existing.text) == game_index::fold(line)) {
             existing.at = now;
+            if (!evidence.empty()) existing.evidence_ids = evidence;
             return;
         }
         size_t shared = 0;
         if (chats::overlap(stems, chats::searchWords(existing.text, 16), &shared) >= 0.5f && shared >= 2) {
             existing.text = std::move(line);
             existing.at = now;
+            if (!evidence.empty()) existing.evidence_ids = evidence;
             learnHebbian(existing.text, now);
             return;
         }
     }
-    schemas.push_back({now, std::move(line), std::string(look)});
+    schemas.push_back({now, std::move(line), std::string(look), evidence});
     if (schemas.size() > schema_limit)
         schemas.erase(schemas.begin(), schemas.end() - static_cast<std::ptrdiff_t>(schema_limit));
     learnHebbian(schemas.back().text, now);
@@ -555,6 +558,9 @@ std::string State::save() const {
         item.properties["text"] = json::string(text_encoding::utf8Lenient(r.text));
         if (!r.look.empty()) item.properties["look"] = json::string(r.look);
         if (!r.evolved_from.empty()) item.properties["evolved_from"] = json::string(text_encoding::utf8Lenient(r.evolved_from));
+        if (!r.evidence_ids.empty()) {
+            auto ids = json::array(); for (const auto& id : r.evidence_ids) ids.elements.push_back(json::string(id)); item.properties["evidence"] = std::move(ids);
+        }
         refs.elements.push_back(std::move(item));
     }
     root.properties["reflections"] = std::move(refs);
@@ -612,6 +618,9 @@ std::string State::save() const {
             item.properties["at"] = json::number(static_cast<double>(sc.at));
             item.properties["text"] = json::string(text_encoding::utf8Lenient(sc.text));
             if (!sc.look.empty()) item.properties["look"] = json::string(sc.look);
+            if (!sc.evidence_ids.empty()) {
+                auto ids = json::array(); for (const auto& id : sc.evidence_ids) ids.elements.push_back(json::string(id)); item.properties["evidence"] = std::move(ids);
+            }
             scs.elements.push_back(std::move(item));
         }
         root.properties["schemas"] = std::move(scs);
@@ -649,6 +658,9 @@ std::optional<State> State::load(std::string_view text) {
                 look ? look->stringOr() : std::string{},
                 ev ? text_encoding::wideLenient(ev->stringOr()) : std::wstring{},
             });
+            if (const auto* ids = item.get("evidence"); ids && ids->type == json::Value::Type::array)
+                for (const auto& id : ids->elements) if (id.type == json::Value::Type::string && id.text.size() <= 32 && out.reflections.back().evidence_ids.size() < 12)
+                    out.reflections.back().evidence_ids.push_back(id.text);
             if (out.reflections.size() >= reflection_limit) break;
         }
     }
@@ -733,6 +745,9 @@ std::optional<State> State::load(std::string_view text) {
                 cleanLine(text_encoding::wideLenient(t->text), 240),
                 look ? look->stringOr() : std::string{},
             });
+            if (const auto* ids = item.get("evidence"); ids && ids->type == json::Value::Type::array)
+                for (const auto& id : ids->elements) if (id.type == json::Value::Type::string && id.text.size() <= 32 && out.schemas.back().evidence_ids.size() < 12)
+                    out.schemas.back().evidence_ids.push_back(id.text);
             if (out.schemas.size() >= schema_limit) break;
         }
     }
@@ -817,6 +832,15 @@ Consolidated parseConsolidation(std::wstring_view raw) {
         return cleanLine(raw.substr(start, close == std::wstring_view::npos ? std::wstring_view::npos : close - start), 300);
     };
     out.summary = extract(L"<podsumowanie>", L"</podsumowanie>");
+    const auto evidence = extract(L"<evidence>", L"</evidence>");
+    size_t begin = 0;
+    while (begin < evidence.size() && out.evidence_ids.size() < 12) {
+        const auto end = evidence.find_first_of(L"|, \r\n", begin);
+        const auto token = evidence.substr(begin, end == std::wstring::npos ? end : end - begin);
+        if (!token.empty() && token.size() <= 32) out.evidence_ids.push_back(text_encoding::utf8Lenient(token));
+        if (end == std::wstring::npos) break;
+        begin = end + 1;
+    }
     if (out.summary.empty()) out.summary = extract(L"<summary>", L"</summary>");
     out.reflection = extract(L"<refleksja>", L"</refleksja>");
     if (out.reflection.empty()) out.reflection = extract(L"<reflection>", L"</reflection>");

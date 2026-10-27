@@ -253,6 +253,30 @@ void Service::clear() {
     std::error_code ec;
     std::filesystem::remove(impl_->path, ec);
 }
+std::vector<Hit> Service::searchMany(std::string_view look, const std::vector<std::wstring>& queries, uint64_t now, size_t limit) {
+    std::vector<Hit> all;
+    std::set<std::wstring> used;
+    for (size_t q = 0; q < queries.size() && q < 3; ++q) {
+        if (!used.insert(queries[q]).second) continue;
+        auto found = search(look, queries[q], now, 12);
+        for (size_t i = 0; i < found.size(); ++i) {
+            const float score = (q == 0 ? 1.2f : 1.0f) / (20.0f + static_cast<float>(i));
+            const auto old = std::find_if(all.begin(), all.end(), [&](const Hit& h) { return h.document.key == found[i].document.key; });
+            if (old == all.end()) { found[i].score = score; all.push_back(std::move(found[i])); }
+            else { old->score += score; old->semantic = old->semantic || found[i].semantic; old->similarity = std::max(old->similarity, found[i].similarity); }
+        }
+    }
+    std::stable_sort(all.begin(), all.end(), [](const Hit& a, const Hit& b) { return a.score > b.score; });
+    {
+        std::lock_guard lock(impl_->state_mutex);
+        if (impl_->stopped) return {};
+        std::erase_if(all, [&](const Hit& hit) { return std::none_of(impl_->current.begin(), impl_->current.end(), [&](const Document& d) {
+            return d.key == hit.document.key && accessible(d, look);
+        }); });
+    }
+    if (all.size() > std::min<size_t>(12, limit)) all.resize(std::min<size_t>(12, limit));
+    return all;
+}
 std::vector<Hit> Service::search(std::string_view look, std::wstring_view query, uint64_t now, size_t limit) {
     if (impl_->stopped || query.empty() || look.empty() || !limit) return {};
     const auto words = chats::searchWords(query);

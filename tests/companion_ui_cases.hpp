@@ -550,6 +550,7 @@ int LauncherUiTest::companionAppearance(HWND window) {
     if (chat.log.size() != 1 || chat.log[0].text.find(L"Old") != std::wstring::npos) return 7941;
     bool saved = false;
     for (const auto end = GetTickCount64() + 3000; GetTickCount64() < end; Sleep(5)) {
+        std::lock_guard lock(app.companion_.chat_io->mutex); // Do not deny the worker's atomic file replacement on Windows.
         const auto previous = companion::chats::read(companion::chats::file(userConfigDirectory(), rin, rin_started));
         if (previous && previous->lines.back().text == L"Remember Rin") { saved = true; break; }
     }
@@ -763,12 +764,12 @@ int LauncherUiTest::companionChat(HWND window) {
         return app.renderer_.captureForTest(std::filesystem::path(folder) / name, [&] { app.paint(); });
     };
     // Foundry fixture: the home greeting, the chat's opening, then answers to typed messages.
-    struct Seen { int calls = 0; std::wstring headers, url; std::string last; bool wrong_thread = false; };
+    struct Seen { std::atomic_int calls{0}; std::wstring headers, url; std::string last; std::atomic_bool wrong_thread{false}; };
     const auto seen = std::make_shared<Seen>();
     const DWORD ui_thread = GetCurrentThreadId();
     app.companion_.post = [seen, ui_thread](const std::wstring& url, const std::wstring& headers, const std::string& body) {
         if (GetCurrentThreadId() == ui_thread) seen->wrong_thread = true;
-        ++seen->calls; seen->url = url; seen->headers = headers; seen->last = body;
+        ++seen->calls;
         const auto answer = [](const std::string& reply) {
             const std::string json = R"({"candidates":[{"content":{"role":"model","parts":[{"text":")" + reply + R"("}]},"finishReason":"STOP"}]})";
             return HttpResponse{200, {json.begin(), json.end()}};
@@ -777,6 +778,9 @@ int LauncherUiTest::companionChat(HWND window) {
         const auto request = json::parse(body);
         const auto* contents = request ? request->get("contents") : nullptr;
         const auto said = contents && !contents->elements.empty() ? contents->elements.back().get("parts")->elements[0].get("text")->stringOr() : std::string{};
+        // Independent diary requests must not replace the foreground request under test.
+        if (said.find("<evidence>") != std::string::npos) return answer("<summary>A conversation about games.</summary>");
+        seen->url = url; seen->headers = headers; seen->last = body;
         if (said.find("powitania") != std::string::npos) return answer("[smug][nod]Znowu Game 0? Serio, baka. Zagraj wreszcie w [[Game 4]].");
         // A guest: both of them, each message on its own line and signed (as the prompt asks).
         if (said.find("wpada nieproszona") != std::string::npos) return answer("Rin: [smug]Hej, co tu robicie beze mnie?\\nHana: [angry]Rin?! To moj czat!");
@@ -1221,8 +1225,10 @@ int LauncherUiTest::companionChat(HWND window) {
         const auto lines = chat.log.size();
         const auto config = userConfigDirectory();
         std::optional<chats::Conversation> saved;
-        for (const auto end = GetTickCount64() + 3000; GetTickCount64() < end; Sleep(5)) // Written on a worker.
+        for (const auto end = GetTickCount64() + 3000; GetTickCount64() < end; Sleep(5)) { // Written on a worker.
+            std::lock_guard lock(app.companion_.chat_io->mutex);
             if ((saved = chats::latest(config, hana_look)) && saved->ended && saved->lines.size() == lines) break;
+        }
         if (!saved || !saved->ended || saved->lines.size() != lines || saved->lines[1].text != L"Hej" || !saved->rest_until) return 7613;
         // As after a restart: the launcher forgets it, opening the chat brings it back as it was.
         app.closeCompanion(); app.companionReset();
@@ -1453,8 +1459,8 @@ int LauncherUiTest::companionChat(HWND window) {
         app.companionSend(L"Hej");
         if (points != affinity::step(1) + 5 || !wait()) return 7161;
         // Her prompt knows today's date and time (the test clock: 14.10.2026, 15:30), their stage,
-        // and the new level in a hidden note after the message.
-        if (seen->last.find("14.10.2026, godz. 15:30") == std::string::npos || seen->last.find("poziom 2 na 50") == std::string::npos) return 7162;
+        // independently of the optional XP level, which remains visible on the badge below.
+        if (seen->last.find("14.10.2026, godz. 15:30") == std::string::npos || seen->last.find("na podstawie wspólnej historii") == std::string::npos) return 7162;
         app.companionView(view);
         if (!view.affinity || view.affinity_level != 2 || view.affinity_progress <= 0 || view.affinity_progress >= 1 || view.affinity_pulse <= 0) return 7163;
         // The day's first message: a streak of days in a row pays more.
@@ -1569,6 +1575,13 @@ int LauncherUiTest::companionChat(HWND window) {
     app.back();
 
     // Offline (no token anywhere): canned lines with suggestions from the library, never a request.
+    // A completed chat's independent diary may still be saving; finish it before measuring new requests.
+    for (const auto end = GetTickCount64() + 5000; !app.companion_.summary_pending.empty() && GetTickCount64() < end; Sleep(5)) {
+        MSG message{};
+        while (PeekMessageW(&message, window, companion_message, companion_message, PM_REMOVE))
+            app.onCompanion(std::unique_ptr<CompanionMessage>(reinterpret_cast<CompanionMessage*>(message.lParam)));
+    }
+    if (!app.companion_.summary_pending.empty()) return 7210;
     app.companionReset();
     app.companion_.probe = [] { return companion::Probe{}; };
     const int calls = seen->calls;

@@ -1967,7 +1967,7 @@ int mindAndLife() {
         if (!has(cs_prompt, L"niska kontrola poznawcza")) return 1341;
     }
 
-    // 1342: Basal Ganglia conversational policy weights & Dopaminergic RPE learning.
+    // 1342: Message length alone must not reinforce conversational policy; semantic feedback does.
     {
         mind::Self bg;
         mind::onReply(bg, ctx, false, L"A ty co o tym naprawdę myślisz?", false);
@@ -1976,7 +1976,7 @@ int mindAndLife() {
         const std::wstring enthusiastic = L"Wiesz co, moim zdaniem ta fabuła w drugim akcie zupełnie zmienia sens całej historii! A tobie która scena najbardziej zapadła w pamięć?";
         const auto q = mind::quick(enthusiastic, bg);
         mind::onPlayerMessage(bg, ctx, q, enthusiastic);
-        if (!(bg.policy.deep_questions > before_deep)) return 1342;
+        if (bg.policy.deep_questions != before_deep) return 1342;
     }
 
     // 1343: Default Mode Network (DMN) offline rumination during high tension or broken expectation.

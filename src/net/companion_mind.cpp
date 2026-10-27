@@ -602,11 +602,7 @@ void tick(Self& self, const Context& context) {
     }
     for (auto& goal : self.goals) {
         if (goal.status != Goal::Status::open) continue;
-        if (goal.kind == Goal::Kind::promise && goal.due && now > goal.due + 3 * day) {
-            goal.status = Goal::Status::dropped; // Forgotten: a little guilt.
-            goal.updated = now;
-            self.affect.valence = std::clamp(self.affect.valence - 0.05f, -1.0f, 1.0f);
-        }
+        // Passing a promise's deadline does not establish failure. Keep it until resolved.
         if (goal.kind == Goal::Kind::intention && now > goal.made + 7 * day) { goal.status = Goal::Status::dropped; goal.updated = now; }
     }
     std::erase_if(self.goals, [&](const Goal& g) { return g.status != Goal::Status::open && now > g.updated + 14 * day; });
@@ -1158,26 +1154,8 @@ void onPlayerMessage(Self& self, const Context& context, const Quick& quick, std
                 self.sleep_debt = clamp01(self.sleep_debt + 0.05f);
         }
     }
-    // Basal Ganglia dopaminergic Reward Prediction Error (RPE): update conversational policy weights.
+    // Policy feedback is applied from the validated semantic appraisal, not message length.
     if (!message.empty()) {
-        const auto words = spaced(message);
-        size_t wc = 0;
-        for (size_t i = 1; i < words.size(); ++i)
-            if (words[i] == L' ' && words[i - 1] != L' ') ++wc;
-        float reward = std::min(0.55f, static_cast<float>(wc) / 14.0f * 0.55f);
-        if (message.find(L'?') != std::wstring_view::npos || message.find(L'!') != std::wstring_view::npos) reward += 0.2f;
-        if (quick.valence > 0.05f) reward += 0.25f;
-        if (quick.dismissive || quick.valence < -0.15f) reward = 0.05f;
-        reward = clamp01(reward);
-        const float rpe = reward - self.policy.baseline_reward;
-        self.policy.baseline_reward = clamp01(self.policy.baseline_reward + 0.15f * rpe);
-        const auto nudge = [&](float& w) { w = std::clamp(w + 0.16f * rpe, 0.15f, 0.95f); };
-        if (self.policy.last_style == "teasing") nudge(self.policy.teasing);
-        else if (self.policy.last_style == "deep") nudge(self.policy.deep_questions);
-        else if (self.policy.last_style == "games") nudge(self.policy.game_talk);
-        else if (self.policy.last_style == "life") nudge(self.policy.own_life);
-        else if (self.policy.last_style == "warmth") nudge(self.policy.warmth);
-
         // Reinforce concepts taught by the player when mentioned again.
         const auto folded = game_index::fold(message);
         for (auto& c : self.learned_concepts) {
@@ -1457,6 +1435,7 @@ Appraisal parseAppraisal(std::wstring_view text) {
     const auto parsed = json::parse(utf8(text.substr(open, close - open + 1)), 64 * 1024);
     if (!parsed || parsed->type != json::Value::Type::object) return out;
     const auto& root = *parsed;
+    out.social = social::parse(root.get("social"));
     const auto str = [](const json::Value* v, size_t max) { return v && v->type == json::Value::Type::string ? clean(wide(v->text), max) : std::wstring{}; };
     const auto num = [](const json::Value* v) -> std::optional<float> {
         if (!v) return std::nullopt;
@@ -1490,6 +1469,9 @@ Appraisal parseAppraisal(std::wstring_view text) {
         if (item->type == json::Value::Type::string) belief.text = clean(wide(item->text), 200);
         else if (item->type == json::Value::Type::object) {
             belief.text = str(item->get("t"), 200);
+            if (const auto* key = item->get("fact"); key && key->type == json::Value::Type::string && key->text.size() <= 64 &&
+                std::all_of(key->text.begin(), key->text.end(), [](unsigned char c) { return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-'; }))
+                belief.fact_key = key->text;
             if (const auto* z = item->get("z"); z && z->type == json::Value::Type::string) belief.source = sourceOf(wide(z->text));
             if (const auto p = num(item->get("p"))) belief.p = std::clamp(*p, 0.05f, 1.0f);
             if (const auto* s = item->get("sekret"); s && s->type == json::Value::Type::boolean) belief.secret = s->flag;
@@ -1686,6 +1668,7 @@ Applied apply(Self& self, Memory& memory, const Appraisal& appraisal, const Cont
         facts.confidence = belief.p;
         facts.secret = belief.secret;
         facts.topic = belief.topic;
+        facts.fact_key = belief.fact_key;
         if (appraisal.feeling) { facts.emotion = feelingInfo(*appraisal.feeling).key; facts.feeling = appraisal.feels; }
         if (memory.note(belief.text, now, facts)) {
             ++applied.beliefs;
@@ -3157,6 +3140,7 @@ std::string State::save() const {
     auto all = json::object();
     for (const auto& [look, self] : selves) {
         auto s = json::object();
+        if (self.social.initialized || !self.social.events.empty()) s.properties["social"] = self.social.save();
         const auto affect = [](const Affect& a) {
             auto o = json::object();
             o.properties["v"] = json::number(std::round(a.valence * 1000) / 1000.0);
@@ -3418,7 +3402,7 @@ std::string State::save() const {
 }
 
 std::optional<State> State::load(std::string_view text) {
-    const auto root = json::parse(text, 4 * 1024 * 1024);
+    const auto root = json::parse(text, 32 * 1024 * 1024);
     if (!root || root->type != json::Value::Type::object || !root->get("version") || root->get("version")->intOr() != 1) return std::nullopt;
     State out;
     const auto* all = root->get("selves");
@@ -3442,6 +3426,7 @@ std::optional<State> State::load(std::string_view text) {
     for (const auto& [look, s] : all->properties) {
         if (look.empty() || look.size() > 32 || s.type != json::Value::Type::object) continue;
         Self self;
+        self.social = social::State::load(s.get("social"));
         if (const auto* a = s.get("affect")) self.affect = {std::clamp(static_cast<float>(number(a, "v")), -1.0f, 1.0f), clamp01(static_cast<float>(number(a, "a", 0.3))), unix(a, "at")};
         if (const auto* d = s.get("drives")) {
             self.drives.bond = clamp01(static_cast<float>(number(d, "bond", 0.3)));
@@ -3665,7 +3650,7 @@ std::filesystem::path file(const std::filesystem::path& config) { return config 
 }
 
 State loadState(const std::filesystem::path& config) {
-    const auto bytes = protected_file::read(file(config), 4 * 1024 * 1024);
+    const auto bytes = protected_file::read(file(config), 32 * 1024 * 1024);
     if (!bytes) return {};
     return State::load(*bytes).value_or(State{});
 }

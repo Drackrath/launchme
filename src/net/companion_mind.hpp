@@ -30,6 +30,7 @@
 #include "companion_feelings.hpp"
 #include "companion_characters.hpp"
 #include "companion_memory.hpp"
+#include "companion_social.hpp"
 
 #include <cstdint>
 #include <filesystem>
@@ -230,6 +231,7 @@ struct Episode {
 };
 
 struct Self {
+    social::State social;
     struct FeelingMoment {
         Feeling kind = Feeling::calm;
         std::optional<float> intensity;
@@ -489,13 +491,14 @@ void onConversationEnd(Self& self, const Context& context, int streak);
 
 // Her inner appraisal (<ocena>{…}</ocena>, JSON with short Polish keys; see systemPrompt).
 struct Appraisal {
+    social::Update social;
     std::optional<float> valence, arousal;
     std::optional<Feeling> feeling;
     std::optional<float> feeling_intensity;
     bool feeling_inferred = false;
     std::wstring feels, player;
     std::vector<std::string> met, broken;
-    struct Belief { std::wstring text; std::string source = "told"; float p = 0.8f; bool secret = false; std::string topic; };
+    struct Belief { std::wstring text; std::string source = "told"; float p = 0.8f; bool secret = false; std::string topic, fact_key; };
     std::vector<Belief> beliefs;
     struct Revision { std::string id; std::wstring text; std::optional<float> p; };
     std::vector<Revision> revisions;

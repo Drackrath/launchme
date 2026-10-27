@@ -16,7 +16,7 @@ namespace companion::backup {
 namespace {
 constexpr uint64_t budget = 8ull * 1024 * 1024 * 1024;
 void require(bool value, const char* error) { if (!value) throw std::runtime_error(error); }
-std::string read(const std::filesystem::path& path, size_t limit = 32 * 1024 * 1024) {
+std::string read(const std::filesystem::path& path, size_t limit = 128 * 1024 * 1024) {
     std::ifstream file(path, std::ios::binary | std::ios::ate);
     require(file && file.tellg() >= 0 && static_cast<uint64_t>(file.tellg()) <= limit, "Cannot read a backup file, or it exceeds its size limit.");
     std::string text(static_cast<size_t>(file.tellg()), '\0'); file.seekg(0);
@@ -109,7 +109,7 @@ template<class T> T protectedState(const std::filesystem::path& config, const wc
     const auto path = config / filename;
     std::optional<T> stored;
     if (present(path)) {
-        const auto plain = protected_file::read(path, 32 * 1024 * 1024);
+        const auto plain = protected_file::read(path, 128 * 1024 * 1024);
         require(plain.has_value(), "Cannot decrypt companion state; backup stopped.");
         stored = T::load(*plain); require(stored.has_value(), "Invalid companion state; backup stopped.");
     }
@@ -304,7 +304,7 @@ Result openCopy(const std::filesystem::path& bundle) {
             regular(profile);
             require(read(profile / L"backup-origin.txt", 128) == identity, "The existing profile does not belong to this backup.");
             for (const auto* file : {L"companion_memory.dat", L"companion_mind.dat", L"companion_cognition.dat"})
-                require(protected_file::read(profile / file, 32 * 1024 * 1024).has_value(), "The copy's private state cannot be decrypted. Move its profiles folder aside to restore the original snapshot again.");
+                require(protected_file::read(profile / file, 128 * 1024 * 1024).has_value(), "The copy's private state cannot be decrypted. Move its profiles folder aside to restore the original snapshot again.");
             result.ok = true; result.path = profile; return result;
         }
         const auto checked = verify(bundle); require(checked.ok, text_encoding::utf8(checked.error).c_str());

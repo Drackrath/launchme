@@ -67,6 +67,10 @@ inline int level(int64_t points) { return standing(points).level; }
 // tracks (friend, coworker) word the same six steps their own way.
 enum class Stage { strangers, light_flirt, flirt, friends, crush, long_distance };
 inline constexpr int stage_count = 6;
+inline constexpr int representativeLevel(Stage value) {
+    constexpr int levels[]{1, 5, 10, 20, 30, 50};
+    return levels[std::clamp(static_cast<int>(value), 0, 5)];
+}
 inline constexpr Stage stage(int level) {
     return level >= max_level ? Stage::long_distance : level >= 30 ? Stage::crush : level >= 20 ? Stage::friends :
            level >= 10 ? Stage::flirt : level >= 5 ? Stage::light_flirt : Stage::strangers;

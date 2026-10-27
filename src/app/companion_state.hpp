@@ -136,6 +136,9 @@ struct CompanionState {
     struct MemoryIo { std::mutex mutex; std::atomic<uint64_t> generation{0}; };
     std::shared_ptr<MemoryIo> memory_io = std::make_shared<MemoryIo>();
     size_t summarized = 0; // turns already summarized.
+    uint64_t memory_epoch = 0;
+    struct SummaryPending { uint64_t chat_started = 0; size_t through = 0; };
+    std::map<std::string, SummaryPending> summary_pending;
     // Her cognitive engine (src/net/companion_cognition.hpp): HippoRAG spreading activation,
     // higher-order reflections, subconscious thoughts (<mysl>), daily Tavily readings and gossip.
     std::optional<companion::cognition::State> cognition;
@@ -213,8 +216,8 @@ struct CompanionState {
         std::wstring opening;                 // Her reply's first two words (folded), to spot repeats.
     };
     std::vector<TurnMetric> turn_metrics; // ≤ 120
-    // Saves run on workers: only a conversation's newest snapshot is written (started → its save number).
-    struct ChatIo { std::mutex mutex; uint64_t counter = 0; std::map<uint64_t, uint64_t> newest; };
+    // Saves are scoped to character and start time: two characters can begin in the same second.
+    struct ChatIo { std::mutex mutex; uint64_t counter = 0; std::map<std::pair<companion::Look, uint64_t>, uint64_t> newest; };
     std::shared_ptr<ChatIo> chat_io = std::make_shared<ChatIo>();
     // "…" → "Historia czatu": an older conversation shown read-only while the live one waits here.
     std::optional<companion_ui::Chat> live_chat;

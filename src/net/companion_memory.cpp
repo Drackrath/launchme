@@ -124,6 +124,18 @@ json::Value entries(const std::vector<Memory::Entry>& list) {
         if (entry.secret) item.properties["secret"] = json::boolean(true);
         if (entry.important) item.properties["important"] = json::boolean(true);
         if (entry.confirmations > 1) item.properties["confirmations"] = json::number(std::min(entry.confirmations, 64u));
+        if (!entry.fact_key.empty()) item.properties["fact_key"] = json::string(entry.fact_key);
+        if (entry.valid_from) item.properties["valid_from"] = json::number(static_cast<double>(entry.valid_from));
+        if (!entry.previous.empty()) {
+            auto versions = json::array();
+            for (const auto& old : entry.previous) {
+                auto v = json::object();
+                v.properties["from"] = json::number(static_cast<double>(old.from)); v.properties["until"] = json::number(static_cast<double>(old.until));
+                v.properties["text"] = json::string(text_encoding::utf8Lenient(old.text)); v.properties["source"] = json::string(old.source);
+                v.properties["confidence"] = json::number(old.confidence); versions.elements.push_back(std::move(v));
+            }
+            item.properties["previous"] = std::move(versions);
+        }
         if (!entry.topic.empty()) item.properties["topic"] = json::string(entry.topic);
         if (!entry.known.empty()) {
             auto known = json::array();
@@ -166,6 +178,20 @@ std::vector<Memory::Entry> entries(const json::Value* list, size_t limit) {
         if (const auto* count = item.get("confirmations"); count && count->type == json::Value::Type::number && std::isfinite(count->numeric))
             entry.confirmations = static_cast<uint32_t>(std::clamp(count->numeric, 1.0, 64.0));
         entry.topic = shortKey(item.get("topic"), 16);
+        entry.fact_key = shortKey(item.get("fact_key"), 64);
+        const auto timestamp = [](const json::Value* value) -> uint64_t {
+            return value && value->type == json::Value::Type::number && value->numeric > 0 && value->numeric < 9007199254740991.0 ? static_cast<uint64_t>(value->numeric) : 0;
+        };
+        entry.valid_from = timestamp(item.get("valid_from"));
+        if (const auto* versions = item.get("previous"); versions && versions->type == json::Value::Type::array)
+            for (const auto& v : versions->elements) {
+                if (entry.previous.size() >= 32) break;
+                const auto* t = v.get("text");
+                if (!t || t->type != json::Value::Type::string) continue;
+                const auto* c = v.get("confidence");
+                const float confidence = c && c->type == json::Value::Type::number ? static_cast<float>(std::clamp(c->numeric, 0.0, 1.0)) : 0;
+                entry.previous.push_back({timestamp(v.get("from")), timestamp(v.get("until")), trimmed(text_encoding::wideLenient(t->text), 200), shortKey(v.get("source"), 12), confidence});
+            }
         if (const auto* known = item.get("known"); known && known->type == json::Value::Type::array)
             for (const auto& who : known->elements) {
                 Memory::Knower k;
@@ -251,6 +277,12 @@ bool Memory::note(std::wstring_view text, uint64_t now, const Facts& facts) {
     const auto source = facts.source == "observed" || facts.source == "inferred" ? facts.source : std::string{};
     // What a known note learns from hearing it again.
     const auto refresh = [&](Entry& entry, bool replace_text, bool correction = false) {
+        if (replace_text && entry.text != line) {
+            if (source == "inferred" && entry.source != "inferred" && facts.confidence < (entry.confidence > 0 ? entry.confidence : 0.8f)) return false;
+            entry.previous.push_back({entry.valid_from ? entry.valid_from : entry.at, now, entry.text, entry.source, entry.confidence});
+            if (entry.previous.size() > 32) entry.previous.erase(entry.previous.begin());
+            entry.valid_from = now;
+        }
         // Corrections start fresh. Re-reading or repeating an inference must not manufacture evidence.
         if (correction || (entry.source == "inferred" && source != "inferred")) entry.confirmations = 1;
         else if (source != "inferred" && now > entry.at) entry.confirmations = std::min(entry.confirmations + 1, 64u);
@@ -265,14 +297,20 @@ bool Memory::note(std::wstring_view text, uint64_t now, const Facts& facts) {
         if (facts.secret) entry.secret = true;
         if (facts.important) entry.important = true;
         if (!facts.topic.empty()) entry.topic = facts.topic;
+        if (!facts.fact_key.empty()) entry.fact_key = facts.fact_key;
         if (source.empty() || entry.source == "inferred") entry.source = source; // Heard beats guessed.
         entry.at = now;
         if (entry.id.empty()) entry.id = noteId(entry.text, entry.at, notes);
+        return true;
     };
     const auto same = std::find_if(notes.begin(), notes.end(), [&](const Entry& entry) { return game_index::fold(entry.text) == folded; });
     if (same != notes.end()) {
         refresh(*same, false);
         return false;
+    }
+    if (!facts.fact_key.empty()) {
+        for (auto& entry : notes)
+            if (entry.fact_key == facts.fact_key && entry.look == facts.look) return refresh(entry, true, true);
     }
     // Near-duplicate consolidation: if a longer note expands an existing one (or shares almost all stem words),
     // update the existing entry in place so the archive stays clean and dense. A note that says
@@ -287,8 +325,7 @@ bool Memory::note(std::wstring_view text, uint64_t now, const Facts& facts) {
         const auto existing_folded = game_index::fold(entry.text);
         if (!opposite && existing_folded.size() >= 14 && folded.size() >= 14 &&
             (folded.find(existing_folded) != std::wstring::npos || existing_folded.find(folded) != std::wstring::npos)) {
-            refresh(entry, line.size() >= entry.text.size());
-            return true;
+            return refresh(entry, line.size() >= entry.text.size());
         }
         if (stems.size() >= 3) {
             const auto other_stems = chats::searchWords(entry.text, 16);
@@ -297,8 +334,7 @@ bool Memory::note(std::wstring_view text, uint64_t now, const Facts& facts) {
                 chats::overlap(stems, other_stems, &shared);
                 const size_t min_len = std::min(stems.size(), other_stems.size());
                 if (shared * 5 >= min_len * 4 && std::abs(static_cast<int>(stems.size()) - static_cast<int>(other_stems.size())) <= 2) {
-                    refresh(entry, opposite || line.size() >= entry.text.size(), opposite);
-                    return true;
+                    return refresh(entry, opposite || line.size() >= entry.text.size(), opposite);
                 }
             }
         }
@@ -315,6 +351,8 @@ bool Memory::note(std::wstring_view text, uint64_t now, const Facts& facts) {
     entry.secret = facts.secret;
     entry.important = facts.important;
     entry.topic = facts.topic;
+    entry.fact_key = facts.fact_key;
+    entry.valid_from = now;
     if (!entry.look.empty()) addKnower(entry, facts.guest, false);
     const auto id = entry.id;
     notes.push_back(std::move(entry));
@@ -344,7 +382,12 @@ bool Memory::revise(std::string_view id, std::wstring_view text, std::optional<f
         return true;
     }
     if (game_index::fold(line).size() >= 4) {
-        if (game_index::fold(found->text) != game_index::fold(line)) found->confirmations = 1;
+        if (game_index::fold(found->text) != game_index::fold(line)) {
+            found->previous.push_back({found->valid_from ? found->valid_from : found->at, now, found->text, found->source, found->confidence});
+            if (found->previous.size() > 32) found->previous.erase(found->previous.begin());
+            found->valid_from = now;
+            found->confirmations = 1;
+        }
         found->text = std::move(line);
     }
     if (confidence) found->confidence = std::clamp(*confidence, 0.05f, 1.0f);
@@ -433,6 +476,26 @@ std::vector<const Memory::Entry*> Memory::notesOf(std::string_view look) const {
 
 bool Memory::knowsPlace(std::string_view look) const {
     return std::any_of(notes.begin(), notes.end(), [&](const Entry& note) { return note.topic == "place" && knows(note, look); });
+}
+
+std::vector<Memory::Entry> Memory::historical(std::string_view look, std::wstring_view query, size_t limit) const {
+    const auto q = game_index::fold(query);
+    bool asks_past = false;
+    for (const auto* marker : {L"wczesniej", L"kiedys", L"poprzednio", L"dawniej", L"before", L"previous", L"usedto", L"formerly"})
+        if (q.find(marker) != std::wstring::npos) asks_past = true;
+    std::vector<Entry> out;
+    if (!asks_past) return out;
+    const auto words = chats::searchWords(query);
+    for (const auto& note : notes) {
+        if (!knows(note, look) || (!note.look.empty() && note.look != look)) continue;
+        for (auto it = note.previous.rbegin(); it != note.previous.rend(); ++it) {
+            if (out.size() >= limit) return out;
+            if (chats::matches(words, it->text) <= 0 && chats::matches(words, note.text) <= 0) continue;
+            Entry old; old.at = it->until; old.text = it->text; old.look = note.look; old.source = "historical"; old.confidence = it->confidence;
+            out.push_back(std::move(old));
+        }
+    }
+    return out;
 }
 
 std::wstring Memory::prompt(bool english, uint64_t now, bool short_term, bool long_term, std::string_view look, std::wstring_view query,

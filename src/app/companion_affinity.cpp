@@ -48,7 +48,15 @@ int Launcher::companionLevel(companion::Look look) const {
 }
 
 companion::affinity::Stage Launcher::companionStage(companion::Look look) const {
-    if (!settings_.companion_gamification || !companion_.affinity) return companion::affinity::unlevelled_stage;
+    if (companion_.mind && companion_.affinity)
+        if (const auto* self = companion_.mind->find(companion::lookKey(look)); self && self->social.initialized)
+            return self->social.stage(companion_.affinity->relationOf(companion::lookKey(look)));
+    if (!companion_.affinity) return companion::affinity::Stage::strangers;
+    if (companionLevel(look) <= 1) {
+        const auto* self = companion_.mind ? companion_.mind->find(companion::lookKey(look)) : nullptr;
+        if ((self && self->last_talk) || (companion_.memory && !companion_.memory->notesOf(companion::lookKey(look)).empty()))
+            return companion::affinity::unlevelled_stage;
+    }
     const auto* ch = companion::character(look);
     const auto rel = companion_.affinity->relationOf(companion::lookKey(look));
     return companion::affinity::effectiveStage(companionLevel(look), rel, ch ? ch->style : companion::RelationStyle::balanced);
@@ -61,7 +69,7 @@ companion::affinity::Jealousy Launcher::companionJealousy(companion::Look look) 
     uint32_t day = static_cast<uint32_t>(local.wYear * 372 + local.wMonth * 31 + local.wDay);
     for (const char c : companion::lookKey(look)) day += static_cast<unsigned char>(c);
     return companion::affinity::jealousy(companionStage(look), ch ? ch->exclusivity : companion::Exclusivity::monogamous,
-                                         settings_.companion_gamification ? companionLevel(look) : 20, day);
+                                         companion::affinity::representativeLevel(companionStage(look)), day);
 }
 
 companion::Person Launcher::companionPerson() const {
@@ -119,7 +127,9 @@ void Launcher::companionLevelUp(companion::Look look, int from, int level) {
     const auto* ch = companion::character(look);
     const auto rel = companionAffinity().relationOf(std::string(companion::lookKey(look)));
     const auto style = ch ? ch->style : companion::RelationStyle::balanced;
-    const bool stage_crossed = companion::affinity::effectiveStage(from, rel, style) != companion::affinity::effectiveStage(level, rel, style);
+    const auto* social_self = companion_.mind ? companion_.mind->find(companion::lookKey(look)) : nullptr;
+    const bool stage_crossed = (!social_self || !social_self->social.initialized) &&
+        companion::affinity::effectiveStage(from, rel, style) != companion::affinity::effectiveStage(level, rel, style);
     if (stage_crossed && settings_.companion_memory && companion_.persist) {
         const auto now_sec = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count());
         companionCognition().postGossip(companion::lookKey(look), "level", std::to_wstring(level), now_sec);
@@ -148,9 +158,17 @@ void Launcher::companionLevelUp(companion::Look look, int from, int level) {
 }
 
 void Launcher::companionBoundary() {
-    if (!settings_.companion || !settings_.companion_gamification) return;
+    if (!settings_.companion) return;
     const auto look = companionLook();
-    const auto booked = companionAffinity().book(std::string(companion::lookKey(look)), dateKey(companion_.clock()));
+    companionSocialAxes(look, {-2, 0, -1}, L"A boundary was set in the conversation", "boundary:" + std::to_string(companion_.generation));
+    saveCompanionMind();
+    if (!settings_.companion_gamification) return;
+    const auto key = std::string(companion::lookKey(look));
+    const auto social_before = companionAffinity().relationOf(key);
+    const auto booked = companionAffinity().book(key, dateKey(companion_.clock()));
+    // Card/XP rewards are presentation; their legacy axis penalties must not depend on the toggle.
+    auto& social_after = companionAffinity().relation(key);
+    social_after.trust = social_before.trust; social_after.respect = social_before.respect; social_after.security = social_before.security;
     if (booked.card == companion::affinity::Card::none) return; // From level 50 on she no longer minds.
     saveCompanionAffinity();
     companion_.affinity_card_pulse = 1;
@@ -179,7 +197,7 @@ void Launcher::companionAffinityReset() {
 }
 
 void Launcher::companionRelationshipShift(const companion::Reply& reply) {
-    if (!settings_.companion || !settings_.companion_gamification) return;
+    if (!settings_.companion) return;
     const bool life_shift = reply.health_change || reply.work_change || reply.wealth_change || reply.family_change || reply.social_change;
     if (!reply.stance_change && !reply.role_change && !reply.player_distance_change && !life_shift) return;
     const auto look = companionLook();
@@ -202,7 +220,8 @@ void Launcher::companionRelationshipShift(const companion::Reply& reply) {
         }
     }
 
-    if (reply.role_change) {
+    const auto* social = companion_.mind ? companion_.mind->find(key) : nullptr;
+    if (reply.role_change && social && social->social.agreed_role == reply.role_change) {
         auto& rel = state.relation(key);
         if (rel.role != *reply.role_change) {
             rel.role = *reply.role_change;
@@ -217,7 +236,7 @@ void Launcher::companionRelationshipShift(const companion::Reply& reply) {
     }
     if (reply.player_distance_change) {
         auto& rel = state.relation(key);
-        const int cap = *reply.player_distance_change ? companion::affinity::distanceCap(companionLevel(look)) : 0;
+        const int cap = *reply.player_distance_change ? companion::affinity::distanceCap(companion::affinity::representativeLevel(companionStage(look))) : 0;
         if (rel.player_cap != cap) {
             rel.player_cap = cap;
             state.pruneRelation(key);
@@ -226,7 +245,10 @@ void Launcher::companionRelationshipShift(const companion::Reply& reply) {
                              cap > 0 ? tr(L"Rozwój relacji zatrzymany na obecnym etapie") : tr(L"Relacja znów może się rozwijać"));
         }
     }
-    if (reply.stance_change && state.applyStance(key, *reply.stance_change, ch ? ch->default_role : companion::RelationRole::auto_role)) {
+    const bool mutual_romance = social && social->social.agreed_role &&
+        (*social->social.agreed_role == companion::RelationRole::romantic || *social->social.agreed_role == companion::RelationRole::secret_romance);
+    if (reply.stance_change && (*reply.stance_change != companion::RelationStance::broken || mutual_romance) &&
+        state.applyStance(key, *reply.stance_change, ch ? ch->default_role : companion::RelationRole::auto_role)) {
         changed = true;
         companion_.affinity_pulse = 1;
         const wchar_t* head = tr(L"Dylemat w relacji");
@@ -249,7 +271,9 @@ void Launcher::companionRelationshipShift(const companion::Reply& reply) {
         }
     }
     if (changed) {
+        companionMindState().of(key).social.record("shift:" + std::to_string(companion_.generation), "relationship-shift", "companion", reply.text, companionMindContext(look).now, {}, 6);
         saveCompanionAffinity();
+        saveCompanionMind();
         audio_.context();
     }
 }
@@ -303,9 +327,15 @@ void Launcher::companionRelationPick(int code) {
                              : companion::RelationRole::auto_role;
         if (rel.role != companion::RelationRole::romantic && rel.stance == companion::RelationStance::broken)
             rel.stance = companion::RelationStance::open;
+        auto& social = companionMindState().of(key).social;
+        social.agreed_role = code == 0 ? std::optional<companion::RelationRole>{} : std::optional<companion::RelationRole>{rel.role};
+        social.agreement_quote = L"Explicit relationship setting";
+        social.agreement_at = companionMindContext(look).now;
+        social.record("setting:" + std::to_string(social.next_id), "agreement", "player", social.agreement_quote, social.agreement_at, {}, 8);
+        saveCompanionMind();
     } else if (code == 10) {
         if (rel.player_cap > 0) rel.player_cap = 0;
-        else rel.player_cap = companion::affinity::distanceCap(companionLevel(look));
+        else rel.player_cap = companion::affinity::distanceCap(companion::affinity::representativeLevel(companionStage(look)));
     } else if (code == 20) { // Your gender, as Settings keep it: automatic → male → female → automatic.
         using UserGender = AppSettings::CompanionUserGender;
         auto& chosen = settings_.companion_user_gender;
@@ -361,10 +391,11 @@ void Launcher::companionAffinityPlayed(const std::string& key, uint64_t played_m
 
 companion::PromptExtras::Bond Launcher::companionBond() const {
     companion::PromptExtras::Bond bond;
-    if (!settings_.companion_gamification || !companion_.affinity) return bond;
+    if (!companion_.affinity) return bond;
     const auto look = companionLook();
     const auto key = companion::lookKey(look);
-    bond.level = companionLevel(look);
+    bond.level = settings_.companion_gamification ? companionLevel(look) : 0;
+    bond.relationship_stage = static_cast<int>(companionStage(look));
     const int today = dateKey(companion_.clock());
     bond.streak = companion_.affinity->currentStreak(today);
     bond.card = static_cast<int>(companion_.affinity->card(key, today));
@@ -398,12 +429,12 @@ companion::PromptExtras::Bond Launcher::companionBond() const {
         }
     }
     if (const auto& guest = companion_.guest.look; guest && *guest != look) {
-        bond.guest_level = companionLevel(*guest);
+        bond.guest_level = companion::affinity::representativeLevel(companionStage(*guest));
         bond.guest_role = companion_.affinity->relationOf(companion::lookKey(*guest)).role;
     }
     // His "pairs" with the others (flirty friends and closer): she knows of them from the girls.
     for (const auto other : companion::availableLooks())
-        if (other != look) bond.others.push_back({other, companionLevel(other)});
+        if (other != look) bond.others.push_back({other, companion::affinity::representativeLevel(companionStage(other))});
     return bond;
 }
 

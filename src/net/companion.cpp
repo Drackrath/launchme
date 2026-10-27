@@ -900,6 +900,7 @@ std::wstring seasonText(int month, int day, bool english) {
 // The stage of her relationship with him now (affinity::effectiveStage): his level with her, her
 // relationship style (slow-burn or casual), his distance cap and her stance.
 affinity::Stage stageOf(Look look, const PromptExtras::Bond& bond) {
+    if (bond.relationship_stage >= 0) return static_cast<affinity::Stage>(std::clamp(bond.relationship_stage, 0, affinity::stage_count - 1));
     const auto* ch = character(look);
     const affinity::Relation rel{bond.role, bond.stance, bond.player_cap, bond.tension};
     return affinity::effectiveStage(bond.level, rel, ch ? ch->style : RelationStyle::balanced);
@@ -912,7 +913,7 @@ affinity::Jealousy jealousyNow(Look look, const PromptExtras& extras) {
     uint32_t day = static_cast<uint32_t>(extras.utc / 86400);
     if (extras.today.year > 0) day = static_cast<uint32_t>(extras.today.year * 372 + extras.today.month * 31 + extras.today.day);
     for (const char c : lookKey(look)) day += static_cast<unsigned char>(c);
-    const bool levelled = bond.level > 0;
+    const bool levelled = bond.level > 0 || bond.relationship_stage >= 0;
     return affinity::jealousy(levelled ? stageOf(look, bond) : affinity::unlevelled_stage, ch ? ch->exclusivity : Exclusivity::monogamous,
                               levelled ? bond.level : 20, day);
 }
@@ -1045,7 +1046,11 @@ std::wstring bondText(Look look, const PromptExtras& extras, const std::wstring&
                        : L"\nDziś zamiast zwykłego stroju masz na sobie: " + extras.outfit + L".";
         if (!extras.outfit_look.empty()) out += L" " + extras.outfit_look;
     }
-    const auto& bond = extras.bond;
+    auto bond = extras.bond;
+    if (bond.relationship_stage >= 0) {
+        constexpr int stage_levels[]{1, 5, 10, 20, 30, 50};
+        bond.level = stage_levels[std::clamp(bond.relationship_stage, 0, 5)];
+    }
     if (bond.level <= 0) return out;
     const auto* ch = character(look);
     const RelationStyle style = ch ? ch->style : RelationStyle::balanced;
@@ -1125,7 +1130,8 @@ std::wstring bondText(Look look, const PromptExtras& extras, const std::wstring&
     const auto jealousy = jealousyNow(look, extras);
 
     if (english) {
-        out += L"\nYour relationship with ‹him|her|them›: level " + level + L" of " + std::to_wstring(affinity::max_level) + L" — " + stage_desc_en +
+        out += (extras.bond.relationship_stage >= 0 ? std::wstring(L"\nYour relationship from shared history: ") :
+            L"\nYour relationship with ‹him|her|them›: level " + level + L" of " + std::to_wstring(affinity::max_level) + L" — ") + stage_desc_en +
                L". Show closeness through tone, warmth and how at ease you feel — NEVER mention levels, points or 'leveling up' out loud.";
         out += stageRulesText(stage_kind, active_role, true);
         if (active_role == RelationRole::secret_romance)
@@ -1186,7 +1192,8 @@ std::wstring bondText(Look look, const PromptExtras& extras, const std::wstring&
                    L"[relation:work], [relation:friend], [relation:romance] or [relation:distance] when ‹he explicitly asks|she explicitly asks|they explicitly ask› to define or cap your relationship that way; "
                    L"[life:sick|tired|injured|fit], [life:busy|between_jobs|promoted|burnout|steady], [life:tight|broke|flush|comfortable], [life:homesick|visit|tension] or [life:lonely|overwhelmed|inspired] when your health, job, finances, family or social state shifts.";
     } else {
-        out += L"\nTwoja relacja z ‹nim|nią›: poziom " + level + L" na " + std::to_wstring(affinity::max_level) + L" — " + stage_desc_pl +
+        out += (extras.bond.relationship_stage >= 0 ? std::wstring(L"\nWasza relacja na podstawie wspólnej historii: ") :
+            L"\nTwoja relacja z ‹nim|nią›: poziom " + level + L" na " + std::to_wstring(affinity::max_level) + L" — ") + stage_desc_pl +
                L". Bliskość okazuj tonem, swobodą i tym, jak rozmawiacie — NIGDY nie wspominaj na głos o poziomach relacji, punktach ani awansach.";
         out += stageRulesText(stage_kind, active_role, false);
         if (active_role == RelationRole::secret_romance)
@@ -1614,7 +1621,7 @@ std::wstring innerText(bool english, const std::wstring& her, bool duo, const st
 // Her hidden appraisal and thought as far as their stage goes (affinity::feelingCap): until a crush
 // her tender feelings about him stay moderate — her mind keeps them there too (companion_mind apply).
 std::wstring feelingsCapText(Look look, const PromptExtras& extras, bool english) {
-    if (extras.bond.level <= 0) return {};
+    if (extras.bond.level <= 0 && extras.bond.relationship_stage < 0) return {};
     const auto stage = stageOf(look, extras.bond);
     const float cap = affinity::feelingCap(stage);
     if (cap >= 1.0f) return {};

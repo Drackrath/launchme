@@ -414,6 +414,9 @@ public:
     // candidates for a prompt, her background web reading, her life for her diary and her Mind view.
     companion::mind::State& companionMindState();
     void saveCompanionMind();
+    void companionSocialPrepare(companion::Look look);
+    void companionSocialApply(const CompanionMessage& message, const companion::mind::Appraisal& appraisal);
+    void companionSocialAxes(companion::Look look, companion::social::Delta delta, const std::wstring& reason, const std::string& turn);
     companion::mind::Context companionMindContext(companion::Look look) const;
     std::vector<companion::mind::Candidate> companionMindCandidates(companion::Look look, const std::wstring& query, bool chatting);
     void companionMindHeard(const std::wstring& text);
@@ -454,7 +457,7 @@ public:
     // Her current report when it is fresh (three hours) and still where she is; nullptr otherwise.
     const companion::weather::Report* companionWeatherNow(companion::Look look) const;
     void companionForget();          // Settings → "Wyczyść pamięć".
-    void requestCompanionSummary();  // A finished chat → a sentence for her notes (notes on).
+    void requestCompanionSummary(bool reflection_trigger = false); // Finished chat or accumulated significant events.
     void companionRemember(const CompanionMessage& message); // Her reply, suggestions and notes.
     // Her mood as a conversation starts (src/net/companion_mood.hpp, memory on): loaded on first
     // use from companion_mood.txt, saved on a worker in order.
