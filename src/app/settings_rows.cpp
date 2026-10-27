@@ -414,7 +414,7 @@ void Launcher::buildSettingsRows() {
         add({Id::game_videos, Control::toggle, tr(L"Autoodtwarzanie filmów z emulatorów"),
             tr(L"Po chwili na grze z emulatora jej film z ES-DE lub ScreenScraper zastępuje tło, a muzyka cichnie."), {}, settings_.game_videos});
         add({Id::steam_trailers, Control::toggle, tr(L"Zwiastuny gier Steam"),
-            tr(L"To samo dla gier Steam: 30 s zwiastuna ze sklepu (od 10. sekundy, 480p, bez dźwięku), pobierane raz."), {}, settings_.steam_trailers});
+            tr(L"To samo dla gier Steam i gier PC z innych sklepów (zwiastun tej samej gry ze Steam): 30 s ze sklepu (od 10. sekundy, 480p, bez dźwięku), pobierane raz."), {}, settings_.steam_trailers});
         pageRow(Page::videos, tr(L"Opcje filmów"),
                 settings_.steam_trailers ? std::wstring(tr(L"Opóźnienie, miejsce na zwiastuny i folder filmów.")) : std::wstring(tr(L"Opóźnienie i folder filmów.")),
                 std::to_wstring(video_delays[delay_index]) + L" s");

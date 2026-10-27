@@ -66,7 +66,8 @@ Settings → System → Help → **Open folder** (the version row) opens it.
 - **Library views**: grid (squares, posters or landscape tiles), list, cinematic, detailed, poster,
   coverflow, a shelf of game cases (their spines carry the name and the platform) and novelty
   cartridge/floppy views; sorting, filters, search and remembered positions. With game videos on, the
-  video plays in List+'s picture, in Cinematic's focused tile and in the desktop window's details pane.
+  video plays in List+'s picture, in Cinematic's focused tile and in the desktop window's details pane;
+  PC games from other stores play the Steam trailer of the same game.
 - **Steam accounts and installs**: Play on a game installed by another remembered Steam account switches
   Steam to that account first; Install picks the Steam library (with its free space) in Launchme's own
   dialog. Both can be turned off in Settings → Library → Launching.
@@ -74,8 +75,9 @@ Settings → System → Help → **Open folder** (the version row) opens it.
   GOG and Epic account libraries (Epic installs through Legendary, no Epic launcher needed),
   EA and Battle.net libraries imported from their store pages (no EA app needed: sign in on ea.com,
   paste the token page), Ubisoft from the signed-in client, and MultiMC / Prism Launcher instances as games.
-- **Artwork**: SteamGridDB covers, heroes, logos and posters with OCR-assisted cropping and a variant browser;
-  Epic account games also get Epic's own box art. Missing art downloads in the background, covers and
+- **Artwork**: SteamGridDB covers, heroes (the sharp 3840 px ones first), logos and posters with OCR-assisted cropping,
+  a variant browser and *Adjust crop* for covers and backgrounds; where SteamGridDB has nothing, the store's own
+  art (Epic, Ubisoft Connect, GOG, EA, Battle.net). Epic account games use Epic's box art as their poster. Missing art downloads in the background, covers and
   posters first. To fetch it now: Settings → Media & data → *Download missing covers*, or in the desktop
   window select games (`Ctrl+A`, `Ctrl`/`Shift`+click) and pick *Download artwork again* or *Download missing covers…*.
 - **Details**: Steam metadata, playtime (also for non-Steam games, Epic's and Prism's counts, or your own value from
@@ -108,6 +110,8 @@ Settings → System → Help → **Open folder** (the version row) opens it.
 - **Low memory mode** (Settings → System → Performance, on by default): artwork decoded at its size on
   screen, fewer images kept in memory, and while a game runs in front of the launcher it gives its graphics
   and artwork back (GPU memory to zero). Optional *Artwork compression (BC1)* for 8× less graphics memory.
+- **Hide to tray while playing** (Settings → Library → Launching, off by default): while a game started here runs,
+  the launcher leaves the taskbar and Alt+Tab and comes back when the game closes.
 - Background music, screensaver, start with Windows, single instance, crash dumps.
 
 ## Controls

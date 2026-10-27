@@ -447,7 +447,7 @@ constexpr Entry entries[] = {
     {L"Wyczyść dane ScreenScraper", L"Borrar datos de ScreenScraper"},
     {L"Zapomina identyfikacje ROM-ów i przerwy; przy następnym starcie gry są sprawdzane od nowa.", L"Olvida las identificaciones de ROM y las pausas; los juegos se comprueban de nuevo en el próximo inicio."},
     {L"Zwiastuny gier Steam", L"Tráileres de juegos de Steam"},
-    {L"To samo dla gier Steam: 30 s zwiastuna ze sklepu (od 10. sekundy, 480p, bez dźwięku), pobierane raz.", L"Lo mismo para juegos de Steam: 30 s del tráiler de la tienda (desde el segundo 10, 480p, sin sonido), descargados una vez."},
+    {L"To samo dla gier Steam i gier PC z innych sklepów (zwiastun tej samej gry ze Steam): 30 s ze sklepu (od 10. sekundy, 480p, bez dźwięku), pobierane raz.", L"Lo mismo para juegos de Steam y juegos de PC de otras tiendas (el tráiler de Steam del mismo juego): 30 s del tráiler de la tienda (desde el segundo 10, 480p, sin sonido), descargados una vez."},
     {L"Miejsce na zwiastuny", L"Espacio para tráileres"},
     {L"Po przekroczeniu znikają najdawniej oglądane.", L"Al superarlo, se eliminan primero los que llevan más tiempo sin verse."},
     {L"Zmniejszono cache grafik o ", L"Caché de arte reducida en "},
