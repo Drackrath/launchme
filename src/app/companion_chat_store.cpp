@@ -73,6 +73,13 @@ void Launcher::companionTrimTurns() {
     const size_t already_summarized = companion_.summarized > 1 ? companion_.summarized - 1 : 0;
     companion_.summarized -= std::min(removed, already_summarized);
     companion_.summarized = std::min(companion_.summarized, turns.size());
+    const auto look = companion::lookKey(companion_.chat_look.value_or(companionLook()));
+    if (auto pending = companion_.summary_pending.find(std::string(look)); pending != companion_.summary_pending.end() &&
+        pending->second.chat_started == companion_.chat_started) {
+        auto& through = pending->second.through;
+        through -= std::min(removed, through > 1 ? through - 1 : 0);
+        through = std::min(through, turns.size());
+    }
 }
 
 bool Launcher::companionResting() const {
@@ -178,11 +185,11 @@ void Launcher::companionSaveChat() {
     uint64_t number = 0;
     {
         std::lock_guard lock(io->mutex);
-        number = io->newest[conversation.started] = ++io->counter;
+        number = io->newest[{conversation.look, conversation.started}] = ++io->counter;
     }
     work_.start([conversation = std::move(conversation), config = userConfigDirectory(), io, number] {
         std::lock_guard lock(io->mutex);
-        if (io->newest[conversation.started] == number) chats::write(config, conversation);
+        if (io->newest[{conversation.look, conversation.started}] == number) chats::write(config, conversation);
     });
 }
 

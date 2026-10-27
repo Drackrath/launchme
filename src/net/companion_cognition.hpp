@@ -30,6 +30,7 @@ struct Reflection {
     std::wstring text;
     std::string look;
     std::wstring evolved_from; // Earlier reflection on the same theme that this one superseded.
+    std::vector<std::string> evidence_ids;
 };
 
 struct Thought {
@@ -67,6 +68,7 @@ struct Schema {
     uint64_t at = 0;
     std::wstring text;
     std::string look;
+    std::vector<std::string> evidence_ids;
 };
 
 struct ActivationHit {
@@ -88,9 +90,9 @@ struct State {
 
     // Records a higher-order reflection; if an older reflection of hers shares ≥2 stem words,
     // links the older one in `evolved_from` and replaces it (belief evolution!).
-    void reflect(std::wstring_view text, uint64_t now, std::string_view look);
+    void reflect(std::wstring_view text, uint64_t now, std::string_view look, const std::vector<std::string>& evidence = {});
     // Records a generalized causal schema (CLS neocortical abstraction).
-    void addSchema(std::wstring_view text, uint64_t now, std::string_view look);
+    void addSchema(std::wstring_view text, uint64_t now, std::string_view look, const std::vector<std::string>& evidence = {});
     // Updates or queries dynamic inter-companion tension (0..100).
     static std::string peerKey(std::string_view a, std::string_view b);
     int peerTension(std::string_view a, std::string_view b) const;
@@ -164,6 +166,7 @@ std::wstring sleepConsolidationPrompt(bool english, std::wstring_view telemetry_
                                       std::wstring_view life = {}, bool invite_goal = false, std::wstring_view plan_rules = {});
 
 struct Consolidated {
+    std::vector<std::string> evidence_ids;
     std::wstring summary;
     std::wstring reflection;
     std::wstring disposition;

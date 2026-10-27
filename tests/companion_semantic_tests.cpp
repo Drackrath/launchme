@@ -57,6 +57,8 @@ void unit() {
         check(found.size() == 1 && found[0].semantic && found[0].document.text == memory.notes[0].text, "Semantic lookup");
         check(service.search("rin", L"paraphrase", 200).empty(), "Private memory must not leak to another character");
         check(service.search("", L"paraphrase", 200).empty(), "Empty owner must not bypass filtering");
+        const auto contextual = service.searchMany("hana", {L"paraphrase", L"context", L"paraphrase"}, 200);
+        check(contextual.size() == 1 && contextual.front().document.owner == "hana", "Multi-query recall deduplicates within owner scope");
         check(memory.save() == before && protected_file::read(temp.path / L"companion_memory.dat", 32 * 1024 * 1024) == original, "Indexing changed primary memory");
         service.replace(s::documents(memory, {}, {})); wait(service);
         check(calls->load() == 2, "Unchanged notes must not be re-encoded");

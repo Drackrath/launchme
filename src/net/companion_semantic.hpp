@@ -35,6 +35,7 @@ public:
     void replace(std::vector<Document> documents);
     // Bounded query; during migration, available vectors and lexical matches are immediately usable.
     std::vector<Hit> search(std::string_view look, std::wstring_view query, uint64_t now, size_t limit = 6);
+    std::vector<Hit> searchMany(std::string_view look, const std::vector<std::wstring>& queries, uint64_t now, size_t limit = 6);
     Progress progress() const;
     void stop();
     void clear(); // Explicit user reset: removes only the derived cache, after stopping its worker.

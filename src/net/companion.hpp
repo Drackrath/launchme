@@ -241,6 +241,7 @@ struct PromptExtras {
     // may set a boundary with [granica] when he goes much too far.
     struct Bond {
         int level = 0, streak = 0, guest_level = 0, card = 0;
+        int relationship_stage = -1; // Persisted social history, independent of optional XP; -1 is legacy caller behavior.
         RelationRole role = RelationRole::auto_role;     // Active relationship track (friend, coworker, romantic, secret_romance).
         RelationRole guest_role = RelationRole::auto_role;
         RelationStance stance = RelationStance::open;    // Her internal posture (open, dilemma, distanced, broken).

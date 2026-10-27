@@ -106,6 +106,12 @@ struct CompanionMessage {
     std::wstring heard;
     std::wstring week;        // This conversation's weekly small talk (companion_week.hpp), when it was due.
     std::string summary_look; // summary: whose conversation it was.
+    std::wstring player_text;
+    std::string social_turn;
+    companion::social::Plan social_plan;
+    uint64_t memory_epoch = 0;
+    std::vector<std::string> reflection_evidence;
+    uint64_t reflection_cutoff = 0;
     std::vector<companion::tools::CollectionMutation> collection_mutations; // kolekcje_i_ulubione: applied on the UI thread.
     std::optional<companion_ui::Roulette> tool_roulette;                    // zakrec_ruletka: spun in the chat.
     std::vector<companion::cognition::Reading> daily_readings;              // Autonomous daily Tavily readings.

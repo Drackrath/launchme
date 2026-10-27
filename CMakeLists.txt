@@ -144,6 +144,7 @@ set(LAUNCHME_APP_SOURCES
     src/app/companion_events.cpp
     src/app/companion_roulette.cpp
     src/app/companion_mind.cpp
+    src/app/companion_social.cpp
     src/app/companion_semantic.cpp
     src/app/companion_guest.cpp
     src/app/companion_voice.cpp
@@ -199,6 +200,7 @@ set(LAUNCHME_APP_SOURCES
     src/net/companion_semantic.cpp
     src/net/companion_cognition.cpp
     src/net/companion_mind.cpp
+    src/net/companion_social.cpp
     src/net/companion_chats.cpp
     src/net/companion_characters.cpp
     src/net/elevenlabs.cpp
@@ -680,6 +682,7 @@ if(BUILD_TESTING)
     launchme_executable(tarot_tests TEST tarot_deck_wish_and_picks SOURCES tests/tarot_tests.cpp)
     launchme_executable(updater_tests TEST updater_release_package_and_swap SOURCES tests/updater_tests.cpp)
     launchme_executable(companion_tests TEST companion_replies_prompts_and_rig SOURCES tests/companion_tests.cpp)
+    launchme_executable(companion_social_tests TEST companion_social_rules_history_and_plans SOURCES tests/companion_social_tests.cpp)
     launchme_executable(companion_memory_tests TEST companion_weighted_memory_and_capacity SOURCES tests/companion_memory_tests.cpp)
     launchme_executable(companion_semantic_tests TEST companion_semantic_storage_and_privacy SOURCES tests/companion_semantic_tests.cpp)
     companion_embedding_assets(companion_semantic_tests)
@@ -832,6 +835,7 @@ add_test(NAME low_memory_mode COMMAND launcher_ui_tests --low-memory)
     set_tests_properties(tarot_reading_cards_and_results PROPERTIES TIMEOUT 60)
     add_test(NAME companion_home_chat_and_settings COMMAND launcher_ui_tests --companion)
     add_test(NAME companion_semantic_prompt_and_settings COMMAND launcher_ui_tests --companion-semantic)
+    add_test(NAME companion_social_dialogue_and_persistence COMMAND launcher_ui_tests --companion-social)
     add_test(NAME companion_picker_and_desktop_input COMMAND launcher_ui_tests --companion-appearance)
     add_test(NAME companion_reply_length_ui COMMAND launcher_ui_tests --companion-reply-length)
     add_test(NAME companion_remote_ui COMMAND launcher_ui_tests --companion-remote)

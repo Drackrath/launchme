@@ -124,6 +124,7 @@ Launcher::CompanionAway Launcher::companionAway() const {
 }
 
 std::vector<companion::mind::Candidate> Launcher::companionMindCandidates(companion::Look look, const std::wstring& query, bool chatting) {
+    companionSocialPrepare(look);
     using companion::mind::Candidate;
     using companion::mind::Status;
     const auto context = companionMindContext(look);
@@ -166,14 +167,17 @@ std::vector<companion::mind::Candidate> Launcher::companionMindCandidates(compan
 void Launcher::companionMindHeard(const std::wstring& text) {
     // System 1: her face reacts at once (the true feeling, a moment), then she thinks about her answer.
     const auto look = companionLook();
+    companionSocialPrepare(look);
     const auto context = companionMindContext(look);
     auto& self = companionMindState().of(context.look);
     companion::mind::tick(self, context);
-    const auto quick = companion::mind::quick(text, self, context.stage);
+    auto quick = companion::mind::quick(text, self, context.stage);
+    // A short message may be fatigue or convenience. Durable rejection needs contextual evidence.
+    if (quick.dismissive) { quick.dismissive = false; quick.valence = 0; quick.arousal = 0; quick.flash.reset(); }
     companion::mind::onPlayerMessage(self, context, quick, text);
-    if ((self.trust_delta || self.respect_delta || self.security_delta) && settings_.companion_gamification) {
-        if (companionAffinity().adjustAxes(context.look, self.trust_delta, self.respect_delta, self.security_delta))
-            saveCompanionAffinity();
+    if (self.trust_delta || self.respect_delta || self.security_delta) {
+        companionSocialAxes(look, {self.trust_delta, self.respect_delta, self.security_delta}, text,
+            context.look + ":heard:" + std::to_string(companion_.chat_started) + ":" + std::to_string(self.social.next_id));
         self.trust_delta = self.respect_delta = self.security_delta = 0;
     }
     if (settings_.companion_notes && !text.empty()) {
@@ -203,6 +207,7 @@ void Launcher::companionMindReplied(const CompanionMessage& message) {
     if (message.purpose != CompanionMessage::Purpose::chat || !message.reply.ok || message.reply_look.empty()) return;
     const auto look = companion::lookFromKey(message.reply_look);
     if (!look) return;
+    companionSocialPrepare(*look);
     const auto context = companionMindContext(*look);
     auto& self = companionMindState().of(context.look);
     companion::mind::tick(self, context);
@@ -216,8 +221,9 @@ void Launcher::companionMindReplied(const CompanionMessage& message) {
             // Repeated facts also refresh their evidence count/date even when no new note was added.
             memory_changed = !appraisal.beliefs.empty() || applied.revisions;
             told_private = !appraisal.told.empty();
-            if (applied.met > 0 && settings_.companion_gamification) {
-                if (companionAffinity().adjustAxes(context.look, 2, 0, 2)) saveCompanionAffinity();
+            companionSocialApply(message, appraisal);
+            if (applied.met > 0) {
+                companionSocialAxes(*look, {2, 0, 2}, L"An expectation was fulfilled", message.social_turn);
             }
             // What she learnt of his or her gender (Settings → "Twoja płeć" still wins when set).
             if (appraisal.player_gender) {
@@ -230,6 +236,7 @@ void Launcher::companionMindReplied(const CompanionMessage& message) {
             }
         }
     }
+    if (message.reply.appraisal.empty()) companionSocialApply(message, {});
     // Her suggestions: she expects him to play them.
     std::vector<std::pair<std::string, std::wstring>> suggested;
     for (const auto& title : message.reply.games)
@@ -277,15 +284,17 @@ void Launcher::companionMindReplied(const CompanionMessage& message) {
         metrics.push_back(std::move(metric));
         if (metrics.size() > 120) metrics.erase(metrics.begin());
     }
-    if ((self.trust_delta || self.respect_delta || self.security_delta) && settings_.companion_gamification) {
-        if (companionAffinity().adjustAxes(context.look, self.trust_delta, self.respect_delta, self.security_delta))
-            saveCompanionAffinity();
+    if (self.trust_delta || self.respect_delta || self.security_delta) {
+        companionSocialAxes(*look, {self.trust_delta, self.respect_delta, self.security_delta}, self.felt, message.social_turn);
         self.trust_delta = self.respect_delta = self.security_delta = 0;
     }
     // Her relationship or her life turned in this reply (her tags): a jolt, maybe a milestone.
     companion::mind::Shift shift;
     shift.stance = message.reply.stance_change;
     shift.role = message.reply.role_change;
+    if (shift.role && self.social.agreed_role != shift.role) shift.role.reset();
+    if (shift.stance == companion::RelationStance::broken && self.social.agreed_role != companion::RelationRole::romantic &&
+        self.social.agreed_role != companion::RelationRole::secret_romance) shift.stance.reset();
     shift.health = message.reply.health_change;
     shift.work = message.reply.work_change;
     shift.wealth = message.reply.wealth_change;
@@ -299,6 +308,7 @@ void Launcher::companionMindReplied(const CompanionMessage& message) {
 
 void Launcher::companionMindBegin() {
     const auto look = companionLook();
+    companionSocialPrepare(look);
     const auto context = companionMindContext(look);
     auto& self = companionMindState().of(context.look);
     companion::mind::tick(self, context);
@@ -390,9 +400,10 @@ void Launcher::companionDailyReading() {
     const auto post = [hwnd = hwnd_, alive = alive_](std::unique_ptr<CompanionMessage> message) {
         if (alive->load() && PostMessageW(hwnd, companion_message, 0, reinterpret_cast<LPARAM>(message.get()))) message.release();
     };
-    work_.start([post, web_key, query = std::move(query), look_key = context.look, today, now] {
+    work_.start([post, web_key, query = std::move(query), look_key = context.look, today, now, epoch = companion_.memory_epoch] {
         auto message = std::make_unique<CompanionMessage>();
         message->purpose = CompanionMessage::Purpose::reading;
+        message->memory_epoch = epoch;
         const auto summary = companion::cognition::summarizeTavilyResult(web_search::search(web_key, query));
         if (!summary.empty()) message->daily_readings.push_back({now, today, look_key, query, summary});
         post(std::move(message)); // Always: it ends her reading.
@@ -630,9 +641,10 @@ void Launcher::companionLifeFill() {
     };
     companionSyncPerson(); // Her days speak of him or her, as he or she is.
     work_.start([post, system = std::move(system), turns = std::move(turns), access = companionAccess(), transport = companion_.post, alive = alive_,
-                 look_key = context.look, gap = *gap] {
+                 look_key = context.look, gap = *gap, epoch = companion_.memory_epoch] {
         auto message = std::make_unique<CompanionMessage>();
         message->purpose = CompanionMessage::Purpose::life;
+        message->memory_epoch = epoch;
         message->summary_look = look_key;
         message->life_from = gap.from;
         message->life_to = gap.to;
