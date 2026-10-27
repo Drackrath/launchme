@@ -31,6 +31,7 @@ if(NOT LAUNCHME_STATIC_RUNTIME)
     string(APPEND LAUNCHME_RUNTIME "DLL")
 endif()
 set_property(TARGET miniz PROPERTY MSVC_RUNTIME_LIBRARY "${LAUNCHME_RUNTIME}")
+include(cmake/CompanionEmbeddings.cmake)
 
 # Only PresentMon's ETW consumer, not its desktop application/service. Pinned MIT
 # source; no injected DLL, runtime download or separate installation is needed.
@@ -143,6 +144,7 @@ set(LAUNCHME_APP_SOURCES
     src/app/companion_events.cpp
     src/app/companion_roulette.cpp
     src/app/companion_mind.cpp
+    src/app/companion_semantic.cpp
     src/app/companion_guest.cpp
     src/app/companion_voice.cpp
     src/app/game_index.cpp
@@ -193,6 +195,8 @@ set(LAUNCHME_APP_SOURCES
     src/net/companion_weather.cpp
     src/net/web_search.cpp
     src/net/companion_memory.cpp
+    src/net/companion_embeddings.cpp
+    src/net/companion_semantic.cpp
     src/net/companion_cognition.cpp
     src/net/companion_mind.cpp
     src/net/companion_chats.cpp
@@ -379,11 +383,14 @@ list(REMOVE_DUPLICATES LAUNCHME_CORE_SOURCES)
 add_library(launchme_core STATIC ${LAUNCHME_CORE_SOURCES})
 launchme_target_defaults(launchme_core)
 target_link_libraries(launchme_core PUBLIC ${LAUNCHME_APP_LIBS} miniz launchme_presentmon iphlpapi ws2_32)
+target_link_libraries(launchme_core PUBLIC companion_ort companion_sqlite sentencepiece-static)
+target_include_directories(launchme_core SYSTEM PRIVATE "${companion_spm_SOURCE_DIR}/src")
 target_precompile_headers(launchme_core PRIVATE <Windows.h> <string> <vector> <filesystem>)
 launchme_executable(steam_library_sync_probe SOURCES tools/steam_library_sync_probe.cpp)
 
 launchme_executable(launchme WIN32 SOURCES src/main.cpp ${LAUNCHME_APP_SOURCES} LIBS ${LAUNCHME_APP_LIBS})
 target_precompile_headers(launchme PRIVATE src/app/launcher.hpp)
+companion_embedding_assets(launchme)
 # Icon, VERSIONINFO (from project()) and the application manifest (PerMonitorV2,
 # long paths, Windows 10/11) belong only to the shipped executable.
 set(LAUNCHME_RES_DIR "${CMAKE_CURRENT_SOURCE_DIR}/res")
@@ -671,6 +678,15 @@ if(BUILD_TESTING)
     launchme_executable(updater_tests TEST updater_release_package_and_swap SOURCES tests/updater_tests.cpp)
     launchme_executable(companion_tests TEST companion_replies_prompts_and_rig SOURCES tests/companion_tests.cpp)
     launchme_executable(companion_memory_tests TEST companion_weighted_memory_and_capacity SOURCES tests/companion_memory_tests.cpp)
+    launchme_executable(companion_semantic_tests TEST companion_semantic_storage_and_privacy SOURCES tests/companion_semantic_tests.cpp)
+    companion_embedding_assets(companion_semantic_tests)
+    add_test(NAME companion_semantic_real_model COMMAND companion_semantic_tests --model)
+    # Model initialization/inference must not contend with the UI suite's short I/O deadlines.
+    set_tests_properties(companion_semantic_real_model PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
+    add_test(NAME companion_semantic_installed_package COMMAND ${CMAKE_COMMAND}
+        "-DBUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}" "-DTEST_EXE=$<TARGET_FILE:companion_semantic_tests>" "-DCONFIG=$<CONFIG>"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/companion_semantic_install.cmake")
+    set_tests_properties(companion_semantic_installed_package PROPERTIES TIMEOUT 240 RUN_SERIAL TRUE)
     launchme_executable(companion_links_tests TEST companion_bounded_link_previews SOURCES tests/companion_links_tests.cpp)
     launchme_executable(companion_feed_tests TEST companion_feed_publication_and_archive SOURCES tests/companion_feed_tests.cpp)
     launchme_executable(remote_server_tests TEST remote_server_parsing_and_loopback SOURCES tests/remote_server_tests.cpp)
@@ -775,6 +791,7 @@ if(BUILD_TESTING)
         LIBS ${LAUNCHME_APP_LIBS}
         DEFINES LAUNCHME_UI_TEST)
     target_precompile_headers(launcher_ui_tests PRIVATE src/app/launcher.hpp)
+    companion_embedding_assets(launcher_ui_tests)
     if(MSVC)
         target_compile_options(launcher_ui_tests PRIVATE /bigobj) # Every *_ui_cases.hpp lands in one object file.
     endif()
@@ -810,6 +827,7 @@ add_test(NAME low_memory_mode COMMAND launcher_ui_tests --low-memory)
     add_test(NAME launchme_updates_and_whats_new COMMAND launcher_ui_tests --updates)
     set_tests_properties(tarot_reading_cards_and_results PROPERTIES TIMEOUT 60)
     add_test(NAME companion_home_chat_and_settings COMMAND launcher_ui_tests --companion)
+    add_test(NAME companion_semantic_prompt_and_settings COMMAND launcher_ui_tests --companion-semantic)
     add_test(NAME companion_picker_and_desktop_input COMMAND launcher_ui_tests --companion-appearance)
     add_test(NAME companion_reply_length_ui COMMAND launcher_ui_tests --companion-reply-length)
     add_test(NAME companion_remote_ui COMMAND launcher_ui_tests --companion-remote)

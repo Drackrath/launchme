@@ -66,7 +66,8 @@ std::wstring trimmed(std::wstring_view text) {
 // her notes/summaries after them that share words with the topic.
 json::Value companionRecall(const std::filesystem::path& config, companion::Look look, const std::wstring& topic, uint64_t skip,
                             const std::vector<companion::Memory::Entry>& summaries,
-                            const std::vector<companion::Memory::Entry>& all_notes, uint64_t now, bool english) {
+                            const std::vector<companion::Memory::Entry>& all_notes, uint64_t now, bool english,
+                            const std::shared_ptr<companion::semantic::Service>& semantic = {}) {
     std::vector<companion::tools::Recalled> lines, notes;
     for (const auto& found : companion::chats::search(config, look, topic, skip))
         lines.push_back({companion::chats::label(found.started, english), found.user, found.text});
@@ -81,7 +82,19 @@ json::Value companionRecall(const std::filesystem::path& config, companion::Look
         if (score) scored.push_back({score, &note});
     }
     std::stable_sort(scored.begin(), scored.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
-    for (size_t i = 0; i < scored.size() && i < 6; ++i) {
+    if (semantic) {
+        for (const auto& hit : semantic->search(companion::lookKey(look), topic, now)) {
+            bool hearsay = hit.document.evidence == companion::mind::Status::gossip;
+            for (const auto& knower : hit.document.known)
+                if (knower.look == companion::lookKey(look) && knower.hearsay) hearsay = true;
+            const auto label = hearsay ? (english ? L"hearsay" : L"ze słyszenia") :
+                hit.document.evidence == companion::mind::Status::guess ? (english ? L"hypothesis" : L"przypuszczenie") :
+                (english ? L"earlier memory" : L"wcześniejsze wspomnienie");
+            notes.push_back({label, false, hit.document.text});
+        }
+    }
+    for (size_t i = 0; i < scored.size() && notes.size() < 6; ++i) {
+        if (std::any_of(notes.begin(), notes.end(), [&](const auto& note) { return note.text == scored[i].second->text; })) continue;
         const auto days = now > scored[i].second->at ? (now - scored[i].second->at) / 86400 : 0;
         const std::wstring when = english ? (days == 0 ? L"today" : days == 1 ? L"yesterday" : std::to_wstring(days) + L" days ago")
                                           : (days == 0 ? L"dziś" : days == 1 ? L"wczoraj" : std::to_wstring(days) + L" dni temu");
@@ -318,6 +331,7 @@ void Launcher::requestCompanion(CompanionMessage::Purpose purpose, std::wstring 
     // Her mind's workspace (companion_mind.cpp): what she has on her mind; the worker adds the game
     // she is in the middle of and the week, then only the most salient few enter her prompt.
     auto mind_candidates = companionMindCandidates(companionLook(), last_user_query, chatting);
+    auto semantic = chatting ? companionSemantic() : std::shared_ptr<companion::semantic::Service>{};
     const auto mind_ctx = companionMindContext(companionLook());
     const auto& mind_self = companionMindState().of(look_key);
     const float mind_arousal = companion::mind::settled(mind_self.affect, mind_ctx).arousal;
@@ -421,7 +435,7 @@ void Launcher::requestCompanion(CompanionMessage::Purpose purpose, std::wstring 
                  games = companionGames(), account = account_, persona = companionPersona(), look = lookOf(settings_), access = companionAccess(),
                  transport = companion_.post, remembered = std::move(remembered), resting = std::move(resting), notes, index, now_seconds,
                  mood, week = std::move(week), week_check, week_picks = std::move(week_picks), recalling,
-                 summaries = std::move(summaries), all_notes = std::move(all_notes), newsy,
+                 summaries = std::move(summaries), all_notes = std::move(all_notes), newsy, semantic, last_user_query,
                  glance_games = std::move(glance_games), collections_snapshot = std::move(collections_snapshot),
                   recent_session_note = std::move(recent_session_note), mind_candidates = std::move(mind_candidates), mind_arousal, mind_control, mind_deliberate, curiosity, pre_closing, weather_text = std::move(weather_text),
                   chat_started, stream_post = std::move(stream_post), web_key = std::move(web_key),
@@ -478,7 +492,7 @@ void Launcher::requestCompanion(CompanionMessage::Purpose purpose, std::wstring 
                         message->affective_notes.push_back({now_seconds, note, std::string(companion::lookKey(look)), emotion, feeling});
                         return true;
                     };
-                    if (recalling) context.recall = [&](const std::wstring& topic) { return companionRecall(config, look, topic, chat_started, summaries, all_notes, now_seconds, en); };
+                    if (recalling) context.recall = [&](const std::wstring& topic) { return companionRecall(config, look, topic, chat_started, summaries, all_notes, now_seconds, en, semantic); };
                     if (newsy) context.news = [&] { return companionNews(config, glance_games, en, today, now_seconds); };
                     if (!web_key.empty()) context.web = [&](const std::wstring& query) {
                         auto found = web_search::search(web_key, query);
@@ -569,6 +583,10 @@ void Launcher::requestCompanion(CompanionMessage::Purpose purpose, std::wstring 
             };
             if (!playing.empty()) mind_candidates.push_back({"playing", bare(playing), 0.55f, companion::mind::Status::know});
             if (!week.empty()) mind_candidates.push_back({"week", bare(week), 0.5f, companion::mind::Status::know});
+            if (semantic && !cancel->load() && !last_user_query.empty()) {
+                auto recalled = companion::semantic::candidates(semantic->search(companion::lookKey(look), last_user_query, now_seconds), companion::lookKey(look), en);
+                mind_candidates.insert(mind_candidates.end(), std::make_move_iterator(recalled.begin()), std::make_move_iterator(recalled.end()));
+            }
             timing.workspace = companion::mind::workspaceSources(mind_candidates, mind_arousal); // Her diagnostics: what she had in mind.
             extras.memory += companion::mind::workspace(std::move(mind_candidates), en, mind_arousal);
             (void)mood;
@@ -741,6 +759,7 @@ companion::Memory& Launcher::companionMemory() {
 
 void Launcher::saveCompanionMemory() {
     if (!companion_.memory) return;
+    companionSemantic(false);
     // Writes run in order of their generation: an older save never lands after a newer one or a clearing.
     const auto generation = ++companion_.memory_io->generation;
     work_.start([memory = *companion_.memory, config = userConfigDirectory(), io = companion_.memory_io, generation] {
@@ -755,6 +774,7 @@ companion::cognition::State& Launcher::companionCognition() {
 }
 
 void Launcher::saveCompanionCognition() {
+    companionSemantic(false);
     if (!companion_.cognition || !companion_.persist) return;
     const auto generation = ++companion_.cognition_io->generation;
     work_.start([state = *companion_.cognition, config = userConfigDirectory(), io = companion_.cognition_io, generation] {
@@ -808,6 +828,12 @@ void Launcher::companionMoodPlayed(const std::string& key, uint64_t played_ms) {
 }
 
 void Launcher::companionForget() {
+    if (companion_.semantic) companion_.semantic->clear();
+    companion_.semantic.reset();
+    {
+        std::error_code ec;
+        std::filesystem::remove(userConfigDirectory() / L"companion_vectors.dat", ec);
+    }
     companion_.memory = companion::Memory{};
     ++companion_.memory_io->generation; // A save still waiting is dropped.
     {

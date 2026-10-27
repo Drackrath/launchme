@@ -78,6 +78,7 @@ Launcher::~Launcher() {
     { std::lock_guard lock(store_gateway_->mutex); store_gateway_->gog = nullptr; store_gateway_->epic = nullptr; } // The plugin worker may outlive us.
     glance_cancel_->store(true);
     companion_.cancel->store(true);
+    if (companion_.semantic) companion_.semantic->stop();
     if (bulk_control_) bulk_control_->cancel = true;
     if (hwnd_) { KillTimer(hwnd_, guide_timer); if (guide_hotkey_active_) UnregisterHotKey(hwnd_, guide_hotkey); }
     overlay_monitor_.stop();

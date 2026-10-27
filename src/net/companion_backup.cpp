@@ -120,6 +120,7 @@ AppSettings ownSettings(const AppSettings& source, const std::string& key) {
     out.companion_look = key; out.companion = true;
     out.companion_guests = source.companion_guests; out.companion_gamification = source.companion_gamification;
     out.companion_memory = source.companion_memory; out.companion_notes = source.companion_notes;
+    out.companion_semantic_memory = source.companion_semantic_memory;
     out.companion_provider = source.companion_provider; out.companion_model = source.companion_model;
     out.companion_xai_model = source.companion_xai_model; out.companion_claude_model = source.companion_claude_model;
     out.companion_ollama_model = source.companion_ollama_model;

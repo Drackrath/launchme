@@ -92,7 +92,7 @@ Settings → System → Help → **Open folder** (the version row) opens it.
   new or play what you own, genre, era, mood, company, length…) — that ends with up to three games, from your
   library or to buy on Steam.
 - **AI companion** (optional): a chat character that knows your library, with an optional voice and photo feed
-  — see [AI companion](#ai-companion).
+  and a local semantic memory (a small multilingual model on the CPU, no service) — see [AI companion](#ai-companion).
 - **Publishers and developers**: rows of their logos on the TV home (a board of all of them, then a studio's games),
   folded sections in the desktop window, links in the details pane, and search by studio (also `Ctrl+K`).
   Games with every achievement unlocked have a gold border.

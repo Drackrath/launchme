@@ -29,7 +29,7 @@ enum class Id { font, home_layout, ui_accent, accent, uninstalled, emulation, co
                   // Towarzyszka (Asystent).
                   companion, companion_look, companion_model, companion_token, companion_host, companion_test,
                   companion_voice, companion_voice_key, companion_voice_model, companion_voice_style, companion_voice_test,
-                  companion_memory, companion_notes, companion_forget, companion_provider, companion_ollama_model, companion_model_info,
+                  companion_memory, companion_notes, companion_semantic_memory, companion_forget, companion_provider, companion_ollama_model, companion_model_info,
                   companion_photos, companion_photo_folder, companion_guests, companion_gamification,
                   // Interfejs → Tryb TV: start in it instead of the desktop window.
                   launch_tv_mode,

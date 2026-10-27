@@ -36,6 +36,7 @@ companion::mind::State& Launcher::companionMindState() {
 }
 
 void Launcher::saveCompanionMind() {
+    companionSemantic(false);
     if (!companion_.mind || !companion_.persist || !settings_.companion_memory) return;
     // Writes run in order of their generation: an older save never lands after a newer one or a clearing.
     const auto generation = ++companion_.mind_io->generation;

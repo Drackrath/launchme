@@ -1,0 +1,12 @@
+Local companion embeddings
+
+paraphrase-multilingual-MiniLM-L12-v2 (sentence-transformers), Apache-2.0:
+https://huggingface.co/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+ONNX conversion: Xenova/paraphrase-multilingual-MiniLM-L12-v2, revision
+2c4055b12046f11709e9df2c122e59ffbdc2f900.
+Tokenizer source revision: e8f8c211226b894fcb81acc59f3b34ba3efd5f42.
+The Apache-2.0 license text is included in sentencepiece-license.txt.
+
+ONNX Runtime 1.23.2: MIT (see onnxruntime-license.txt).
+SentencePiece 0.2.1: Apache-2.0 (see sentencepiece-license.txt).
+SQLite 3.50.4: public domain, https://www.sqlite.org/copyright.html.

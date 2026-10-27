@@ -10,6 +10,7 @@
 #include "../net/companion_costumes.hpp"
 #include "../net/companion_events.hpp"
 #include "../net/companion_memory.hpp"
+#include "../net/companion_semantic.hpp"
 #include "../net/companion_mood.hpp"
 #include "../net/companion_photos.hpp"
 #include "../net/elevenlabs.hpp"
@@ -131,6 +132,7 @@ struct CompanionState {
     std::unique_ptr<CompanionMessage> held;
     // Her memory (src/net/companion_memory.hpp): loaded on first use, saved on a worker in order.
     std::optional<companion::Memory> memory;
+    std::shared_ptr<companion::semantic::Service> semantic;
     struct MemoryIo { std::mutex mutex; std::atomic<uint64_t> generation{0}; };
     std::shared_ptr<MemoryIo> memory_io = std::make_shared<MemoryIo>();
     size_t summarized = 0; // turns already summarized.
