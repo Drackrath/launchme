@@ -293,6 +293,8 @@ void Launcher::settingsActivate() {
     }
     if (settings_rows_.empty()) return;
     const auto row = settings_rows_[settings_state_.row()];
+    if (row.id == Id::aurelia) { toggleAurelia(); return; }
+    if (row.id == Id::aurelia_open) { openAurelia(); return; }
     if (row.control == Control::page) { openSettingsPage(row.page); return; } // Its settings on a page of their own.
     if (row.id == Id::bulk_covers) { openBulkCovers(); return; }
     if (row.id == Id::steam_sync) { requestSteamSync(true); audio_.context(); return; }

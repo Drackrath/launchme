@@ -96,7 +96,7 @@ enum class Action {
     none, play, suspend, close_game, details, favorite, collections, collection_toggle, collection_new, collection_manage,
     versions, artwork, retry_art, missing_art, identify, folder, hide, exclude, plugin, sort, section_rename, section_games,
     section_options, section_delete, section_up, section_down, section_tv, section_hide, clear_marks, select_all, store_page, downloads, metadata, companion_change, companion_mind,
-    companion_settings, uninstall, launch_options
+    companion_settings, uninstall, launch_options, aurelia
 };
 struct MenuItem {
     Action action = Action::none;

@@ -174,6 +174,13 @@ AppSettings parseAppSettings(std::string_view text) {
         const auto key = trim(line.substr(0, equal));
         auto value = trim(line.substr(equal + 1));
         if (parseLookSetting(settings, key, value)) continue; // Kept apart: MSVC caps one if/else chain's depth.
+        if (key == "aurelia") { if (value == "0" || value == "1") settings.aurelia = value == "1"; continue; }
+        if (key == "aurelia_intro_done") { if (value == "0" || value == "1") settings.aurelia_intro_done = value == "1"; continue; }
+        if (key == "aurelia_standalone") {
+            if (!value.empty() && value.size() <= 10 && std::all_of(value.begin(), value.end(), [](char c) { return c >= '0' && c <= '9'; }))
+                settings.aurelia_standalone.insert(std::string(value));
+            continue;
+        }
         if (key == "show_uninstalled" && (value == "0" || value == "1")) settings.show_uninstalled = value == "1";
         else if (key == "windowed" && (value == "0" || value == "1")) settings.windowed = value == "1";
         else if (key == "launch_tv_mode" && (value == "0" || value == "1")) settings.launch_tv_mode = value == "1";
@@ -700,6 +707,8 @@ bool saveAppSettings(const AppSettings& settings, const std::filesystem::path& f
     output << "steam_silent_launch=" << settings.steam_silent_launch << '\n';
     output << "steam_account_switch=" << settings.steam_account_switch << '\n';
     output << "steam_install_dialog=" << settings.steam_install_dialog << '\n';
+    output << "aurelia=" << settings.aurelia << '\n' << "aurelia_intro_done=" << settings.aurelia_intro_done << '\n';
+    for (const auto& id : settings.aurelia_standalone) output << "aurelia_standalone=" << id << '\n';
     output << "game_videos=" << settings.game_videos << '\n';
     output << "video_delay=" << settings.video_delay << '\n';
     output << "video_volume=" << settings.video_volume << '\n';

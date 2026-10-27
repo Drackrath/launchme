@@ -203,6 +203,7 @@ void Launcher::back() {
     if (dialog == Modal::library_dialog) { collectionDialogBack(); return; }
     if (plugin_command_pending_) { ++plugin_command_generation_; plugin_command_pending_ = false; }
     switch (dialog) {
+    case Modal::aurelia: aureliaKey(VK_ESCAPE, false); return;
     case Modal::companion_picker: companionPicker(false); return;
     case Modal::file_browser: closeFileBrowser(); return; // Over every panel that opens it.
     case Modal::custom_editor: closeCustomEditor(); return;
@@ -325,6 +326,7 @@ void Launcher::onCharacter(wchar_t character) {
     if (desktop_quick_.open && desktopActive() && topModal() == Modal::none) { desktopQuickChar(character); return; } // Ctrl+K's field.
     switch (topDialog()) {
     case Modal::file_browser: fileBrowserCharacter(character); return;
+    case Modal::aurelia: aureliaCharacter(character); return;
     case Modal::library_dialog: collectionDialogEdit(character); return;
     case Modal::custom_editor: customEditorInsert(std::wstring_view(&character, 1)); return;
     case Modal::metadata: desktopMetaChar(character); return;
@@ -860,6 +862,7 @@ void Launcher::menuAccept() {
     case Item::uninstall: uninstallGame(game); break;
     case Item::launch: dismissMenu(); openLaunchEditor(game); break;
     case Item::metadata: dismissMenu(); if (desktop_mode_) desktopMetaOpen(game); else openMetadata(game); break;
+    case Item::aurelia: dismissMenu(); openAurelia(&game); break;
     default: openArtworkBrowser(game); break;
     }
 }
@@ -954,6 +957,10 @@ void Launcher::launchGame(const Game& original) {
     Game active = original; active.version_group.clear();
     if (pending_launch_ || launchAnimationActive() || !isGame(active)) return;
     if (switchToGame(active)) { focusPlayedGame(gameKey(active)); return; }
+    if (aurelia_active_ && aurelia::validGame(active) &&
+        (!active.installed || active.installation.active() || settings_.aurelia_standalone.contains(std::to_string(active.app_id)))) {
+        aureliaLaunch(active); return;
+    }
     if (active.source == GameSource::gog && !active.installed && !gog_state_.account.empty() &&
         (!active.account_id.empty() || active.installation.active())) { openGogInstall(active); return; }
     if (active.source == GameSource::epic && !active.installed && !epic_state_.account.empty() &&

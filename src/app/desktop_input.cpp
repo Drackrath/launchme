@@ -1139,6 +1139,7 @@ void Launcher::desktopOpenGameMenu(float x, float y, bool keyboard) {
         items.push_back({Action::retry_art, tr(L"Pobierz grafiki ponownie"), {}, glyph::refresh});
         if (!steamArtwork(game) && !gameKey(game).empty()) items.push_back({Action::identify, tr(L"Zidentyfikuj grę…"), {}, glyph::search});
         if (!gameKey(game).empty()) items.push_back({Action::metadata, tr(L"Edytuj metadane…"), {}, glyph::edit}); // Own title and details.
+        if (aurelia_active_ && aurelia::validGame(game)) items.push_back({Action::aurelia, tr(L"Zarządzaj · Aurelia"), {}, glyph::edit});
         // The file, options and folder it starts with (Steam: its launch options).
         if (launchEditable(game)) items.push_back({Action::launch_options, tr(L"Opcje uruchamiania…"), {}, glyph::settings});
         if (!gameFolder(game).empty()) items.push_back({Action::folder, tr(L"Otwórz folder gry"), {}, glyph::folder_open});
@@ -1376,6 +1377,7 @@ void Launcher::desktopMenuPick(const desktop_ui::MenuItem& item, bool /*from_sub
     case Action::missing_art: openBulkCovers(games); return; // Pobierz brakujące okładki, for these games only.
     case Action::identify: if (game) openIdentifyFor(*game); return;
     case Action::metadata: if (game) desktopMetaOpen(*game); return;
+    case Action::aurelia: if (game) openAurelia(game); return;
     case Action::launch_options: if (game) openLaunchEditor(*game); return;
     case Action::folder:
         if (game) if (const auto folder = gameFolder(*game); !folder.empty())

@@ -105,6 +105,7 @@ void Renderer::drawDesktopDetails() {
         desktopHot(hit, {x - 4, y - 12, x + w + 4, y + 12});
     }
     y += 26;
+    if (!context_->aurelia_cloud.empty()) { textLine(context_->aurelia_cloud, left, y, right - left, desktop_font_.Get(), uiAccent(0.9f)); y += 26; }
     // The actions in one row (wrapping when narrow).
     {
         float x = left, row_top = y;

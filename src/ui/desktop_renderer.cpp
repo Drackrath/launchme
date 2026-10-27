@@ -1024,6 +1024,10 @@ void Renderer::drawDesktopPane(const Layout& layout, const View& view) {
     }
     // Collections, as chips that open them; "+" adds the game to one.
     float y = layout.paneContentTop(s);
+    if (!context_->aurelia_cloud.empty()) {
+        textLine(context_->aurelia_cloud, left, y, width, desktop_small_font_.Get(), uiAccent(0.9f));
+        y += 30;
+    }
     textLine(upper(tr(L"Kolekcje")), left, y, width, desktop_label_font_.Get(), palette::muted());
     y += 16;
     float cx = left;

@@ -19,6 +19,7 @@
 #include <thread>
 
 void Launcher::startLibraryWorker() {
+    if (aurelia_active_) { startAureliaLibraryWorker(); startArtworkWorkers(); return; }
     const auto hwnd = hwnd_;
     const auto alive = alive_;
     // Scanning and network traffic never run on the UI thread. The worker shares

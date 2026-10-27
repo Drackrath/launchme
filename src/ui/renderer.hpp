@@ -603,6 +603,7 @@ private:
     bool createTarotFonts();
     // Profil (src/ui/profile_renderer.cpp): the page, its cards and charts.
     void drawProfile();
+    void drawAurelia();
     bool createProfileFonts();
     void drawProfileImage(size_t index, D2D1_RECT_F box, float radius, float alpha, const std::wstring& fallback);
     void drawProfileCard(D2D1_RECT_F box, float alpha, float focus, float hover);

@@ -41,6 +41,14 @@ void Launcher::loadFriends() {
     const auto alive = alive_;
     const auto token = friends_token_;
     const auto hwnd = hwnd_;
+    if (aurelia_active_) {
+        aureliaRequest({aurelia::Command::friends}, [generation](Launcher& app, aurelia::Reply reply) {
+            auto message = std::make_unique<FriendsMessage>(); message->generation = generation;
+            message->result = reply.ok ? aurelia::friends(reply.data) : FriendsResult{{}, reply.error};
+            app.onFriends(std::move(message));
+        });
+        return;
+    }
     work_.start([alive, token, generation, hwnd] {
         const auto root = findSteamRoot();
         const auto steam_id = activeSteamId(root);
@@ -207,6 +215,10 @@ void Launcher::friendsChat() {
     friends_back_ = false; // A click on a row moves the focus there.
     const auto id = friends_.friends[friends_cursor_].id;
     if (!id) return;
+    if (aurelia_active_) {
+        const auto name = friends_.friends[friends_cursor_].name;
+        closeFriends(); openAurelia(); aureliaOpenChat(id, name); return;
+    }
     if (execute_(hwnd_, GameAction{L"steam://friends/message/" + std::to_wstring(id)}) <= 32)
         showNotification(NotificationKind::error, tr(L"Nie można otworzyć czatu"), tr(L"Uruchom klienta Steam"));
 }

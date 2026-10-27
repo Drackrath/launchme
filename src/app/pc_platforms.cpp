@@ -173,6 +173,7 @@ bool Launcher::canUninstall(const Game& game) const {
 
 void Launcher::uninstallGame(const Game& game) {
     if (!canUninstall(game) || sessionState(game) != SessionState::none) return; // Never a running or suspended game.
+    if (aurelia_active_ && aurelia::validGame(game)) { openAurelia(&game); return; }
     dismissMenu();
     const auto ask = [&](GameAction silent) {
         // Legendary and a silent GOG uninstaller delete without asking: the launcher asks first

@@ -139,6 +139,7 @@ bool Launcher::initialize(HWND hwnd) {
     const int y = (GetSystemMetrics(SM_CYSCREEN) - windowed_height) / 2;
     previous_rect_ = RECT{x, y, x + windowed_width, y + windowed_height};
     settings_ = loadAppSettings();
+    initializeAurelia();
     companionApplyHomes(); // Where they live, before anything reads their clocks.
     // The desktop window unless Interfejs → "Uruchamiaj w trybie TV" asks for Tryb TV.
     desktop_mode_ = !settings_.launch_tv_mode;
@@ -215,7 +216,18 @@ bool Launcher::initialize(HWND hwnd) {
     initializeHeadphoneMonitor();
     initializeStore();
     initializePlugins();
-    preview_.start(work_, hwnd_);
+    if (aurelia_active_) preview_.start(work_, hwnd_, [invoke = aurelia_transport_, alive = alive_](uint32_t app, uint64_t) {
+        aurelia::Request request{aurelia::Command::info, app}; request.language = i18n::english() ? L"english" : L"polish";
+        const auto reply = invoke ? invoke(request, [alive] { return !alive->load(); }, {}) : aurelia::Reply{};
+        auto details = reply.ok ? aurelia::details(reply.data) : GameDetails{}; details.error = reply.error;
+        if (reply.ok && invoke && alive->load()) {
+            request.command = aurelia::Command::achievements;
+            const auto response = invoke(request, [alive] { return !alive->load(); }, {});
+            if (response.ok) { const auto list = aurelia::achievements(response.data); details.achievements_total = list.total; details.achievements_unlocked = list.unlocked; }
+        }
+        return details;
+    });
+    else preview_.start(work_, hwnd_);
     initializeAchievements();
     initializeArtworkBrowser();
     initializeGog();
@@ -231,7 +243,8 @@ bool Launcher::initialize(HWND hwnd) {
     restoreFrozenGames();
     initializeUpdates(); // The previous update's old files away, its changes shown once; then a look for a newer one.
     if (desktop_mode_) { applyWindowMode(); buildDesktopSidebar(); } // The window's style and place; ShowWindow follows in main.cpp.
-    else if (!settings_.tour_done) startTour(); // First start: the walkthrough over the loading home screen.
+    if (!settings_.tour_done && !settings_.aurelia_intro_done) openAurelia(nullptr, true);
+    else if (!desktop_mode_ && !settings_.tour_done) startTour(); // First start: the walkthrough over the loading home screen.
     profiler_.startup(FrameProfiler::Startup::initialized);
     return true;
 }
@@ -422,6 +435,7 @@ void Launcher::tick() {
     if (screen_ == ScreenMode::details && !details_loading_ && GetTickCount64() >= next_install_poll_) requestDetails();
     pollPluginPageRefresh();
     pollPluginDownloads();
+    aureliaPoll(GetTickCount64());
     pollDownloadArt();
     pollCompanionLife(); // Her life goes on in the background (her web reading), a look every ten minutes.
     const float dt = std::clamp(std::chrono::duration<float>(now - last_frame_).count(), 0.001f, 0.05f);

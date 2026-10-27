@@ -17,7 +17,7 @@ void Launcher::initializeStore() {
     const auto queue = store_jobs_;
     const auto alive = alive_;
     const auto hwnd = hwnd_;
-    work_.start([queue, alive, hwnd] {
+    work_.start([queue, alive, hwnd, aurelia = aurelia_active_, invoke = aurelia_transport_] {
         const auto steam = findSteamRoot();
         while (alive->load()) {
             StoreRequest job;
@@ -36,11 +36,22 @@ void Launcher::initializeStore() {
             if (job.app_id) {
                 result->installation_checked = false; // The shared Steam observer owns live install facts.
                 if (job.metadata && alive->load() && queue->generation.load() == job.generation) {
-                    result->info = fetchGameDetails(job.app_id, userConfigDirectory() / L"metadata");
-                    const auto stats = readSteamStats(steam, job.account, job.app_id);
-                    result->info.playtime_minutes = stats.playtime_minutes;
-                    result->info.achievements_unlocked = stats.achievements_unlocked;
-                    result->info.achievements_total = stats.achievements_total;
+                    if (aurelia) {
+                        aurelia::Request request{aurelia::Command::info, job.app_id}; request.language = i18n::english() ? L"english" : L"polish";
+                        const auto reply = invoke ? invoke(request, [&] { return !alive->load() || queue->generation.load() != job.generation; }, {}) : aurelia::Reply{};
+                        result->info = reply.ok ? aurelia::details(reply.data) : GameDetails{}; result->info.error = reply.error;
+                        if (reply.ok && invoke && alive->load()) {
+                            request.command = aurelia::Command::achievements;
+                            const auto response = invoke(request, [&] { return !alive->load() || queue->generation.load() != job.generation; }, {});
+                            if (response.ok) { const auto list = aurelia::achievements(response.data); result->info.achievements_total = list.total; result->info.achievements_unlocked = list.unlocked; }
+                        }
+                    } else {
+                        result->info = fetchGameDetails(job.app_id, userConfigDirectory() / L"metadata");
+                        const auto stats = readSteamStats(steam, job.account, job.app_id);
+                        result->info.playtime_minutes = stats.playtime_minutes;
+                        result->info.achievements_unlocked = stats.achievements_unlocked;
+                        result->info.achievements_total = stats.achievements_total;
+                    }
                     result->info_ready = true;
                 }
             }

@@ -100,6 +100,7 @@ context_menu::Rows Launcher::menuRows() const {
         context_menu::Rows rows{false, 0, false, true, !gameFolder(game).empty(), canExclude(game), !hideableCopies(game).empty()};
         rows.uninstall = canUninstall(game) && sessionState(game) == SessionState::none; // Never while it runs.
         rows.launch = launchEditable(game);
+        rows.aurelia = aurelia_active_ && aurelia::validGame(game);
         rows.metadata = isGame(game) && game.kind != GameKind::catalog && !gameKey(game).empty(); // Not a store's offer.
         return rows;
     }
@@ -107,6 +108,7 @@ context_menu::Rows Launcher::menuRows() const {
     context_menu::Rows rows{settings_.quick_resume && state == SessionState::running, static_cast<int>(pluginContext(game).size()), state != SessionState::none};
     rows.secondary_only = psfiveActive();
     rows.uninstall = canUninstall(game);
+    rows.aurelia = aurelia_active_ && aurelia::validGame(game);
     return rows;
 }
 
@@ -190,6 +192,12 @@ void Launcher::resumeGame(const Game& game) {
 // "Zamknij grę": ends the game's processes at once, like quitting on a console.
 // A suspended game cannot answer a close request, so there is no graceful path.
 void Launcher::closeGame(const Game& game) {
+    if (aurelia_active_ && aurelia::validGame(game) && aurelia_playing_.contains(game.app_id) && sessionState(game) != SessionState::frozen) {
+        aureliaRequest({aurelia::Command::stop, game.app_id}, [name = game.name](Launcher& app, aurelia::Reply reply) {
+            if (!reply.ok) app.showNotification(NotificationKind::error, tr(L"Nie można zamknąć gry"), name + L" · " + reply.error);
+        });
+        return;
+    }
     const auto key = gameKey(game);
     const auto session = game_sessions_.find(key);
     if (session == game_sessions_.end()) return;

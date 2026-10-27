@@ -30,6 +30,7 @@ Launcher::Modal Launcher::topModal() const {
 
 Launcher::Modal Launcher::topDialog() const {
     if (whats_new_.open) return Modal::whats_new; // Shown alone, right after an update's restart.
+    if (aurelia_ui_.open) return Modal::aurelia;
     if (companion_.picker.open) return Modal::companion_picker;
     if (fileBrowserOpen()) return Modal::file_browser; // Opened from the panels below it.
     if (libraryDialogOpen()) return Modal::library_dialog;
@@ -69,6 +70,7 @@ bool Launcher::modalKey(WPARAM key, bool repeated) {
     case Modal::companion_picker: companionPickerKey(key, repeated); break;
     case Modal::tarot: tarotKey(key, repeated); break;
     case Modal::profile: profileKey(key, repeated); break;
+    case Modal::aurelia: aureliaKey(key, repeated); break;
     case Modal::whats_new: if (!repeated || key == VK_UP || key == VK_DOWN) whatsNewKey(key); break;
     }
     return true;
@@ -412,7 +414,7 @@ void Launcher::controllerInput(const PadReading& state) {
     };
     // Guide/PS and Start/Options: short press vs hold, above every screen but the exit prompt.
     if (bulkCoversOpen() || identifyOpen() || tour_.open || libraryDialogOpen() || keyboard_.open || companion_.picker.open || tarot_.open || whats_new_.open ||
-        profile_.open) { // The keyboard: Start = "Gotowe".
+        profile_.open || aurelia_ui_.open) { // The keyboard: Start = "Gotowe".
         pad_guide_.swallow(buttons & pad_guide); pad_start_.swallow(buttons & XINPUT_GAMEPAD_START);
     } else if (!exit_prompt_) {
         const auto guide = pad_guide_.update(settings_.guide_menu && (buttons & pad_guide), now);
@@ -566,6 +568,18 @@ bool Launcher::modalPad(const PadReading& state, WORD buttons, ULONGLONG now) {
         return true;
     }
     switch (modal) {
+    case Modal::aurelia:
+        controllerNavigate(0);
+        if (direction && (direction != controller_direction_ || now >= controller_repeat_)) {
+            noteUserInput(); aureliaKey(direction, false); controller_repeat_ = now + (direction != controller_direction_ ? 280 : 150);
+        }
+        if (pressed(XINPUT_GAMEPAD_A)) { noteUserInput(); aureliaKey(VK_RETURN, false); }
+        else if (pressed(XINPUT_GAMEPAD_B)) { noteUserInput(); aureliaKey(VK_ESCAPE, false); }
+        else if (pressed(XINPUT_GAMEPAD_X) && !aurelia_ui_.input_hint.empty()) { aurelia_ui_.input_focus = true; openKeyboard(); }
+        else if (pressed(XINPUT_GAMEPAD_Y)) aureliaKey(VK_F5, false);
+        else if (pressed(XINPUT_GAMEPAD_LEFT_SHOULDER)) aureliaScroll(-4);
+        else if (pressed(XINPUT_GAMEPAD_RIGHT_SHOULDER)) aureliaScroll(4);
+        break;
     case Modal::whats_new: // Co nowego: D-pad/stick scroll, A or B closes it.
         controllerNavigate(0);
         if (direction && (direction != controller_direction_ || now >= controller_repeat_)) {

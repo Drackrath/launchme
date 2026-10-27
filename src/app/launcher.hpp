@@ -222,6 +222,14 @@ public:
     void profilePointer(float x, float y); // Hover.
     bool profilePointerOver(float x, float y) const;
     void profileScroll(float amount);      // Logical pixels; the mouse wheel and the shoulders.
+    // Optional Aurelia pages share one modal and the same controls on desktop and TV.
+    void openAurelia(const Game* game = nullptr, bool intro = false);
+    void closeAurelia();
+    void aureliaKey(WPARAM key, bool repeated);
+    void aureliaClick(float x, float y);
+    void aureliaScroll(int rows);
+    void aureliaCharacter(wchar_t character);
+    bool aureliaTyping() const { return aurelia_ui_.open && aurelia_ui_.input_focus && !aurelia_ui_.confirmation; }
     bool tickProfile(float dt);
     // The home (any layout) with no menu, panel or dialog over it: Glance's and the companion's tiles.
     bool homeOverlayAvailable(bool allow_closing = false) const;
@@ -749,7 +757,7 @@ public:
     // topmost open one takes keys, pad buttons, the wheel and clicks before any screen, drawer or
     // menu. The on-screen keyboard is not a layer: it types into the field of the layer beneath.
     enum class Modal { none, exit_prompt, power_menu, tour, file_browser, library_dialog, custom_editor, bulk_covers, identify, gog_install, companion_picker, tarot,
-                       whats_new, profile, metadata };
+                       whats_new, profile, metadata, aurelia };
     Modal topModal() const;
     // The topmost of the dialogs under the walkthrough (file picker … installer): Back and typed
     // characters reach it even under the exit prompt or the power menu.
@@ -863,6 +871,41 @@ private:
     std::vector<uint8_t> profile_avatar_;
     std::map<std::wstring, std::vector<uint8_t>> profile_icons_;
     uint32_t profile_generation_ = 0;
+    aurelia_ui::State aurelia_ui_;
+    aurelia::Transport aurelia_transport_;
+    aurelia::InstallationInfo aurelia_installation_;
+    std::function<aurelia::Reply(const aurelia::Release&, const aurelia::Cancel&, const std::function<void(uint64_t, uint64_t)>&)> aurelia_installer_;
+    SteamHttp aurelia_get_;
+    std::shared_ptr<std::atomic_bool> aurelia_chat_cancel_ = std::make_shared<std::atomic_bool>(false);
+    std::shared_ptr<std::atomic_uint32_t> aurelia_epoch_ = std::make_shared<std::atomic_uint32_t>(0);
+    bool aurelia_active_ = false, aurelia_authenticated_ = false, aurelia_helper_busy_ = false, aurelia_download_poll_ = false;
+    uint64_t aurelia_account_ = 0, aurelia_poll_at_ = 0, aurelia_cloud_at_ = 0;
+    uint32_t aurelia_page_generation_ = 0;
+    std::wstring aurelia_account_name_, aurelia_version_, aurelia_setup_status_;
+    std::map<uint32_t, aurelia::Cloud> aurelia_cloud_;
+    std::map<uint32_t, aurelia::Download> aurelia_downloads_;
+    std::set<uint32_t> aurelia_operations_;
+    std::set<uint32_t> aurelia_playing_;
+    json::Value aurelia_page_data_;
+    aurelia_ui::Action aurelia_library_action_ = aurelia_ui::Action::install;
+    void initializeAurelia();
+    void startAureliaLibraryWorker();
+    void toggleAurelia();
+    void installAurelia();
+    void aureliaRows();
+    void aureliaPage(aurelia_ui::Page page);
+    void aureliaActivate(const aurelia_ui::Row& row, bool confirmed = false);
+    void aureliaSubmit();
+    void aureliaRequest(aurelia::Request request, std::function<void(Launcher&, aurelia::Reply)> done,
+                       std::function<void(Launcher&, json::Value)> progress = {}, std::shared_ptr<std::atomic_bool> cancel = {});
+    void aureliaOperation(aurelia::Request request, const Game& game);
+    void aureliaLaunch(const Game& game);
+    void aureliaOpenChat(uint64_t id, const std::wstring& name);
+    void aureliaPoll(uint64_t now);
+    void aureliaApplyDownloads(const json::Value& data);
+    void aureliaSyncInstallations();
+    void aureliaCheckCloud(const Game& game, bool force = false);
+    std::wstring aureliaCloudText(const Game& game) const;
     std::shared_ptr<std::atomic_bool> profile_cancel_ = std::make_shared<std::atomic_bool>(false);
     ProfileReader profile_reader_; // UI tests answer it; empty: readProfile on a worker (the running launcher only).
     play_journal::Journal journal_;

@@ -105,6 +105,19 @@ std::vector<Game> Launcher::collectDownloads(std::vector<downloads_ui::Row>& row
         Game shown = game; shown.installation = install;
         found.push_back({std::move(shown), rowOf(game, install, epic)});
     };
+    if (aurelia_active_) for (const auto& [id, transfer] : aurelia_downloads_) {
+        Game game; game.app_id = id; game.name = transfer.name.empty() ? std::to_wstring(id) : transfer.name; game.installed = false;
+        for (const auto& known : installed_library_) if (known.app_id == id && aurelia::validGame(known)) { game = known; break; }
+        if ((!private_shelf_ && excluded_ids_.contains(id)) || locallyHidden(game)) continue;
+        add(game, transfer.progress);
+        if (!found.empty()) {
+            auto& row = found.back().second; row.store = L"Aurelia";
+            if (transfer.speed) {
+                wchar_t rate[48]{}; swprintf_s(rate, L" · %.1f MB/s", static_cast<double>(transfer.speed) / (1024.0 * 1024)); row.amount += rate;
+            }
+            if (transfer.eta) row.amount += L" · ETA " + std::to_wstring(*transfer.eta / 60) + L":" + (*transfer.eta % 60 < 10 ? L"0" : L"") + std::to_wstring(*transfer.eta % 60);
+        }
+    }
     for (const auto& game : installed_library_) if (game.source == GameSource::steam && !locallyHidden(game)) add(game, game.installation);
     if (private_shelf_) for (const auto& game : private_category_.games) if (game.source == GameSource::steam) add(game, game.installation);
     // GOG and Epic share Launchme's one installer slot.
@@ -324,6 +337,7 @@ void Launcher::openDownloadSource(const Game& game, const downloads_ui::Row& row
     audio_.context();
     switch (game.source) {
     case GameSource::steam:
+        if (aurelia_active_) { openAurelia(&game); break; }
         if (execute_(hwnd_, GameAction{L"steam://nav/downloads", {}, {}, ActionKind::open_client}) <= 32)
             showNotification(NotificationKind::error, tr(L"Nie można otworzyć klienta"), L"Steam");
         break;

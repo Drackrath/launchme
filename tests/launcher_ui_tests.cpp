@@ -125,6 +125,7 @@ public:
     static int glanceHub(HWND window, bool live = false);
     static int tarotReading(HWND window);
     static int profilePage(HWND window);
+    static int aureliaIntegration(HWND window);
     static int studioLibraries(HWND window);
     static int updates(HWND window);
     static int gameLengths(HWND window);
@@ -1315,6 +1316,7 @@ public:
 #include "tarot_ui_cases.hpp"
 #include "low_memory_ui_cases.hpp"
 #include "profile_ui_cases.hpp"
+#include "aurelia_ui_cases.hpp"
 #include "studios_ui_cases.hpp"
 #include "update_ui_cases.hpp"
 #include "companion_ui_cases.hpp"
@@ -1959,9 +1961,12 @@ int LauncherUiTest::language(HWND window) {
     }
     // And back to Polish from the same row.
     if (!choose(1)) return 515;
-    if (i18n::language() != i18n::Language::pl || app.settings_rows_[3].id != settings_ui::Id::language ||
+    // Aurelia adds a section: assert the language/window rows by identity, not ordinal.
+    const auto* polish_language = english_row(settings_ui::Id::language);
+    const auto* polish_window = english_row(settings_ui::Id::windowed);
+    if (i18n::language() != i18n::Language::pl || !polish_language || !polish_window ||
         app.settings_rows_[0].section != L"Aktualizacje" || app.settings_rows_[0].value != L"Sprawdź teraz" ||
-        app.settings_rows_[2].section != L"Okno i język" || app.settings_rows_[2].title != L"Tryb TV w oknie" ||
+        polish_window->section != L"Okno i język" || polish_window->title != L"Tryb TV w oknie" ||
         app.categories_[0].title != L"Ostatnio grane" || stand_in() != L"Ładowanie nazwy…" ||
         app.actionLabel(app.installed_library_[0]) != L"Graj") return 516;
     // "Systemowy" follows the Windows display language.
@@ -2078,6 +2083,15 @@ int main(int argc, char** argv) {
         CoUninitialize();
         if (code) std::cerr << "Profile regression failed at checkpoint " << code << '\n';
         else std::cout << "Profile: drawer widget, week, achievements, history, platforms, keys, pad, mouse, desktop widgets, Czas gry and MultiMC passed\n";
+        return code;
+    }
+    if (argc == 2 && std::string_view(argv[1]) == "--aurelia") {
+        std::filesystem::create_directories(root);
+        const auto code = window ? LauncherUiTest::aureliaIntegration(window) : 99;
+        if (window) DestroyWindow(window);
+        CoUninitialize();
+        if (code) std::cerr << "Aurelia UI failed at checkpoint " << code << '\n';
+        else std::cout << "Aurelia: onboarding, setting, cloud conflicts, DLC, versions, downloads, live chat and desktop/TV passed\n";
         return code;
     }
     if (argc == 2 && std::string_view(argv[1]) == "--studios") {

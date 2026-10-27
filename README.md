@@ -40,6 +40,7 @@ never next to the EXE:
 | Settings | `settings.ini` |
 | API keys | `*_api_key.txt` (plain text) or `*.dat` (encrypted with Windows DPAPI for your account) |
 | Store accounts (GOG, Epic, EA) | `accounts\` (DPAPI) |
+| Optional Aurelia binary / isolated session | `helpers\aurelia\` / `aurelia\` |
 | Artwork cache | `covers`, `heroes`, `logos`, `posters`, `landscapes`, `stores`, `artwork` |
 | Metadata and ratings cache | `metadata`, `ratings`, `knowledge`, `glance` |
 | Downloaded game videos | `media\` (folder can be changed in Settings → Media & data) |
@@ -74,6 +75,11 @@ Settings → System → Help → **Open folder** (the version row) opens it.
   GOG and Epic account libraries (Epic installs through Legendary, no Epic launcher needed),
   EA and Battle.net libraries imported from their store pages (no EA app needed: sign in on ea.com,
   paste the token page), Ubisoft from the signed-in client, and MultiMC / Prism Launcher instances as games.
+- **Extended Aurelia integration** (Windows, optional, off by default): install/update the latest x64 helper
+  from Settings → System → *Manage Aurelia*. Adds managed Steam downloads, cloud-save status and conflict
+  resolution, DLC, manifest pinning/downgrades, beta branches, Workshop and native live friends chat in both
+  desktop and TV modes. Primarily for single-player/offline games; some games, especially multiplayer,
+  DRM and Steamworks titles, may require the Steam client. See the [Aurelia guide](docs/AURELIA.md).
 - **Artwork**: SteamGridDB covers, heroes, logos and posters with OCR-assisted cropping and a variant browser;
   Epic account games also get Epic's own box art. Missing art downloads in the background, covers and
   posters first. To fetch it now: Settings → Media & data → *Download missing covers*, or in the desktop

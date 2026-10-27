@@ -556,10 +556,12 @@ void Renderer::paint(const std::vector<GameCard>& cards, size_t selected, bool s
             if (context.tv_meta) drawDesktopMeta(*context.tv_meta); // Edytuj metadane from the game's menu.
             drawLibraryManager();
             drawFileBrowser(); // Opened from the panels above; the power menu and exit prompt stay over it.
-            drawKeyboard(); // Over the field's dialog it types into.
+            if (!context.aurelia) drawKeyboard(); // Aurelia's field belongs above its page.
             drawCompanionPicker();
             drawProfile(); // Over any screen, from the drawer: the lowest dialog.
             drawTarot(); // Over the home it opens from; the walkthrough, prompts and toasts above it.
+            drawAurelia();
+            if (context.aurelia) drawKeyboard();
             drawWhatsNew(); // After an update's restart: the top dialog; the walkthrough and prompts above it.
             drawTour(); // Over the panels it opens; notifications and the exit prompt stay above it.
             drawHints();
