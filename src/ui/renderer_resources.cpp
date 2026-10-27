@@ -263,6 +263,13 @@ void Renderer::discardTarget() {
 DecodeKind Renderer::decodeKind(const Cover& cover) const {
     DecodeKind kind{!cover.hero && !cover.logo, cover.hero, cover.logo, cover.short_edge};
     kind.loose_edge = cover.loose_edge;
+    // Backgrounds keep what covers the screen (at least 1080p, so a window made larger later stays
+    // sharp): a 3840×1240 hero is 3344×1080 on a 1080p screen, not 1920×620 enlarged 1.75×.
+    if (cover.hero && target_) {
+        const auto pixels = target_->GetPixelSize();
+        kind.cover_width = std::max(1920u, pixels.width);
+        kind.cover_height = std::max(1080u, pixels.height);
+    }
     kind.block_compress = block_compress_ && bc1_supported_ && !cover.logo; // Logos keep their alpha.
     return kind;
 }

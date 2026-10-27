@@ -9,6 +9,7 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <tuple>
 
 using Microsoft::WRL::ComPtr;
 
@@ -153,10 +154,7 @@ DecodedImage decodeImage(IWICImagingFactory* wic, std::span<const uint8_t> bytes
         if (clip) source = clip.Get();
     }
     UINT target_width = width, target_height = height;
-    if (kind.limit_width && width > 1920) {
-        target_width = 1920;
-        target_height = std::max(1U, static_cast<UINT>(height * (1920.0 / width)));
-    }
+    if (kind.cover_fit) std::tie(target_width, target_height) = coverFitSize(width, height, kind.cover_width, kind.cover_height);
     // A loose cap (the desktop grid's cell size) leaves an image less than 25% larger alone:
     // resampling 600×900 to 512×768 costs the decoder more than it saves the upload.
     const uint32_t scale_above = kind.loose_edge ? kind.short_edge + kind.short_edge / 4 : kind.short_edge;

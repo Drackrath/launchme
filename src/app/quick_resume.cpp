@@ -306,7 +306,8 @@ bool Launcher::requestClose() {
     if (!frozen) { beginClose(); return true; }
     stopScreensaver(false);
     dismissMenu(); closeQuick(); closeCategoryMenu(); closeFriends(); cancelEnterHold();
-    // Closed from the taskbar while minimized: the question must be visible.
+    // Closed from the taskbar while minimized (or from the tray while hidden): the question must be visible.
+    leaveTray();
     if (IsIconic(hwnd_)) ShowWindow(hwnd_, SW_RESTORE);
     prompt_kind_ = PromptKind::exit;
     exit_prompt_ = static_cast<int>(exit_prompt::Choice::resume);
@@ -318,6 +319,7 @@ bool Launcher::requestClose() {
 void Launcher::beginClose() {
     if (closing_) return;
     closing_ = true;
+    removeTrayIcon();
     close_started_ = last_frame_ = std::chrono::steady_clock::now();
     pending_launch_ = false;
     cancelGameFocus();

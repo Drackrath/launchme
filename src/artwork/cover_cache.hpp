@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <string>
+#include <string_view>
 #include <vector>
 
 std::filesystem::path coverCacheDirectory();
@@ -48,6 +49,10 @@ std::vector<uint8_t> logoForSteamApp(uint32_t app_id, const std::wstring& title,
                                      const std::filesystem::path& cache);
 std::vector<uint8_t> heroForSteamApp(uint32_t app_id, const std::wstring& title,
                                      const std::filesystem::path& cache);
+// The background to download from a SteamGridDB heroes list (best rated first): the best rated one at
+// least 3000 px wide (its 3840×1240 heroes), else the best rated one. A 1920×620 hero covering a 16:9
+// screen is enlarged ~1.75× and looks soft. Empty when the list has no usable URL.
+std::wstring preferredHeroUrl(std::string_view body);
 // SteamGridDB 600x900 grid (Steam AppID, then the SGDB game matched by title), then
 // Steam's own library_600x900 capsule (local library cache, then CDN).
 std::vector<uint8_t> posterForSteamApp(uint32_t app_id, const std::wstring& title,

@@ -320,7 +320,7 @@ bool Launcher::hoverButton(float mouse_x, float mouse_y) const {
     }
     if (downloadsOpen() && !friends_open_) return downloadsHover(x, y);
     if (cropOpen()) {
-        const crop_ui::Layout layout{view.width, view.height, desktopEmbedded()};
+        const auto layout = cropLayout();
         if (layout.back().contains(x, y)) return true;
         return !crop_state_.loading && crop_state_.error.empty() &&
             ((crop_state_.adjustable() && layout.preview().contains(x, y)) || layout.button(0).contains(x, y) || layout.button(1).contains(x, y));

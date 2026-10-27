@@ -539,7 +539,7 @@ void Launcher::rebuildCards(bool preserve_background) {
             if (i != selected_) continue;
             if (const auto* found = art_.find(gameKey(cards_[i].game))) {
                 if (found->logo && !libraryListPlus()) renderer_.setLogo(i, found->logo);
-                if (found->hero) renderer_.setHero(i, found->hero, found->hero_tone, true);
+                if (found->hero) renderer_.setHero(i, found->hero, found->hero_tone, true, found->hero_focus);
             }
             continue;
         }
@@ -553,7 +553,7 @@ void Launcher::rebuildCards(bool preserve_background) {
         }
         if (i == selected_ && asset.logo && !libraryListPlus()) renderer_.setLogo(i, asset.logo);
         if (i == selected_ && asset.hero)
-            renderer_.setHero(i, asset.hero, asset.hero_tone);
+            renderer_.setHero(i, asset.hero, asset.hero_tone, false, asset.hero_focus);
     }
     if (!cards_.empty() && cards_[0].game.kind == GameKind::category) {
         bindShelfAllTile(0);

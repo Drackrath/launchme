@@ -142,7 +142,7 @@ void Launcher::rebuildXmb(bool keep_top, bool preserve_background) {
     if (!same_list || old_focus != xmb_card_keys_[selected_]) detail_ = 0;
     if (const auto* found = art_.find(gameKey(cards_[selected_].game))) {
         if (found->logo) renderer_.setLogo(selected_, found->logo);
-        if (found->hero) renderer_.setHero(selected_, found->hero, found->hero_tone);
+        if (found->hero) renderer_.setHero(selected_, found->hero, found->hero_tone, false, found->hero_focus);
     }
     requestVisibleArt();
     InvalidateRect(hwnd_, nullptr, FALSE);
@@ -166,7 +166,7 @@ void Launcher::xmbFocus(size_t column, int row) {
     selected_ = next;
     if (const auto* found = art_.find(gameKey(cards_[selected_].game))) {
         if (found->logo) renderer_.setLogo(selected_, found->logo);
-        if (found->hero) renderer_.setHero(selected_, found->hero, found->hero_tone);
+        if (found->hero) renderer_.setHero(selected_, found->hero, found->hero_tone, false, found->hero_focus);
     }
     requestVisibleArt();
     InvalidateRect(hwnd_, nullptr, FALSE);

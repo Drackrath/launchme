@@ -359,6 +359,8 @@ void Launcher::onGameActivity(std::unique_ptr<GameActivityMessage> message) {
     for (const auto& key : finished) returned |= launched_here_.erase(key) > 0;
     if (!anyActiveSession() && !another_play) {
         audio_.resumeMusic();
+        // Hidden in the tray while it ran: the window is back in the taskbar either way.
+        leaveTray();
         // The last game started here has ended: the launcher comes back, as a console's home
         // screen does, instead of leaving a pad user in the store client that started it.
         if (returned) returnFromGame();
@@ -397,6 +399,7 @@ void Launcher::returnFromGame() {
 
 void Launcher::bringToFront() {
     if (closing_ || !hwnd_) return;
+    leaveTray(); // Hidden while a game runs (src/app/tray.cpp): shown first.
     const HWND foreground = GetForegroundWindow();
     if (foreground == hwnd_ && !IsIconic(hwnd_)) return;
     if (IsIconic(hwnd_)) ShowWindow(hwnd_, SW_RESTORE);

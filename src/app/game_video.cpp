@@ -1,11 +1,14 @@
 // Game videos: a game focused for a while (AppSettings::video_delay) plays its video behind the
 // shelf in place of its background, with the music ducked: emulated games their ES-DE video, else
-// ScreenScraper's; Steam games (steam_trailers) their store trailer. Moving on, a menu, a launch,
+// ScreenScraper's; Steam games (steam_trailers) their store trailer, and PC games from other stores
+// the Steam trailer of the same game (steam_app_match.hpp). Moving on, a menu, a launch,
 // the screensaver or losing the foreground stops it at once.
 #include "launcher.hpp"
 #include "../artwork/screenscraper_art.hpp"
 #include "../net/http.hpp"
 #include "../store/steam_trailer.hpp"
+#include "../store/steam_app_match.hpp"
+#include "../artwork/cover_cache.hpp"
 #include "../platform/video_manifest.hpp"
 
 #include <algorithm>
@@ -22,7 +25,16 @@ const Game* Launcher::videoCandidate() const {
     const auto& game = cards_[screen_ == ScreenMode::details ? 0 : std::min(selected_, cards_.size() - 1)].game;
     if (settings_.game_videos && game.kind == GameKind::nonsteam && game.platform != L"PC" && game.app_id) return &game;
     if (settings_.steam_trailers && steamArtwork(game) && game.kind == GameKind::steam && game.app_id) return &game;
+    if (settings_.steam_trailers && trailerByTitle(game)) return &game;
     return nullptr;
+}
+
+// A PC game from another store (or added by hand): the Steam store trailer of the same game, found by
+// a verified link or its title (src/store/steam_app_match.hpp). Hidden games' titles are never sent.
+bool Launcher::trailerByTitle(const Game& game) const {
+    if (steamArtwork(game) || !isGame(game) || game.visibility != GameVisibility::public_game || gameKey(game).empty()) return false;
+    if (game.kind == GameKind::nonsteam && game.platform != L"PC") return false; // Emulated: its own videos.
+    return game.source != GameSource::multimc && !placeholderGameName(game.name) && !game.name.empty();
 }
 
 void Launcher::stopVideo() {
@@ -48,14 +60,27 @@ void Launcher::tickVideo(bool& needs_paint) {
         const auto generation = ++video_generation_;
         const auto folder = videoFolder();
         const uint64_t space = uint64_t(std::max(100, settings_.trailer_space_mb)) * 1024 * 1024;
-        work_.start([alive = alive_, hwnd = hwnd_, generation, key, game = *game, folder, space] {
+        const bool by_title = trailerByTitle(*game);
+        // A verified Steam link of another store's game: RAWG's store link ("Zidentyfikuj grę").
+        uint32_t linked = 0;
+        if (by_title) if (const auto found = rawg_metadata_.find(key); found != rawg_metadata_.end()) linked = found->second.steam_app_id;
+        work_.start([alive = alive_, hwnd = hwnd_, generation, key, game = *game, folder, space, by_title, linked] {
             auto message = std::make_unique<VideoMessage>();
             message->generation = generation;
             message->key = key;
+            const auto root = userConfigDirectory();
             // No HttpBudget here: a first video download may take minutes (downloadVideo).
-            message->file = game.kind == GameKind::nonsteam ? gameVideoFile(game, userConfigDirectory(), folder)
-                                                            : steamTrailerFile(game.app_id, userConfigDirectory(), folder, space);
-            message->silent = game.kind != GameKind::nonsteam;
+            if (by_title) {
+                uint32_t app = linked;
+                if (!app) if (const auto source = selectedArtworkSource(game, coverCacheDirectory()); source.steam) app = source.id;
+                if (!app) app = steamAppForTitle(artworkTitle(game), root / L"metadata", gameCacheKey(game));
+                if (app) message->file = steamTrailerFile(app, root, folder, space);
+                message->silent = true; // As Steam games' trailers: over the music.
+            } else {
+                message->file = game.kind == GameKind::nonsteam ? gameVideoFile(game, root, folder)
+                                                                : steamTrailerFile(game.app_id, root, folder, space);
+                message->silent = game.kind != GameKind::nonsteam;
+            }
             if (alive->load() && PostMessageW(hwnd, video_message, 0, reinterpret_cast<LPARAM>(message.get()))) message.release();
         });
     }

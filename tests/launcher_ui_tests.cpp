@@ -98,6 +98,7 @@ public:
     static int runningCandidates(HWND window);
     static int gameOverlay(HWND window);
     static int gameFocus(HWND window);
+    static int trayAndBackgroundCrop(HWND window); // tray_ui_cases.hpp
     static int recentSessions(HWND window);
     static int onscreenKeyboard(HWND window);
     static int battlenet(HWND window);
@@ -1985,6 +1986,7 @@ int LauncherUiTest::language(HWND window) {
 #include "game_discovery_ui_cases.hpp"
 #include "game_overlay_ui_cases.hpp"
 #include "game_focus_ui_cases.hpp"
+#include "tray_ui_cases.hpp"
 #include "recent_sessions_ui_cases.hpp"
 #include "keyboard_ui_cases.hpp"
 #include "private_games_ui_cases.hpp"
@@ -2087,6 +2089,15 @@ int main(int argc, char** argv) {
         CoUninitialize();
         if (code) std::cerr << "Studios regression failed at checkpoint " << code << '\n';
         else std::cout << "Studios: logo rows, board, studio libraries, hide/move/switch, desktop sections, pane link, search, Ctrl+K, gold edge and TV metadata passed\n";
+        return code;
+    }
+    if (argc == 2 && std::string_view(argv[1]) == "--tray") {
+        std::filesystem::create_directories(root);
+        const auto code = window ? LauncherUiTest::trayAndBackgroundCrop(window) : 99;
+        if (window) DestroyWindow(window);
+        CoUninitialize();
+        if (code) std::cerr << "Tray regression failed at checkpoint " << code << '\n';
+        else std::cout << "Tray while playing, background crop, artwork page cache and the empty view passed\n";
         return code;
     }
     if (argc == 2 && std::string_view(argv[1]) == "--updates") {

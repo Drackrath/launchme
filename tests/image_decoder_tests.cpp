@@ -18,9 +18,20 @@ int main() {
     const auto logo = pngFixture(40, 64, 32, true);
     const auto decoded = decodeImage(wic.Get(), logo, {false, false, true});
     if (!decoded.valid() || decoded.width != 64 || decoded.height != 32 || !decoded.ink.valid || decoded.ink.left < 16) return 3;
-    // Wide heroes are capped at 1920 px, preserving the aspect ratio.
-    const auto hero = decodeImage(wic.Get(), pngFixture(90, 2400, 600), {false, true, false});
-    if (!hero.valid() || hero.width != 1920 || hero.height != 480) return 4;
+        // Backgrounds keep what covers the screen (cover-fit): a 3840×1240 hero on a 1080p screen keeps
+        // its height (3345×1080, not 1920×620 enlarged 1.75×); one already smaller stays as it is; a
+        // 4K 16:9 picture covers 1920×1080 at that size.
+        DecodeKind background{false, true, false};
+        const auto hero = decodeImage(wic.Get(), pngFixture(90, 3840, 1240), background);
+        if (!hero.valid() || hero.width != 3345 || hero.height != 1080) return 4;
+        const auto small_hero = decodeImage(wic.Get(), pngFixture(90, 1920, 620), background);
+        if (!small_hero.valid() || small_hero.width != 1920 || small_hero.height != 620) return 60;
+        const auto screenshot = decodeImage(wic.Get(), pngFixture(90, 3840, 2160), background);
+        if (!screenshot.valid() || screenshot.width != 1920 || screenshot.height != 1080) return 61;
+        background.cover_width = 2560; background.cover_height = 1440; // A 1440p screen: the whole hero, within the 16 MiB output cap.
+        const auto sharp = decodeImage(wic.Get(), pngFixture(90, 3840, 1240), background);
+        if (!sharp.valid() || sharp.width < 3600 || sharp.pixels.size() > max_decoded_image_bytes || std::abs(double(sharp.width) / sharp.height - 3840.0 / 1240) > 0.01) return 62;
+        if (coverFitSize(2400, 600, 1920, 1080) != std::pair<uint32_t, uint32_t>{2400, 600}) return 63;
     // Covers are capped by their shorter side (Fant, aspect kept); smaller images are untouched.
     const auto large = decodeImage(wic.Get(), pngFixture(70, 2048, 3072), {true, false, false, 1024});
     if (!large.valid() || large.width != 1024 || large.height != 1536) return 10;

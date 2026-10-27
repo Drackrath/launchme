@@ -166,10 +166,13 @@ public:
     void setPlatformCover(size_t index, std::vector<uint8_t> pixels) { setPlatformCover(index, shareImage(std::move(pixels))); }
     void setLogo(size_t index, ImageBytes pixels);
     void setLogo(size_t index, std::vector<uint8_t> pixels) { setLogo(index, shareImage(std::move(pixels))); }
-    void setHero(size_t index, ImageBytes pixels, HeroTone tone = HeroTone::full, bool force = false);
-    void setHero(size_t index, std::vector<uint8_t> pixels, HeroTone tone = HeroTone::full, bool force = false) {
-        setHero(index, shareImage(std::move(pixels)), tone, force);
+    // focus: the part of the background a screen of another shape shows (background_focus.hpp).
+    void setHero(size_t index, ImageBytes pixels, HeroTone tone = HeroTone::full, bool force = false, CropFocus focus = {});
+    void setHero(size_t index, std::vector<uint8_t> pixels, HeroTone tone = HeroTone::full, bool force = false, CropFocus focus = {}) {
+        setHero(index, shareImage(std::move(pixels)), tone, force, focus);
     }
+    // The crop editor moves the focus of the background shown (no new decode).
+    void setHeroFocus(size_t index, CropFocus focus);
     // Game video over the focused game's background (src/app/game_video.cpp): BGRA frames,
     // stride width * 4. It fades in over the picture; clearVideo removes it at once.
     void setVideoFrame(const uint8_t* bgra, uint32_t width, uint32_t height);
@@ -431,7 +434,7 @@ private:
                     IDWriteTextFormat* title_font, D2D1_COLOR_F title_ink, IDWriteTextFormat* body_font,
                     D2D1_COLOR_F body_ink, int max_lines = 2, bool top_aligned = false, float gap = text_group_gap);
     void drawBackground();
-    void drawWallpaper(ID2D1Bitmap* image, float opacity, float offset = 0);
+    void drawWallpaper(ID2D1Bitmap* image, float opacity, float offset = 0, CropFocus focus = {});
     void drawBackgroundGrid(float art);
     void drawLaunchAnimation();
     void drawLibraryBackdrop(float opacity);
@@ -974,6 +977,7 @@ private:
         HeroTone tone = HeroTone::full;
         bool arriving = false; // A new picture: its entrance echoes.
         float level = 0;       // Visible share, 0..1.
+        CropFocus focus;       // Its slot's focus (Cover::focus).
     };
     HeroLayer hero_shown_, hero_leaving_;
     Cover kept_hero_; // One selected hero (including an in-flight decode) across a card rebuild.

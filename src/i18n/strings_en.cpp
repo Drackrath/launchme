@@ -924,6 +924,11 @@ constexpr Entry entries[] = {
     {L"Dźwięk startu", L"Startup sound"},
     {L"Efekt ładowania CD", L"CD loading effect"},
     {L"Ciche uruchamianie Steam", L"Silent Steam launch"},
+    {L"Chowaj do zasobnika podczas gry", L"Hide to tray while playing"},
+    {L"Gdy gra działa, launcher znika z paska zadań i Alt+Tab, a jego ikona czeka w zasobniku. Wraca po zamknięciu gry.",
+     L"While a game runs, the launcher leaves the taskbar and Alt+Tab and its icon waits in the tray. It comes back when the game closes."},
+    {L"Pokaż launchme", L"Show launchme"},
+    {L"Zamknij launchme", L"Close launchme"},
     {L"Steam zostaje w zasobniku i nie przejmuje fokusu, launcher przekazuje go oknu gry. Okna Steam mogą zostać w tle.",
      L"Steam stays in the tray and doesn't take focus; the launcher hands it to the game window. Steam windows may stay behind."},
     {L"Obracająca się płyta przez 8 sekund, z dźwiękiem napędu przy uruchamianiu gry.", L"A disc spinning for 8 seconds, with a drive sound when starting a game."},
@@ -1084,6 +1089,10 @@ constexpr Entry entries[] = {
     {L"Automatyczny", L"Automatic"},
     {L"Zapisz kadr", L"Save crop"},
     {L"Okładka jest kwadratowa.", L"The cover is square."},
+    {L"Kadr tła", L"Background crop"},
+    {L"Wyśrodkuj", L"Center"},
+    {L"Tło ma już kształt ekranu.", L"The background already has the screen's shape."},
+    {L"Tło nie jest dostępne.", L"Background not available."},
     {L"Okładka nie jest dostępna.", L"Cover not available."},
 
     // Friends drawer

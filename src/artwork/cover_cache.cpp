@@ -1,4 +1,6 @@
 #include "cover_cache.hpp"
+#include "battlenet_art.hpp"
+#include "gog_art.hpp"
 #include "image_compact.hpp"
 #include "screenscraper_art.hpp"
 #include "steamgriddb_search.hpp"
@@ -58,9 +60,9 @@ bool isImage(const std::vector<uint8_t>& bytes) {
 }
 
 // A cached or local image in one read (size known up front, no byte-by-byte growth); empty
-// when missing, larger than `limit` or not a JPEG/PNG. Downloads are capped at 10 MiB and
-// chosen variants at 20 MiB, so the default never rejects a file this cache wrote.
-std::vector<uint8_t> readImage(const std::filesystem::path& file, size_t limit = 20 * 1024 * 1024) {
+// when missing, larger than `limit` or not a JPEG/PNG. Downloads are capped at 10 MiB (backgrounds
+// at 32 MiB) and chosen variants at 20 MiB, so the default never rejects a file this cache wrote.
+std::vector<uint8_t> readImage(const std::filesystem::path& file, size_t limit = 32 * 1024 * 1024) {
     std::ifstream input(file, std::ios::binary | std::ios::ate);
     if (!input) return {};
     const auto size = static_cast<long long>(input.tellg());
@@ -140,6 +142,17 @@ std::vector<uint8_t> asset(uint32_t id, const wchar_t* source, const wchar_t* ki
     return get(url, false, 10 * 1024 * 1024);
 }
 
+// A background: the sharpest of SteamGridDB's best rated heroes (preferredHeroUrl), JPEG or PNG only
+// (isImage). A 3840×1240 PNG can pass 10 MiB; the cache keeps it re-encoded as a JPEG.
+std::vector<uint8_t> heroAsset(uint32_t id, const wchar_t* source) {
+    const auto endpoint = L"https://www.steamgriddb.com/api/v2/heroes/" + std::wstring(source) + L"/" + std::to_wstring(id) +
+                          L"?mimes=image/png,image/jpeg&limit=12";
+    const auto response = get(endpoint, true, 1024 * 1024);
+    const auto url = preferredHeroUrl(std::string_view(reinterpret_cast<const char*>(response.data()), response.size()));
+    if (url.empty()) return {};
+    return get(url, false, 32 * 1024 * 1024);
+}
+
 std::vector<uint8_t> firstStoreScreenshot(uint32_t app_id) {
     const auto id = std::to_wstring(app_id);
     const auto response = get(L"https://store.steampowered.com/api/appdetails?appids=" + id +
@@ -191,6 +204,25 @@ std::vector<uint8_t> localSteamCover(uint32_t app_id, const std::filesystem::pat
     return {};
 }
 } // namespace
+
+std::wstring preferredHeroUrl(std::string_view body) {
+    const auto parsed = json::parse(body);
+    const auto* data = parsed ? parsed->get("data") : nullptr;
+    if (!data || data->type != json::Value::Type::array) return {};
+    const auto url = [](const json::Value& item) -> std::wstring {
+        const auto* value = item.get("url");
+        return value && value->type == json::Value::Type::string && value->text.starts_with("https://") ? text_encoding::wide(value->text) : std::wstring{};
+    };
+    std::wstring first;
+    for (const auto& item : data->elements) {
+        auto link = url(item);
+        if (link.empty()) continue;
+        const auto* width = item.get("width");
+        if (width && width->type == json::Value::Type::number && width->numeric >= 3000) return link;
+        if (first.empty()) first = std::move(link);
+    }
+    return first;
+}
 
 bool consumeArtworkRetryableError() {
     const bool value = retryable_artwork_error;
@@ -266,7 +298,7 @@ std::vector<uint8_t> artworkForGame(const Game& game, ArtworkKind kind,
     }
     const auto directory = gameArtworkDirectory(game, cache);
     const auto file = directory / (std::wstring(artworkKindSlug(kind)) + L".v2.img");
-    if (auto bytes = readImage(file, 10 * 1024 * 1024); !bytes.empty()) return bytes;
+    if (auto bytes = readImage(file, kind == ArtworkKind::hero ? 32 * 1024 * 1024 : 10 * 1024 * 1024); !bytes.empty()) return bytes;
     // Store/shortcut IDs are never Steam AppIDs. Only a separately verified artwork
     // mapping may borrow Steam art; this never changes launch/install actions.
     const auto steamGridDb = [&]() -> std::vector<uint8_t> {
@@ -286,23 +318,31 @@ std::vector<uint8_t> artworkForGame(const Game& game, ArtworkKind kind,
                 found = grid(source.id, route, dimensions);
                 if (isImage(found)) break;
             }
-        } else found = asset(source.id, route, kind == ArtworkKind::logo ? L"logos" : L"heroes");
+        } else found = kind == ArtworkKind::logo ? asset(source.id, route, L"logos") : heroAsset(source.id, route);
         return found;
     };
-    // An Epic account's games: Epic's own catalog art (its CDN, no key and no rate limit). The tall box
-    // art is the poster, and the cover where SteamGridDB has none; the wide art and the logo stand in
-    // for SteamGridDB's background, landscape tile and logo.
-    const auto& epic_url = kind == ArtworkKind::poster || kind == ArtworkKind::cover ? game.epic_tall_art :
-                           kind == ArtworkKind::logo ? game.epic_logo_art : game.epic_wide_art;
-    const auto epic = [&]() -> std::vector<uint8_t> {
-        if (game.source != GameSource::epic || !epic_url.starts_with("https://")) return {};
-        auto bytes = get(text_encoding::wide(epic_url), false, 10 * 1024 * 1024);
+    // The store's own art (its CDN, no key and no rate limit): Epic's catalog, Ubisoft Connect's, GOG's,
+    // EA's or Battle.net's. The tall box art is the poster (Epic's first: it is large), and the cover
+    // where SteamGridDB has none; the wide art and the logo stand in for SteamGridDB's background,
+    // landscape tile and logo. Battle.net's (its client's catalog, no wide art) and GOG's (its public
+    // product API) are looked up here.
+    const auto storeArt = [&]() -> std::vector<uint8_t> {
+        auto url = kind == ArtworkKind::poster || kind == ArtworkKind::cover ? game.store_tall_art :
+                   kind == ArtworkKind::logo ? game.store_logo_art : game.store_wide_art;
+        if (url.empty() && game.source == GameSource::battlenet && kind != ArtworkKind::hero && kind != ArtworkKind::landscape)
+            url = battlenetArtUrl(game.source_id, kind == ArtworkKind::logo, cache);
+        if (url.empty() && game.source == GameSource::gog) {
+            const auto art = gogArt(game.source_id, cache);
+            url = kind == ArtworkKind::poster || kind == ArtworkKind::cover ? art.tall : kind == ArtworkKind::logo ? art.logo : art.wide;
+        }
+        if (!url.starts_with("https://")) return {};
+        auto bytes = get(text_encoding::wide(url), false, 10 * 1024 * 1024);
         return isImage(bytes) ? bytes : std::vector<uint8_t>{};
     };
     std::vector<uint8_t> image;
-    if (kind == ArtworkKind::poster) image = epic();
+    if (kind == ArtworkKind::poster && game.source == GameSource::epic) image = storeArt();
     if (!isImage(image)) image = steamGridDb();
-    if (!isImage(image) && kind != ArtworkKind::poster) image = epic();
+    if (!isImage(image) && !(kind == ArtworkKind::poster && game.source == GameSource::epic)) image = storeArt();
     if (!isImage(image)) return {};
     if (!atomicBytes(file, image.data(), image.size())) { retryable_artwork_error = true; return {}; }
     return image;
@@ -372,11 +412,11 @@ std::vector<uint8_t> heroForSteamApp(uint32_t app_id, const std::wstring& title,
     const auto heroes = cache.parent_path() / L"heroes";
     const auto file = heroes / (std::to_wstring(app_id) + L".v2.hd.img");
     if (auto bytes = readImage(file); !bytes.empty()) return bytes;
-    // Full-resolution source, downsampled to 1920px by WIC on the UI side.
-    auto image = asset(app_id, L"steam", L"heroes");
+    // Full resolution (preferably 3840 px): the decoder keeps what covers the screen.
+    auto image = heroAsset(app_id, L"steam");
     if (!isImage(image)) {
         const auto game_id = gameIdForTitle(app_id, title, cache);
-        if (game_id) image = asset(game_id, L"game", L"heroes");
+        if (game_id) image = heroAsset(game_id, L"game");
     }
     if (!isImage(image)) image = storeScreenshotForSteamApp(app_id);
     if (!isImage(image)) return {};

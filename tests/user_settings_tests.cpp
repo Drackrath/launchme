@@ -158,6 +158,13 @@ int main() {
         auto chosen = config; chosen.steam_silent_launch = enabled;
         if (!saveAppSettings(chosen, file) || loadAppSettings(file).steam_silent_launch != enabled) return 65;
     }
+    // Hiding to the tray while playing is opt-in, strict 0/1 too.
+    if (AppSettings{}.hide_while_playing || parseAppSettings("hide_while_playing=yes\n").hide_while_playing ||
+        !parseAppSettings("hide_while_playing=1\n").hide_while_playing) return 155;
+    for (const bool enabled : {false, true}) {
+        auto chosen = config; chosen.hide_while_playing = enabled;
+        if (!saveAppSettings(chosen, file) || loadAppSettings(file).hide_while_playing != enabled) return 156;
+    }
     { std::error_code removed; std::filesystem::remove(file, removed); }
     // First-run walkthrough: only a missing file is a first start; older files count as done.
     if (std::filesystem::exists(file) || loadAppSettings(file).tour_done || !AppSettings{}.tour_done ||

@@ -45,6 +45,16 @@ std::vector<uint8_t> readFile(const std::filesystem::path& file) {
 }
 }
 
+double compactScale(uint32_t width, uint32_t height, ImageRole role) {
+    if (!width || !height) return 1.0;
+    const auto box = limit(role);
+    const double across = static_cast<double>(box.width) / width, down = static_cast<double>(box.height) / height;
+    // A background is drawn cover-fit (it fills the screen and its sides are cut off), so it keeps
+    // what still covers the box: a 3840×1240 hero stays whole, 2560 px wide it would cover a 16:9
+    // screen only 827 px high and look soft. Everything else fits inside its box.
+    return std::min(1.0, role == ImageRole::background ? std::max(across, down) : std::min(across, down));
+}
+
 std::vector<uint8_t> compactImage(std::span<const uint8_t> bytes, ImageRole role) {
     // PNG and JPEG only: other files are left as they are.
     const bool png = bytes.size() > 8 && bytes[0] == 0x89 && bytes[1] == 'P';
@@ -62,8 +72,7 @@ std::vector<uint8_t> compactImage(std::span<const uint8_t> bytes, ImageRole role
         FAILED(decoder->GetFrame(0, &frame))) return {};
     UINT width = 0, height = 0;
     if (FAILED(frame->GetSize(&width, &height)) || !width || !height || width > 16384 || height > 16384) return {};
-    const auto box = limit(role);
-    const double scale = std::min({1.0, static_cast<double>(box.width) / width, static_cast<double>(box.height) / height});
+    const double scale = compactScale(width, height, role);
     // A JPEG already within the limits gains nothing from a second encoding.
     if (jpeg && scale >= 1.0) return {};
     const UINT target_width = std::max<UINT>(1, static_cast<UINT>(width * scale + 0.5));
@@ -141,6 +150,26 @@ bool writeCachedImage(const std::filesystem::path& file, std::span<const uint8_t
     if (imageRoleFor(file, role))
         if (const auto compact = compactImage(bytes, role); !compact.empty()) return atomic_file::write(file, compact, !missing_images_only);
     return atomic_file::write(file, bytes, !missing_images_only);
+}
+
+size_t releaseShrunkenBackgrounds(const std::filesystem::path& root, const std::function<bool()>& keep_going) {
+    size_t removed = 0;
+    // Steam games' heroes\ and other stores' stores\<source>\<key>\hero.v2.img. Picks
+    // (artwork\selections) and ES-DE copies (emulation\) are not downloaded again by themselves.
+    for (const auto* folder : {L"heroes", L"stores"}) {
+        std::error_code ec;
+        for (auto item = std::filesystem::recursive_directory_iterator(root / folder, ec); !ec && item != std::filesystem::recursive_directory_iterator(); item.increment(ec)) {
+            if (!keep_going()) return removed;
+            std::error_code file;
+            ImageRole role{};
+            if (!item->is_regular_file(file) || !imageRoleFor(item->path(), role) || role != ImageRole::background) continue;
+            const auto [width, height] = cropImageSize(item->path());
+            if (width != 2560 || height <= 0 || height >= 1440 || manualTextCrop(item->path())) continue;
+            auto focus = item->path(); focus.replace_extension(L".focus");
+            if (std::filesystem::remove(item->path(), file)) { ++removed; std::filesystem::remove(focus, file); }
+        }
+    }
+    return removed;
 }
 
 uint64_t compactImageCache(const std::filesystem::path& root, const std::function<bool()>& keep_going) {

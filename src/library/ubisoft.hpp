@@ -24,6 +24,15 @@ struct Account {
 // CD key: it is never read. nullopt = unreadable/unknown layout, not an empty library.
 std::optional<std::vector<Product>> parseOwnership(std::string_view bytes);
 std::map<std::string, uint64_t> parseRecentlyPlayed(std::string_view bytes);
+// Ubisoft Connect's own artwork of each product, from cache/configuration/configurations (one record per
+// product: field 1 its ID, field 3 its YAML configuration). The YAML names files on Ubisoft's public CDN:
+// thumb_image (a small, tall box), background_image (about 1200×700) and logo_image (a transparent PNG).
+// Full https URLs; empty when the client has none.
+inline constexpr std::string_view asset_cdn = "https://ubistatic3-a.akamaihd.net/orbit/uplay_launcher_3_0/assets/";
+inline constexpr size_t max_configuration_bytes = 32 * 1024 * 1024;
+struct Art { std::string thumb, background, logo; };
+std::map<std::string, Art> parseConfigurations(std::string_view bytes); // Product ID -> its images.
+std::map<std::string, Art> readConfigurations(const std::vector<std::filesystem::path>& caches);
 // The most recently written account among the client's cache roots. A newer but unreadable
 // file is reported as unavailable instead of falling back to another (older) account.
 std::optional<Account> readAccount(const std::vector<std::filesystem::path>& caches);

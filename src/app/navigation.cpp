@@ -1045,7 +1045,7 @@ void Launcher::startLaunchAnimation(const Game& game) {
     // Its background and logo on the focused card (the picture uses them); missing ones are asked for.
     if (selected_ < cards_.size() && gameKey(cards_[selected_].game) == launch_artwork_key_) {
         if (const auto* art = art_.find(launch_artwork_key_)) {
-            if (art->hero) renderer_.setHero(selected_, art->hero, art->hero_tone);
+            if (art->hero) renderer_.setHero(selected_, art->hero, art->hero_tone, false, art->hero_focus);
             if (art->logo) renderer_.setLogo(selected_, art->logo);
         }
         requestArt(game, CoverMessage::Kind::hero);

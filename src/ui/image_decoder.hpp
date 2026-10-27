@@ -3,6 +3,7 @@
 
 #include <Windows.h>
 
+#include <algorithm>
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
@@ -11,6 +12,7 @@
 #include <mutex>
 #include <span>
 #include <thread>
+#include <utility>
 #include <vector>
 
 struct IWICImagingFactory;
@@ -49,7 +51,9 @@ enum class HeroTone : uint8_t { full, logo, dimmed };
 
 struct DecodeKind {
     bool accent = false;     // Dominant poster colour.
-    bool limit_width = false; // Wider than 1920 px is downsampled; the renderer never needs more.
+    // A background drawn cover-fit: downsampled only to what still covers cover_width × cover_height
+    // (the screen), so its height is kept. A 3840×1240 hero on a 1080p screen becomes 3344×1080.
+    bool cover_fit = false;
     bool ink = false;        // Ink bounds (transparent/matte gutters) of a logo.
     // >0: downsampled (Fant) so the shorter side is at most this many pixels. Covers are
     // drawn as square fills, so the shorter side is what reaches the screen.
@@ -61,7 +65,16 @@ struct DecodeKind {
     // Low memory mode on a GPU that samples BC1: the size is rounded to whole 4×4 blocks and an
     // opaque result is kept as BC1 blocks (DecodedImage::blocks) instead of BGRA pixels.
     bool block_compress = false;
+    uint32_t cover_width = 1920, cover_height = 1080; // cover_fit's box, in pixels.
 };
+// The size a cover_fit image is decoded to: scaled down (never up) to the smallest size that still
+// covers the box. Pure, for tests.
+inline std::pair<uint32_t, uint32_t> coverFitSize(uint32_t width, uint32_t height, uint32_t box_width, uint32_t box_height) {
+    if (!width || !height || !box_width || !box_height) return {width, height};
+    const double scale = std::min(1.0, std::max(static_cast<double>(box_width) / width, static_cast<double>(box_height) / height));
+    if (scale >= 1.0) return {width, height};
+    return {std::max(1u, static_cast<uint32_t>(width * scale + 0.5)), std::max(1u, static_cast<uint32_t>(height * scale + 0.5))};
+}
 
 struct DecodedImage {
     DecodedImage() = default;

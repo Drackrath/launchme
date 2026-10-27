@@ -231,12 +231,17 @@ std::filesystem::path steamTrailerFile(uint32_t app_id, const std::filesystem::p
         if (marker >> since && unixMs() - since < 3ull * 24 * 60 * 60 * 1000) return {};
     }
     const auto metadata = config_root / L"metadata";
-    auto details = readText(metadata / (std::to_wstring(app_id) + L".details.json"));
-    if (details.empty()) details = readText(metadata / (std::to_wstring(app_id) + L".en.details.json"));
+    // Any language's copy (fetchGameDetails keeps one per UI language): the movies are the same.
+    const auto cached = [&] {
+        std::string text;
+        for (const auto* suffix : {L".details.json", L".en.details.json", L".pt-BR.details.json", L".es.details.json"})
+            if (text = readText(metadata / (std::to_wstring(app_id) + suffix)); !text.empty()) break;
+        return text;
+    };
+    auto details = cached();
     if (details.empty()) { // The store page's details, cached for the details screen as well.
         fetchGameDetails(app_id, metadata);
-        details = readText(metadata / (std::to_wstring(app_id) + L".details.json"));
-        if (details.empty()) details = readText(metadata / (std::to_wstring(app_id) + L".en.details.json"));
+        details = cached();
     }
     const auto url = steamTrailerUrl(app_id, details);
     const auto dash = url.empty() ? steamTrailerDashUrl(app_id, details) : std::wstring{};

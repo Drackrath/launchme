@@ -111,6 +111,7 @@ namespace {
 bool parseLookSetting(AppSettings& settings, std::string_view key, std::string_view value) {
     const auto flag = [&](bool& target) { if (value == "0" || value == "1") target = value == "1"; return true; };
     if (key == "flix_top_icons") return flag(settings.flix_top_icons);
+    if (key == "hide_while_playing") return flag(settings.hide_while_playing);
     if (key == "shelves_hero_facts") return flag(settings.shelves_hero_facts);
     if (key == "focus_gap") {
         // 0 / 1 were the first version's off / outside.
@@ -698,6 +699,7 @@ bool saveAppSettings(const AppSettings& settings, const std::filesystem::path& f
                                  settings.hint_glyphs == AppSettings::HintGlyphs::playstation ? "playstation" :
                                  settings.hint_glyphs == AppSettings::HintGlyphs::nintendo ? "nintendo" : "auto") << '\n';
     output << "steam_silent_launch=" << settings.steam_silent_launch << '\n';
+    output << "hide_while_playing=" << settings.hide_while_playing << '\n';
     output << "steam_account_switch=" << settings.steam_account_switch << '\n';
     output << "steam_install_dialog=" << settings.steam_install_dialog << '\n';
     output << "game_videos=" << settings.game_videos << '\n';

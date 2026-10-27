@@ -101,7 +101,7 @@ void Launcher::onCover(std::unique_ptr<CoverMessage> cover) {
         asset.cover = shareImage(std::move(cover->bytes));
         asset.focus = cover->focus;
     } else if (cover->kind == CoverMessage::Kind::logo) asset.logo = shareImage(std::move(cover->bytes));
-    else { asset.hero = shareImage(std::move(cover->bytes)); asset.hero_tone = cover->hero_tone; }
+    else { asset.hero = shareImage(std::move(cover->bytes)); asset.hero_tone = cover->hero_tone; asset.hero_focus = cover->focus; }
     art_.resize(cover->key);
     if (cover->kind == CoverMessage::Kind::cover) { tarotArtArrived(cover->key, cover->kind, asset.cover); profileArtArrived(cover->key, cover->kind, asset.cover); }
     if (friends_open_ && plugin_drawer_active_ && cover->kind == CoverMessage::Kind::cover) requestPluginPageArt();
@@ -120,12 +120,13 @@ void Launcher::onCover(std::unique_ptr<CoverMessage> cover) {
             cards_[i].cover_opacity = 0;
             if (cards_[i].game.kind == GameKind::platform || cards_[i].game.kind == GameKind::pc_platform) renderer_.setPlatformCover(i, asset.cover);
             else renderer_.setCover(i, asset.cover, asset.focus, edge);
-            if (cropOpen() && !crop_state_.loading) renderer_.setCoverFocus(i, crop_state_.focus);
+            if (cropOpen() && !crop_state_.loading && !crop_state_.background) renderer_.setCoverFocus(i, crop_state_.focus);
         }
         else if (cover->kind == CoverMessage::Kind::logo) renderer_.setLogo(i, asset.logo);
         else {
             // Forced: a console/store tile's stand-in (its logo) gives way to a game's background.
-            renderer_.setHero(i, asset.hero, asset.hero_tone, true);
+            renderer_.setHero(i, asset.hero, asset.hero_tone, true, asset.hero_focus);
+            if (cropOpen() && crop_state_.background && !crop_state_.loading) renderer_.setHeroFocus(i, crop_state_.focus); // Being edited.
             detail_ = 0;
         }
         InvalidateRect(hwnd_, nullptr, FALSE);
@@ -140,7 +141,7 @@ void Launcher::onCover(std::unique_ptr<CoverMessage> cover) {
             const auto chosen = flix_backdrops_.find(cards_[i].game.source_id);
             if (chosen == flix_backdrops_.end() || chosen->second != cover->key) continue;
             bindFlixArt(i, true);
-            if (i == selected_) { renderer_.setHero(i, asset.hero, asset.hero_tone); detail_ = 0; }
+            if (i == selected_) { renderer_.setHero(i, asset.hero, asset.hero_tone, false, asset.hero_focus); detail_ = 0; }
             InvalidateRect(hwnd_, nullptr, FALSE);
         }
     }
@@ -151,7 +152,7 @@ void Launcher::onCover(std::unique_ptr<CoverMessage> cover) {
         const auto chosen = flix_backdrops_.find(cards_[0].game.source_id);
         if (cover->kind == CoverMessage::Kind::hero && chosen != flix_backdrops_.end() && chosen->second == cover->key) {
             bindShelfAllTile(0, true);
-            if (selected_ == 0) { renderer_.setHero(0, asset.hero, asset.hero_tone); detail_ = 0; }
+            if (selected_ == 0) { renderer_.setHero(0, asset.hero, asset.hero_tone, false, asset.hero_focus); detail_ = 0; }
         }
         InvalidateRect(hwnd_, nullptr, FALSE);
     }
@@ -162,7 +163,7 @@ void Launcher::onCover(std::unique_ptr<CoverMessage> cover) {
             for (size_t i = 0; i < cards_.size(); ++i) if (cards_[i].game.kind == GameKind::category) xmbBindThumbnails(i);
         if (cover->kind == CoverMessage::Kind::hero && selected_ < cards_.size() && cards_[selected_].game.kind == GameKind::category) {
             const auto chosen = flix_backdrops_.find(cards_[selected_].game.source_id);
-            if (chosen != flix_backdrops_.end() && chosen->second == cover->key) { renderer_.setHero(selected_, asset.hero, asset.hero_tone); detail_ = 0; }
+            if (chosen != flix_backdrops_.end() && chosen->second == cover->key) { renderer_.setHero(selected_, asset.hero, asset.hero_tone, false, asset.hero_focus); detail_ = 0; }
         }
         InvalidateRect(hwnd_, nullptr, FALSE);
     }

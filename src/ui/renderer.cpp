@@ -126,7 +126,7 @@ void Renderer::resetCovers(size_t count, bool preserve_background) {
             cinematic_hero_ == kept_hero_.bitmap && !samePicture(hero_shown_.pixels, kept_hero_.pixels)) {
             hero_leaving_ = hero_shown_;
             const float level = smoothFade(std::chrono::duration<float>(std::chrono::steady_clock::now() - cinematic_changed_).count() / 0.35f);
-            hero_shown_ = {kept_hero_.pixels, kept_hero_.bitmap, kept_hero_.tone, false, level};
+            hero_shown_ = {kept_hero_.pixels, kept_hero_.bitmap, kept_hero_.tone, false, level, kept_hero_.focus};
             if (level >= 0.999f) hero_leaving_ = {};
         }
     } else if (!preserve_background) {
@@ -335,24 +335,36 @@ void Renderer::setLogo(size_t index, ImageBytes pixels) {
     createBitmap(logo);
 }
 
-void Renderer::setHero(size_t index, ImageBytes pixels, HeroTone tone, bool force) {
+void Renderer::setHeroFocus(size_t index, CropFocus focus) {
+    if (index >= heroes_.size()) return;
+    heroes_[index].focus = focus;
+    if (heroes_[index].pixels && samePicture(heroes_[index].pixels, hero_shown_.pixels)) hero_shown_.focus = focus;
+}
+
+void Renderer::setHero(size_t index, ImageBytes pixels, HeroTone tone, bool force, CropFocus focus) {
     if (index >= heroes_.size()) return;
     Cover& hero = heroes_[index];
-    if (!force && (hero.bitmap || hero.decoding) && hero.loaded()) return;
+    if (!force && (hero.bitmap || hero.decoding) && hero.loaded()) {
+        if (pixels && samePicture(pixels, hero.pixels)) setHeroFocus(index, focus); // A crop saved meanwhile.
+        return;
+    }
     pixels = shared(std::move(pixels));
     if (pixels && samePicture(pixels, hero.pixels)) {
         hero.tone = tone;
+        setHeroFocus(index, focus);
         createBitmap(hero);
         return;
     }
     if (pixels && samePicture(pixels, kept_hero_.pixels)) {
         hero = kept_hero_;
         hero.tone = tone;
+        setHeroFocus(index, focus);
         createBitmap(hero);
         return;
     }
     hero.hero = true;
     hero.tone = tone;
+    hero.focus = focus;
     hero.pixels = std::move(pixels);
     hero.decoding.reset();
     hero.bitmap.Reset();

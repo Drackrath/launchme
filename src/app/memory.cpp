@@ -19,7 +19,7 @@ void Launcher::applyLowMemory() {
 // graphics; a window beside the launcher (a windowed game, the desktop window side by side) too.
 bool Launcher::launcherHidden() const {
     if (!hwnd_ || closing_) return false;
-    if (IsIconic(hwnd_)) return true;
+    if (IsIconic(hwnd_) || in_tray_) return true;
     if (!anyActiveSession() || gameOverlayOpen()) return false;
     const HWND front = foreground_window_ ? foreground_window_() : GetForegroundWindow();
     if (!front || front == hwnd_ || (browser_ && browser_->owns(front))) return false;

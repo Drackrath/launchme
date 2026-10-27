@@ -750,8 +750,9 @@ void Renderer::drawLibraryAmbient(float opacity) {
         cinematic_changed_ = std::chrono::steady_clock::now();
     }
     const float fade = smooth(std::chrono::duration<float>(std::chrono::steady_clock::now() - cinematic_changed_).count() / 0.35f);
+    const CropFocus focus = selected_ < heroes_.size() && heroes_[selected_].bitmap.Get() == cinematic_hero_.Get() ? heroes_[selected_].focus : CropFocus{};
     drawWallpaper(cinematic_previous_hero_.Get(), opacity * (1 - fade));
-    drawWallpaper(cinematic_hero_.Get(), opacity * fade);
+    drawWallpaper(cinematic_hero_.Get(), opacity * fade, 0, focus);
     if (fade >= 1) cinematic_previous_hero_.Reset();
 }
 

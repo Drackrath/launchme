@@ -310,7 +310,7 @@ void Launcher::rebuildDesktop(bool preserve_background) {
     if (restored) desktop_scroll_ = desktop_scroll_target_;
     if (changed) { detail_ = 0; desktop_pane_scroll_ = 0; preview_.settle(); }
     if (!cards_.empty()) if (const auto* art = art_.find(gameKey(cards_[selected_].game))) {
-        if (art->hero) renderer_.setHero(selected_, art->hero, art->hero_tone);
+        if (art->hero) renderer_.setHero(selected_, art->hero, art->hero_tone, false, art->hero_focus);
         if (art->logo) renderer_.setLogo(selected_, art->logo);
     }
     desktopRequestArt();
@@ -353,7 +353,7 @@ void Launcher::desktopFocus(size_t index, bool reveal) {
     if (reveal) desktop_scroll_target_ = desktopLayout().reveal(index, cards_.size(), desktop_scroll_target_);
     if (changed) { detail_ = 0; desktop_pane_scroll_ = 0; preview_.settle(); library_focus_age_ = 0; }
     if (const auto* art = art_.find(gameKey(cards_[selected_].game))) {
-        if (art->hero) renderer_.setHero(selected_, art->hero, art->hero_tone);
+        if (art->hero) renderer_.setHero(selected_, art->hero, art->hero_tone, false, art->hero_focus);
         if (art->logo) renderer_.setLogo(selected_, art->logo);
     }
     requestVisibleArt();

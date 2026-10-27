@@ -599,10 +599,15 @@ struct Layout {
         const auto p = popover(rows, anchor);
         return {p.left + 12, p.bottom - popover_foot + 8, p.right - 12, p.bottom - 10};
     }
+    // The empty grid's message line (its icon sits 40 px above it): the whole group, from the icon's
+    // circle to the buttons or the description, is centred in the view.
+    float emptyMessageY(bool buttons, bool body) const {
+        return gridTop() + std::max(150.0f, viewHeight() * 0.5f + (buttons ? -18.0f : body ? 0.0f : 24.0f));
+    }
     // The empty grid's buttons, centred under its message.
     Rect emptyButton(int i, bool two) const {
         const auto m = main();
-        const float cx = (m.left + m.right) * 0.5f, y = gridTop() + std::max(150.0f, viewHeight() * 0.32f) + 70;
+        const float cx = (m.left + m.right) * 0.5f, y = emptyMessageY(true, true) + 70;
         const float w = 190;
         const float left = two ? (i == 0 ? cx - w - 6 : cx + 6) : cx - w * 0.5f;
         return {left, y, left + w, y + 38};

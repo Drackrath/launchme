@@ -101,7 +101,7 @@ void Launcher::flixFocusArt() {
     if (!source) return;
     if (const auto* found = art_.find(gameKey(*source))) {
         if (found->logo && source == &game) renderer_.setLogo(selected_, found->logo);
-        if (found->hero) renderer_.setHero(selected_, found->hero, found->hero_tone);
+        if (found->hero) renderer_.setHero(selected_, found->hero, found->hero_tone, false, found->hero_focus);
     } else if (source != &game) requestArt(*source, CoverMessage::Kind::hero);
 }
 

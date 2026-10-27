@@ -18,13 +18,15 @@ using namespace render_detail;
 
 // One centred cover-fit for every still wallpaper. The slow Details zoom is
 // continuous across navigation; layouts never lift or drift the picture.
-void Renderer::drawWallpaper(ID2D1Bitmap* image, float opacity, float offset) {
+void Renderer::drawWallpaper(ID2D1Bitmap* image, float opacity, float offset, CropFocus focus) {
     if (!image || opacity <= 0.001f) return;
     const auto pixels = image->GetSize();
     const float scale = std::max(viewport_.width / pixels.width, viewport_.height / pixels.height) *
                         std::clamp(context_->wallpaper_zoom, 1.0f, 1.01f);
     const float width = pixels.width * scale, height = pixels.height * scale;
-    const float x = (viewport_.width - width) * 0.5f + offset, y = (viewport_.height - height) * 0.5f;
+    // The focus (centred by default) at the screen's centre, never past the picture's edges.
+    const float x = std::clamp(viewport_.width * 0.5f - focus.x * width, viewport_.width - width, 0.0f) + offset;
+    const float y = std::clamp(viewport_.height * 0.5f - focus.y * height, viewport_.height - height, 0.0f);
     target_->DrawBitmap(image, D2D1::RectF(x, y, x + width, y + height), opacity, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
 }
 
@@ -118,8 +120,9 @@ void Renderer::drawBackground() {
         }
         const float fade = smoothFade(std::chrono::duration<float>(std::chrono::steady_clock::now() - cinematic_changed_).count() / 0.35f);
         // Kinowy plays the video in its focused tile (drawRectangularCard): the wallpaper stays.
+        const CropFocus focus = candidate == cinematic_hero_.Get() && selected_ < heroes_.size() ? heroes_[selected_].focus : CropFocus{};
         drawWallpaper(cinematic_previous_hero_.Get(), 0.85f * (1 - fade));
-        drawWallpaper(cinematic_hero_.Get(), 0.85f * fade);
+        drawWallpaper(cinematic_hero_.Get(), 0.85f * fade, 0, focus);
         if (fade >= 1) cinematic_previous_hero_.Reset();
     } else if (cards_ && !cards_->empty()) {
         const float fade = smoothFade(detail_);
@@ -137,7 +140,7 @@ void Renderer::drawBackground() {
             }
         }
         hero_shown_.pixels = picture; // Equal bytes from another load: compared by pointer from now on.
-        if (slot && slot->bitmap && picture) { hero_shown_.bitmap = slot->bitmap; hero_shown_.tone = slot->tone; }
+        if (slot && slot->bitmap && picture) { hero_shown_.bitmap = slot->bitmap; hero_shown_.tone = slot->tone; hero_shown_.focus = slot->focus; }
         if (hero_shown_.bitmap || !picture) hero_shown_.level = std::max(hero_shown_.level, fade);
         hero_leaving_.level = std::min(hero_leaving_.level, 1.0f - fade);
         if (hero_leaving_.level <= 0.001f || !hero_leaving_.bitmap) hero_leaving_ = {};
@@ -150,20 +153,20 @@ void Renderer::drawBackground() {
             return layer.tone == HeroTone::logo ? 0.13f : layer.tone == HeroTone::dimmed ? 0.32f :
                    grid ? 0.5f : std::lerp(0.75f, 0.96f, full_screen_mix_);
         };
-        drawWallpaper(hero_leaving_.bitmap.Get(), alpha(hero_leaving_) * hero_leaving_.level * picture_share, -11.0f * (1.0f - hero_leaving_.level));
+        drawWallpaper(hero_leaving_.bitmap.Get(), alpha(hero_leaving_) * hero_leaving_.level * picture_share, -11.0f * (1.0f - hero_leaving_.level), hero_leaving_.focus);
         const float level = hero_shown_.level;
-        drawWallpaper(hero_shown_.bitmap.Get(), alpha(hero_shown_) * level * picture_share, 13.0f * (1.0f - level));
+        drawWallpaper(hero_shown_.bitmap.Get(), alpha(hero_shown_) * level * picture_share, 13.0f * (1.0f - level), hero_shown_.focus);
         if (hero_shown_.arriving) {
             const float echo = (hero_shown_.tone == HeroTone::logo ? 0.015f : hero_shown_.tone == HeroTone::dimmed ? 0.025f : 0.06f) * std::sin(std::numbers::pi_v<float> * level);
-            drawWallpaper(hero_shown_.bitmap.Get(), echo * picture_share, 19.0f * (1.0f - level));
-            drawWallpaper(hero_shown_.bitmap.Get(), echo * 0.65f * picture_share, -15.0f * (1.0f - level));
+            drawWallpaper(hero_shown_.bitmap.Get(), echo * picture_share, 19.0f * (1.0f - level), hero_shown_.focus);
+            drawWallpaper(hero_shown_.bitmap.Get(), echo * 0.65f * picture_share, -15.0f * (1.0f - level), hero_shown_.focus);
         }
         drawVideo(std::lerp(0.8f, 0.96f, full_screen_mix_) * video);
         art = video_bitmap_ ? video : 0.0f;
     } else if (hero_shown_.bitmap && (context_->screen == ScreenMode::settings || context_->screen == ScreenMode::downloads || context_->screen == ScreenMode::devices || context_->screen == ScreenMode::glance ||
                                      context_->screen == ScreenMode::companion)) {
         const float alpha = hero_shown_.tone == HeroTone::logo ? 0.13f : hero_shown_.tone == HeroTone::dimmed ? 0.32f : 0.75f;
-        drawWallpaper(hero_shown_.bitmap.Get(), alpha * hero_shown_.level * picture_share);
+        drawWallpaper(hero_shown_.bitmap.Get(), alpha * hero_shown_.level * picture_share, 0, hero_shown_.focus);
     }
     drawBackgroundGrid(std::clamp(art, 0.0f, 1.0f));
     if (full_screen && full_screen_mix_ >= 0.999f) return; // PSfive and Szczegóły lay their own shade over the picture.

@@ -70,6 +70,11 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpara
         if (message == WM_INPUT) return DefWindowProcW(hwnd, message, wparam, lparam);
         if (message == WM_SETCURSOR && LOWORD(lparam) == HTCLIENT) { SetCursor(nullptr); return TRUE; }
     }
+    // The notification-area icon while a game runs (src/app/tray.cpp), and Explorer's restart, after
+    // which the icon must be added again.
+    static const UINT taskbar_created = RegisterWindowMessageW(L"TaskbarCreated");
+    if (app && message == Launcher::tray_message) { if (!closing) app->trayIconEvent(wparam, lparam); return 0; }
+    if (app && taskbar_created && message == taskbar_created) { if (!closing) app->taskbarCreated(); return 0; }
     // Screensaver: while it runs, and for the rest of the input that ends it, keyboard
     // and mouse messages never reach the screen beneath.
     if (app && app->screensaverInput(message, wparam, lparam)) return 0;
@@ -170,6 +175,7 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpara
         if (!app || !data || data->dwData != jump_copy_data || !data->lpData || data->cbData < sizeof(wchar_t) || data->cbData > 4096) break;
         std::wstring command(static_cast<const wchar_t*>(data->lpData), data->cbData / sizeof(wchar_t));
         while (!command.empty() && command.back() == L'\0') command.pop_back();
+        app->showFromTray(); // Hidden while a game runs: back first.
         if (IsIconic(hwnd)) ShowWindow(hwnd, SW_RESTORE);
         SetForegroundWindow(hwnd);
         app->jumpCommand(command);

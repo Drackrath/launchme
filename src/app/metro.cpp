@@ -374,7 +374,7 @@ void Launcher::metroArtArrived(const std::string& key, CoverMessage::Kind kind) 
             const auto chosen = flix_backdrops_.find(cards_[i].game.source_id);
             if (chosen == flix_backdrops_.end() || chosen->second != key) continue;
             bindMetroArt(i, true);
-            if (i == selected_) if (const auto* found = art_.find(key); found && found->hero) { renderer_.setHero(i, found->hero, found->hero_tone); detail_ = 0; }
+            if (i == selected_) if (const auto* found = art_.find(key); found && found->hero) { renderer_.setHero(i, found->hero, found->hero_tone, false, found->hero_focus); detail_ = 0; }
             continue;
         }
         if (gameKey(cards_[i].game) != key) continue;

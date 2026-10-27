@@ -789,6 +789,14 @@ public:
     // pixels → their canvas's pixels (unchanged elsewhere).
     bool desktopEmbedded() const;
     void desktopEmbedMap(float& mouse_x, float& mouse_y) const;
+    // "Chowaj do zasobnika podczas gry" (src/app/tray.cpp): once a game started here is confirmed
+    // running, the window leaves the taskbar and Alt+Tab and an icon in the notification area stands
+    // in for it. The last game's end, the icon, a second instance or Guide bring it back.
+    static constexpr UINT tray_message = WM_APP + 60; // The icon's callback (worker messages use 1…42).
+    void trayIconEvent(WPARAM wparam, LPARAM lparam);
+    void taskbarCreated(); // Explorer restarted: the icon is added again.
+    bool inTray() const { return in_tray_; }
+    void showFromTray() { leaveTray(); } // Shown again (a second instance's request); focus is the caller's.
 
 private:
     // Worker queues (app/launcher_queues.hpp).
@@ -1196,7 +1204,12 @@ private:
     // A card by its identity; in Flix the focused row is searched first (a game can
     // sit in "recently played" and in a collection).
     std::optional<size_t> findCard(const std::string& key, bool selection_key) const;
-    void openCropEditor(const Game& game);
+    // background: the part of the game's background a screen shows ("Popraw kadr" on Tło), else its
+    // cover's square.
+    void openCropEditor(const Game& game, bool background = false);
+    crop_ui::Layout cropLayout() const; // On the current canvas, shaped like the edited window.
+    void cropShowFocus();                // The edited focus on the picture being edited.
+    ImageBytes crop_background_;         // The background being edited: its saved focus is bound to it.
     void closeCropEditor();
     void cropMove(int horizontal, int vertical);
     void cropTab(int amount);
@@ -1248,6 +1261,20 @@ private:
     void returnFromGame();
     void bringToFront(); // Restored and in front now (a shell's own window may take the foreground back).
     std::set<std::string> launched_here_; // Sessions started by the launcher itself (not adopted).
+    // The tray (src/app/tray.cpp). hideToTray: only with the setting on and the icon added. leaveTray:
+    // the icon goes and the window is shown again (without taking the foreground).
+    void hideToTray(const std::wstring& game);
+    void leaveTray();
+    // Each tick: hides once a game started here runs and something else (the game) is in front;
+    // shows again when no session is left or the setting was turned off.
+    void pollTray();
+    void removeTrayIcon();
+    bool addTrayIcon();
+    void trayMenu();
+    bool in_tray_ = false, tray_icon_ = false;
+    std::wstring tray_game_;
+    // Shell_NotifyIconW; UI tests record the calls instead of touching the notification area.
+    std::function<BOOL(DWORD, NOTIFYICONDATAW*)> tray_call_ = [](DWORD message, NOTIFYICONDATAW* data) { return Shell_NotifyIconW(message, data); };
     void requestGameFocus(const Game& game, uint64_t focus_ms = default_focus_ms);
     void cancelGameFocus();
     void pollGameFocus();
@@ -1703,6 +1730,7 @@ private:
         ImageBytes cover, logo, hero;
         ImageBytes poster, landscape, disc;
         CropFocus focus;
+        CropFocus hero_focus; // The part of the background a screen shows ("Popraw kadr" on Tło).
         HeroTone hero_tone = HeroTone::full;
     };
     struct CachedArtBytes {
@@ -1886,6 +1914,20 @@ private:
     uint32_t sound_generation_[4]{};
     bool boot_played_ = false;
     artwork_ui::State artwork_state_;
+    // "Zmień grafikę": every gallery page seen while it is open (type, page, source) with the
+    // thumbnails that arrived, so going back to Plakat after Tło shows it at once instead of asking
+    // SteamGridDB and reading every thumbnail again. Freed when the browser closes.
+    struct ArtworkPageCache {
+        std::vector<GridAsset> assets;
+        ArtworkProvider provider = ArtworkProvider::steamgriddb;
+        GridSource source;
+        bool more = false;
+        std::wstring status;
+        std::unordered_map<uint32_t, std::vector<uint8_t>> thumbnails;
+    };
+    std::unordered_map<std::string, ArtworkPageCache> artwork_pages_;
+    std::string artwork_page_key_; // The page being shown (or loaded): its entry in artwork_pages_.
+    std::string artworkPageKey() const;
     ratings::Map ratings_;
     rawg::Map rawg_metadata_;
     // Emulated shortcuts identified in ES-DE's gamelist.xml by ROM file (ScreenScraper data ES-DE
@@ -1911,6 +1953,7 @@ private:
     uint32_t video_generation_ = 0;
     std::vector<uint8_t> video_frame_;
     const Game* videoCandidate() const;
+    bool trailerByTitle(const Game& game) const; // Another store's PC game: the Steam trailer of its title.
     void tickVideo(bool& needs_paint);
     void stopVideo();
     bool ratings_started_ = false;

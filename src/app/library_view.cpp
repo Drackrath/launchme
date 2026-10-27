@@ -263,7 +263,7 @@ void Launcher::focusCard(size_t index, bool reveal) {
     if (const auto* found = art_.find(gameKey(cards_[selected_].game))) {
         if (found->logo && !libraryListPlus()) renderer_.setLogo(selected_, found->logo);
         if ((screen_ == ScreenMode::shelves || screen_ == ScreenMode::platform_games || screen_ == ScreenMode::library) && found->hero)
-            renderer_.setHero(selected_, found->hero, found->hero_tone, true); // Replaces a stand-in the slot kept.
+            renderer_.setHero(selected_, found->hero, found->hero_tone, true, found->hero_focus); // Replaces a stand-in the slot kept.
     }
     requestVisibleArt(); InvalidateRect(hwnd_, nullptr, FALSE);
 }

@@ -172,7 +172,8 @@ Import importLibrary(std::string_view pasted, const Post& post) {
         for (size_t i = begin; i < std::min(offers.size(), begin + page_limit); ++i) list += (i > begin ? "," : "") + jsonString(offers[i]);
         const auto data = call(post, token, request(
             "query getOffers($offerIds: [String!]!) { legacyOffers(offerIds: $offerIds, locale: \"DEFAULT\") { offerId: id contentId } "
-            "gameProducts(offerIds: $offerIds, locale: \"DEFAULT\") { items { id originOfferId baseItem { title } } } }",
+            "gameProducts(offerIds: $offerIds, locale: \"DEFAULT\") { items { id originOfferId baseItem { title keyArt { aspect16x9Image { path } } "
+            "packArt { aspect9x16Image { path } largestImage { path } } primaryLogo { largestImage { path } } } } } }",
             "{\"offerIds\":" + list + "]}"), failure);
         if (!data) return result;
         const auto* legacy = data->get("legacyOffers");
@@ -192,6 +193,17 @@ Import importLibrary(std::string_view pasted, const Post& post) {
             Game game;
             game.source = GameSource::ea; game.kind = GameKind::store; game.installed = false;
             game.source_id = content; game.name = name; game.account_id = account;
+            // EA's own art (no key needed to fetch it): the tall pack art, the 16:9 key art, the logo.
+            const auto* base = product->get("baseItem");
+            const auto image = [&](const char* group, const char* size) {
+                const auto* holder = base && base->get(group) ? base->get(group)->get(size) : nullptr;
+                auto path = field(holder, "path");
+                return path.starts_with("https://") && path.size() <= 1024 && path.find_first_of("\"\r\n") == std::string::npos ? path : std::string{};
+            };
+            game.store_tall_art = image("packArt", "aspect9x16Image");
+            if (game.store_tall_art.empty()) game.store_tall_art = image("packArt", "largestImage");
+            game.store_wide_art = image("keyArt", "aspect16x9Image");
+            game.store_logo_art = image("primaryLogo", "largestImage");
             games.try_emplace(gameKey(game), std::move(game));
         }
     }

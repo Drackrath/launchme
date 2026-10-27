@@ -64,7 +64,9 @@ enum class Id { font, home_layout, ui_accent, accent, uninstalled, emulation, co
                    // Platformy PC → MultiMC / Prism: the launcher picked by hand (portable MultiMC).
                    multimc_path, studio_libraries, studio_hidden,
                    // System → Wydajność: the low memory mode (AppSettings::low_memory) and its BC1 option.
-                   low_memory, low_memory_bc1 };
+                   low_memory, low_memory_bc1,
+                   // Biblioteka → Uruchamianie: hidden in the notification area while a game runs (src/app/tray.cpp).
+                   hide_while_playing };
 inline bool hasOptionsButton(Id id) { return id == Id::plugin_enabled || id == Id::pc_platform; }
 // layout: drawn preview tiles in the row (one per home layout); Row::choice is the active one.
 // count: Row::value as a large number with a chevron; activating opens a sub-list.

@@ -213,6 +213,9 @@ struct AppSettings {
     // Steam games start through steam.exe -silent (a Steam started for them stays in the tray) and
     // Steam gets no foreground permission; Launchme hands focus to the game window itself.
     bool steam_silent_launch = false;
+    // While a game started here runs, the window is hidden (no taskbar button, no Alt+Tab) and an
+    // icon in the notification area stands in for it; it comes back when the game closes.
+    bool hide_while_playing = false;
     // A Steam game installed by another account remembered on this PC: Steam restarts signed in to
     // that account, then the game starts (src/library/steam_accounts.hpp).
     bool steam_account_switch = true;

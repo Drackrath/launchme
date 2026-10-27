@@ -97,9 +97,14 @@ void Renderer::drawGrid() {
             text(tr(L"Brak wyników. Spróbuj innego tytułu."), 68, 200, width - 136, 34, menu_font_.Get(), palette::stateLabel());
         else if (library_query && unfold <= 0.004f)
             text(tr(L"Brak wyników. Spróbuj innego tytułu."), 68, 200, width - 136, 34, menu_font_.Get(), palette::stateLabel());
-        else if (library && !library_query)
-            textGroup(tr(L"Brak gier w tym widoku"), tr(L"Zmień zakładkę lub filtry."), 68, 200, width - 136,
-                      menu_font_.Get(), palette::gray(0.82f), settings_body_font_.Get(), palette::muted(), 1, true);
+        else if (library && !library_query) {
+            // An empty view (a tab or filters with no games): in the middle of the screen, both ways.
+            const float middle = viewport_.height * 0.5f;
+            textLine(tr(L"Brak gier w tym widoku"), 68, middle - 20, width - 136, menu_font_.Get(), palette::gray(0.82f),
+                     DWRITE_TEXT_ALIGNMENT_CENTER);
+            textLine(tr(L"Zmień zakładkę lub filtry."), 68, middle + 22, width - 136, settings_body_font_.Get(), palette::muted(),
+                     DWRITE_TEXT_ALIGNMENT_CENTER);
+        }
         return;
     }
     if (context_->library_mode == library_view::View::cinematic) { drawLibraryCinematic(); drawScrollLetter(); return; }

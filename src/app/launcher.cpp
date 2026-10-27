@@ -81,6 +81,7 @@ Launcher::~Launcher() {
     if (companion_.semantic) companion_.semantic->stop();
     if (bulk_control_) bulk_control_->cancel = true;
     if (hwnd_) { KillTimer(hwnd_, guide_timer); if (guide_hotkey_active_) UnregisterHotKey(hwnd_, guide_hotkey); }
+    removeTrayIcon(); // Left behind, it would stay in the notification area until hovered.
     overlay_monitor_.stop();
     overlay_target_.reset();
     game_overlay_.reset();
@@ -404,6 +405,7 @@ void Launcher::tick() {
     if (closing_) { tickClose(now); return; }
     pollMemory();
     pollGameFocus();
+    pollTray();
     startRatings();
     pollLibrarySave();
     pollPluginGameViews();

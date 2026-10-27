@@ -3,6 +3,7 @@
 #include "../src/store/ea_account.hpp"
 #include "../src/store/web_import.hpp"
 #include <Windows.h>
+#include <algorithm>
 #include <fstream>
 #include <iostream>
 
@@ -46,7 +47,9 @@ struct FakeEa {
                 {"offerId":"Origin.OFR.50.0003","contentId":"1026480"},
                 {"offerId":"Origin.OFR.50.0004","contentId":"55"}],
               "gameProducts":{"items":[
-                {"id":"x1","originOfferId":"Origin.OFR.50.0001","baseItem":{"title":"Mass Effect\u2122 Legendary Edition"}},
+                {"id":"x1","originOfferId":"Origin.OFR.50.0001","baseItem":{"title":"Mass Effect\u2122 Legendary Edition",
+                  "keyArt":{"aspect16x9Image":{"path":"https://app-images.ea.com/me/key.jpg"}},"packArt":{"aspect9x16Image":{"path":"https://app-images.ea.com/me/pack.jpg"}},
+                  "primaryLogo":{"largestImage":{"path":"http://app-images.ea.com/me/logo.png"}}}},
                 {"id":"1026480","originOfferId":"","baseItem":{"title":"Dead Space"}}]}}})");
         return reply(500);
     }
@@ -103,11 +106,24 @@ int main() {
     fake.status = 200; fake.unauthenticated = true;
     check(ea::importLibrary(token, post).failure == ea::Failure::expired, "UNAUTHENTICATED is an expired token");
 
+    // EA's own art comes with the offers: pack art, key art, logo (an http link is not kept).
+    for (const auto& game : imported.snapshot.games) {
+        if (game.source_id == "196102")
+            check(game.store_tall_art == "https://app-images.ea.com/me/pack.jpg" && game.store_wide_art == "https://app-images.ea.com/me/key.jpg" &&
+                  game.store_logo_art.empty(), "EA art");
+        else check(game.store_tall_art.empty() && game.store_wide_art.empty() && game.store_logo_art.empty(), "no EA art");
+    }
+    check(fake.bodies.size() >= 4 && fake.bodies[3].find("packArt") != std::string::npos, "art asked with the offers");
+
     // Saved list: DPAPI round trip, no token inside, strict format.
     const auto text = web_import::serialize(GameSource::ea, imported.snapshot);
     check(!text.empty() && text.find(token) == std::string::npos, "serialized without the token");
     const auto back = web_import::deserialize(GameSource::ea, text);
     check(back && back->games.size() == 2 && back->account == imported.snapshot.account && back->games[0].account_id == back->account, "round trip");
+    check(back && std::any_of(back->games.begin(), back->games.end(), [](const Game& g) { return g.store_tall_art == "https://app-images.ea.com/me/pack.jpg"; }), "art round trip");
+    // A list saved before 0.3.0 (no art) still reads.
+    const auto older = web_import::deserialize(GameSource::ea, "launchme-import-v1 ea \"1000123456789\" 5 1\n\"196102\" \"Mass Effect\"\n");
+    check(older && older->games.size() == 1 && older->games[0].store_tall_art.empty(), "v1 list");
     check(!web_import::deserialize(GameSource::battlenet, text), "source mismatch rejected");
     check(!web_import::deserialize(GameSource::ea, text + "\"extra\""), "trailing data rejected");
     auto duplicate = imported.snapshot; duplicate.games.push_back(duplicate.games[0]);
@@ -134,7 +150,7 @@ int main() {
     const auto merged = mergeImportedLibrary(native, everything);
     check(merged.visible.size() == 4, "local EA + imported EA + two Battle.net");
     for (const auto& game : merged.visible) {
-        if (game.source == GameSource::ea && game.source_id == "196102") check(game.installed && game.name == L"Mass Effect (local)", "local installation kept");
+        if (game.source == GameSource::ea && game.source_id == "196102") check(game.installed && game.name == L"Mass Effect (local)" && game.store_tall_art == "https://app-images.ea.com/me/pack.jpg", "local installation kept, with the import's art");
         else if (game.source == GameSource::ea) {
             check(!game.installed && game.install_action.target == L"origin2://game/launch?offerIds=1026480&autoDownload=1" &&
                   game.install_action.kind == ActionKind::install && !game.play_action, "EA installs through the EA app");

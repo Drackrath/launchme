@@ -11,8 +11,15 @@
 // it has transparency (logos). SteamGridDB heroes arrive as 3840 px PNGs and logos up to 8000 px.
 enum class ImageRole { background, landscape, cover, poster, logo };
 
+// The factor (at most 1) a width × height image is scaled by when cached: backgrounds keep what
+// covers 2560×1440 (they are drawn cover-fit), other roles fit inside their box.
+double compactScale(uint32_t width, uint32_t height, ImageRole role);
 // The smaller re-encoding, or empty when the image is already small enough (keep the input).
 std::vector<uint8_t> compactImage(std::span<const uint8_t> bytes, ImageRole role);
+// Backgrounds the first compaction (before 0.3.0) shrank to 2560 px wide and under 1440 px high:
+// automatic ones (no manual crop, not a user's pick) are deleted, so they are downloaded again at
+// full size. Returns how many were removed; keep_going is polled between files.
+size_t releaseShrunkenBackgrounds(const std::filesystem::path& root, const std::function<bool()>& keep_going);
 // The role a cache file plays, from its folder and name (heroes\, logos\, stores\...\hero.v2.img,
 // artwork\selections\...\logo\..., emulation\backgrounds\...); false for anything else.
 bool imageRoleFor(const std::filesystem::path& file, ImageRole& role);

@@ -30,10 +30,10 @@ void keyImages(const json::Value& product, Game& game) {
         for (const auto* type : types) if (const auto found = urls.find(type); found != urls.end()) return found->second;
         return std::string{};
     };
-    game.epic_tall_art = first({"DieselGameBoxTall", "OfferImageTall", "DieselStoreFrontTall", "Thumbnail"});
-    game.epic_wide_art = first({"DieselGameBox", "OfferImageWide", "DieselStoreFrontWide"});
-    game.epic_logo_art = first({"DieselGameBoxLogo"});
-    if (game.epic_tall_art.empty()) game.epic_tall_art = "-";
+    game.store_tall_art = first({"DieselGameBoxTall", "OfferImageTall", "DieselStoreFrontTall", "Thumbnail"});
+    game.store_wide_art = first({"DieselGameBox", "OfferImageWide", "DieselStoreFrontWide"});
+    game.store_logo_art = first({"DieselGameBoxLogo"});
+    if (game.store_tall_art.empty()) game.store_tall_art = "-";
 }
 // Form bodies (token grants) need narrow text; URLs use url_encoding::component.
 std::string encode(std::string_view s) {
@@ -165,7 +165,7 @@ public:
             if (cancel()) return {Failure::cancelled};
             // Known games are kept as saved; one saved before Epic's art was read (0.2.4 and older) is asked once more.
             if (const auto old = previous.find(id); old != previous.end() && old->second.epic_catalog == item.catalog && old->second.epic_namespace == item.space &&
-                !old->second.epic_tall_art.empty()) {
+                !old->second.store_tall_art.empty()) {
                 games.push_back(old->second); continue;
             }
             HttpResponse response;

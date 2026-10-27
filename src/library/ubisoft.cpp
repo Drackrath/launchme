@@ -147,6 +147,59 @@ std::map<std::string, uint64_t> parseRecentlyPlayed(std::string_view bytes) {
     return result;
 }
 
+std::map<std::string, Art> parseConfigurations(std::string_view bytes) {
+    std::map<std::string, Art> result;
+    if (bytes.size() > max_configuration_bytes) return result;
+    const auto top = decode(bytes);
+    if (!top) return result;
+    // An asset file name: 32 hex digits and .jpg/.png (nothing else is joined to the CDN address).
+    const auto asset = [](std::string_view value) -> std::string {
+        while (!value.empty() && (value.back() == '\r' || value.back() == ' ' || value.back() == '"' || value.back() == '\'')) value.remove_suffix(1);
+        while (!value.empty() && (value.front() == ' ' || value.front() == '"' || value.front() == '\'')) value.remove_prefix(1);
+        if (value.size() != 36 || !(value.ends_with(".jpg") || value.ends_with(".png"))) return {};
+        if (!std::all_of(value.begin(), value.begin() + 32, [](char ch) { return (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f'); })) return {};
+        return std::string(asset_cdn) + std::string(value);
+    };
+    for (const auto& field : *top) {
+        if (field.id != 1 || field.wire != 2) continue;
+        const auto record = decode(field.bytes);
+        if (!record) continue;
+        uint64_t id = 0;
+        std::string_view yaml;
+        for (const auto& value : *record) {
+            if (value.id == 1 && value.wire == 0) id = value.number;
+            else if (value.id == 3 && value.wire == 2) yaml = value.bytes;
+        }
+        if (!id || id > 0xffffffffull || yaml.empty()) continue;
+        // The product's own images: two-space keys under "root:" (localizations and DLC lists are deeper).
+        Art art;
+        bool root = false;
+        size_t start = 0;
+        while (start < yaml.size()) {
+            auto end = yaml.find('\n', start);
+            if (end == std::string_view::npos) end = yaml.size();
+            const auto line = yaml.substr(start, end - start);
+            start = end + 1;
+            if (!line.empty() && line.front() != ' ') { root = line.starts_with("root:"); continue; }
+            if (!root || !line.starts_with("  ") || line.starts_with("   ")) continue;
+            const auto text = line.substr(2);
+            if (text.starts_with("thumb_image:")) art.thumb = asset(text.substr(12));
+            else if (text.starts_with("background_image:")) art.background = asset(text.substr(17));
+            else if (text.starts_with("logo_image:")) art.logo = asset(text.substr(11));
+        }
+        if (!art.thumb.empty() || !art.background.empty() || !art.logo.empty()) result[std::to_string(id)] = std::move(art);
+    }
+    return result;
+}
+
+std::map<std::string, Art> readConfigurations(const std::vector<std::filesystem::path>& caches) {
+    for (const auto& cache : caches) {
+        auto art = parseConfigurations(readFile(cache / L"configuration" / L"configurations", max_configuration_bytes));
+        if (!art.empty()) return art;
+    }
+    return {};
+}
+
 std::optional<Account> readAccount(const std::vector<std::filesystem::path>& caches) {
     std::filesystem::path newest;
     std::filesystem::file_time_type newest_time{};

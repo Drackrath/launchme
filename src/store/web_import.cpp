@@ -9,14 +9,17 @@
 
 namespace web_import {
 namespace {
-constexpr const char* header = "launchme-import-v1";
+constexpr const char* header = "launchme-import-v2"; // v2: each game's store art (EA's offers).
+constexpr const char* header_v1 = "launchme-import-v1";
+// A store art address as kept: https, bounded, nothing that would end its quoted field.
+bool artUrl(const std::string& url) { return url.empty() || (url.starts_with("https://") && url.size() <= 1024 && url.find_first_of("\r\n") == std::string::npos); }
 bool valid(GameSource source, const Snapshot& snapshot) {
     if (snapshot.account.empty() || snapshot.account.size() > 128 || snapshot.games.size() > 10000 ||
         snapshot.account.find_first_of("\r\n\"") != std::string::npos) return false;
     std::set<std::string> keys;
     for (const auto& game : snapshot.games)
         if (game.source != source || !validStoreGameId(source, game.source_id) || game.name.empty() || game.name.size() > 512 ||
-            !keys.insert(gameKey(game)).second) return false;
+            !keys.insert(gameKey(game)).second || !artUrl(game.store_tall_art) || !artUrl(game.store_wide_art) || !artUrl(game.store_logo_art)) return false;
     return true;
 }
 }
@@ -26,7 +29,9 @@ std::string serialize(GameSource source, const Snapshot& snapshot) {
     std::ostringstream data;
     data.imbue(std::locale::classic());
     data << header << ' ' << sourceSlug(source) << ' ' << std::quoted(snapshot.account) << ' ' << snapshot.synced_at << ' ' << snapshot.games.size() << '\n';
-    for (const auto& game : snapshot.games) data << std::quoted(game.source_id) << ' ' << std::quoted(text_encoding::utf8(game.name)) << '\n';
+    for (const auto& game : snapshot.games)
+        data << std::quoted(game.source_id) << ' ' << std::quoted(text_encoding::utf8(game.name)) << ' ' << std::quoted(game.store_tall_art) << ' '
+             << std::quoted(game.store_wide_art) << ' ' << std::quoted(game.store_logo_art) << '\n';
     return data.str();
 }
 
@@ -37,11 +42,13 @@ std::optional<Snapshot> deserialize(GameSource source, std::string_view text) {
     Snapshot snapshot;
     size_t count = 0;
     if (!(data >> magic >> slug >> std::quoted(snapshot.account) >> snapshot.synced_at >> count) ||
-        magic != header || slug != sourceSlug(source) || count > 10000) return {};
+        (magic != header && magic != header_v1) || slug != sourceSlug(source) || count > 10000) return {};
+    const bool art = magic == header;
     for (size_t i = 0; i < count; ++i) {
         Game game;
         std::string name;
         if (!(data >> std::quoted(game.source_id) >> std::quoted(name))) return {};
+        if (art && !(data >> std::quoted(game.store_tall_art) >> std::quoted(game.store_wide_art) >> std::quoted(game.store_logo_art))) return {};
         game.source = source; game.kind = GameKind::store; game.installed = false;
         game.name = text_encoding::wide(name);
         game.account_id = snapshot.account;

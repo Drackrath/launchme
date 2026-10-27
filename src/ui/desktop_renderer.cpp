@@ -610,7 +610,7 @@ void Renderer::drawDesktopEmpty(const Layout& layout, const View& view) {
     }
     const auto& empty = view.empty;
     if (empty.title.empty()) return;
-    const float cy = layout.gridTop() + std::max(150.0f, layout.viewHeight() * 0.32f);
+    const float cy = layout.emptyMessageY(!empty.primary.empty(), !empty.body.empty());
     brush(gray(1, 0.05f));
     target_->FillEllipse(D2D1::Ellipse(D2D1::Point2F(cx, cy - 40), 32, 32), solid_.Get());
     if (empty.icon) desktopGlyph(empty.icon, cx, cy - 40, 24, gray(0.7f));

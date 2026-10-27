@@ -29,7 +29,7 @@ void Renderer::setScreensaverImage(int slot, std::vector<uint8_t> bytes, bool he
     if (slot < 0 || slot >= screensaver_slots) return;
     auto& image = saver_slots_[slot];
     image = Cover{};
-    image.hero = hero; // Heroes are downsampled to 1920 px; posters and covers get an accent colour.
+    image.hero = hero; // Heroes keep what covers the screen; posters and covers get an accent colour.
     image.pixels = bytes.empty() ? ImageBytes{} : std::make_shared<const std::vector<uint8_t>>(std::move(bytes));
     createBitmap(image);
 }

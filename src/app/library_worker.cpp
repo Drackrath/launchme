@@ -5,6 +5,7 @@
 #include "library_snapshot.hpp"
 #include "../platform/steam_downloads.hpp"
 #include "../artwork/cover_cache.hpp"
+#include "../artwork/background_focus.hpp"
 #include "../artwork/platform_logo.hpp"
 #include "../artwork/esde_art.hpp"
 #include "../artwork/screenscraper_art.hpp"
@@ -350,7 +351,8 @@ void Launcher::startArtworkWorkers(bool network) {
                             auto metadata = image; metadata.replace_extension(L".focus");
                             if (const auto focus = storedTextCrop(image, metadata, job.game.name)) result->focus = *focus;
                             else result->bytes.clear(); // OCR runs on a download worker, never blocks this lane.
-                        }
+                        } else if (!result->bytes.empty() && job.kind == CoverMessage::Kind::hero)
+                            result->focus = backgroundFocus(job.game, result->bytes, cache).value_or(CropFocus{});
                     }
                     if (provisional && !result->bytes.empty()) {
                         // The console's own backdrop or its faint logo until a game's background is found.
@@ -519,6 +521,8 @@ void Launcher::startArtworkWorkers(bool network) {
                     continue;
                 }
                 if (persist_failure) artwork_failure::clear(failures, key);
+                if (job.kind == CoverMessage::Kind::hero && !job.platform_background) // The part of it a screen shows.
+                    result->focus = backgroundFocus(game, result->bytes, cache).value_or(CropFocus{});
                 result->prefetched = job.prefetch;
                 if (job.prefetch) std::vector<uint8_t>{}.swap(result->bytes); // Disk cache, not a library-sized RAM cache.
                 if (!alive->load() || !PostMessageW(hwnd, cover_message, 0,

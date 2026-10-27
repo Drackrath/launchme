@@ -89,7 +89,7 @@ endfunction()
 set(LAUNCHME_PC_SCAN_SOURCES src/library/pc_platforms.cpp src/library/multimc.cpp src/library/battlenet.cpp src/library/ubisoft.cpp
     src/library/store_adapter.cpp src/library/steam.cpp src/library/visibility.cpp src/net/json.cpp)
 set(LAUNCHME_WEB_SOURCES src/net/http.cpp src/net/json.cpp src/platform/user_config.cpp)
-set(LAUNCHME_COVER_SOURCES src/artwork/cover_cache.cpp src/artwork/steamgriddb_search.cpp src/artwork/image_compact.cpp src/artwork/download_art.cpp)
+set(LAUNCHME_COVER_SOURCES src/artwork/cover_cache.cpp src/artwork/battlenet_art.cpp src/artwork/gog_art.cpp src/artwork/steamgriddb_search.cpp src/artwork/image_compact.cpp src/artwork/download_art.cpp)
 set(LAUNCHME_GOG_INSTALL_SOURCES src/store/gog_install.cpp src/store/gog_install_native.cpp src/net/http_download.cpp)
 set(LAUNCHME_EPIC_SOURCES src/store/epic_api.cpp src/store/epic_vault.cpp src/store/epic_service.cpp src/store/epic_legendary.cpp)
 
@@ -243,9 +243,11 @@ set(LAUNCHME_APP_SOURCES
     src/app/snitch.cpp
     src/app/achievements.cpp
     src/app/game_sessions.cpp
+    src/app/tray.cpp
     src/app/quick_resume.cpp
     src/store/game_details.cpp
     src/store/steam_trailer.cpp
+    src/store/steam_app_match.cpp
     src/ui/renderer.cpp
     src/ui/renderer_resources.cpp
     src/ui/renderer_text.cpp
@@ -335,6 +337,7 @@ set(LAUNCHME_APP_SOURCES
     src/artwork/esde_art.cpp
     src/artwork/screenscraper_art.cpp
     src/artwork/text_crop.cpp
+    src/artwork/background_focus.cpp
     src/artwork/block_compression.cpp
     src/artwork/failure_cache.cpp
     src/net/http.cpp
@@ -825,6 +828,7 @@ add_test(NAME low_memory_mode COMMAND launcher_ui_tests --low-memory)
     add_test(NAME publisher_developer_libraries_and_tv_metadata COMMAND launcher_ui_tests --studios)
     add_dependencies(launcher_ui_tests launchme_studios) # The logos beside the test, as beside the program.
     add_test(NAME launchme_updates_and_whats_new COMMAND launcher_ui_tests --updates)
+    add_test(NAME tray_while_playing_and_background_crop COMMAND launcher_ui_tests --tray)
     set_tests_properties(tarot_reading_cards_and_results PROPERTIES TIMEOUT 60)
     add_test(NAME companion_home_chat_and_settings COMMAND launcher_ui_tests --companion)
     add_test(NAME companion_semantic_prompt_and_settings COMMAND launcher_ui_tests --companion-semantic)
@@ -866,6 +870,13 @@ add_test(NAME low_memory_mode COMMAND launcher_ui_tests --low-memory)
     launchme_executable(steam_install_live_test
         SOURCES tests/steam_install_live_test.cpp src/library/steam.cpp src/library/visibility.cpp src/platform/steam_downloads.cpp
         LIBS advapi32)
+    launchme_executable(store_art_tests TEST store_own_artwork
+        SOURCES tests/store_art_tests.cpp src/artwork/battlenet_art.cpp src/artwork/gog_art.cpp ${LAUNCHME_PC_SCAN_SOURCES} ${LAUNCHME_WEB_SOURCES}
+        LIBS advapi32 winhttp shell32 ole32)
+    launchme_executable(background_art_tests TEST background_art_and_trailer_match
+        SOURCES tests/background_art_tests.cpp src/artwork/background_focus.cpp src/artwork/text_crop.cpp src/store/steam_app_match.cpp
+            ${LAUNCHME_COVER_SOURCES} ${LAUNCHME_WEB_SOURCES}
+        LIBS windowscodecs winhttp shell32 ole32)
     launchme_executable(text_crop_tests TEST text_aware_crop
         SOURCES tests/text_crop_tests.cpp src/artwork/text_crop.cpp
         LIBS windowscodecs ole32)

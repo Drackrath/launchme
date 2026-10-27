@@ -3,6 +3,7 @@
 #include "../artwork/esde_art.hpp"
 #include "../artwork/screenscraper_art.hpp"
 #include "../platform/atomic_file.hpp"
+#include "../platform/text_encoding.hpp"
 #include <algorithm>
 #include <cstdlib>
 #include <fstream>
@@ -182,6 +183,7 @@ void Launcher::openArtworkBrowser(const Game& game) {
         (metro_layout::landscape(metro_tiles_[selected_].role) ? ArtworkKind::landscape : ArtworkKind::poster) :
         (xmbActive() && settings_.xmb_posters) || shelfPosters() ? ArtworkKind::poster : ArtworkKind::cover;
     artwork_state_ = {};
+    artwork_pages_.clear(); artwork_page_key_.clear();
     artwork_state_.game = game;
     artwork_state_.source = artwork_state_.override_source = selectedArtworkSource(game, coverCacheDirectory());
     artwork_state_.query = game.name;
@@ -204,6 +206,7 @@ void Launcher::closeArtworkBrowser() {
     }
     artwork_state_.assets.clear();
     artwork_state_.applying = false;
+    artwork_pages_.clear(); artwork_page_key_.clear(); // The visit's pages and thumbnails go with it.
     renderer_.resetArtworkThumbnails(0);
     screen_ = artwork_return_;
     grid_scroll_ = artwork_return_scroll_;
@@ -217,6 +220,15 @@ void Launcher::closeEditorsFor(const std::function<bool(const Game&)>& gone) {
     if (cropOpen() && !crop_games_.empty() && gone(crop_games_[0])) closeCropEditor();
 }
 
+std::string Launcher::artworkPageKey() const {
+    const auto& state = artwork_state_;
+    const auto provider = state.kind() == ArtworkKind::disc ? ArtworkProvider::screenscraper : state.emulated() ? state.provider : ArtworkProvider::steamgriddb;
+    auto key = std::to_string(state.category) + '|' + std::to_string(state.page) + '|' + std::to_string(static_cast<int>(provider)) + '|' +
+               std::to_string(state.source.id) + (state.source.steam ? "s" : "g");
+    if (state.kind() == ArtworkKind::disc) key += '|' + text_encoding::utf8(state.query); // Its gallery follows the field.
+    return key;
+}
+
 void Launcher::loadArtworkPage() {
     auto& state = artwork_state_;
     state.search_focus = state.results_mode = false;
@@ -228,6 +240,25 @@ void Launcher::loadArtworkPage() {
     state.more = state.applying = false;
     state.status = tr(L"Wczytywanie…");
     renderer_.resetArtworkThumbnails(0);
+    artwork_page_key_ = artworkPageKey();
+    if (const auto cached = artwork_pages_.find(artwork_page_key_); cached != artwork_pages_.end()) {
+        // Seen while the browser is open: shown at once, its thumbnails from memory.
+        { std::lock_guard lock(artwork_jobs_->mutex); artwork_jobs_->generation.fetch_add(1); artwork_jobs_->jobs.clear(); }
+        const auto& page = cached->second;
+        state.loading = false;
+        state.assets = page.assets; state.provider = page.provider; state.more = page.more; state.status = page.status;
+        if (page.provider == ArtworkProvider::steamgriddb) state.source = page.source;
+        state.applied_id = selectedArtworkId(state.game, state.kind(), coverCacheDirectory()); // A pick made since.
+        renderer_.resetArtworkThumbnails(state.assets.size());
+        for (size_t i = 0; i < state.assets.size(); ++i)
+            if (const auto bytes = page.thumbnails.find(state.assets[i].id); bytes != page.thumbnails.end()) {
+                state.requested.insert(state.assets[i].id);
+                renderer_.setArtworkThumbnail(i, bytes->second, state.kind() == ArtworkKind::logo);
+            }
+        requestArtworkThumbnails(); // Those that had not arrived yet.
+        InvalidateRect(hwnd_, nullptr, FALSE);
+        return;
+    }
     {
         std::lock_guard lock(artwork_jobs_->mutex);
         const auto generation = artwork_jobs_->generation.fetch_add(1) + 1;
@@ -345,9 +376,19 @@ void Launcher::onArtworkBrowser(std::unique_ptr<ArtworkBrowserMessage> message) 
         state.applied_id = message->applied_id;
         state.status = message->page.error;
         if (state.status.empty() && state.assets.empty()) state.status = tr(L"Brak grafik.");
+        // Kept for the rest of this visit; a failed answer (no connection, a rate limit) is asked again.
+        // Under the key it was asked by and, the answer naming the SteamGridDB game, the key it has now.
+        if (message->page.error.empty() && !artwork_page_key_.empty()) {
+            ArtworkPageCache page{state.assets, state.provider, state.source, state.more, state.status, {}};
+            artwork_pages_[artwork_page_key_] = page;
+            artwork_page_key_ = artworkPageKey();
+            artwork_pages_[artwork_page_key_] = std::move(page);
+        }
         renderer_.resetArtworkThumbnails(state.assets.size());
         requestArtworkThumbnails();
     } else if (message->type == ArtworkBrowserMessage::Type::thumbnail) {
+        if (const auto page = artwork_pages_.find(artwork_page_key_); page != artwork_pages_.end() && !message->bytes.empty())
+            page->second.thumbnails[message->asset_id] = message->bytes;
         for (size_t i = 0; i < state.assets.size(); ++i)
             if (state.assets[i].id == message->asset_id)
                 renderer_.setArtworkThumbnail(i, std::move(message->bytes), state.kind() == ArtworkKind::logo);
@@ -372,7 +413,7 @@ void Launcher::onArtworkBrowser(std::unique_ptr<ArtworkBrowserMessage> message) 
             case ArtworkKind::poster: cached.poster = shareImage(std::move(message->bytes)); desktop_poster_missing_.erase(key); break;
             case ArtworkKind::landscape: cached.landscape = shareImage(std::move(message->bytes)); break;
             case ArtworkKind::disc: cached.disc = shareImage(std::move(message->bytes)); break;
-            default: cached.hero = shareImage(std::move(message->bytes)); cached.hero_tone = HeroTone::full; break;
+            default: cached.hero = shareImage(std::move(message->bytes)); cached.hero_tone = HeroTone::full; cached.hero_focus = {}; break; // A new picture: centred.
             }
             art_.resize(key);
             trimArt();
@@ -434,7 +475,7 @@ void Launcher::openArtworkCrop() {
     state.local_focus = state.provider_focus = state.back_focus = false;
     state.crop_focus = true; state.gallery = state.search_focus = false;
     audio_.context();
-    openCropEditor(state.game);
+    openCropEditor(state.game, state.kind() == ArtworkKind::hero); // On Tło: the part of the background a screen shows.
 }
 
 void Launcher::closeLocalArtwork() {

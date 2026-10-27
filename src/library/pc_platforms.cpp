@@ -393,6 +393,16 @@ StoreLibrary scanNativePcLibraries(const PcDiscovery& discovery, const std::vect
                 game.last_played = std::max(game.last_played, played->second);
         }
     }
+    // Ubisoft Connect's own art of its games (installed or owned), where its client keeps it: a stand-in
+    // where SteamGridDB has nothing (artworkForGame).
+    if (const auto art = ubisoft::readConfigurations(discovery.ubisoft_caches); !art.empty())
+        for (auto& [key, game] : games) {
+            (void)key;
+            if (game.source != GameSource::ubisoft) continue;
+            if (const auto found = art.find(game.source_id); found != art.end()) {
+                game.store_tall_art = found->second.thumb; game.store_wide_art = found->second.background; game.store_logo_art = found->second.logo;
+            }
+        }
     for (auto& [key, game] : games) { (void)key; result.visible.push_back(std::move(game)); }
     return result;
 }
@@ -473,7 +483,7 @@ StoreLibrary mergeEpicLibrary(StoreLibrary native, const std::vector<Game>& owne
         const auto found = std::find_if(native.visible.begin(), native.visible.end(), [&](const Game& g) { return gameKey(g) == gameKey(game); });
         if (found != native.visible.end()) {
             found->epic_namespace = game.epic_namespace; found->epic_catalog = game.epic_catalog; found->epic_partner = game.epic_partner;
-            found->epic_tall_art = game.epic_tall_art; found->epic_wide_art = game.epic_wide_art; found->epic_logo_art = game.epic_logo_art;
+            found->store_tall_art = game.store_tall_art; found->store_wide_art = game.store_wide_art; found->store_logo_art = game.store_logo_art;
             found->store_playtime_minutes = std::max(found->store_playtime_minutes, game.store_playtime_minutes); // Epic's own count.
             if (game.visibility != GameVisibility::public_game) found->visibility = game.visibility;
         } else {
@@ -488,10 +498,19 @@ StoreLibrary mergeImportedLibrary(StoreLibrary native, const std::vector<Game>& 
     for (const auto& game : native.visible) present.insert(gameKey(game));
     for (const auto& game : imported) {
         if ((game.source != GameSource::ea && game.source != GameSource::battlenet) || game.account_id.empty() ||
-            !validStoreGameId(game.source, game.source_id) || game.name.empty() || !present.insert(gameKey(game)).second) continue;
+            !validStoreGameId(game.source, game.source_id) || game.name.empty()) continue;
+        if (!present.insert(gameKey(game)).second) {
+            // Installed here as well: the installation stays, with the import's art (EA's offers).
+            const auto found = std::find_if(native.visible.begin(), native.visible.end(), [&](const Game& g) { return gameKey(g) == gameKey(game); });
+            if (found != native.visible.end() && found->store_tall_art.empty() && found->store_wide_art.empty() && found->store_logo_art.empty()) {
+                found->store_tall_art = game.store_tall_art; found->store_wide_art = game.store_wide_art; found->store_logo_art = game.store_logo_art;
+            }
+            continue;
+        }
         Game entry;
         entry.source = game.source; entry.kind = GameKind::store; entry.installed = false;
         entry.source_id = game.source_id; entry.name = game.name; entry.account_id = game.account_id;
+        entry.store_tall_art = game.store_tall_art; entry.store_wide_art = game.store_wide_art; entry.store_logo_art = game.store_logo_art;
         configureStoreActions(entry, client(native.clients, entry.source), {});
         entry.play_action = {};
         // EA app: the launch link with autoDownload opens the game's download (lutris ea_app.py).

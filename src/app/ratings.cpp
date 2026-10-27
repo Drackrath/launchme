@@ -144,6 +144,16 @@ void Launcher::startRatings() {
             atomic_file::write(root / L"artwork" / L"compacted.v1", std::to_string(message->saved));
             if (PostMessageW(hwnd, cache_compacted_message, 0, reinterpret_cast<LPARAM>(message.get()))) message.release();
         });
+    // Once (0.3.0): backgrounds that compaction shrank below a 1440 px screen's height go, so they come
+    // back at full size the next time they are shown.
+    if (std::error_code ec; !std::filesystem::exists(userConfigDirectory() / L"artwork" / L"backgrounds.v2", ec))
+        work_.start([alive = alive_] {
+            SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_BEGIN);
+            const auto root = userConfigDirectory();
+            const auto removed = releaseShrunkenBackgrounds(root, [&] { return alive->load(); });
+            SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_END);
+            if (alive->load()) atomic_file::write(root / L"artwork" / L"backgrounds.v2", std::to_string(removed));
+        });
     work_.start([games = std::move(games), alive, hwnd, generation] {
         const auto root = userConfigDirectory();
         auto cached = std::make_unique<RatingsMessage>(); cached->generation = generation;
