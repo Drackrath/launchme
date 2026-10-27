@@ -266,6 +266,8 @@ void Launcher::paint(bool overlay) {
     context.menu_uninstall = menu_rows.uninstall;
     context.menu_launch = menu_rows.launch;
     context.menu_metadata = menu_rows.metadata;
+    context.menu_aurelia = menu_rows.aurelia;
+    if (selected_ < cards_.size()) context.aurelia_cloud = aureliaCloudText(cards_[selected_].game);
     // Kept while the menu fades out so its height does not jump mid-animation.
     if (!cards_.empty()) for (const auto& action : pluginContext(cards_[selected_].game)) context.menu_plugins.push_back(action.item.title.localized());
     context.menu_beside = menuBeside();
@@ -533,6 +535,7 @@ void Launcher::paint(bool overlay) {
     if (tarot_.open || tarot_.alpha > 0.003f) { context.tarot = &tarot_; context.hint_device = hintDevice(); } // Its own line of hints.
     if (profile_.open || profile_.alpha > 0.003f) { context.profile = &profile_; context.hint_device = hintDevice(); }
     if (whats_new_.open) context.whats_new = &whats_new_;
+    if (aurelia_ui_.open) context.aurelia = &aurelia_ui_;
     if (customEditorOpen()) context.custom_editor = &custom_editor_;
     if (metadataOpen()) context.tv_meta = &desktop_meta_;
     if (fileBrowserOpen()) context.file_browser = &file_browser_;

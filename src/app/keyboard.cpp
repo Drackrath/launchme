@@ -6,6 +6,7 @@
 using settings_ui::Control;
 
 bool Launcher::textFieldActive() const {
+    if (aurelia_ui_.open) return aureliaTyping();
     return (libraryDialogOpen() && library_dialog_.textField() && library_dialog_.focus == -2) ||
            (identifyOpen() && identify_state_.query_focus) ||
            (customEditorOpen() && custom_game_ui::field(custom_editor_.focus) >= 0) ||
@@ -80,6 +81,7 @@ void Launcher::keyboardPress(const osk::Key& key) {
 
 // Backspace as on a physical keyboard, per field.
 void Launcher::keyboardBackspace() {
+    if (aureliaTyping()) { aureliaKey(VK_BACK, false); return; }
     if (libraryDialogOpen()) libraryDialogKey(VK_BACK, false);
     else if (identifyOpen()) identifyKey(VK_BACK, false);
     else if (customEditorOpen()) customEditorKey(VK_BACK, false);
@@ -93,6 +95,7 @@ void Launcher::keyboardBackspace() {
 // Enter would start the first result, so they only hide the keyboard.
 void Launcher::keyboardDone() {
     closeKeyboard();
+    if (aureliaTyping()) { aureliaSubmit(); return; }
     if (metadataOpen()) return; // The field keeps its text; Zapisz saves them all.
     if ((screen_ == ScreenMode::search || screen_ == ScreenMode::store) && !libraryDialogOpen() && !identifyOpen() && !customEditorOpen()) return;
     enterDown(false);
@@ -117,6 +120,7 @@ void Launcher::keyboardCaret(int amount) {
 }
 
 size_t Launcher::keyboardPreviewCaret() const {
+    if (aureliaTyping()) return aurelia_ui_.input.size();
     if (customEditorOpen() && custom_game_ui::field(custom_editor_.focus) >= 0) return custom_editor_.caret;
     if (metadataOpen() && desktop_meta_.focus < desktop_ui::meta_fields) return desktop_meta_.caret;
     if (!libraryDialogOpen() && !identifyOpen() && !customEditorOpen() && !metadataOpen() && !artworkOpen() && !editingSecret() && !pluginPageTyping() && !companionTyping()) {
@@ -143,6 +147,7 @@ void Launcher::autoKeyboard() {
 }
 
 std::wstring Launcher::keyboardPreview() const {
+    if (aureliaTyping()) return aurelia_ui_.input;
     if (libraryDialogOpen()) return library_dialog_.input;
     if (identifyOpen()) return identify_state_.query;
     if (customEditorOpen()) {

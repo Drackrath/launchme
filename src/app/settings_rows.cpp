@@ -606,6 +606,15 @@ void Launcher::buildSettingsRows() {
         }
         add({Id::update_check, Control::toggle, tr(L"Sprawdzaj aktualizacje"),
             tr(L"Co kilka godzin pyta GitHub o nowe wydanie i powiadamia o nim."), {}, settings_.update_check});
+        section(L"AURELIA · STEAM");
+        {
+            Row row{Id::aurelia, Control::toggle, tr(L"Rozszerzona integracja Aurelia"), aurelia_ui::notice(), {}, settings_.aurelia};
+            row.tags = {L"Single player / offline", tr(L"Chmura"), L"DLC", tr(L"Wersje"), tr(L"Czat")};
+            row.lines = 3; add(std::move(row));
+            add({Id::aurelia_open, Control::action, tr(L"Zarządzaj Aurelią"),
+                 tr(L"Instalacja i aktualizacje najnowszej wersji Windows x64, konto oraz stan integracji. Zmiana integracji wymaga ponownego uruchomienia Launchme."),
+                 tr(L"Otwórz")});
+        }
         section(tr(L"Okno i język"));
         add({Id::windowed, Control::toggle, tr(L"Tryb TV w oknie"), tr(L"Zamiast pełnego ekranu. Także F11."), {}, settings_.windowed});
         {

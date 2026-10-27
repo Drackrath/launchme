@@ -132,6 +132,7 @@ void Renderer::drawContextMenu() {
     rows.uninstall = context_->menu_uninstall;
     rows.launch = context_->menu_launch;
     rows.metadata = context_->menu_metadata;
+    rows.aurelia = context_->menu_aurelia;
     const auto bounds = context_menu::bounds(active, rows, beside, viewport_.width, viewport_.height, context_->menu_anchor);
     const float x = bounds.left, width = bounds.right - bounds.left;
     const float y = bounds.top + (1.0f - alpha) * (context_->menu_anchor && bounds.top > context_->menu_anchor->top ? -19.0f : 19.0f);
@@ -167,6 +168,7 @@ void Renderer::drawContextMenu() {
         case context_menu::Item::uninstall: return tr(L"Odinstaluj");
         case context_menu::Item::launch: return tr(L"Opcje uruchamiania");
         case context_menu::Item::metadata: return tr(L"Edytuj metadane");
+        case context_menu::Item::aurelia: return tr(L"Zarządzaj · Aurelia");
         }
         return L"";
     };

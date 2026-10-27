@@ -43,6 +43,7 @@ void Launcher::click(float mouse_x, float mouse_y, bool double_click) {
     case Modal::companion_picker: if (!double_click) companionPickerClick(x, y); return;
     case Modal::tarot: if (!double_click) tarotClick(x, y); return;
     case Modal::profile: if (!double_click) profileClick(x, y); return;
+    case Modal::aurelia: if (!double_click) aureliaClick(x, y); return;
     case Modal::whats_new: if (!double_click) whatsNewClick(x, y); return;
     case Modal::exit_prompt: if (!double_click) exitPromptClick(x, y); return;
     case Modal::power_menu: if (!double_click) powerMenuClick(x, y); return;
@@ -299,6 +300,7 @@ bool Launcher::hoverButton(float mouse_x, float mouse_y) const {
     case Modal::companion_picker: return companion_ui::PickerLayout{view.width, view.height}.hit(companion_.picker, x, y) != companion_ui::no_hit;
     case Modal::tarot: return tarotPointerOver(x, y);
     case Modal::profile: return profilePointerOver(x, y);
+    case Modal::aurelia: return aurelia_ui::Layout{view.width, view.height}.hit(aurelia_ui_, x, y) != -9;
     case Modal::whats_new: return update_ui::WhatsNewLayout{view.width, view.height}.ok().contains(x, y);
     }
     if (launchAnimationActive()) return false;
@@ -436,6 +438,12 @@ bool Launcher::hoverButton(float mouse_x, float mouse_y) const {
 
 // Hover across screens, leaving the window, and the end of a mouse drag.
 void Launcher::mouseMove(float mouse_x, float mouse_y) {
+    if (topModal() == Modal::aurelia) {
+        const auto view = renderer_.viewport();
+        const int hit = aurelia_ui::Layout{view.width, view.height}.hit(aurelia_ui_, mouse_x / view.scale, mouse_y / view.scale);
+        if (aurelia_ui_.hover != hit) { aurelia_ui_.hover = hit; InvalidateRect(hwnd_, nullptr, FALSE); }
+        return;
+    }
     companionPointer(mouse_x, mouse_y);
     if (topModal() == Modal::companion_picker) {
         const auto view = renderer_.viewport();

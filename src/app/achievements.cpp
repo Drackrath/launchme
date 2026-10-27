@@ -60,7 +60,7 @@ void Launcher::initializeAchievements() {
     const auto queue = achievement_jobs_;
     const auto alive = alive_;
     const auto hwnd = hwnd_;
-    work_.start([queue, alive, hwnd] {
+    work_.start([queue, alive, hwnd, aurelia = aurelia_active_, invoke = aurelia_transport_] {
         const auto steam = findSteamRoot();
         const auto icons = userConfigDirectory() / L"achievements";
         const auto post = [&](std::unique_ptr<AchievementsMessage> message) {
@@ -80,6 +80,12 @@ void Launcher::initializeAchievements() {
             auto message = std::make_unique<AchievementsMessage>();
             message->generation = job.generation;
             if (!job.icon) {
+                if (aurelia) {
+                    aurelia::Request request{aurelia::Command::achievements, job.app_id}; request.language = i18n::steamLanguage();
+                    const auto reply = invoke ? invoke(request, [&] { return !alive->load() || queue->generation.load() != job.generation; }, {}) : aurelia::Reply{};
+                    if (reply.ok) message->list = aurelia::achievements(reply.data);
+                    message->final = true; post(std::move(message)); continue;
+                }
                 const bool english = i18n::english();
                 // The client's schema and the account's unlock bits: complete and exact.
                 message->list = readLocalAchievements(steam, job.account, job.app_id, english);

@@ -120,6 +120,8 @@ void Renderer::drawDetails() {
     }
 
     if (facts_width > 0) textLine(facts, facts_x, facts_y, facts_width + 4, menu_font_.Get(), gray(0.86f));
+    if (!context_->aurelia_cloud.empty()) textLine(context_->aurelia_cloud, layout.left(), layout.cardsTop() - 19,
+        layout.right() - layout.left(), settings_body_font_.Get(), uiAccent(0.9f));
 
     // Drawn after the cards: their glass copies the scene without the buttons.
     const auto controls = [&] {

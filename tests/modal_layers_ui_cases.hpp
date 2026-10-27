@@ -26,6 +26,7 @@ int LauncherUiTest::modalLayers(HWND window) {
         {Modal::custom_editor, [&](bool on) { app.custom_editor_.open = on; }},
         {Modal::library_dialog, [&](bool on) { app.library_dialog_.open = on; }},
         {Modal::file_browser, [&](bool on) { app.file_browser_.open = on; }},
+        {Modal::aurelia, [&](bool on) { app.aurelia_ui_.open = on; }},
         {Modal::whats_new, [&](bool on) { app.whats_new_.open = on; }},
         {Modal::tour, [&](bool on) { app.tour_.open = on; }},
         {Modal::power_menu, [&](bool on) { if (on) app.power_menu_ = 0; else app.power_menu_.reset(); }},

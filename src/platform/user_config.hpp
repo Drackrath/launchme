@@ -222,6 +222,11 @@ struct AppSettings {
     // Installing a Steam game: Launchme's dialog picks the library (with its free space) instead of
     // Steam's install window.
     bool steam_install_dialog = true;
+    // Optional out-of-process Steam features; changing the backend takes effect on restart.
+    bool aurelia = false;
+    bool aurelia_intro_done = false;
+    std::unordered_set<std::string> aurelia_standalone; // Per-game opt-in; Steam integration is the default.
+    std::unordered_set<std::string> aurelia_auto_cloud; // Explicit opt-in to sync before/after standalone play.
     // Videos downloaded from ScreenScraper: <video_folder>\<ES-DE system>\videos\<ROM name>.mp4, the
     // layout of ES-DE's downloaded_media (pointing it there shares them). Empty: <config>\media.
     std::filesystem::path video_folder;

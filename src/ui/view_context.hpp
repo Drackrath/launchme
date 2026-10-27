@@ -32,6 +32,7 @@
 #include "tarot_view.hpp"
 #include "profile_view.hpp"
 #include "update_view.hpp"
+#include "aurelia_view.hpp"
 #include "companion_view.hpp"
 #include "home_widgets.hpp"
 #include "desktop_sheet.hpp"
@@ -282,6 +283,7 @@ struct ViewContext {
     const gog_install_ui::State* gog_install = nullptr;
     const tarot_ui::State* tarot = nullptr; // Tarot's reading, while open or fading out.
     const profile_ui::State* profile = nullptr; // Profil, while open or fading out.
+    aurelia_ui::State* aurelia = nullptr; // Chat text height is measured while drawing.
     update_ui::WhatsNew* whats_new = nullptr; // Co nowego after an update; the renderer records the text's height.
     const desktop_ui::MetaView* tv_meta = nullptr; // Tryb TV: Edytuj metadane (the desktop dialog, on the TV canvas).
     const custom_game_ui::State* custom_editor = nullptr; // Settings → Library add/edit panel.
@@ -322,6 +324,8 @@ struct ViewContext {
     bool menu_hide = false, menu_hidden = false; // Details options: "Ukryj" / "Pokaż".
     bool menu_uninstall = false, menu_launch = false; // "Odinstaluj" (red, last) / Details' "Opcje uruchamiania".
     bool menu_metadata = false; // Details' "Edytuj metadane".
+    bool menu_aurelia = false;
+    std::wstring aurelia_cloud;
     bool menu_beside = false;  // The game menu opens beside the card (XMB, Flix, list view).
     std::optional<settings_ui::Rect> menu_anchor;
     // With Quick Resume off, failed recoveries still show their frozen state.
