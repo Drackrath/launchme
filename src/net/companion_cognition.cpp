@@ -13,12 +13,12 @@
 
 namespace companion::cognition {
 namespace {
-constexpr size_t reflection_limit = 120;
+constexpr size_t reflection_limit = 1200;
 constexpr size_t thought_limit = 120;
 constexpr size_t gossip_limit = 60;
 constexpr size_t reading_limit = 60;
-constexpr size_t synapse_limit = 400;
-constexpr size_t schema_limit = 40;
+constexpr size_t synapse_limit = 4000;
+constexpr size_t schema_limit = 400;
 
 std::wstring cleanLine(std::wstring_view text, size_t max_chars) {
     std::wstring out;

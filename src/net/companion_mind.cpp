@@ -2352,7 +2352,7 @@ bool addSharedIdiom(Self& self, std::wstring_view text, uint64_t now) {
     if (folded.size() < 4 || line == L"-") return false;
     std::erase_if(self.shared_idioms, [&](const Claim& c) { return game_index::fold(c.text) == folded; });
     self.shared_idioms.push_back({now, std::move(line)});
-    if (self.shared_idioms.size() > 16) self.shared_idioms.erase(self.shared_idioms.begin());
+    if (self.shared_idioms.size() > 128) self.shared_idioms.erase(self.shared_idioms.begin());
     return true;
 }
 
@@ -2370,7 +2370,7 @@ bool learnConcept(Self& self, std::wstring_view term, std::wstring_view meaning,
         }
     }
     self.learned_concepts.push_back({std::move(t), std::move(m), 0.35f, now});
-    if (self.learned_concepts.size() > 24) self.learned_concepts.erase(self.learned_concepts.begin());
+    if (self.learned_concepts.size() > 256) self.learned_concepts.erase(self.learned_concepts.begin());
     return true;
 }
 
@@ -2380,7 +2380,7 @@ bool addKeyMemory(Self& self, std::wstring_view text, uint64_t now) {
     if (folded.size() < 6 || line == L"-") return false;
     std::erase_if(self.key_memories, [&](const Claim& c) { return game_index::fold(c.text) == folded; });
     self.key_memories.push_back({now, std::move(line)});
-    if (self.key_memories.size() > 24) self.key_memories.erase(self.key_memories.begin());
+    if (self.key_memories.size() > 256) self.key_memories.erase(self.key_memories.begin());
     return true;
 }
 
@@ -2398,7 +2398,7 @@ bool addWorldEntity(Self& self, std::wstring_view name, std::wstring_view relati
         }
     }
     self.player_world.push_back({std::move(n), std::move(r), now});
-    if (self.player_world.size() > 20) self.player_world.erase(self.player_world.begin());
+    if (self.player_world.size() > 128) self.player_world.erase(self.player_world.begin());
     return true;
 }
 
@@ -3511,7 +3511,7 @@ std::optional<State> State::load(std::string_view text) {
         }
         if (const auto* list = s.get("learned_concepts"); list && list->type == json::Value::Type::array)
             for (const auto& o : list->elements)
-                if (auto t = text16(&o, "term"); !t.empty() && self.learned_concepts.size() < 24)
+                if (auto t = text16(&o, "term"); !t.empty() && self.learned_concepts.size() < 256)
                     self.learned_concepts.push_back({std::move(t), text16(&o, "meaning"), clamp01(static_cast<float>(number(&o, "mastery", 0.35))), unix(&o, "at")});
         if (const auto* list = s.get("untruths"); list && list->type == json::Value::Type::array)
             for (const auto& o : list->elements) {
@@ -3587,13 +3587,13 @@ std::optional<State> State::load(std::string_view text) {
         self.bonded_at = unix(&s, "bonded_at");
         if (const auto* list = s.get("shared_idioms"); list && list->type == json::Value::Type::array)
             for (const auto& o : list->elements)
-                if (auto t = text16(&o, "text"); !t.empty() && self.shared_idioms.size() < 16) self.shared_idioms.push_back({unix(&o, "at"), std::move(t)});
+                if (auto t = text16(&o, "text"); !t.empty() && self.shared_idioms.size() < 128) self.shared_idioms.push_back({unix(&o, "at"), std::move(t)});
         if (const auto* list = s.get("key_memories"); list && list->type == json::Value::Type::array)
             for (const auto& o : list->elements)
-                if (auto t = text16(&o, "text"); !t.empty() && self.key_memories.size() < 24) self.key_memories.push_back({unix(&o, "at"), std::move(t)});
+                if (auto t = text16(&o, "text"); !t.empty() && self.key_memories.size() < 256) self.key_memories.push_back({unix(&o, "at"), std::move(t)});
         if (const auto* list = s.get("player_world"); list && list->type == json::Value::Type::array)
             for (const auto& o : list->elements)
-                if (auto n = text16(&o, "name"); !n.empty() && self.player_world.size() < 20)
+                if (auto n = text16(&o, "name"); !n.empty() && self.player_world.size() < 128)
                     self.player_world.push_back({std::move(n), text16(&o, "rel"), unix(&o, "at")});
         self.play_momentum = clamp01(static_cast<float>(number(&s, "play", 0.0)));
         self.sleep_debt = clamp01(static_cast<float>(number(&s, "sleep_debt", 0.0)));

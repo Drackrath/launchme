@@ -36,6 +36,7 @@ companion::mind::State& Launcher::companionMindState() {
 }
 
 void Launcher::saveCompanionMind() {
+    companionSemantic(false);
     if (!companion_.mind || !companion_.persist || !settings_.companion_memory) return;
     // Writes run in order of their generation: an older save never lands after a newer one or a clearing.
     const auto generation = ++companion_.mind_io->generation;
@@ -212,7 +213,7 @@ void Launcher::companionMindReplied(const CompanionMessage& message) {
         if (appraisal.ok && (settings_.companion_notes || settings_.companion_memory)) {
             const auto applied = companion::mind::apply(self, companionMemory(), appraisal, context, message.guest_look,
                                                         [this](std::wstring_view title) { return companionGameKey(std::wstring(title)); });
-            memory_changed = applied.beliefs || applied.revisions;
+            memory_changed = !appraisal.beliefs.empty() || applied.revisions;
             told_private = !appraisal.told.empty();
             if (applied.met > 0 && settings_.companion_gamification) {
                 if (companionAffinity().adjustAxes(context.look, 2, 0, 2)) saveCompanionAffinity();

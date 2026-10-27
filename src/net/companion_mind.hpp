@@ -244,10 +244,10 @@ struct Self {
     std::vector<std::wstring> aspirations;       // New own goals she set herself, waiting their turn (≤ 5).
     std::vector<Marker> markers;                 // ≤ 60
     std::vector<Episode> episodes;               // Her life outside the chat, by time (≤ 60, a month).
-    std::vector<LearnedConcept> learned_concepts; // Concepts/terms taught by the player (≤ 24).
-    std::vector<WorldEntity> player_world;       // Hawkins' reference frame: short entities from the player's world (≤ 20).
-    std::vector<Claim> key_memories;             // McAdams/Tulving self-defining memories with the player, kept for good (≤ 24).
-    std::vector<Claim> shared_idioms;            // Dyadic memory: shared inside jokes, nicknames & rituals (≤ 16).
+    std::vector<LearnedConcept> learned_concepts; // Concepts/terms taught by the player (≤ 256).
+    std::vector<WorldEntity> player_world;       // Short entities from the player's world (≤ 128).
+    std::vector<Claim> key_memories;             // Self-defining memories with the player (≤ 256).
+    std::vector<Claim> shared_idioms;            // Shared inside jokes, nicknames & rituals (≤ 128).
     std::vector<Claim> ruminations;              // DMN offline ruminations during unresolved tension/broken expectations (≤ 8).
     std::vector<Claim> rethought;                // Topics she re-thought / re-conceptualized after time (≤ 20).
     std::vector<CuriousAct> curious;             // Her questions back and the talk she carried on (≤ 16).

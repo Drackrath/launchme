@@ -19,9 +19,9 @@
 #include <vector>
 
 namespace companion {
-inline constexpr size_t max_notes_capacity = 500;
-inline constexpr size_t max_summaries_capacity = 500;
-inline constexpr size_t max_picks_capacity = 250;
+inline constexpr size_t max_notes_capacity = 5000;
+inline constexpr size_t max_summaries_capacity = 5000;
+inline constexpr size_t max_picks_capacity = 1000;
 
 struct Memory {
     // Another companion who knows a note: a guest who heard it too, or hearsay from `from`.
@@ -48,12 +48,13 @@ struct Memory {
         bool important = false;   // Self-defining / foundational memory (McAdams/Tulving): protected from FIFO eviction and shown as "Ważne wspomnienie" in UI.
         std::string topic;        // "place": where the player lives; empty: anything else.
         std::vector<Knower> known; // Other companions who know it.
+        uint32_t confirmations = 1; // Preserved across the weighted-memory and semantic-memory versions.
     };
     struct Pick { uint64_t at = 0; std::string key; std::wstring title; std::string look; };
     std::vector<Entry> remarks;   // Her recent replies, shortened; newest last (≤ 30).
-    std::vector<Pick> picks;      // Games she suggested; newest last (≤ 250).
-    std::vector<Entry> notes;     // Facts about the player, each known by its companions (≤ 500).
-    std::vector<Entry> summaries; // Past chats in a sentence or two, each companion's own (≤ 500).
+    std::vector<Pick> picks;      // Games she suggested; newest last (≤ 1000).
+    std::vector<Entry> notes;     // Facts about the player, each known by its companions (≤ 5000).
+    std::vector<Entry> summaries; // Past chats in a sentence or two, each companion's own (≤ 5000).
 
     // How she came to know a fact (her inner appraisal says it; the tool means told).
     struct Facts {
@@ -98,7 +99,7 @@ struct Memory {
     // Whether `look` knows where the player lives (a note on topic "place").
     bool knowsPlace(std::string_view look) const;
     // Her prompt's memory section: 2-layer architecture — core/recent notes and her latest summaries,
-    // plus automatic keyword/topic recall (`query`) across the full 500-note / 500-summary archive.
+    // plus automatic keyword/topic recall (`query`) across the full 5000-note / 5000-summary archive.
     // Each note shows its id and how she knows it; `name` names a companion by her key (hearsay).
     std::wstring prompt(bool english, uint64_t now, bool recent, bool notes, std::string_view look = {}, std::wstring_view query = {},
                         const std::function<std::wstring(std::string_view)>& name = {}) const;

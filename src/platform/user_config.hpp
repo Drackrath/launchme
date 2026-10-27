@@ -156,6 +156,7 @@ struct AppSettings {
     // about the player with chat summaries (on by default). Both go to the model in her prompt.
     bool companion_memory = true;
     bool companion_notes = true;
+    bool companion_semantic_memory = true; // Local multilingual embedding index; primary memories remain authoritative.
     // Her photos in the chat (src/app/companion_photos.cpp): once per chat, at most one a day, from
     // her own subfolder of a folder (<folder>/<her key>/). Available automatically when configured.
     enum class CompanionPhotos { off, folder };

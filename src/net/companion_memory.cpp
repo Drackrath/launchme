@@ -12,7 +12,7 @@
 namespace companion {
 namespace {
 constexpr size_t remark_limit = 30, pick_limit = max_picks_capacity, note_limit = max_notes_capacity, summary_limit = max_summaries_capacity;
-constexpr size_t summaries_per_look = 100;
+constexpr size_t summaries_per_look = 1000;
 constexpr size_t core_notes_shown = 30, summaries_shown = 3; // Always in prompt; older matching ones join via auto-recall (`query`) or przypomnij.
 std::wstring trimmed(std::wstring_view text, size_t limit) {
     std::wstring out;
@@ -115,6 +115,7 @@ json::Value entries(const std::vector<Memory::Entry>& list) {
         if (entry.confidence > 0) item.properties["confidence"] = json::number(std::round(entry.confidence * 100) / 100.0);
         if (entry.secret) item.properties["secret"] = json::boolean(true);
         if (entry.important) item.properties["important"] = json::boolean(true);
+        if (entry.confirmations > 1) item.properties["confirmations"] = json::number(std::min(entry.confirmations, 64u));
         if (!entry.topic.empty()) item.properties["topic"] = json::string(entry.topic);
         if (!entry.known.empty()) {
             auto known = json::array();
@@ -154,6 +155,8 @@ std::vector<Memory::Entry> entries(const json::Value* list, size_t limit) {
             entry.confidence = static_cast<float>(std::clamp(confidence->numeric, 0.0, 1.0));
         if (const auto* secret = item.get("secret"); secret && secret->type == json::Value::Type::boolean) entry.secret = secret->flag;
         if (const auto* imp = item.get("important"); imp && imp->type == json::Value::Type::boolean) entry.important = imp->flag;
+        if (const auto* count = item.get("confirmations"); count && count->type == json::Value::Type::number && std::isfinite(count->numeric))
+            entry.confirmations = static_cast<uint32_t>(std::clamp(count->numeric, 1.0, 64.0));
         entry.topic = shortKey(item.get("topic"), 16);
         if (const auto* known = item.get("known"); known && known->type == json::Value::Type::array)
             for (const auto& who : known->elements) {
@@ -509,7 +512,7 @@ std::string Memory::save() const {
 }
 
 std::optional<Memory> Memory::load(std::string_view text) {
-    const auto root = json::parse(text, 4 * 1024 * 1024);
+    const auto root = json::parse(text, 32 * 1024 * 1024);
     if (!root || root->type != json::Value::Type::object || !root->get("version") || root->get("version")->intOr() != 1) return std::nullopt;
     Memory memory;
     memory.remarks = entries(root->get("remarks"), remark_limit);
@@ -536,7 +539,7 @@ std::optional<Memory> Memory::load(std::string_view text) {
 }
 
 Memory loadMemory(const std::filesystem::path& config) {
-    const auto bytes = protected_file::read(file(config), 4 * 1024 * 1024);
+    const auto bytes = protected_file::read(file(config), 32 * 1024 * 1024);
     if (!bytes) return {};
     return Memory::load(*bytes).value_or(Memory{});
 }

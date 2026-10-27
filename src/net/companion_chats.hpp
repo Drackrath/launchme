@@ -18,7 +18,7 @@
 namespace companion::chats {
 inline constexpr int message_cap = 40;       // Standard length; concise ×1.5 (60), brief ×3 (120). Both sides count.
 inline constexpr size_t context_turn_limit = 160; // Room for the longest short-message conversation and hidden notes.
-inline constexpr size_t keep = 200;          // Conversations kept per companion; older files go.
+inline constexpr size_t keep = 1000;         // Conversations kept per companion; older files go.
 inline constexpr uint64_t return_gap = 30 * 60; // After this long away a hidden note tells her the player is back.
 inline constexpr uint64_t day_starts = 4 * 3600; // A day of chats starts at 4:00 (a late night still belongs to it).
 

@@ -12,6 +12,7 @@ int main() {
     std::filesystem::create_directories(destination);
     companion::Memory memory;
     memory.note(L"Lubię herbatę.", 100, "hana");
+    memory.notes.front().confirmations = 5;
     memory.note(L"Tylko Rin zna tę historię.", 101, "rin");
     companion::mind::State mind;
     mind.of("hana").felt = L"troska";
@@ -32,6 +33,7 @@ int main() {
     input.config = config; input.destination = destination; input.executable = root / L"engine/launchme.exe"; input.look = companion_fixture::hana;
     input.settings.companion_look = "hana";
     input.settings.companion_reply_length = companion::ReplyLength::brief;
+    input.settings.companion_semantic_memory = false;
     input.character_text = "[hana]\nname=Hana\npersona=genki\n";
     // Live UI state must override an older saved conversation without touching the original.
     input.live = conversation; input.live->lines.push_back({false, L"Najnowsza, jeszcze niezapisana odpowiedź."});
@@ -44,6 +46,7 @@ int main() {
     if (loadAppSettings(copy.path / L"settings.ini").companion_reply_length != companion::ReplyLength::brief) return 16;
     const auto restored = companion::loadMemory(copy.path);
     if (restored.notes.size() != 1 || restored.notes[0].look != "hana") return 6;
+    if (restored.notes[0].confirmations != 5 || loadAppSettings(copy.path / L"settings.ini").companion_semantic_memory) return 17;
     const auto restored_mind = companion::mind::loadState(copy.path);
     if (restored_mind.selves.size() != 1 || !restored_mind.find("hana") || restored_mind.find("hana")->feelings.size() != 1) return 7;
     const auto restored_cog = companion::cognition::loadState(copy.path);

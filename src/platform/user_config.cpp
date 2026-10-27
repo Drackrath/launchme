@@ -330,6 +330,7 @@ AppSettings parseAppSettings(std::string_view text) {
         }
         else if (key == "companion_memory" && (value == "0" || value == "1")) settings.companion_memory = value == "1";
         else if (key == "companion_notes" && (value == "0" || value == "1")) settings.companion_notes = value == "1";
+        else if (key == "companion_semantic_memory" && (value == "0" || value == "1")) settings.companion_semantic_memory = value == "1";
         else if (key == "hint_glyphs") {
             if (value == "auto") settings.hint_glyphs = AppSettings::HintGlyphs::automatic;
             else if (value == "xbox") settings.hint_glyphs = AppSettings::HintGlyphs::xbox;
@@ -688,6 +689,7 @@ bool saveAppSettings(const AppSettings& settings, const std::filesystem::path& f
     output << "companion_import_folder=" << text_encoding::utf8Lenient(settings.companion_import_folder) << '\n';
     output << "companion_memory=" << settings.companion_memory << '\n';
     output << "companion_notes=" << settings.companion_notes << '\n';
+    output << "companion_semantic_memory=" << settings.companion_semantic_memory << '\n';
     output << "hint_glyphs=" << (settings.hint_glyphs == AppSettings::HintGlyphs::xbox ? "xbox" :
                                  settings.hint_glyphs == AppSettings::HintGlyphs::playstation ? "playstation" :
                                  settings.hint_glyphs == AppSettings::HintGlyphs::nintendo ? "nintendo" : "auto") << '\n';

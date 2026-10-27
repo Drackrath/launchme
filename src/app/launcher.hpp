@@ -404,6 +404,7 @@ public:
     CompanionAccess companionAccess() const;
     // Her memory (src/net/companion_memory.hpp): loaded on first use, saved on a worker.
     companion::Memory& companionMemory();
+    std::shared_ptr<companion::semantic::Service> companionSemantic(bool start = true);
     void saveCompanionMemory();
     companion::cognition::State& companionCognition();
     void saveCompanionCognition();

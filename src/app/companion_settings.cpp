@@ -174,6 +174,18 @@ std::vector<settings_ui::Row> Launcher::companionSettingsRows() const {
          settings_.companion_remote ? tr(L"Włączony") : tr(L"Wyłączony"));
     // Her memory: kept on this computer, but sent to the model with her instructions.
     const size_t memory_rows = rows.size();
+    {
+        std::wstring value;
+        if (companion_.semantic) {
+            const auto progress = companion_.semantic->progress();
+            value = progress.state == companion::semantic::Progress::State::unavailable ? tr(L"Niedostępna — działa pamięć słów") :
+                !progress.error.empty() ? tr(L"Indeks działa, ale zapis na dysku się nie powiódł.") :
+                std::wstring(tr(L"Zaindeksowane wspomnienia: ")) + std::to_wstring(progress.indexed) + L" / " + std::to_wstring(progress.total);
+        }
+        rows.push_back({Id::companion_semantic_memory, Control::toggle, tr(L"Pamięć semantyczna"),
+            std::wstring(tr(L"Wyszukuje po znaczeniu, lokalnie. Wymaga pamięci rozmów i notatek. ")) + value,
+            {}, settings_.companion_semantic_memory});
+    }
     if (show_advanced_controls) rows.push_back({Id::companion_memory, Control::toggle, tr(L"Pamięć rozmów"),
         tr(L"Pamięta, co ostatnio mówiła i jakie gry proponowała, wraca do dawnych rozmów, gdy o nie zapytasz, ma swoje humory (tęskni, bywa zazdrosna) i raz w tygodniu zagaduje o twoim graniu. Zapisane lokalnie (zaszyfrowane), ale fragmenty trafiają do modelu razem z instrukcjami."), {},
         settings_.companion_memory});
@@ -632,13 +644,14 @@ bool Launcher::companionSetting(const Row& row) {
         companionRemoteSync();
         settingsChanged(); audio_.context(); return true;
     }
-    else if (row.id == Id::companion_memory || row.id == Id::companion_notes || row.id == Id::companion_model_info || row.id == Id::companion_guests ||
+    else if (row.id == Id::companion_memory || row.id == Id::companion_notes || row.id == Id::companion_semantic_memory || row.id == Id::companion_model_info || row.id == Id::companion_guests ||
              row.id == Id::companion_gamification || row.id == Id::companion_typing || row.id == Id::companion_weather) {
-        auto& flag = row.id == Id::companion_memory ? settings_.companion_memory : row.id == Id::companion_notes ? settings_.companion_notes :
+        auto& flag = row.id == Id::companion_semantic_memory ? settings_.companion_semantic_memory : row.id == Id::companion_memory ? settings_.companion_memory : row.id == Id::companion_notes ? settings_.companion_notes :
                      row.id == Id::companion_guests ? settings_.companion_guests : row.id == Id::companion_gamification ? settings_.companion_gamification :
                      row.id == Id::companion_typing ? settings_.companion_typing : row.id == Id::companion_weather ? settings_.companion_weather :
                      settings_.companion_model_info;
         flag = !flag;
+        companionSemantic(false);
         settingsChanged(); audio_.context(); return true;
     }
     else return false;

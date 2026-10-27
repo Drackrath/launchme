@@ -129,6 +129,7 @@ public:
     static int updates(HWND window);
     static int gameLengths(HWND window);
     static int companionChat(HWND window);
+    static int companionSemanticMemory(HWND window);
     static int companionAppearance(HWND window);
     static int companionReplyLength(HWND window);
     static int companionLinks(HWND window);
@@ -1317,6 +1318,7 @@ public:
 #include "studios_ui_cases.hpp"
 #include "update_ui_cases.hpp"
 #include "companion_ui_cases.hpp"
+#include "companion_semantic_ui_cases.hpp"
 #include "game_index_ui_cases.hpp"
 #include "home_widgets_ui_cases.hpp"
 #include "ui_refresh_ui_cases.hpp"
@@ -2013,9 +2015,10 @@ int main(int argc, char** argv) {
         else std::cout << "Glance: shortcut-only entry, pad, navigation, async sources, settings and hints passed\n";
         return code;
     }
-    if (argc == 2 && (std::string_view(argv[1]) == "--companion" || std::string_view(argv[1]) == "--companion-appearance" || std::string_view(argv[1]) == "--companion-reply-length" || std::string_view(argv[1]) == "--companion-links" || std::string_view(argv[1]) == "--companion-paste" || std::string_view(argv[1]) == "--companion-remote")) {
+    if (argc == 2 && (std::string_view(argv[1]) == "--companion-semantic" || std::string_view(argv[1]) == "--companion" || std::string_view(argv[1]) == "--companion-appearance" || std::string_view(argv[1]) == "--companion-reply-length" || std::string_view(argv[1]) == "--companion-links" || std::string_view(argv[1]) == "--companion-paste" || std::string_view(argv[1]) == "--companion-remote")) {
         std::filesystem::create_directories(root);
-        const auto code = window ? (std::string_view(argv[1]) == "--companion-paste" ? LauncherUiTest::companionPaste(window) :
+        const auto code = window ? (std::string_view(argv[1]) == "--companion-semantic" ? LauncherUiTest::companionSemanticMemory(window) :
+            std::string_view(argv[1]) == "--companion-paste" ? LauncherUiTest::companionPaste(window) :
             std::string_view(argv[1]) == "--companion-remote" ? LauncherUiTest::companionRemote(window) :
             std::string_view(argv[1]) == "--companion-links" ? LauncherUiTest::companionLinks(window) :
             std::string_view(argv[1]) == "--companion-reply-length" ? LauncherUiTest::companionReplyLength(window) :
