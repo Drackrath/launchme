@@ -95,6 +95,9 @@ set(LAUNCHME_EPIC_SOURCES src/store/epic_api.cpp src/store/epic_vault.cpp src/st
 
 # Everything in the launcher except its entry point; launcher_ui_tests compiles the same set.
 set(LAUNCHME_APP_SOURCES
+    src/store/aurelia.cpp
+    src/store/aurelia_process.cpp
+    src/store/aurelia_install.cpp
     src/app/launcher.cpp
     src/app/library_worker.cpp
     src/app/shelves.cpp
@@ -676,6 +679,7 @@ if(BUILD_TESTING)
     launchme_executable(glance_tests TEST glance_sources_and_cache SOURCES tests/glance_tests.cpp)
     launchme_executable(tarot_tests TEST tarot_deck_wish_and_picks SOURCES tests/tarot_tests.cpp)
     launchme_executable(updater_tests TEST updater_release_package_and_swap SOURCES tests/updater_tests.cpp)
+    launchme_executable(aurelia_tests TEST aurelia_protocol_install_and_process SOURCES tests/aurelia_tests.cpp)
     launchme_executable(companion_tests TEST companion_replies_prompts_and_rig SOURCES tests/companion_tests.cpp)
     launchme_executable(companion_memory_tests TEST companion_weighted_memory_and_capacity SOURCES tests/companion_memory_tests.cpp)
     launchme_executable(companion_semantic_tests TEST companion_semantic_storage_and_privacy SOURCES tests/companion_semantic_tests.cpp)

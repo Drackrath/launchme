@@ -5,6 +5,28 @@
 namespace i18n {
 namespace {
 constexpr Entry entries[] = {
+    // Optional Aurelia CLI adapter.
+    {L"Polecenie Aurelii nie powiodło się", L"The Aurelia command failed"},
+    {L"Nieprawidłowa odpowiedź Aurelii", L"Invalid Aurelia response"},
+    {L"Nie udało się pobrać lub zweryfikować Aurelii", L"Could not download or verify Aurelia"},
+    {L"Chmura: sprawdzanie…", L"Cloud: checking…"},
+    {L"Chmura: zapisy dostępne", L"Cloud: saves available"},
+    {L"Chmura: brak zapisów", L"Cloud: no saves"},
+    {L"Chmura: synchronizacja…", L"Cloud: syncing…"},
+    {L"Chmura: zsynchronizowano", L"Cloud: synchronized"},
+    {L"Chmura: konflikt zapisów", L"Cloud: save conflict"},
+    {L"Chmura: niepełna synchronizacja", L"Cloud: incomplete sync"},
+    {L"Chmura: błąd połączenia lub synchronizacji", L"Cloud: connection or sync error"},
+    {L"Chmura: nie sprawdzono", L"Cloud: not checked"},
+    {L"Nie można zapisać Aurelii", L"Could not save Aurelia"},
+    {L"Instalacja Aurelii już trwa", L"Aurelia installation is already running"},
+    {L"Nieprawidłowe polecenie Aurelii", L"Invalid Aurelia command"},
+    {L"Nie można utworzyć profilu Aurelii", L"Could not create the Aurelia profile"},
+    {L"Polecenie jest zbyt długie", L"The command is too long"},
+    {L"Nie można uruchomić Aurelii", L"Could not start Aurelia"},
+    {L"Odpowiedź Aurelii jest zbyt duża", L"The Aurelia response is too large"},
+    {L"Aurelia nie odpowiedziała na czas", L"Aurelia timed out"},
+    {L"Logowanie Aurelii nie powiodło się", L"Aurelia sign-in failed"},
     // Basics: launching, diagnostics, settings safety, uninstalling.
     {L"Historia biblioteki była uszkodzona", L"Library history was damaged"},
     {L"Odzyskano, co się dało. Oryginał: library-state.damaged.ini", L"Everything readable was recovered. Original: library-state.damaged.ini"},
