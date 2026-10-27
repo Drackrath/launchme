@@ -495,7 +495,7 @@ void Launcher::buildSettingsRows() {
         add({Id::music, Control::slider, tr(L"Muzyka w tle"),
             tr(L"0% wycisza muzykę. Dźwięki nawigacji pozostają aktywne."), percent(settings_.music_volume), false,
             settings_.music_volume / 0.4f});
-        choiceRow(Id::video_volume, tr(L"Dźwięk filmów"), tr(L"Głośność filmów w tle; muzyka zawsze cichnie na ich czas."),
+        choiceRow(Id::video_volume, tr(L"Dźwięk filmów"), tr(L"Głośność filmów w tle; muzyka cichnie na ich czas, chyba że są wyciszone."),
                   video_volumes, settings_.video_volume);
         section(tr(L"Muzyka i dźwięki"));
         const int theme_index = std::clamp(settings_.music_theme, 0, static_cast<int>(music_themes.size()) - 1);
@@ -607,8 +607,8 @@ void Launcher::buildSettingsRows() {
         add({Id::windowed, Control::toggle, tr(L"Tryb TV w oknie"), tr(L"Zamiast pełnego ekranu. Także F11."), {}, settings_.windowed});
         {
             Row language{Id::language, Control::choice, tr(L"Język"), tr(L"Systemowy: zgodnie z językiem Windows.")};
-            language.choices = {{tr(L"Systemowy")}, {L"Polski"}, {L"English"}};
-            language.choice = std::clamp(static_cast<int>(settings_.language), 0, 2);
+            language.choices = {{tr(L"Systemowy")}, {L"Polski"}, {L"English"}, {L"Português (Brasil)"}, {L"Español"}};
+            language.choice = std::clamp(static_cast<int>(settings_.language), 0, 4);
             language.value = language.choices[language.choice].label;
             add(std::move(language));
         }

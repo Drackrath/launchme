@@ -89,6 +89,16 @@ int LauncherUiTest::desktop(HWND window) {
         if (view.marked_count != 3 || view.pane.marked != 3) return 7612;
     }
     if (!capture(L"desktop-marked.png")) return 7613;
+    {
+        // The selection's menu: its artwork asked for again, or the missing covers of these games.
+        app.desktopOpenGameMenu(400, 300, false);
+        const auto has = [&](desktop_ui::Action action) {
+            return app.desktop_menu_ && std::any_of(app.desktop_menu_->items.begin(), app.desktop_menu_->items.end(), [&](const auto& item) { return item.action == action; });
+        };
+        if (!has(desktop_ui::Action::retry_art) || !has(desktop_ui::Action::missing_art)) return 7690;
+        if (!capture(L"desktop-marked-menu.png")) return 7691;
+        app.desktop_menu_.reset();
+    }
     app.desktop_marked_.clear();
 
     // Dropping a game on a collection adds it there; on Ulubione, to the favourites.

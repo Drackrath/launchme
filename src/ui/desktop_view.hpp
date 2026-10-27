@@ -94,7 +94,7 @@ inline float rowsHeight(const std::vector<Row>& rows) { return rows.empty() ? 0 
 
 enum class Action {
     none, play, suspend, close_game, details, favorite, collections, collection_toggle, collection_new, collection_manage,
-    versions, artwork, retry_art, identify, folder, hide, exclude, plugin, sort, section_rename, section_games,
+    versions, artwork, retry_art, missing_art, identify, folder, hide, exclude, plugin, sort, section_rename, section_games,
     section_options, section_delete, section_up, section_down, section_tv, section_hide, clear_marks, select_all, store_page, downloads, metadata, companion_change, companion_mind,
     companion_settings, uninstall, launch_options
 };
@@ -575,7 +575,7 @@ struct Layout {
     }
     float paneContentTop(float scroll) const { return paneY(288, scroll); }
     // Several games marked: their actions in a column.
-    static constexpr int bulk_count = 4; // Dodaj do kolekcji, Ulubione, Ukryj, Wyczyść zaznaczenie.
+    static constexpr int bulk_count = 5; // Dodaj do kolekcji, Ulubione, Pobierz grafiki ponownie, Ukryj, Wyczyść zaznaczenie.
     Rect paneBulk(int i) const { const float y = title_h + 132 + static_cast<float>(i) * 50; return {paneLeft() + 20, y, width - 20, y + 42}; }
 
     // Pobierania under its shortcut.

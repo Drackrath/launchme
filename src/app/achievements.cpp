@@ -80,7 +80,7 @@ void Launcher::initializeAchievements() {
             auto message = std::make_unique<AchievementsMessage>();
             message->generation = job.generation;
             if (!job.icon) {
-                const bool english = i18n::language() == i18n::Language::en;
+                const bool english = i18n::english();
                 // The client's schema and the account's unlock bits: complete and exact.
                 message->list = readLocalAchievements(steam, job.account, job.app_id, english);
                 if (message->list.items.empty()) message->list = readCachedAchievements(steam, job.account, job.app_id);

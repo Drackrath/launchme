@@ -17,7 +17,7 @@
 #include <sstream>
 
 namespace {
-bool english() { return i18n::language() == i18n::Language::en; }
+bool english() { return i18n::english(); }
 int dateKey(const SYSTEMTIME& time) { return time.wYear * 10000 + time.wMonth * 100 + time.wDay; }
 // Every character's costumes (companion_characters.hpp, from res/companion/), in one list; made
 // again when a test replaces the characters.

@@ -79,7 +79,7 @@ bool Launcher::tickCompanionPhoto(float) {
     companion_.photo = std::move(companion_.photo_pending);
     companion_.photo_pending.reset();
     companion_.photo_file = std::exchange(companion_.photo_file_pending, std::wstring{});
-    const bool en = i18n::language() == i18n::Language::en;
+    const bool en = i18n::english();
     const auto stock = companion::photoLine(companionPersona(), en, companion_.seed);
     companion_ui::Message photo; photo.photo = true; photo.speaker = companionLook();
     chat.log.push_back(std::move(photo));

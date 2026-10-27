@@ -40,7 +40,7 @@ bool Launcher::refreshStudios() {
     // What the profile saw complete (other stores' achievements through plugins).
     for (const auto& [key, progress] : history_.progress)
         if (progress.total && progress.unlocked >= progress.total) perfect.insert(key);
-    // Hidden ones out; the player's order first, the rest by their number of games.
+    // Hidden ones out; the player's order first (Move up / Move down), the rest alphabetically.
     std::unordered_map<std::string, size_t> positions;
     for (size_t i = 0; i < settings_.studio_order.size(); ++i) positions.emplace(settings_.studio_order[i], i);
     for (int role = 0; role < studios::role_count; ++role) {
@@ -49,7 +49,9 @@ bool Launcher::refreshStudios() {
         std::erase_if(list, [&](const studios::Entry& entry) { return settings_.hidden_studios.contains(keyOf(entry)); });
         std::stable_sort(list.begin(), list.end(), [&](const studios::Entry& a, const studios::Entry& b) {
             const auto left = positions.find(keyOf(a)), right = positions.find(keyOf(b));
-            return (left == positions.end() ? SIZE_MAX : left->second) < (right == positions.end() ? SIZE_MAX : right->second);
+            const size_t first = left == positions.end() ? SIZE_MAX : left->second, second = right == positions.end() ? SIZE_MAX : right->second;
+            if (first != second) return first < second;
+            return studios::fold(a.studio->name) < studios::fold(b.studio->name);
         });
     }
     const bool changed = groups != studio_groups_;

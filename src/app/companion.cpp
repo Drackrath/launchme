@@ -39,7 +39,7 @@ companion::Look lookOf(const AppSettings& settings) {
     if (available.empty()) return companion::Look{};
     return *std::min_element(available.begin(), available.end(), [](companion::Look a, companion::Look b) { return companion::lookKey(a) < companion::lookKey(b); });
 }
-bool english() { return i18n::language() == i18n::Language::en; }
+bool english() { return i18n::english(); }
 int dateKey(const SYSTEMTIME& time) { return time.wYear * 10000 + time.wMonth * 100 + time.wDay; }
 // Her reply's messages in the log: a few alone, more with a guest.
 constexpr size_t solo_messages = 3, duo_messages = 6;
@@ -71,18 +71,14 @@ json::Value companionRecall(const std::filesystem::path& config, companion::Look
     for (const auto& found : companion::chats::search(config, look, topic, skip))
         lines.push_back({companion::chats::label(found.started, english), found.user, found.text});
     const auto words = companion::chats::searchWords(topic);
-    std::vector<std::pair<int, const companion::Memory::Entry*>> scored;
+    std::vector<std::pair<float, const companion::Memory::Entry*>> scored;
     for (const auto& summary : summaries) {
-        const auto folded = game_index::fold(summary.text);
-        int score = 0;
-        for (const auto& word : words) if (folded.find(word) != std::wstring::npos) ++score;
+        const float score = companion::Memory::recallWeight(summary, companion::chats::matches(words, summary.text), now);
         if (score) scored.push_back({score, &summary});
     }
     for (const auto& note : all_notes) {
-        const auto folded = game_index::fold(note.text);
-        int score = 0;
-        for (const auto& word : words) if (folded.find(word) != std::wstring::npos) ++score;
-        if (score) scored.push_back({score + 1, &note});
+        const float score = companion::Memory::recallWeight(note, companion::chats::matches(words, note.text), now);
+        if (score) scored.push_back({score, &note});
     }
     std::stable_sort(scored.begin(), scored.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
     for (size_t i = 0; i < scored.size() && i < 6; ++i) {

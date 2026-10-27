@@ -5,7 +5,7 @@
 #include "launcher.hpp"
 
 namespace {
-bool english() { return i18n::language() == i18n::Language::en; }
+bool english() { return i18n::english(); }
 struct Candidate { std::wstring title; std::string key; };
 }
 

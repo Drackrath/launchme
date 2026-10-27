@@ -198,7 +198,7 @@ std::string Launcher::remoteState() {
         const auto last = std::find_if(list->rbegin(), list->rend(), [&](const auto& message) { return !message.user && message.speaker == look; });
         if (last != list->rend()) { if (!last->emotions.empty()) emotion = last->emotions.back().emotion; break; }
     }
-    std::string out = "{\"en\":" + std::string(i18n::language() == i18n::Language::en ? "true" : "false");
+    std::string out = "{\"en\":" + std::string(i18n::english() ? "true" : "false");
     out += ",\"look\":" + json::quote(companion::lookKey(look)) + ",\"name\":" + q(companion::name(look));
     out += ",\"color\":" + json::quote(character ? color(*character) : "#CCCCCC");
     out += ",\"costume\":" + std::to_string(companionCostume(look)) + ",\"emotion\":" + json::quote(companion::emotionKey(emotion));

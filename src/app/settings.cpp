@@ -485,10 +485,14 @@ void Launcher::settingsChoose(const Row& row) {
         settings_.video_delay = video_delays[std::clamp<size_t>(settings_state_.choice, 0, video_delays.size() - 1)];
     else if (row.id == Id::video_volume) {
         settings_.video_volume = std::clamp(settings_state_.choice, 0, static_cast<int>(video_volumes.size()) - 1);
-        if (!video_silent_) video_player_.setVolume(video_volume_levels[settings_.video_volume]);
+        if (!video_silent_) {
+            const double level = video_volume_levels[settings_.video_volume];
+            video_player_.setVolume(level);
+            if (video_player_.active()) audio_.duckMusic(level > 0); // Muted: the menu music comes back.
+        }
     }
     else if (row.id == Id::language) {
-        settings_.language = static_cast<AppSettings::LanguageChoice>(std::clamp(settings_state_.choice, 0, 2));
+        settings_.language = static_cast<AppSettings::LanguageChoice>(std::clamp(settings_state_.choice, 0, 4));
         relabel = applyLanguage();
     }
     else if (row.id == Id::music_theme) {
@@ -769,7 +773,9 @@ void Launcher::settingsClick(float x, float y) {
 bool Launcher::applyLanguage() {
     using LanguageChoice = AppSettings::LanguageChoice;
     const auto next = settings_.language == LanguageChoice::system ? i18n::systemLanguage() :
-                      settings_.language == LanguageChoice::en ? i18n::Language::en : i18n::Language::pl;
+                      settings_.language == LanguageChoice::en ? i18n::Language::en :
+                      settings_.language == LanguageChoice::pt_br ? i18n::Language::pt_br :
+                      settings_.language == LanguageChoice::es ? i18n::Language::es : i18n::Language::pl;
     if (next == i18n::language()) return false;
     i18n::setLanguage(next);
     // Store descriptions are localized: the list view asks again in the new language.

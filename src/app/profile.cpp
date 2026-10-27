@@ -507,7 +507,7 @@ void Launcher::profileArtArrived(const std::string& key, CoverMessage::Kind kind
 void Launcher::startProfileScan(bool steam) {
     ProfileScanRequest request;
     request.icon_cache = userConfigDirectory() / L"achievements";
-    request.english = i18n::language() == i18n::Language::en;
+    request.english = i18n::english();
     if (steam) {
         request.steam_root = findSteamRoot();
         request.steam_id = account_;

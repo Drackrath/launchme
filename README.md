@@ -4,10 +4,12 @@
 
 A full-screen, console-style game launcher for Windows 10/11, built for a gamepad.
 It merges Steam (collections and non-Steam shortcuts), GOG, Battle.net, EA app, Ubisoft Connect,
-Epic Games, Xbox (PC) and your own programs into one library, with artwork from SteamGridDB.
+Epic Games, Xbox (PC) and your own programs into one library, with artwork from SteamGridDB (and Epic's
+own store art for an Epic account's games).
 
 Native C++20: Win32, Direct2D/DirectWrite/WIC, WinHTTP, XAudio2 and Media Foundation — no HTML UI.
-The interface is available in Polish and English (Settings → System → Language).
+The interface is available in English, Polish, Brazilian Portuguese and Spanish (Settings → System → Language).
+The AI companion and Tarot speak English or Polish.
 
 ![PSfive home layout](docs/screenshots/psfive.jpg)
 
@@ -72,7 +74,10 @@ Settings → System → Help → **Open folder** (the version row) opens it.
   GOG and Epic account libraries (Epic installs through Legendary, no Epic launcher needed),
   EA and Battle.net libraries imported from their store pages (no EA app needed: sign in on ea.com,
   paste the token page), Ubisoft from the signed-in client, and MultiMC / Prism Launcher instances as games.
-- **Artwork**: SteamGridDB covers, heroes, logos and posters with OCR-assisted cropping and a variant browser.
+- **Artwork**: SteamGridDB covers, heroes, logos and posters with OCR-assisted cropping and a variant browser;
+  Epic account games also get Epic's own box art. Missing art downloads in the background, covers and
+  posters first. To fetch it now: Settings → Media & data → *Download missing covers*, or in the desktop
+  window select games (`Ctrl+A`, `Ctrl`/`Shift`+click) and pick *Download artwork again* or *Download missing covers…*.
 - **Details**: Steam metadata, playtime (also for non-Steam games, Epic's and Prism's counts, or your own value from
   *Edit metadata*, in both modes), achievements, Steam and RAWG ratings,
   versions of the same game across stores, uninstall from the game menu (Steam's own dialog, GOG games

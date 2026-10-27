@@ -1848,8 +1848,8 @@ int LauncherUiTest::language(HWND window) {
         app.buildSettingsRows();
         const auto row = std::find_if(app.settings_rows_.begin(), app.settings_rows_.end(),
             [](const settings_ui::Row& item) { return item.id == settings_ui::Id::language; });
-        if (row == app.settings_rows_.end() || row->choices.size() != 3 || row->choices[1].label != L"Polski" ||
-            row->choices[2].label != L"English") return false;
+        if (row == app.settings_rows_.end() || row->choices.size() != 5 || row->choices[1].label != L"Polski" ||
+            row->choices[2].label != L"English" || row->choices[3].label != L"Portugu\u00eas (Brasil)" || row->choices[4].label != L"Espa\u00f1ol") return false;
         app.settings_state_.enter(static_cast<int>(app.settings_rows_.size()));
         app.settings_state_.selected[app.settings_state_.category] = static_cast<int>(row - app.settings_rows_.begin());
         app.settingsActivate(); // Opens the picker.
@@ -1940,6 +1940,21 @@ int LauncherUiTest::language(HWND window) {
     app.openDevices(devices::Panel::controllers); app.pollDevices();
     if (!capture(L"controllers-english.png")) return 521;
     app.back();
+    // Portuguese (Brazil) and Spanish: the same rows, the home's labels and Details in each.
+    for (const auto& [option, language, tag] : {std::tuple{3, i18n::Language::pt_br, L"portuguese"}, std::tuple{4, i18n::Language::es, L"spanish"}}) {
+        if (!choose(option) || i18n::language() != language) return 530;
+        const auto* row = english_row(settings_ui::Id::language);
+        if (!row || row->title != i18n::translate(L"Język", language) || row->title == L"Language" ||
+            stand_in() != i18n::translate(L"Ładowanie nazwy…", language) ||
+            app.actionLabel(app.installed_library_[0]) != i18n::translate(L"Graj", language)) return 531;
+        if (!capture((L"settings-" + std::wstring(tag) + L"-system.png").c_str())) return 532;
+        app.settings_state_.options = false;
+        app.back(); app.focusCard(0); settle();
+        if (!capture((L"home-" + std::wstring(tag) + L".png").c_str())) return 533;
+        app.openDetails(app.cards_[0].game);
+        if (!capture((L"details-" + std::wstring(tag) + L".png").c_str())) return 534;
+        app.back();
+    }
     // And back to Polish from the same row.
     if (!choose(1)) return 515;
     if (i18n::language() != i18n::Language::pl || app.settings_rows_[3].id != settings_ui::Id::language ||

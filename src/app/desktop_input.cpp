@@ -588,6 +588,8 @@ void Launcher::desktopActivate(const desktop_ui::Hit& hit) {
             desktopSetMember(games, desktopFavorites(), true);
             showNotification(NotificationKind::launch, tr(L"Dodano do ulubionych"), gamesLabel(games.size()));
         } else if (hit.index == 2) {
+            for (const auto& game : games) retryGameArtwork(game, &game == &games.front());
+        } else if (hit.index == 3) {
             for (const auto& game : games) if (!hideableCopies(game).empty() && !hiddenInLauncher(game)) toggleHidden(game);
             desktop_marked_.clear();
         } else { desktop_marked_.clear(); InvalidateRect(hwnd_, nullptr, FALSE); }
@@ -1168,6 +1170,9 @@ void Launcher::desktopOpenGameMenu(float x, float y, bool keyboard) {
         MenuItem collections{Action::collections, tr(L"Kolekcje"), {}, glyph::folder};
         collections.submenu = true;
         items.push_back(std::move(collections));
+        // Every selected game's missing or failed artwork asked for again (SteamGridDB, Epic's own art).
+        items.push_back({Action::retry_art, tr(L"Pobierz grafiki ponownie"), {}, glyph::refresh});
+        items.push_back({Action::missing_art, tr(L"Pobierz brakujące okładki…"), {}, glyph::picture});
         if (std::all_of(games.begin(), games.end(), [&](const Game& game) { return !hideableCopies(game).empty(); }))
             items.push_back({Action::hide, tr(L"Ukryj zaznaczone"), {}, glyph::hide});
         separator();
@@ -1368,6 +1373,7 @@ void Launcher::desktopMenuPick(const desktop_ui::MenuItem& item, bool /*from_sub
     case Action::details: if (game) openDetails(*game); return;
     case Action::artwork: if (game) openArtworkBrowser(*game); return;
     case Action::retry_art: for (const auto& each : games) retryGameArtwork(each, &each == &games.front()); return;
+    case Action::missing_art: openBulkCovers(games); return; // Pobierz brakujące okładki, for these games only.
     case Action::identify: if (game) openIdentifyFor(*game); return;
     case Action::metadata: if (game) desktopMetaOpen(*game); return;
     case Action::launch_options: if (game) openLaunchEditor(*game); return;

@@ -21,6 +21,10 @@
 
 namespace companion::cognition {
 
+inline constexpr size_t max_reflections = 1200;
+inline constexpr size_t max_schemas = 400;
+inline constexpr size_t max_synapses = 4000;
+
 struct Reflection {
     uint64_t at = 0;
     std::wstring text;
@@ -73,12 +77,12 @@ struct ActivationHit {
 };
 
 struct State {
-    std::vector<Reflection> reflections; // Higher-order beliefs/intentions per companion (≤ 120).
+    std::vector<Reflection> reflections; // Higher-order beliefs/intentions, owned by companion (≤ max_reflections total).
     std::vector<Thought> thoughts;       // Subconscious inner thoughts (<mysl>) per companion (≤ 120).
     std::vector<Gossip> gossip;          // Shared blackboard across all companions (≤ 60).
     std::vector<Reading> readings;       // Articles/facts she read online via Tavily on her own (≤ 60).
-    std::vector<HebbianSynapse> synapses; // Strengthened concept-to-concept synapses (≤ 400).
-    std::vector<Schema> schemas;         // Generalized causal schemas abstracted across conversations (≤ 40).
+    std::vector<HebbianSynapse> synapses; // Strengthened concept-to-concept synapses (≤ max_synapses).
+    std::vector<Schema> schemas;         // Generalized causal schemas abstracted across conversations (≤ max_schemas total).
     std::map<std::string, std::wstring, std::less<>> dispositions; // Each companion's evolving long-term emotional attitude toward the player.
     std::map<std::string, int, std::less<>> peer_tension; // Dynamic 7x7 inter-companion friction ("a:b" -> 0..100).
 

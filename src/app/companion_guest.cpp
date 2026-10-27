@@ -11,7 +11,7 @@
 #include <fstream>
 
 namespace {
-bool english() { return i18n::language() == i18n::Language::en; }
+bool english() { return i18n::english(); }
 int dateKey(const SYSTEMTIME& time) { return time.wYear * 10000 + time.wMonth * 100 + time.wDay; }
 // She steps in and makes the host shrink aside, or runs off.
 constexpr float entrance_seconds = 0.55f, exit_seconds = 0.4f;

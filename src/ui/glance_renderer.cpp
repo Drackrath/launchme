@@ -203,7 +203,7 @@ void Renderer::drawGlance() {
     else if (state.feed.items.empty()) status = tr(L"Brak nowych treści w tym źródle.");
     else if (state.timeline()) status = state.feed.dates_partial ? tr(L"Wybrane premiery · część katalogu Steam jest niedostępna") : tr(L"Wybrane premiery Steam · 30 dni wprzód · ostatnie 7 dni: do 12 gier");
     else status = state.section < 2 ? tr(L"Źródło: Steam · gry i dodatki") :
-        (i18n::language() == i18n::Language::en ? L"Eurogamer · RSS" : L"Eurogamer.pl · RSS");
+        (i18n::english() ? L"Eurogamer · RSS" : L"Eurogamer.pl · RSS");
     textLine(status,layout.left,187,viewport_.width-2*layout.left,friend_status_font_.Get(),palette::muted());
     target_->PushAxisAlignedClip(D2D1::RectF(layout.left-5,layout.top-5,viewport_.width-layout.left+5,layout.bottom()+4),D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
     // Large editorial cards keep the shortcut's compact corners; never stretch a unit squircle.

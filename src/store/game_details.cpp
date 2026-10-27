@@ -68,8 +68,9 @@ GameDetails parseGameDetails(uint32_t app_id, std::string_view bytes) {
 GameDetails fetchGameDetails(uint32_t app_id, const std::filesystem::path& cache) {
     if (!app_id) return {};
     // Steam localizes the description and dates; each UI language has its own cached copy.
-    const bool english = i18n::language() == i18n::Language::en;
-    const auto file = cache / (std::to_wstring(app_id) + (english ? L".en.details.json" : L".details.json"));
+    const auto language = i18n::language();
+    const auto file = cache / (std::to_wstring(app_id) + (language == i18n::Language::en ? L".en.details.json" :
+        language == i18n::Language::pt_br ? L".pt-BR.details.json" : language == i18n::Language::es ? L".es.details.json" : L".details.json"));
     std::error_code ec;
     const auto modified = std::filesystem::last_write_time(file, ec);
     std::string saved;
@@ -86,7 +87,7 @@ GameDetails fetchGameDetails(uint32_t app_id, const std::filesystem::path& cache
         }
     }
     const auto response = httpGet(L"https://store.steampowered.com/api/appdetails?appids=" + std::to_wstring(app_id) +
-                                 (english ? L"&l=english" : L"&l=polish"), L"Accept: application/json\r\n", 2 * 1024 * 1024);
+                                 L"&l=" + std::wstring(i18n::steamLanguage()), L"Accept: application/json\r\n", 2 * 1024 * 1024);
     const auto text = std::string_view(reinterpret_cast<const char*>(response.body.data()), response.body.size());
     auto result = parseGameDetails(app_id, text);
     if (response.status == 200 && result.error.empty()) atomic_file::write(file, text);

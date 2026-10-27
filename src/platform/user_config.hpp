@@ -238,8 +238,8 @@ struct AppSettings {
     // launch directly.
     enum class AcceptAction { launch, details };
     AcceptAction accept_action = AcceptAction::details;
-    // Interface language; system follows the Windows display language (Polish or English).
-    enum class LanguageChoice { system, pl, en };
+    // Interface language; system follows the Windows display language (Polish, Portuguese, Spanish or English).
+    enum class LanguageChoice { system, pl, en, pt_br, es };
     LanguageChoice language = LanguageChoice::system;
     std::unordered_set<std::string> hidden_collections;
     std::vector<std::string> collection_order;

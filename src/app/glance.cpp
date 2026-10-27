@@ -80,7 +80,7 @@ void Launcher::requestGlance(bool refresh) {
     const int section = glance_.section;
     const bool owned = section == static_cast<int>(glance::Section::owned);
     glance_roster_ = owned ? glanceGames() : std::vector<glance::OwnedGame>{};
-    const bool english = i18n::language() == i18n::Language::en;
+    const bool english = i18n::english();
     const auto cache = userConfigDirectory() / L"glance";
     const auto post = [hwnd = hwnd_, alive = alive_, generation, section](std::unique_ptr<GlanceMessage> message) {
         message->generation = generation; message->section = section;

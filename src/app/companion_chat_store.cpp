@@ -11,7 +11,7 @@
 
 namespace {
 namespace chats = companion::chats;
-bool english() { return i18n::language() == i18n::Language::en; }
+bool english() { return i18n::english(); }
 
 // A conversation's messages as the chat shows them; her photo is read from the photo folder (a
 // missing one leaves no empty frame).

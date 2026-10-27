@@ -8,12 +8,13 @@
 #include <algorithm>
 #include <cmath>
 #include <cwctype>
+#include <unordered_map>
 
 namespace companion {
 namespace {
 constexpr size_t remark_limit = 30, pick_limit = max_picks_capacity, note_limit = max_notes_capacity, summary_limit = max_summaries_capacity;
-constexpr size_t summaries_per_look = 100;
 constexpr size_t core_notes_shown = 30, summaries_shown = 3; // Always in prompt; older matching ones join via auto-recall (`query`) or przypomnij.
+constexpr size_t priority_notes_shown = 8;
 std::wstring trimmed(std::wstring_view text, size_t limit) {
     std::wstring out;
     for (const wchar_t ch : text) {
@@ -32,17 +33,24 @@ std::wstring trimmed(std::wstring_view text, size_t limit) {
 template <class T> void keepLast(std::vector<T>& list, size_t limit) {
     if (list.size() > limit) list.erase(list.begin(), list.end() - static_cast<std::ptrdiff_t>(limit));
 }
-// Self-defining memories (`important = true`, McAdams/Tulving) are protected from FIFO eviction (up to 16 pinned).
-void keepEntries(std::vector<Memory::Entry>& list, size_t limit) {
+// Retain the strongest evidence, preserving the order of surviving entries. A late weak guess
+// cannot evict an important old memory just because it was appended last.
+void keepEntries(std::vector<Memory::Entry>& list, size_t limit, uint64_t now, std::optional<std::string_view> owner = {}) {
     if (list.size() <= limit) return;
-    size_t pinned = 0;
-    for (const auto& e : list) if (e.important) ++pinned;
-    for (auto it = list.begin(); list.size() > limit && it != list.end();) {
-        if (it->important && pinned <= 16) { ++it; continue; }
-        if (it->important) --pinned;
-        it = list.erase(it);
-    }
-    if (list.size() > limit) list.erase(list.begin(), list.end() - static_cast<std::ptrdiff_t>(limit));
+    struct Ranked { size_t index; float weight; };
+    std::vector<Ranked> ranked;
+    for (size_t i = 0; i < list.size(); ++i)
+        if (!owner || list[i].look == *owner) ranked.push_back({i, Memory::retentionWeight(list[i], now)});
+    if (ranked.size() <= limit) return;
+    std::nth_element(ranked.begin(), ranked.begin() + static_cast<std::ptrdiff_t>(limit), ranked.end(), [&](const Ranked& a, const Ranked& b) {
+        if (a.weight != b.weight) return a.weight > b.weight;
+        if (list[a.index].at != list[b.index].at) return list[a.index].at > list[b.index].at;
+        return a.index > b.index;
+    });
+    std::vector<bool> removed(list.size());
+    for (size_t i = limit; i < ranked.size(); ++i) removed[ranked[i].index] = true;
+    size_t index = 0;
+    std::erase_if(list, [&](const Memory::Entry&) { return removed[index++]; });
 }
 std::wstring ago(uint64_t when, uint64_t now, bool english) {
     const uint64_t days = now > when ? (now - when) / 86400 : 0;
@@ -115,6 +123,7 @@ json::Value entries(const std::vector<Memory::Entry>& list) {
         if (entry.confidence > 0) item.properties["confidence"] = json::number(std::round(entry.confidence * 100) / 100.0);
         if (entry.secret) item.properties["secret"] = json::boolean(true);
         if (entry.important) item.properties["important"] = json::boolean(true);
+        if (entry.confirmations > 1) item.properties["confirmations"] = json::number(std::min(entry.confirmations, 64u));
         if (!entry.topic.empty()) item.properties["topic"] = json::string(entry.topic);
         if (!entry.known.empty()) {
             auto known = json::array();
@@ -154,6 +163,8 @@ std::vector<Memory::Entry> entries(const json::Value* list, size_t limit) {
             entry.confidence = static_cast<float>(std::clamp(confidence->numeric, 0.0, 1.0));
         if (const auto* secret = item.get("secret"); secret && secret->type == json::Value::Type::boolean) entry.secret = secret->flag;
         if (const auto* imp = item.get("important"); imp && imp->type == json::Value::Type::boolean) entry.important = imp->flag;
+        if (const auto* count = item.get("confirmations"); count && count->type == json::Value::Type::number && std::isfinite(count->numeric))
+            entry.confirmations = static_cast<uint32_t>(std::clamp(count->numeric, 1.0, 64.0));
         entry.topic = shortKey(item.get("topic"), 16);
         if (const auto* known = item.get("known"); known && known->type == json::Value::Type::array)
             for (const auto& who : known->elements) {
@@ -166,7 +177,9 @@ std::vector<Memory::Entry> entries(const json::Value* list, size_t limit) {
             }
         result.push_back(std::move(entry));
     }
-    keepEntries(result, limit);
+    uint64_t newest = 0;
+    for (const auto& entry : result) newest = std::max(newest, entry.at);
+    keepEntries(result, limit, newest);
     return result;
 }
 std::filesystem::path file(const std::filesystem::path& config) { return config / L"companion_memory.dat"; }
@@ -189,6 +202,20 @@ std::wstring status(const Memory::Entry& note, std::string_view look, uint64_t n
     return out;
 }
 } // namespace
+
+float Memory::retentionWeight(const Entry& entry, uint64_t now) {
+    const float confidence = std::isfinite(entry.confidence) && entry.confidence > 0 ? std::clamp(entry.confidence, 0.0f, 1.0f) : 0.8f;
+    const bool inferred = entry.source == "inferred";
+    const double days = now > entry.at ? static_cast<double>(now - entry.at) / 86400.0 : 0.0;
+    const float recency = entry.at ? static_cast<float>(1.0 / (1.0 + days / 90.0)) : 0.0f;
+    const float reinforcement = inferred ? 0.0f : 0.35f * std::log2(static_cast<float>(std::clamp(entry.confirmations, 1u, 64u)));
+    return (entry.important ? 6.0f : 0.0f) + (entry.topic == "place" ? 1.5f : 0.0f) +
+           confidence * (inferred ? 0.5f : 1.5f) + reinforcement + recency;
+}
+
+float Memory::recallWeight(const Entry& entry, int matches, uint64_t now) {
+    return matches > 0 ? static_cast<float>(matches) + std::min(retentionWeight(entry, now), 12.5f) * 0.05f : 0.0f;
+}
 
 void Memory::said(std::wstring_view text, uint64_t now) {
     auto line = trimmed(text, 140);
@@ -223,7 +250,10 @@ bool Memory::note(std::wstring_view text, uint64_t now, const Facts& facts) {
         if (folded.find(word) != std::wstring::npos) return false;
     const auto source = facts.source == "observed" || facts.source == "inferred" ? facts.source : std::string{};
     // What a known note learns from hearing it again.
-    const auto refresh = [&](Entry& entry, bool replace_text) {
+    const auto refresh = [&](Entry& entry, bool replace_text, bool correction = false) {
+        // Corrections start fresh. Re-reading or repeating an inference must not manufacture evidence.
+        if (correction || (entry.source == "inferred" && source != "inferred")) entry.confirmations = 1;
+        else if (source != "inferred" && now > entry.at) entry.confirmations = std::min(entry.confirmations + 1, 64u);
         if (replace_text) entry.text = std::move(line);
         if (!facts.emotion.empty()) entry.emotion = facts.emotion;
         if (!clean_feeling.empty()) entry.feeling = std::move(clean_feeling);
@@ -245,7 +275,7 @@ bool Memory::note(std::wstring_view text, uint64_t now, const Facts& facts) {
         return false;
     }
     // Near-duplicate consolidation: if a longer note expands an existing one (or shares almost all stem words),
-    // update the existing entry in place so the 500-note archive stays clean and dense. A note that says
+    // update the existing entry in place so the archive stays clean and dense. A note that says
     // the opposite replaces the old one (the newer word wins); different numbers are different facts.
     const auto stems = chats::searchWords(line, 16);
     const bool negative = negated(line);
@@ -267,7 +297,7 @@ bool Memory::note(std::wstring_view text, uint64_t now, const Facts& facts) {
                 chats::overlap(stems, other_stems, &shared);
                 const size_t min_len = std::min(stems.size(), other_stems.size());
                 if (shared * 5 >= min_len * 4 && std::abs(static_cast<int>(stems.size()) - static_cast<int>(other_stems.size())) <= 2) {
-                    refresh(entry, opposite || line.size() >= entry.text.size());
+                    refresh(entry, opposite || line.size() >= entry.text.size(), opposite);
                     return true;
                 }
             }
@@ -286,9 +316,10 @@ bool Memory::note(std::wstring_view text, uint64_t now, const Facts& facts) {
     entry.important = facts.important;
     entry.topic = facts.topic;
     if (!entry.look.empty()) addKnower(entry, facts.guest, false);
+    const auto id = entry.id;
     notes.push_back(std::move(entry));
-    keepEntries(notes, note_limit);
-    return true;
+    keepEntries(notes, note_limit, now);
+    return std::any_of(notes.begin(), notes.end(), [&](const Entry& kept) { return kept.id == id; });
 }
 
 bool Memory::revise(std::string_view id, std::wstring_view text, std::optional<float> confidence, std::string_view look, uint64_t now) {
@@ -312,7 +343,10 @@ bool Memory::revise(std::string_view id, std::wstring_view text, std::optional<f
         notes.erase(found);
         return true;
     }
-    if (game_index::fold(line).size() >= 4) found->text = std::move(line);
+    if (game_index::fold(line).size() >= 4) {
+        if (game_index::fold(found->text) != game_index::fold(line)) found->confirmations = 1;
+        found->text = std::move(line);
+    }
     if (confidence) found->confidence = std::clamp(*confidence, 0.05f, 1.0f);
     found->at = now;
     return true;
@@ -349,19 +383,8 @@ void Memory::summarize(std::wstring_view text, uint64_t now, std::string look, b
     Entry entry{now, std::move(line), look};
     entry.important = important || first_for_look;
     summaries.push_back(std::move(entry));
-    if (!look.empty()) {
-        size_t own = 0, own_pinned = 0;
-        for (const auto& s : summaries) if (s.look == look) { ++own; if (s.important) ++own_pinned; }
-        for (auto it = summaries.begin(); own > summaries_per_look && it != summaries.end();) {
-            if (it->look == look) {
-                if (it->important && own_pinned <= 10) { ++it; continue; }
-                if (it->important) --own_pinned;
-                it = summaries.erase(it);
-                --own;
-            } else ++it;
-        }
-    }
-    keepEntries(summaries, summary_limit);
+    if (!look.empty()) keepEntries(summaries, max_summaries_per_look, now, look);
+    keepEntries(summaries, summary_limit, now);
 }
 
 bool Memory::removeNote(uint64_t at, std::wstring_view text) {
@@ -432,33 +455,44 @@ std::wstring Memory::prompt(bool english, uint64_t now, bool short_term, bool lo
             out += L"\n";
         }
     }
-    // Layer 1 (Core): her latest `core_notes_shown` notes and her latest `summaries_shown` summaries.
+    // Layer 1 (Core): a few high-value facts, filled out with recent notes, and her latest summaries.
     // Layer 2 (Auto-Recall): older notes and summaries that match stem words of `query`.
-    const auto known = notesOf(look);
+    auto known = notesOf(look);
+    std::stable_sort(known.begin(), known.end(), [](const Entry* a, const Entry* b) { return a->at < b->at; });
     std::vector<const Entry*> shown_notes;
     std::vector<const Entry*> latest;
     if (long_term) {
-        const size_t start_note = known.size() > core_notes_shown ? known.size() - core_notes_shown : 0;
-        for (size_t i = start_note; i < known.size(); ++i) shown_notes.push_back(known[i]);
+        for (const auto* note : known)
+            if (note->important || note->topic == "place" || (note->source != "inferred" && note->confirmations >= 3)) shown_notes.push_back(note);
+        std::stable_sort(shown_notes.begin(), shown_notes.end(), [&](const Entry* a, const Entry* b) {
+            const float aw = retentionWeight(*a, now), bw = retentionWeight(*b, now);
+            return aw != bw ? aw > bw : a->at > b->at;
+        });
+        if (shown_notes.size() > priority_notes_shown) shown_notes.resize(priority_notes_shown);
+        for (auto it = known.rbegin(); it != known.rend() && shown_notes.size() < core_notes_shown; ++it)
+            if (std::find(shown_notes.begin(), shown_notes.end(), *it) == shown_notes.end()) shown_notes.push_back(*it);
+        std::stable_sort(shown_notes.begin(), shown_notes.end(), [](const Entry* a, const Entry* b) { return a->at < b->at; });
         for (auto it = summaries.rbegin(); it != summaries.rend() && latest.size() < (look.empty() ? summary_limit : summaries_shown); ++it)
             if (look.empty() || it->look.empty() || it->look == look) latest.push_back(&*it);
 
         if (!query.empty()) {
             const auto words = chats::searchWords(query);
             if (!words.empty()) {
-                if (start_note > 0) {
-                    std::vector<std::pair<int, const Entry*>> recalled_notes;
-                    for (size_t i = 0; i < start_note; ++i)
-                        if (const int score = chats::matches(words, known[i]->text); score > 0) recalled_notes.push_back({score, known[i]});
+                if (known.size() > shown_notes.size()) {
+                    std::vector<std::pair<float, const Entry*>> recalled_notes;
+                    for (const auto* note : known) {
+                        if (std::find(shown_notes.begin(), shown_notes.end(), note) != shown_notes.end()) continue;
+                        if (const float score = recallWeight(*note, chats::matches(words, note->text), now); score > 0) recalled_notes.push_back({score, note});
+                    }
                     std::stable_sort(recalled_notes.begin(), recalled_notes.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
                     for (size_t i = 0; i < recalled_notes.size() && i < 8; ++i) shown_notes.insert(shown_notes.begin() + static_cast<std::ptrdiff_t>(i), recalled_notes[i].second);
                 }
-                std::vector<std::pair<int, const Entry*>> recalled_sums;
+                std::vector<std::pair<float, const Entry*>> recalled_sums;
                 for (const auto& sum : summaries) {
                     if (!look.empty() && !sum.look.empty() && sum.look != look) continue;
                     if (std::find(latest.begin(), latest.end(), &sum) != latest.end()) continue;
-                    if (const int score = chats::matches(words, sum.text); score > 0)
-                        recalled_sums.push_back({score + (sum.important ? 2 : 0), &sum});
+                    if (const float score = recallWeight(sum, chats::matches(words, sum.text), now); score > 0)
+                        recalled_sums.push_back({score, &sum});
                 }
                 std::stable_sort(recalled_sums.begin(), recalled_sums.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
                 for (size_t i = 0; i < recalled_sums.size() && i < 4; ++i) latest.push_back(recalled_sums[i].second);
@@ -509,17 +543,29 @@ std::string Memory::save() const {
 }
 
 std::optional<Memory> Memory::load(std::string_view text) {
-    const auto root = json::parse(text, 4 * 1024 * 1024);
+    const auto root = json::parse(text, max_memory_file_bytes);
     if (!root || root->type != json::Value::Type::object || !root->get("version") || root->get("version")->intOr() != 1) return std::nullopt;
     Memory memory;
     memory.remarks = entries(root->get("remarks"), remark_limit);
     memory.notes = entries(root->get("notes"), note_limit);
     memory.summaries = entries(root->get("summaries"), summary_limit);
-    // Older notes get their ids (stable: from when and what).
+    std::unordered_map<std::string, size_t> summary_counts;
+    uint64_t newest_summary = 0;
+    for (const auto& summary : memory.summaries) {
+        if (!summary.look.empty()) ++summary_counts[summary.look];
+        newest_summary = std::max(newest_summary, summary.at);
+    }
+    for (const auto& [look, count] : summary_counts)
+        if (count > max_summaries_per_look) keepEntries(memory.summaries, max_summaries_per_look, newest_summary, look);
+    // Older notes get their ids (stable: from when and what), without a quadratic duplicate-id scan.
+    std::unordered_map<std::string, size_t> id_counts;
+    for (const auto& note : memory.notes) if (!note.id.empty()) ++id_counts[note.id];
     for (auto& note : memory.notes) {
-        if (!note.id.empty() && std::count_if(memory.notes.begin(), memory.notes.end(), [&](const Entry& other) { return other.id == note.id; }) == 1) continue;
+        if (!note.id.empty() && id_counts[note.id] == 1) continue;
+        if (!note.id.empty()) --id_counts[note.id];
         note.id.clear();
         note.id = noteId(note.text, note.at, memory.notes);
+        ++id_counts[note.id];
     }
     if (const auto* list = root->get("picks"); list && list->type == json::Value::Type::array)
         for (const auto& item : list->elements) {
@@ -536,7 +582,7 @@ std::optional<Memory> Memory::load(std::string_view text) {
 }
 
 Memory loadMemory(const std::filesystem::path& config) {
-    const auto bytes = protected_file::read(file(config), 4 * 1024 * 1024);
+    const auto bytes = protected_file::read(file(config), max_memory_file_bytes);
     if (!bytes) return {};
     return Memory::load(*bytes).value_or(Memory{});
 }

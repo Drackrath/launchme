@@ -76,7 +76,8 @@ void Launcher::onVideo(std::unique_ptr<VideoMessage> message) {
     // The video's own sound (Biblioteka → Dźwięk filmów); the music fades out meanwhile.
     const double volume = settings_ui::video_volume_levels[std::clamp<size_t>(settings_.video_volume, 0, settings_ui::video_volume_levels.size() - 1)];
     video_silent_ = message->silent;
-    if (message->silent) { video_player_.open(message->file, 0.0); return; } // Music keeps playing.
+    // A muted trailer, or the video's sound set to Muted: the music keeps playing.
+    if (message->silent || volume <= 0) { video_player_.open(message->file, message->silent ? 0.0 : volume); return; }
     if (video_player_.open(message->file, volume)) audio_.duckMusic(true);
 }
 

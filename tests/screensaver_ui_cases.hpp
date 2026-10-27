@@ -177,18 +177,35 @@ int LauncherUiTest::screensaver(HWND window) {
         std::lock_guard lock(app.jobs_->mutex);
         if (!app.jobs_->prefetch.empty()) return 810; // Poster prefetch waits for the running launcher.
     }
-    // With the launcher running (no download workers exist in this test), boxes queue one
-    // spaced-out background poster job per library game; another style drops them again.
+    // With the launcher running (no download workers exist in this test), boxes queue one background
+    // poster job per library game (SteamGridDB's own spacing paces them); another style drops them again.
     app.runtime_started_ = true;
     app.prefetchPosters();
     {
         std::lock_guard lock(app.jobs_->mutex);
         const auto& lane = app.jobs_->prefetch;
         if (lane.size() != 4 || std::any_of(lane.begin(), lane.end(), [](const auto& job) { return job.kind != CoverMessage::Kind::poster || !job.prefetch; }) ||
-            !(lane.front().ready_at < lane.back().ready_at)) return 860;
+            lane.front().ready_at != std::chrono::steady_clock::time_point{}) return 860;
     }
     app.prefetchPosters(); // Already queued: nothing twice.
     if (app.jobs_->prefetch.size() != 4) return 861;
+    {
+        // The background lane takes covers and posters (posters first for poster tiles) before
+        // landscapes, backgrounds and logos, whatever order they were queued in.
+        Launcher::JobQueue queue;
+        const auto order = [&](bool posters_first) {
+            queue.prefetch.clear(); queue.posters_first = posters_first;
+            for (const auto kind : {CoverMessage::Kind::logo, CoverMessage::Kind::hero, CoverMessage::Kind::landscape, CoverMessage::Kind::poster, CoverMessage::Kind::cover}) {
+                Launcher::Job job{app.public_library_[0], kind}; job.prefetch = true; queue.prefetch.push_back(job);
+            }
+            std::vector<CoverMessage::Kind> taken;
+            while (auto job = queue.takeReady(true, false, std::chrono::steady_clock::now())) taken.push_back(job->kind);
+            return taken;
+        };
+        using K = CoverMessage::Kind;
+        if (order(false) != std::vector<K>{K::cover, K::poster, K::landscape, K::hero, K::logo} ||
+            order(true) != std::vector<K>{K::poster, K::cover, K::landscape, K::hero, K::logo}) return 869;
+    }
     app.settings_.screensaver_style = AppSettings::ScreensaverStyle::discs;
     app.prefetchPosters();
     if (!app.jobs_->prefetch.empty() || std::any_of(app.jobs_->requested.begin(), app.jobs_->requested.end(),

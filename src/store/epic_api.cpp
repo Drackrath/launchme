@@ -17,6 +17,24 @@ constexpr wchar_t oauth[] = L"https://account-public-service-prod03.ol.epicgames
 std::string field(const json::Value& v, const char* key) { const auto p = v.get(key); return p ? p->stringOr() : std::string{}; }
 std::string body(const HttpResponse& r) { return {r.body.begin(), r.body.end()}; }
 bool printable(std::string_view s) { return !s.empty() && s.size() <= 8192 && std::all_of(s.begin(), s.end(), [](unsigned char c) { return c > 32 && c < 127; }); }
+// The catalog item's own art (keyImages): its tall box art, wide art and logo, the first of each
+// kind in Epic's order of preference. A game without any keeps "-" (looked at, none there).
+void keyImages(const json::Value& product, Game& game) {
+    std::map<std::string, std::string> urls;
+    if (const auto images = product.get("keyImages"); images && images->type == json::Value::Type::array)
+        for (const auto& image : images->elements) {
+            const auto type = field(image, "type"), url = field(image, "url");
+            if (!type.empty() && url.starts_with("https://") && url.size() <= 2048 && printable(url)) urls.emplace(type, url);
+        }
+    const auto first = [&](std::initializer_list<const char*> types) {
+        for (const auto* type : types) if (const auto found = urls.find(type); found != urls.end()) return found->second;
+        return std::string{};
+    };
+    game.epic_tall_art = first({"DieselGameBoxTall", "OfferImageTall", "DieselStoreFrontTall", "Thumbnail"});
+    game.epic_wide_art = first({"DieselGameBox", "OfferImageWide", "DieselStoreFrontWide"});
+    game.epic_logo_art = first({"DieselGameBoxLogo"});
+    if (game.epic_tall_art.empty()) game.epic_tall_art = "-";
+}
 // Form bodies (token grants) need narrow text; URLs use url_encoding::component.
 std::string encode(std::string_view s) {
     constexpr char hex[] = "0123456789ABCDEF"; std::string out;
@@ -145,7 +163,9 @@ public:
         std::vector<Game> games;
         for (const auto& [id, item] : items) {
             if (cancel()) return {Failure::cancelled};
-            if (const auto old = previous.find(id); old != previous.end() && old->second.epic_catalog == item.catalog && old->second.epic_namespace == item.space) {
+            // Known games are kept as saved; one saved before Epic's art was read (0.2.4 and older) is asked once more.
+            if (const auto old = previous.find(id); old != previous.end() && old->second.epic_catalog == item.catalog && old->second.epic_namespace == item.space &&
+                !old->second.epic_tall_art.empty()) {
                 games.push_back(old->second); continue;
             }
             HttpResponse response;
@@ -167,6 +187,8 @@ public:
             game.source_id = id; game.epic_namespace = item.space; game.epic_catalog = item.catalog;
             game.name = text_encoding::wideLenient(field(*product, "title"));
             if (game.name.empty() || game.name.size() > 2048) return {Failure::invalid};
+            keyImages(*product, game);
+            if (const auto old = previous.find(id); old != previous.end()) { game.visibility = old->second.visibility; game.store_playtime_minutes = old->second.store_playtime_minutes; }
             if (const auto attrs = product->get("customAttributes")) {
                 for (const auto key : {"ThirdPartyManagedApp", "ThirdPartyManagedProvider", "partnerLinkType"})
                     if (const auto attr = attrs->get(key); attr && !field(*attr, "value").empty()) game.epic_partner = field(*attr, "value");

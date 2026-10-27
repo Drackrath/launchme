@@ -19,7 +19,7 @@
 #include <cwctype>
 
 namespace {
-bool english() { return i18n::language() == i18n::Language::en; }
+bool english() { return i18n::english(); }
 int dateKey(const SYSTEMTIME& time) { return time.wYear * 10000 + time.wMonth * 100 + time.wDay; }
 uint64_t unixNow() {
     return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count());
@@ -212,7 +212,8 @@ void Launcher::companionMindReplied(const CompanionMessage& message) {
         if (appraisal.ok && (settings_.companion_notes || settings_.companion_memory)) {
             const auto applied = companion::mind::apply(self, companionMemory(), appraisal, context, message.guest_look,
                                                         [this](std::wstring_view title) { return companionGameKey(std::wstring(title)); });
-            memory_changed = applied.beliefs || applied.revisions;
+            // Repeated facts also refresh their evidence count/date even when no new note was added.
+            memory_changed = !appraisal.beliefs.empty() || applied.revisions;
             told_private = !appraisal.told.empty();
             if (applied.met > 0 && settings_.companion_gamification) {
                 if (companionAffinity().adjustAxes(context.look, 2, 0, 2)) saveCompanionAffinity();

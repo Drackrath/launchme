@@ -214,9 +214,9 @@ void Launcher::prefetchLibraryArt() {
 }
 
 // 600x900 posters: the whole public library for XMB and the screensaver's boxes, the Flix rows'
-// games for that home layout (landscape capsules for its first row). The same background
-// lane and failure/retry bookkeeping as the other artwork, after it and spaced out, so
-// SteamGridDB sees a trickle rather than a burst.
+// games for that home layout (landscape capsules for its first row). The same background lanes and
+// failure/retry bookkeeping as the other artwork; JobQueue::takeReady takes covers and posters before
+// backgrounds and logos, and SteamGridDB's own 1.1 s spacing (net/artwork_limits.hpp) keeps it a trickle.
 void Launcher::prefetchPosters() {
     const bool boxes = settings_.screensaver && settings_.screensaver_style == AppSettings::ScreensaverStyle::boxes;
     const bool flix = settings_.home_layout == AppSettings::HomeLayout::flix;
@@ -224,6 +224,10 @@ void Launcher::prefetchPosters() {
     const bool xmb = settings_.home_layout == AppSettings::HomeLayout::xmb && settings_.xmb_posters;
     const bool shelves = settings_.home_layout == AppSettings::HomeLayout::shelves && settings_.shelves_posters;
     const bool desktop = desktop_mode_; // The desktop window's grid: a poster for every game.
+    {   // Poster tiles: a game missing both gets its poster first.
+        std::lock_guard lock(jobs_->mutex);
+        jobs_->posters_first = desktop || xmb || shelves;
+    }
     if ((!boxes && !xmb && !shelves && !desktop) || !(flix || metro)) {
         // Posters/capsules still queued for a style or layout no longer in use are not needed any more.
         std::lock_guard lock(jobs_->mutex);
@@ -235,11 +239,7 @@ void Launcher::prefetchPosters() {
         });
     }
     if (!runtime_started_ || (!boxes && !flix && !metro && !xmb && !shelves && !desktop)) return;
-    const auto start = std::chrono::steady_clock::now();
-    int queued = 0;
-    const auto queue = [&](const Game& game, CoverMessage::Kind kind) {
-        if (isGame(game) && requestArt(game, kind, true, start + std::chrono::milliseconds(400) * queued)) ++queued;
-    };
+    const auto queue = [&](const Game& game, CoverMessage::Kind kind) { if (isGame(game)) requestArt(game, kind, true); };
     if (flix) for (size_t i = 0; i < categories_.size(); ++i)
         for (const auto& game : categories_[i].games) queue(game, i ? CoverMessage::Kind::poster : CoverMessage::Kind::landscape);
     // Metro: wide tiles for the recent games, posters for the games each category page shows.

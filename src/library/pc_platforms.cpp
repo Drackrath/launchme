@@ -473,6 +473,7 @@ StoreLibrary mergeEpicLibrary(StoreLibrary native, const std::vector<Game>& owne
         const auto found = std::find_if(native.visible.begin(), native.visible.end(), [&](const Game& g) { return gameKey(g) == gameKey(game); });
         if (found != native.visible.end()) {
             found->epic_namespace = game.epic_namespace; found->epic_catalog = game.epic_catalog; found->epic_partner = game.epic_partner;
+            found->epic_tall_art = game.epic_tall_art; found->epic_wide_art = game.epic_wide_art; found->epic_logo_art = game.epic_logo_art;
             found->store_playtime_minutes = std::max(found->store_playtime_minutes, game.store_playtime_minutes); // Epic's own count.
             if (game.visibility != GameVisibility::public_game) found->visibility = game.visibility;
         } else {

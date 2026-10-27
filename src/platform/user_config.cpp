@@ -460,6 +460,8 @@ AppSettings parseAppSettings(std::string_view text) {
             if (value == "system") settings.language = AppSettings::LanguageChoice::system;
             else if (value == "pl") settings.language = AppSettings::LanguageChoice::pl;
             else if (value == "en") settings.language = AppSettings::LanguageChoice::en;
+            else if (value == "pt-BR") settings.language = AppSettings::LanguageChoice::pt_br;
+            else if (value == "es") settings.language = AppSettings::LanguageChoice::es;
         } else if ((key == "accent_color" || key == "ui_accent_color") && value.size() == 7 && value.front() == '#') {
             // accent_color keeps its original meaning (cover highlight) for existing settings files.
             uint32_t rgb = 0;
@@ -641,7 +643,9 @@ bool saveAppSettings(const AppSettings& settings, const std::filesystem::path& f
     output << "search_art=" << (settings.search_art == AppSettings::SearchArt::poster ? "poster" :
                                 settings.search_art == AppSettings::SearchArt::landscape ? "landscape" : "square") << '\n';
     output << "language=" << (settings.language == AppSettings::LanguageChoice::pl ? "pl" :
-                              settings.language == AppSettings::LanguageChoice::en ? "en" : "system") << '\n';
+                              settings.language == AppSettings::LanguageChoice::en ? "en" :
+                              settings.language == AppSettings::LanguageChoice::pt_br ? "pt-BR" :
+                              settings.language == AppSettings::LanguageChoice::es ? "es" : "system") << '\n';
     output << "tile_shape=" << (settings.tile_shape == AppSettings::TileShape::rounded ? "rounded" :
                                 settings.tile_shape == AppSettings::TileShape::square ? "square" : "squircle") << '\n';
     output << "panel_borders=" << settings.panel_borders << '\n';

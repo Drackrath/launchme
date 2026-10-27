@@ -27,7 +27,7 @@ template<class Predicate> bool wait(Predicate predicate) {
     do { if (predicate()) return true; std::this_thread::sleep_for(std::chrono::milliseconds(5)); } while (std::chrono::steady_clock::now() < until);
     return false;
 }
-struct ApiState { bool offline = false, malformed = false, cycle = false, unauthorized = false, rate = false; int pages = 0, refresh = 0; std::string refresh_account = "account-A"; };
+struct ApiState { bool offline = false, malformed = false, cycle = false, unauthorized = false, rate = false; int pages = 0, refresh = 0, catalogs = 0; std::string refresh_account = "account-A"; };
 epic::Http fixture(ApiState& state) {
     return [&](const std::wstring& url, const std::wstring& headers, const std::string& data, bool post) -> HttpResponse {
         if (state.offline) return {};
@@ -52,7 +52,8 @@ epic::Http fixture(ApiState& state) {
             return response(R"({"records":[{"appName":"AppOne","namespace":"sandbox","catalogItemId":"catalog"},{"appName":"DLC","namespace":"sandbox","catalogItemId":"dlc"}],"responseMetadata":{}})");
         }
         if (url.find(L"id=dlc") != url.npos) return response(R"({"dlc":{"id":"dlc","title":"DLC","mainGameItem":{"id":"catalog"},"categories":[]}})");
-        return response(R"({"catalog":{"id":"catalog","title":"Owned Game","categories":[{"path":"games"}]}})");
+        ++state.catalogs;
+        return response(R"({"catalog":{"id":"catalog","title":"Owned Game","categories":[{"path":"games"}],"keyImages":[{"type":"Thumbnail","url":"https://cdn1.epicgames.com/thumb.jpg"},{"type":"DieselGameBoxTall","url":"https://cdn1.epicgames.com/tall.jpg"},{"type":"DieselGameBox","url":"https://cdn1.epicgames.com/wide.jpg"},{"type":"DieselGameBoxLogo","url":"https://cdn1.epicgames.com/logo.png"},{"type":"OfferImageWide","url":"http://insecure.test/x.jpg"}]}})");
     };
 }
 struct BackendState { std::atomic_bool block{false}, entered{false}; std::atomic_int installs{0}; };
@@ -98,6 +99,15 @@ int main() {
     CHECK(api->library(config, state, never)); CHECK(state.games.size() == 1 && state.games[0].source_id == "AppOne" && api_state.pages == 2);
     CHECK(state.games[0].name == L"Owned Game");
     CHECK(state.games[0].store_playtime_minutes == 121); // Epic's own play time (library service), 7260 s.
+    // Epic's own art (keyImages): the tall box art before the thumbnail, https only.
+    CHECK(state.games[0].epic_tall_art == "https://cdn1.epicgames.com/tall.jpg" && state.games[0].epic_wide_art == "https://cdn1.epicgames.com/wide.jpg" &&
+          state.games[0].epic_logo_art == "https://cdn1.epicgames.com/logo.png");
+    {   // A known game is not asked again; one saved before the art was read (0.2.4) is, once.
+        const int before = api_state.catalogs; api_state.pages = 0;
+        CHECK(api->library(config, state, never) && api_state.catalogs == before);
+        state.games[0].epic_tall_art.clear(); api_state.pages = 0;
+        CHECK(api->library(config, state, never) && api_state.catalogs == before + 1 && state.games[0].epic_tall_art == "https://cdn1.epicgames.com/tall.jpg");
+    }
     {
         // An account call for a plugin (achievements): POST with the bearer, one refresh on 401.
         int posts = 0, renewals = 0;
@@ -128,6 +138,7 @@ int main() {
     auto vault = makeVault(root / L"epic.session"); CHECK(vault->save(state));
     std::optional<Session> restored; CHECK(vault->load(restored)); CHECK(restored && restored->games[0].source_id == "AppOne");
     CHECK(restored->games[0].store_playtime_minutes == 121);
+    CHECK(restored->games[0].epic_tall_art == state.games[0].epic_tall_art && restored->games[0].epic_logo_art == state.games[0].epic_logo_art);
     std::ifstream encrypted(root / L"epic.session", std::ios::binary); const std::string ciphertext{std::istreambuf_iterator<char>{encrypted}, {}}; encrypted.close();
     CHECK(ciphertext.find(state.tokens.refresh) == ciphertext.npos && ciphertext.find("Owned Game") == ciphertext.npos);
     CHECK(vault->clear()); CHECK(vault->load(restored) && !restored);

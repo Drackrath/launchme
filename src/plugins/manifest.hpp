@@ -6,7 +6,7 @@
 namespace plugins {
 struct Text {
     std::wstring pl, en;
-    std::wstring localized() const { return i18n::language() == i18n::Language::en ? en : pl; }
+    std::wstring localized() const { return i18n::english() ? en : pl; }
 };
 struct Setting {
     std::string id, type;

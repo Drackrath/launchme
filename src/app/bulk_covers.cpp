@@ -1,11 +1,11 @@
 #include "launcher.hpp"
 #include "../artwork/bulk_covers.hpp"
 
-void Launcher::openBulkCovers() {
+void Launcher::openBulkCovers(std::vector<Game> games) {
     if (bulk_control_ && !bulk_ui_.progress.terminal()) { bulk_ui_.open = true; return; }
     bulk_ui_ = {}; bulk_ui_.open = true;
     bulk_control_ = std::make_shared<bulk_covers::Control>();
-    bulk_games_ = public_library_;
+    bulk_games_ = games.empty() ? public_library_ : std::move(games);
     const auto generation = ++bulk_generation_;
     const auto control = bulk_control_; const auto alive = alive_; const auto hwnd = hwnd_; const auto jobs = jobs_;
     { std::lock_guard lock(jobs->mutex); jobs->bulk = true; }

@@ -135,7 +135,7 @@ float Renderer::drawMaskedText(const std::wstring& value, float x, float top, fl
 void Renderer::capsLine(const std::wstring& value, float x, float center_y, float width, D2D1_COLOR_F ink, DWRITE_TEXT_ALIGNMENT alignment) {
     auto* format = label_font_.Get();
     if (value.empty() || width <= 0 || !format) return;
-    const bool english = i18n::language() == i18n::Language::en;
+    const bool english = i18n::english();
     std::wstring upper(value.size() * 2 + 8, L'\0');
     const int written = LCMapStringEx(english ? L"en-US" : L"pl-PL", LCMAP_UPPERCASE | LCMAP_LINGUISTIC_CASING, value.c_str(), static_cast<int>(value.size()),
                                       upper.data(), static_cast<int>(upper.size()), nullptr, nullptr, 0);
@@ -1006,7 +1006,7 @@ void Renderer::drawCompanionMind(const companion_ui::Layout& layout, const compa
                                   tr(L"Nie mówiła ci o tym. Ona się nie dowie, że zajrzałeś — ale jeśli o to zapytasz, może się zdziwić, skąd wiesz."),
                                   tr(L"Odkryj"), chat.mind_confirm_focus, chat.mind_hover, alpha);
         } else {
-            const bool english = i18n::language() == i18n::Language::en;
+            const bool english = i18n::english();
             const auto body = node.masked ? std::wstring(tr(L"Ta ukryta myśl zniknie, zanim ją poznasz."))
                                           : (english ? L"\u201C" : L"\u201E") + readable(node.detail) + L"\u201D";
             drawCompanionQuestion(layout.mindConfirm(), tr(L"Usunąć to wspomnienie?"), body, tr(L"Usuń"), chat.mind_confirm_focus, chat.mind_hover, alpha);

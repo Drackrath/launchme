@@ -22,7 +22,7 @@ std::wstring amountText(uint64_t done, uint64_t total) {
     wchar_t text[64]{};
     swprintf_s(text, giga ? L"%.1f / %.1f GB" : L"%.0f / %.0f MB", done / unit, total / unit);
     std::wstring value = text;
-    if (i18n::language() == i18n::Language::pl) std::replace(value.begin(), value.end(), L'.', L',');
+    if (i18n::language() != i18n::Language::en) std::replace(value.begin(), value.end(), L'.', L',');
     return value;
 }
 downloads_ui::Row rowOf(const Game& game, const Installation& install, bool epic) {

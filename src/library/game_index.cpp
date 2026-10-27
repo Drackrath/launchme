@@ -62,14 +62,15 @@ std::vector<std::wstring> words(std::wstring_view text) {
 int monthNumber(std::wstring_view word) {
     const auto key = fold(word);
     if (key.size() < 3) return 0;
-    // English and Polish names, full or shortened ("lis", "listopada", "Nov", "November").
-    static constexpr std::array<std::array<const wchar_t*, 4>, 12> months{{
-        {L"jan", L"sty", L"january", L"styczen"}, {L"feb", L"lut", L"february", L"luty"}, {L"mar", L"mar", L"march", L"marzec"},
-        {L"apr", L"kwi", L"april", L"kwiecien"}, {L"may", L"maj", L"may", L"maja"}, {L"jun", L"cze", L"june", L"czerwiec"},
-        {L"jul", L"lip", L"july", L"lipiec"}, {L"aug", L"sie", L"august", L"sierpien"}, {L"sep", L"wrz", L"september", L"wrzesien"},
-        {L"oct", L"paz", L"october", L"pazdziernik"}, {L"nov", L"lis", L"november", L"listopad"}, {L"dec", L"gru", L"december", L"grudzien"}}};
+    // English, Polish, Portuguese and Spanish names, full or shortened ("lis", "listopada", "Nov",
+    // "novembro", "noviembre"): their first three letters.
+    static constexpr std::array<std::array<const wchar_t*, 5>, 12> months{{
+        {L"jan", L"sty", L"jan", L"ene", L"jan"}, {L"feb", L"lut", L"fev", L"feb", L"feb"}, {L"mar", L"mar", L"mar", L"mar", L"mar"},
+        {L"apr", L"kwi", L"abr", L"abr", L"apr"}, {L"may", L"maj", L"mai", L"may", L"may"}, {L"jun", L"cze", L"jun", L"jun", L"jun"},
+        {L"jul", L"lip", L"jul", L"jul", L"jul"}, {L"aug", L"sie", L"ago", L"ago", L"aug"}, {L"sep", L"wrz", L"set", L"sep", L"sep"},
+        {L"oct", L"paz", L"out", L"oct", L"oct"}, {L"nov", L"lis", L"nov", L"nov", L"nov"}, {L"dec", L"gru", L"dez", L"dic", L"dec"}}};
     for (size_t i = 0; i < months.size(); ++i)
-        if (key.starts_with(months[i][0]) || key.starts_with(months[i][1])) return static_cast<int>(i) + 1;
+        for (const auto* name : months[i]) if (key.starts_with(name)) return static_cast<int>(i) + 1;
     return 0;
 }
 bool validDay(int year, int month, int day) {

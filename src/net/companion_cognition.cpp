@@ -13,12 +13,12 @@
 
 namespace companion::cognition {
 namespace {
-constexpr size_t reflection_limit = 120;
+constexpr size_t reflection_limit = max_reflections;
 constexpr size_t thought_limit = 120;
 constexpr size_t gossip_limit = 60;
 constexpr size_t reading_limit = 60;
-constexpr size_t synapse_limit = 400;
-constexpr size_t schema_limit = 40;
+constexpr size_t synapse_limit = max_synapses;
+constexpr size_t schema_limit = max_schemas;
 
 std::wstring cleanLine(std::wstring_view text, size_t max_chars) {
     std::wstring out;
@@ -258,10 +258,10 @@ std::vector<ActivationHit> State::spreadActivation(const Memory& memory, std::st
     };
     std::vector<Candidate> pool;
     for (const auto& n : memory.notes)
-        if (Memory::knows(n, look)) pool.push_back({n.text, n.at, 1.05f, chats::searchWords(n.text, 16)});
+        if (Memory::knows(n, look)) pool.push_back({n.text, n.at, 1.05f + 0.05f * Memory::retentionWeight(n, now), chats::searchWords(n.text, 16)});
     for (const auto& s : memory.summaries)
         if (look.empty() || s.look.empty() || s.look == look)
-            pool.push_back({s.text, s.at, 1.0f, chats::searchWords(s.text, 16)});
+            pool.push_back({s.text, s.at, 1.0f + 0.05f * Memory::retentionWeight(s, now), chats::searchWords(s.text, 16)});
     for (const auto& r : reflections)
         if (look.empty() || r.look.empty() || r.look == look)
             pool.push_back({r.text, r.at, 1.25f, chats::searchWords(r.text, 16)});

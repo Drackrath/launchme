@@ -7,6 +7,7 @@
 #include <iostream>
 #include <map>
 #include <string>
+#include <tuple>
 #include <vector>
 
 namespace {
@@ -84,7 +85,41 @@ int main() {
         !i18n::matches(L"Loading name…", L"Ładowanie nazwy…") || !i18n::matches(L"Ładowanie nazwy…", L"Ładowanie nazwy…") ||
         i18n::matches(L"Portal 2", L"Ładowanie nazwy…")) return 6;
     const auto system = i18n::systemLanguage();
-    if (system != i18n::Language::pl && system != i18n::Language::en) return 7;
+    if (system != i18n::Language::pl && system != i18n::Language::en && system != i18n::Language::pt_br && system != i18n::Language::es) return 7;
+
+    // (d) Portuguese (Brazil) and Spanish: every key also in the English table, one text per key, the
+    // English's spacing, line breaks and placeholders kept; a key without one falls back to English.
+    for (const auto& [name, entries, language] : {std::tuple{"pt-BR", i18n::portugueseEntries(), i18n::Language::pt_br},
+                                                  std::tuple{"es", i18n::spanishEntries(), i18n::Language::es}}) {
+        std::map<std::wstring, std::wstring> own;
+        for (const auto& entry : entries) {
+            if (!entry.polish || !entry.english || !*entry.polish || !*entry.english) { std::cerr << "Empty " << name << " entry\n"; return 20; }
+            const auto english = table.find(entry.polish);
+            if (english == table.end()) { std::cerr << name << ": no English entry for \"" << utf8(entry.polish) << "\"\n"; return 21; }
+            const auto [found, inserted] = own.emplace(entry.polish, entry.english);
+            if (!inserted && found->second != entry.english) { std::cerr << name << ": conflicting \"" << utf8(entry.polish) << "\"\n"; return 22; }
+            const std::wstring text = entry.english, source = english->second;
+            const auto space = [](wchar_t ch) { return ch == L' ' || ch == L'\n' || ch == L'\t'; };
+            const auto count = [](const std::wstring& value, wchar_t ch) { return std::count(value.begin(), value.end(), ch); };
+            if (space(text.front()) != space(source.front()) || space(text.back()) != space(source.back()) ||
+                count(text, L'\n') != count(source, L'\n') || count(text, L'%') != count(source, L'%')) {
+                std::cerr << name << ": \"" << utf8(entry.polish) << "\" changes the English text's spacing, line breaks or placeholders\n";
+                return 23;
+            }
+        }
+        i18n::setLanguage(language);
+        if (own.contains(L"Graj") && std::wstring(tr(L"Graj")) != own.at(L"Graj")) return 24;
+        for (const auto& [polish, english] : table)
+            if (!own.contains(polish) && std::wstring(tr(polish.c_str())) != english) return 25; // Falls back to English.
+        if (tr(unknown) != unknown || !i18n::matches(own.begin()->second, own.begin()->first.c_str())) return 26;
+        std::cout << name << ": " << own.size() << " of " << table.size() << " entries translated\n";
+    }
+    i18n::setLanguage(i18n::Language::pt_br);
+    if (std::wstring(i18n::localeName()) != L"pt-BR" || std::wstring(i18n::steamLanguage()) != L"brazilian" || !i18n::english()) return 27;
+    i18n::setLanguage(i18n::Language::es);
+    if (std::wstring(i18n::localeName()) != L"es-ES" || std::wstring(i18n::steamLanguage()) != L"spanish") return 28;
+    i18n::setLanguage(i18n::Language::pl);
+    if (i18n::english()) return 29;
 
     // (a) Every key used in src/ has an English entry.
     const auto root = std::filesystem::path(wide(LAUNCHME_SOURCE_DIR)) / L"src";

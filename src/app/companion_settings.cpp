@@ -24,7 +24,7 @@ std::vector<companion::ModelInfo> companionModelChoices(companion::Provider prov
     }
     return out;
 }
-bool english() { return i18n::language() == i18n::Language::en; }
+bool english() { return i18n::english(); }
 uint64_t unixNow() {
     return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count());
 }

@@ -363,7 +363,7 @@ void Renderer::drawDesktopSettings() {
                 // Her name on a soft shade at the foot of the card.
                 desktopFill({t.left, t.bottom - 48, t.right, t.bottom}, 10, gray(0, 0.55f));
                 textLine(character->name, t.left + 12, t.bottom - 31, t.right - t.left - 24, desktop_strong_font_.Get(), palette::text(soon ? 0.6f : 1.0f));
-                textLine(soon ? std::wstring(tr(L"Wkrótce")) : character->card(i18n::language() == i18n::Language::en), t.left + 12, t.bottom - 14,
+                textLine(soon ? std::wstring(tr(L"Wkrótce")) : character->card(i18n::english()), t.left + 12, t.bottom - 14,
                          t.right - t.left - 24, desktop_small_font_.Get(), palette::muted());
                 if (!chosen) desktopStroke(t, 10, gray(1, 0.08f + 0.12f * h));
             }

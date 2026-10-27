@@ -10,7 +10,7 @@
 using tarot_ui::Phase;
 
 namespace {
-bool english() { return i18n::language() == i18n::Language::en; }
+bool english() { return i18n::english(); }
 }
 
 bool Launcher::tarotAvailable() const { return settings_.tarot && homeOverlayAvailable(); }

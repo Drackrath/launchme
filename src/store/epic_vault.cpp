@@ -1,12 +1,18 @@
 #include "epic_account.hpp"
 #include "../platform/protected_file.hpp"
 #include "../platform/text_encoding.hpp"
+#include <algorithm>
 #include <iomanip>
 #include <set>
 #include <sstream>
 
 namespace epic {
 namespace {
+// Epic's art addresses: none, "-" (none in the catalog) or an https URL.
+bool artUrl(const std::string& url) {
+    return url.empty() || url == "-" || (url.starts_with("https://") && url.size() <= 2048 &&
+        std::all_of(url.begin(), url.end(), [](unsigned char c) { return c > 32 && c < 127 && c != '"'; }));
+}
 bool valid(const Session& s) {
     if (!identifier(s.tokens.account) || s.tokens.access.empty() || s.tokens.refresh.empty() ||
         s.tokens.access.size() > 8192 || s.tokens.refresh.size() > 8192 || !s.tokens.expires || s.games.size() > 10000 || (!s.synced_at && !s.games.empty())) return false;
@@ -14,7 +20,8 @@ bool valid(const Session& s) {
     for (const auto& g : s.games)
         if (g.source != GameSource::epic || g.kind != GameKind::store || g.installed || !identifier(g.source_id) ||
             !identifier(g.epic_namespace) || !identifier(g.epic_catalog) || g.name.empty() || g.name.size() > 2048 || g.epic_partner.size() > 256 ||
-            !ids.insert(g.source_id).second || static_cast<unsigned>(g.visibility) > 2) return false;
+            !ids.insert(g.source_id).second || static_cast<unsigned>(g.visibility) > 2 ||
+            !artUrl(g.epic_tall_art) || !artUrl(g.epic_wide_art) || !artUrl(g.epic_logo_art)) return false;
     return true;
 }
 class DpapiVault final : public Vault {
@@ -29,14 +36,15 @@ public:
         if (text->empty()) return {};
         std::istringstream data(*text); SecureZeroMemory(text->data(), text->size()); data.imbue(std::locale::classic());
         Session s; std::string header; size_t count = 0;
-        // v2 adds each game's play time as Epic counts it (minutes); v1 files still load.
-        if (!(data >> header) || (header != "launchme-epic-v1" && header != "launchme-epic-v2") ||
+        // v2 adds each game's play time as Epic counts it (minutes), v3 its art (keyImages); older files still load.
+        if (!(data >> header) || (header != "launchme-epic-v1" && header != "launchme-epic-v2" && header != "launchme-epic-v3") ||
             !(data >> std::quoted(s.tokens.access) >> std::quoted(s.tokens.refresh) >> std::quoted(s.tokens.account) >> std::quoted(s.tokens.name) >> s.tokens.expires >> s.synced_at >> count) || count > 10000) return {Failure::storage};
-        const bool playtime = header == "launchme-epic-v2";
+        const bool playtime = header != "launchme-epic-v1", art = header == "launchme-epic-v3";
         for (size_t i = 0; i < count; ++i) {
             Game g; std::string name; int visibility = 0;
             if (!(data >> std::quoted(g.source_id) >> std::quoted(name) >> std::quoted(g.epic_namespace) >> std::quoted(g.epic_catalog) >> std::quoted(g.epic_partner) >> visibility) || visibility < 0 || visibility > 2) return {Failure::storage};
             if (playtime && !(data >> g.store_playtime_minutes)) return {Failure::storage};
+            if (art && !(data >> std::quoted(g.epic_tall_art) >> std::quoted(g.epic_wide_art) >> std::quoted(g.epic_logo_art))) return {Failure::storage};
             g.source = GameSource::epic; g.kind = GameKind::store; g.installed = false;
             g.name = text_encoding::wide(name); g.visibility = static_cast<GameVisibility>(visibility); s.games.push_back(std::move(g));
         }
@@ -47,10 +55,11 @@ public:
     bool save(const Session& s) override {
         if (!valid(s)) return false;
         std::ostringstream data; data.imbue(std::locale::classic());
-        data << "launchme-epic-v2\n" << std::quoted(s.tokens.access) << ' ' << std::quoted(s.tokens.refresh) << ' ' << std::quoted(s.tokens.account) << ' ' <<
+        data << "launchme-epic-v3\n" << std::quoted(s.tokens.access) << ' ' << std::quoted(s.tokens.refresh) << ' ' << std::quoted(s.tokens.account) << ' ' <<
             std::quoted(s.tokens.name) << ' ' << s.tokens.expires << ' ' << s.synced_at << ' ' << s.games.size() << '\n';
         for (const auto& g : s.games) data << std::quoted(g.source_id) << ' ' << std::quoted(text_encoding::utf8(g.name)) << ' ' << std::quoted(g.epic_namespace) << ' ' <<
-            std::quoted(g.epic_catalog) << ' ' << std::quoted(g.epic_partner) << ' ' << static_cast<int>(g.visibility) << ' ' << g.store_playtime_minutes << '\n';
+            std::quoted(g.epic_catalog) << ' ' << std::quoted(g.epic_partner) << ' ' << static_cast<int>(g.visibility) << ' ' << g.store_playtime_minutes << ' ' <<
+            std::quoted(g.epic_tall_art) << ' ' << std::quoted(g.epic_wide_art) << ' ' << std::quoted(g.epic_logo_art) << '\n';
         auto text = data.str(); const auto saved = protected_file::write(file_, text, L"Launchme Epic account");
         SecureZeroMemory(text.data(), text.size()); return saved;
     }

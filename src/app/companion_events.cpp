@@ -13,7 +13,7 @@
 #include <thread>
 
 namespace {
-bool english() { return i18n::language() == i18n::Language::en; }
+bool english() { return i18n::english(); }
 int dateKey(const SYSTEMTIME& time) { return time.wYear * 10000 + time.wMonth * 100 + time.wDay; }
 companion::Progress progressOf(const SteamStats& stats) { return {stats.playtime_minutes, stats.achievements_unlocked, stats.achievements_total}; }
 // Pauses between her remarks, and how recent the player's input must be for a goodnight.

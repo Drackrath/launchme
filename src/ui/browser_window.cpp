@@ -212,7 +212,7 @@ struct BrowserWindow::State : std::enable_shared_from_this<State> {
             ComPtr<ICoreWebView2WebResourceRequest> request;
             if (FAILED(args->get_Request(&request))) return S_OK;
             LPWSTR uri=nullptr; request->get_Uri(&uri);
-            const auto html=companion::links::playerHtml(take(uri), i18n::language()==i18n::Language::en);
+            const auto html=companion::links::playerHtml(take(uri), i18n::english());
             if (html.empty()) return S_OK;
             const auto bytes=text_encoding::utf8(html);
             ComPtr<IStream> stream; stream.Attach(SHCreateMemStream(reinterpret_cast<const BYTE*>(bytes.data()),static_cast<UINT>(bytes.size())));

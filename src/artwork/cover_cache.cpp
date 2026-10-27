@@ -76,6 +76,10 @@ uint32_t gameIdForTitle(uint32_t app_id, const std::wstring& title,
     if (title.empty() || title.starts_with(L"AppID ") || placeholderGameName(title)) return 0;
     static std::mutex mutex;
     static std::unordered_map<std::wstring, uint32_t> known;
+    // Titles SteamGridDB had no match for: each kind of artwork (cover, poster, hero, logo, …)
+    // asked again would repeat the same searches; for half an hour they are not.
+    static std::unordered_map<std::wstring, ULONGLONG> missed;
+    constexpr ULONGLONG miss_lifetime = 30 * 60 * 1000;
     const auto mapping = cache / (std::to_wstring(app_id) + L".sgdbid");
     // The title is part of the in-memory key: a renamed user-added game must be matched
     // again (its stale mapping file is removed together with its artwork).
@@ -83,6 +87,10 @@ uint32_t gameIdForTitle(uint32_t app_id, const std::wstring& title,
     {
         std::lock_guard lock(mutex);
         if (const auto existing = known.find(key); existing != known.end()) return existing->second;
+        if (const auto miss = missed.find(key); miss != missed.end()) {
+            if (GetTickCount64() - miss->second < miss_lifetime) return 0;
+            missed.erase(miss);
+        }
     }
     uint32_t result = 0;
     {
@@ -94,8 +102,16 @@ uint32_t gameIdForTitle(uint32_t app_id, const std::wstring& title,
         }
     }
     const auto api_key = userSecret(L"STEAMGRIDDB_API_KEY", L"steamgriddb_api_key.txt");
+    const bool failed_before = retryable_artwork_error;
+    retryable_artwork_error = false;
     const auto match = resolveGridGame(title, api_key, [](const auto& url, const auto&, size_t limit) { return request(url, true, limit); });
+    const bool unreachable = retryable_artwork_error; // A rate limit or no connection: not an answer.
+    retryable_artwork_error = failed_before || unreachable;
     result = match.source.id;
+    if (!result && !unreachable && !api_key.empty()) {
+        std::lock_guard lock(mutex);
+        missed[key] = GetTickCount64();
+    }
     if (result) {
         {
             std::lock_guard lock(mutex);
@@ -253,23 +269,40 @@ std::vector<uint8_t> artworkForGame(const Game& game, ArtworkKind kind,
     if (auto bytes = readImage(file, 10 * 1024 * 1024); !bytes.empty()) return bytes;
     // Store/shortcut IDs are never Steam AppIDs. Only a separately verified artwork
     // mapping may borrow Steam art; this never changes launch/install actions.
-    auto source = selectedArtworkSource(game, cache);
-    if (!source.id) source = {gameIdForTitle(0, artworkTitle(game), directory), false};
-    if (!source.id) return {};
-    const auto route = source.steam ? L"steam" : L"game";
+    const auto steamGridDb = [&]() -> std::vector<uint8_t> {
+        auto source = selectedArtworkSource(game, cache);
+        if (!source.id) source = {gameIdForTitle(0, artworkTitle(game), directory), false};
+        if (!source.id) return {};
+        const auto route = source.steam ? L"steam" : L"game";
+        std::vector<uint8_t> found;
+        if (kind == ArtworkKind::cover) {
+            for (const auto* dimensions : {L"512x512", L"600x900"}) {
+                found = grid(source.id, route, dimensions);
+                if (isImage(found)) break;
+            }
+        } else if (kind == ArtworkKind::poster) found = grid(source.id, route, L"600x900");
+        else if (kind == ArtworkKind::landscape) {
+            for (const auto* dimensions : {L"920x430", L"460x215"}) {
+                found = grid(source.id, route, dimensions);
+                if (isImage(found)) break;
+            }
+        } else found = asset(source.id, route, kind == ArtworkKind::logo ? L"logos" : L"heroes");
+        return found;
+    };
+    // An Epic account's games: Epic's own catalog art (its CDN, no key and no rate limit). The tall box
+    // art is the poster, and the cover where SteamGridDB has none; the wide art and the logo stand in
+    // for SteamGridDB's background, landscape tile and logo.
+    const auto& epic_url = kind == ArtworkKind::poster || kind == ArtworkKind::cover ? game.epic_tall_art :
+                           kind == ArtworkKind::logo ? game.epic_logo_art : game.epic_wide_art;
+    const auto epic = [&]() -> std::vector<uint8_t> {
+        if (game.source != GameSource::epic || !epic_url.starts_with("https://")) return {};
+        auto bytes = get(text_encoding::wide(epic_url), false, 10 * 1024 * 1024);
+        return isImage(bytes) ? bytes : std::vector<uint8_t>{};
+    };
     std::vector<uint8_t> image;
-    if (kind == ArtworkKind::cover) {
-        for (const auto* dimensions : {L"512x512", L"600x900"}) {
-            image = grid(source.id, route, dimensions);
-            if (isImage(image)) break;
-        }
-    } else if (kind == ArtworkKind::poster) image = grid(source.id, route, L"600x900");
-    else if (kind == ArtworkKind::landscape) {
-        for (const auto* dimensions : {L"920x430", L"460x215"}) {
-            image = grid(source.id, route, dimensions);
-            if (isImage(image)) break;
-        }
-    } else image = asset(source.id, route, kind == ArtworkKind::logo ? L"logos" : L"heroes");
+    if (kind == ArtworkKind::poster) image = epic();
+    if (!isImage(image)) image = steamGridDb();
+    if (!isImage(image) && kind != ArtworkKind::poster) image = epic();
     if (!isImage(image)) return {};
     if (!atomicBytes(file, image.data(), image.size())) { retryable_artwork_error = true; return {}; }
     return image;

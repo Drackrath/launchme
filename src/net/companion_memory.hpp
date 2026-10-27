@@ -19,9 +19,11 @@
 #include <vector>
 
 namespace companion {
-inline constexpr size_t max_notes_capacity = 500;
-inline constexpr size_t max_summaries_capacity = 500;
-inline constexpr size_t max_picks_capacity = 250;
+inline constexpr size_t max_notes_capacity = 5000;
+inline constexpr size_t max_summaries_capacity = 5000;
+inline constexpr size_t max_summaries_per_look = 1000;
+inline constexpr size_t max_picks_capacity = 1000;
+inline constexpr size_t max_memory_file_bytes = 32 * 1024 * 1024;
 
 struct Memory {
     // Another companion who knows a note: a guest who heard it too, or hearsay from `from`.
@@ -45,15 +47,16 @@ struct Memory {
         std::string source;       // "told" (the player said it), "observed" (launcher data), "inferred" (her guess); empty: told.
         float confidence = 0;     // 0–1; 0: not given (an older note), counts as told and fairly sure.
         bool secret = false;      // The player asked her to keep it: never gossiped to another companion.
-        bool important = false;   // Self-defining / foundational memory (McAdams/Tulving): protected from FIFO eviction and shown as "Ważne wspomnienie" in UI.
+        bool important = false;   // Self-defining / foundational memory: high retention priority and "Ważne wspomnienie" in UI.
         std::string topic;        // "place": where the player lives; empty: anything else.
         std::vector<Knower> known; // Other companions who know it.
+        uint32_t confirmations = 1; // Repeated direct evidence in distinct turns, capped at 64; recall alone never reinforces a note.
     };
     struct Pick { uint64_t at = 0; std::string key; std::wstring title; std::string look; };
     std::vector<Entry> remarks;   // Her recent replies, shortened; newest last (≤ 30).
-    std::vector<Pick> picks;      // Games she suggested; newest last (≤ 250).
-    std::vector<Entry> notes;     // Facts about the player, each known by its companions (≤ 500).
-    std::vector<Entry> summaries; // Past chats in a sentence or two, each companion's own (≤ 500).
+    std::vector<Pick> picks;      // Games she suggested; newest last (≤ max_picks_capacity).
+    std::vector<Entry> notes;     // Facts about the player, each known by its companions (≤ max_notes_capacity).
+    std::vector<Entry> summaries; // Past chats in a sentence or two (≤ max_summaries_capacity, ≤ max_summaries_per_look each).
 
     // How she came to know a fact (her inner appraisal says it; the tool means told).
     struct Facts {
@@ -71,7 +74,7 @@ struct Memory {
     void said(std::wstring_view text, uint64_t now);
     void suggested(std::string key, std::wstring title, uint64_t now, std::string look = {});
     // A new fact: false when empty, too long, a duplicate (case and punctuation aside; it then
-    // learns who else knows it) or sensitive-looking. A note that expands an existing one updates
+    // learns who else knows it), sensitive-looking or too weak to retain in a full archive. A note that expands an existing one updates
     // it in place; one that says the opposite (a "nie"/"not" more or less) replaces it — the newer
     // word wins; notes with different numbers stay apart.
     bool note(std::wstring_view text, uint64_t now, std::string look = {}, std::string emotion = {}, std::wstring feeling = {});
@@ -97,8 +100,12 @@ struct Memory {
     std::vector<const Entry*> notesOf(std::string_view look) const;
     // Whether `look` knows where the player lives (a note on topic "place").
     bool knowsPlace(std::string_view look) const;
-    // Her prompt's memory section: 2-layer architecture — core/recent notes and her latest summaries,
-    // plus automatic keyword/topic recall (`query`) across the full 500-note / 500-summary archive.
+    // Deterministic retention: importance, stable facts, evidence quality, confirmations and recency.
+    // The bounded recall bonus breaks relevance ties; an unrelated entry always scores zero.
+    static float retentionWeight(const Entry& entry, uint64_t now);
+    static float recallWeight(const Entry& entry, int matches, uint64_t now);
+    // Her prompt's memory section: up to 8 high-priority facts within 30 core/recent notes, 3 latest summaries,
+    // plus at most 8 older notes and 4 summaries recalled from the full archive. Larger storage does not enlarge the prompt.
     // Each note shows its id and how she knows it; `name` names a companion by her key (hearsay).
     std::wstring prompt(bool english, uint64_t now, bool recent, bool notes, std::string_view look = {}, std::wstring_view query = {},
                         const std::function<std::wstring(std::string_view)>& name = {}) const;

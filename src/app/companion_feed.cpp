@@ -5,7 +5,7 @@
 #include <random>
 
 namespace {
-bool englishFeed() { return i18n::language() == i18n::Language::en; }
+bool englishFeed() { return i18n::english(); }
 }
 
 void Launcher::companionFeedReset() {

@@ -72,8 +72,29 @@ struct JobQueue {
         // Current game's hero/landscape/logo must not sit behind unrelated square covers.
         for (const bool focused : {true, false})
             for (auto* queue : {&jobs, &secondary}) if (auto job = take(*queue, focused)) return job;
-        return background ? take(prefetch, false) : std::nullopt;
+        if (!background) return std::nullopt;
+        // The background lane fills what tiles show first: every missing cover and poster (the
+        // poster first where the tiles are posters), then landscapes, backgrounds, logos, discs.
+        const auto rank = [&](CoverMessage::Kind kind) {
+            switch (kind) {
+            case CoverMessage::Kind::cover: return posters_first ? 1 : 0;
+            case CoverMessage::Kind::poster: return posters_first ? 0 : 1;
+            case CoverMessage::Kind::landscape: return 2;
+            case CoverMessage::Kind::hero: return 3;
+            case CoverMessage::Kind::logo: return 4;
+            default: return 5;
+            }
+        };
+        auto best = prefetch.end();
+        for (auto at = prefetch.begin(); at != prefetch.end(); ++at) {
+            if (!allowed(*at, local) || at->ready_at > now || (best != prefetch.end() && rank(at->kind) >= rank(best->kind))) continue;
+            best = at;
+            if (!rank(best->kind)) break;
+        }
+        if (best == prefetch.end()) return std::nullopt;
+        auto job = std::move(*best); prefetch.erase(best); return job;
     }
+    bool posters_first = false; // The desktop window's grid (posters) or a poster layout.
 };
 
 // Store pages, music and sounds, running games, the artwork browser, achievements, the drawer's

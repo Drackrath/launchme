@@ -101,7 +101,7 @@ void Renderer::drawCompanionFeed() {
         round(D2D1::RectF(38, y + 12, 74, y + 48), 18, D2D1::ColorF(tint.r, tint.g, tint.b, 0.18f));
         textLine(view->name.substr(0, 1), 38, y + 30, 36, feed_body_font_.Get(), accent, DWRITE_TEXT_ALIGNMENT_CENTER);
         textLine(view->name, 86, y + 23, 290, feed_body_font_.Get(), gray(0.96f));
-        textLine(companion::chats::label(post.at, i18n::language() == i18n::Language::en), 86, y + 43, 290, feed_small_font_.Get(), gray(0.52f));
+        textLine(companion::chats::label(post.at, i18n::english()), 86, y + 43, 290, feed_small_font_.Get(), gray(0.52f));
         const auto photo = L::photo(feed.archive, i, feed.motion.value, feed.thread);
         round(feedBox(photo), 0, gray(0.035f));
         const auto bytes = feed.images.find(post.id);

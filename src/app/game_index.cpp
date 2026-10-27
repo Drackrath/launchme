@@ -25,7 +25,7 @@ void Launcher::startGameIndex() {
     config.config = userConfigDirectory();
     config.steam_root = findSteamRoot();
     config.rawg_key = userSecret(L"RAWG_API_KEY", L"rawg_api_key.txt");
-    config.english = i18n::language() == i18n::Language::en;
+    config.english = i18n::english();
     config.steam_stats = [root = config.steam_root](uint64_t account, uint32_t app_id) {
         const auto stats = readSteamStats(root, account, app_id);
         return std::tuple<std::optional<uint32_t>, uint32_t, uint32_t>{stats.playtime_minutes, stats.achievements_unlocked, stats.achievements_total};
@@ -157,7 +157,7 @@ void Launcher::gameIndexMerge(const std::string& key, game_index::Source source,
 bool Launcher::completeDetails(GameDetails& details, const Game& game) const {
     if (!game_index_) return false;
     const auto key = gameKey(game);
-    const bool en = i18n::language() == i18n::Language::en;
+    const bool en = i18n::english();
     return game_index_->read([&](const game_index::Index& index) {
         const auto* record = index.get(key);
         if (!record) return false;

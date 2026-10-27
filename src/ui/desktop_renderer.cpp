@@ -865,8 +865,9 @@ void Renderer::drawDesktopBulk(const Layout& layout, const View& view) {
     textLine(std::wstring(tr(L"Zaznaczone: ")) + std::to_wstring(view.pane.marked), p.left + 20, title_h + 44, p.right - p.left - 40,
              desktop_title_font_.Get(), palette::text());
     textLine(tr(L"Akcje dla wszystkich zaznaczonych gier"), p.left + 20, title_h + 72, p.right - p.left - 40, desktop_font_.Get(), palette::muted());
-    const wchar_t glyphs[] = {glyph::folder, glyph::star, glyph::hide, glyph::close};
-    const wchar_t* labels[] = {trKey(L"Dodaj do kolekcji…"), trKey(L"Dodaj do ulubionych"), trKey(L"Ukryj zaznaczone"), trKey(L"Wyczyść zaznaczenie")};
+    const wchar_t glyphs[] = {glyph::folder, glyph::star, glyph::refresh, glyph::hide, glyph::close};
+    const wchar_t* labels[] = {trKey(L"Dodaj do kolekcji…"), trKey(L"Dodaj do ulubionych"), trKey(L"Pobierz grafiki ponownie"), trKey(L"Ukryj zaznaczone"),
+                               trKey(L"Wyczyść zaznaczenie")};
     for (int i = 0; i < Layout::bulk_count; ++i) {
         const auto r = layout.paneBulk(i);
         const float hover = view.hover == Hit{Target::bulk, i} ? 1.0f : 0.0f;

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(launchme VERSION 0.2.4 LANGUAGES C CXX)
+project(launchme VERSION 0.2.6 LANGUAGES C CXX)
 
 if(NOT WIN32)
     message(FATAL_ERROR "This native Direct2D prototype currently targets Windows.")
@@ -50,7 +50,7 @@ target_include_directories(launchme_presentmon SYSTEM PUBLIC "${PRESENTMON_DATA}
 target_link_libraries(launchme_presentmon PUBLIC tdh advapi32)
 
 # UI text lookup, compiled once with the common backend sources.
-set(LAUNCHME_I18N_SOURCES src/i18n/i18n.cpp src/i18n/strings_en.cpp)
+set(LAUNCHME_I18N_SOURCES src/i18n/i18n.cpp src/i18n/strings_en.cpp src/i18n/strings_pt_br.cpp src/i18n/strings_es.cpp)
 
 function(launchme_target_defaults name)
     target_compile_features(${name} PRIVATE cxx_std_20)
@@ -670,6 +670,7 @@ if(BUILD_TESTING)
     launchme_executable(tarot_tests TEST tarot_deck_wish_and_picks SOURCES tests/tarot_tests.cpp)
     launchme_executable(updater_tests TEST updater_release_package_and_swap SOURCES tests/updater_tests.cpp)
     launchme_executable(companion_tests TEST companion_replies_prompts_and_rig SOURCES tests/companion_tests.cpp)
+    launchme_executable(companion_memory_tests TEST companion_weighted_memory_and_capacity SOURCES tests/companion_memory_tests.cpp)
     launchme_executable(companion_links_tests TEST companion_bounded_link_previews SOURCES tests/companion_links_tests.cpp)
     launchme_executable(companion_feed_tests TEST companion_feed_publication_and_archive SOURCES tests/companion_feed_tests.cpp)
     launchme_executable(remote_server_tests TEST remote_server_parsing_and_loopback SOURCES tests/remote_server_tests.cpp)

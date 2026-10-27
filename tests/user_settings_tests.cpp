@@ -330,7 +330,7 @@ int main() {
     if (AppSettings{}.language != Language::system || parseAppSettings("language=pl\n").language != Language::pl ||
         parseAppSettings(" language = en \r\n").language != Language::en || parseAppSettings("language=de\n").language != Language::system ||
         parseAppSettings("language=en\nlanguage=system\n").language != Language::system) return 11;
-    for (const auto language : {Language::system, Language::pl, Language::en}) {
+    for (const auto language : {Language::system, Language::pl, Language::en, Language::pt_br, Language::es}) {
         auto chosen = config; chosen.language = language;
         if (!saveAppSettings(chosen, file) || loadAppSettings(file).language != language) return 12;
     }

@@ -131,7 +131,7 @@ public:
     void onLibrary(std::unique_ptr<LibraryMessage> library);
     void onLibraryWorkerError(std::unique_ptr<LibraryWorkerErrorMessage> message);
     void onCover(std::unique_ptr<CoverMessage> cover);
-    void openBulkCovers();
+    void openBulkCovers(std::vector<Game> games = {}); // Every public game when empty.
     void onBulkCovers(std::unique_ptr<BulkCoversMessage> message);
     void onSteamSync(std::unique_ptr<SteamSyncMessage> message);
     bool bulkCoversOpen() const { return bulk_ui_.open; }

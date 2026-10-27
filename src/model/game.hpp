@@ -60,6 +60,9 @@ struct Game {
     uint64_t steam_owner = 0;
     // EGS account metadata and installations managed by Launchme/Legendary.
     std::string epic_namespace, epic_catalog, epic_partner;
+    // Epic's own catalog art (keyImages, https on its CDN): the tall box art, the wide one and the
+    // logo; empty when the catalog has none (src/store/epic_api.cpp, artworkForGame).
+    std::string epic_tall_art, epic_wide_art, epic_logo_art;
     bool epic_managed = false;
     std::string catalog_plugin; // Catalog owner; retained when resolving to a local Steam game.
     std::string version_group; // Display-only aggregate; raw library entries retain their store identity.

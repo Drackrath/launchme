@@ -538,9 +538,10 @@ void Launcher::startArtworkWorkers(bool network) {
             }
         }
     };
-    // Disk reads never wait for the network; two downloaders serve navigation, one also prefetches.
+    // Disk reads never wait for the network; two downloaders serve navigation, two also prefetch
+    // (while one waits for SteamGridDB's answer or its 1.1 s spacing, the other downloads an image).
     work_.start([download] { download(false, true); }, artwork_error);
-    if (network) for (int i = 0; i < 3; ++i) work_.start([download, background = i == 2] { download(background, false); }, artwork_error);
+    if (network) for (int i = 0; i < 4; ++i) work_.start([download, background = i >= 2] { download(background, false); }, artwork_error);
 }
 
 void Launcher::onLibraryWorkerError(std::unique_ptr<LibraryWorkerErrorMessage> message) {
