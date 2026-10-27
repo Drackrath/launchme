@@ -11,7 +11,7 @@ namespace context_menu {
 // Display order; hidden rows are skipped and the remaining ones shift up.
 // Experimental quick resume: "suspend" for a running game; while a game runs or
 // is suspended, "close" takes the place of "retry". Plugin rows follow the primary actions.
-// The crop editor opens from "Zmień grafikę" (the artwork browser's "Popraw kadr").
+// The crop editor opens from "Zmień grafikę" (the artwork browser's "Kadruj").
 // "launch": Details' "…" → Opcje uruchamiania (a game's file, options and folder; Steam: its options).
 // "metadata": Details' "…" → Edytuj metadane (the player's own title, studios, dates and play time).
 enum class Item { primary, suspend, plugin, details, artwork, retry, close, folder, hide, exclude, uninstall, launch, metadata, aurelia };

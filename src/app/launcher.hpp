@@ -1560,7 +1560,7 @@ private:
     void artworkClick(float x, float y, bool double_click);
     // "Z dysku…": the type panel, then an image file applied like a SteamGridDB pick.
     void openLocalArtwork();
-    void openArtworkCrop(); // "Popraw kadr" on the artwork browser's rail.
+    void openArtworkCrop(); // "Kadruj" beside the artwork browser's "Szukaj" (covers and backgrounds).
     void cycleArtworkProvider(); // "Źródło": SteamGridDB → ScreenScraper → ES-DE (emulated shortcuts).
     void openArtworkProviders();          // Tryb TV: "Źródło"'s list, right of the search field.
     void chooseArtworkProvider(int index); // Its row picked (artwork_ui::providers order); closes the list.

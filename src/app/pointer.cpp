@@ -336,9 +336,10 @@ bool Launcher::hoverButton(float mouse_x, float mouse_y) const {
         const artwork_ui::Layout layout{view.width, view.height, artwork_state_.kind(), artwork_state_.providerChoice()};
         if (artwork_state_.local_open) return layout.hitLocal(x, y) >= 0;
         if (artwork_state_.provider_open) return layout.hitProvider(x, y) >= 0;
-        if (layout.base().backButton().contains(x, y)) return true;
+        if (layout.backButton().contains(x, y)) return true;
         if (artwork_state_.applying) return false;
         if (layout.localButton().contains(x, y) || (!artwork_state_.query.empty() && layout.clearButton().contains(x, y))) return true;
+        if (artwork_state_.croppable() && layout.cropButton().contains(x, y)) return true;
         if (artwork_state_.providerChoice() && layout.providerButton().contains(x, y)) return true;
         for (int i = 0; i < static_cast<int>(artwork_ui::kinds.size()); ++i) if (layout.base().rail(i).contains(x, y)) return true;
         return (artwork_state_.page > 0 && layout.pageButton(false).contains(x, y)) ||

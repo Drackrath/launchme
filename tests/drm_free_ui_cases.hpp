@@ -276,16 +276,83 @@ int LauncherUiTest::drmFree(HWND window) {
         app.artworkMove(-1, 0); // Left: the search field again.
         if (!art.search_focus || art.provider_focus) return 2163;
         app.closeArtworkBrowser();
-        // Other games have no "Źródło": Down from "Z dysku…" goes to "Popraw kadr", then Back, which
-        // Enter presses; Down stops there.
+        // Other games have no "Źródło": Down from the last type reaches "Z dysku…", then Back (the small
+        // circle at the top left), which Enter presses; Down stops there.
         app.openArtworkBrowser(celeste_game);
         art.category = static_cast<int>(artwork_ui::kinds.size()) - 1;
+        app.artworkMove(0, 1);
+        if (art.emulated() || art.provider_focus || !art.local_focus) return 2164;
         app.artworkMove(0, 1); app.artworkMove(0, 1);
-        if (art.emulated() || art.provider_focus || !art.crop_focus) return 2164;
-        app.artworkMove(0, 1); app.artworkMove(0, 1);
-        if (!art.back_focus || art.crop_focus) return 2177;
+        if (!art.back_focus || art.local_focus || art.crop_focus) return 2177;
         app.artworkAccept();
         if (app.artworkOpen()) return 2178;
+        // "Kadruj" right of "Szukaj", for the cover and the background only: Left returns to the field,
+        // Enter opens the crop editor (on Tło: the background's).
+        app.openArtworkBrowser(celeste_game);
+        art.category = artwork_ui::category(ArtworkKind::logo);
+        app.artworkMove(1, 0); app.artworkMove(1, 0); // The field; nothing to crop on a logo.
+        if (!art.search_focus || art.crop_focus) return 2179;
+        app.artworkMove(-1, 0);
+        art.category = artwork_ui::category(ArtworkKind::hero);
+        app.artworkMove(1, 0); app.artworkMove(1, 0);
+        if (!art.crop_focus || art.search_focus || art.railFocus()) return 2180;
+        app.artworkMove(-1, 0);
+        if (!art.search_focus || art.crop_focus) return 2180;
+        app.artworkMove(1, 0); app.artworkAccept();
+        if (!app.cropOpen() || !app.crop_state_.background) return 2181;
+        app.closeCropEditor();
+        if (!app.artworkOpen()) return 2181;
+        app.closeArtworkBrowser();
+        // Inspect both presentations and route actual crop/back hit targets. No artwork service runs.
+        app.launch_animation_started_.reset(); app.notifications_.clear();
+        app.openArtworkBrowser(emulated);
+        art.category = artwork_ui::category(ArtworkKind::cover);
+        app.artworkMove(1, 0); app.artworkMove(1, 0);
+        if (!art.crop_focus || art.search_focus) return 2182;
+        if (!capture(L"artwork-square-crop-tv.png")) return 2183;
+        app.artworkMove(1, 0);
+        if (!art.provider_focus || art.crop_focus) return 2184;
+        app.artworkMove(-1, 0);
+        if (!art.crop_focus || art.provider_focus) return 2185;
+        app.artworkMove(-1, 0);
+        if (!art.search_focus || art.crop_focus) return 2186;
+        app.artworkMove(-1, 0);
+        art.category = artwork_ui::category(ArtworkKind::hero);
+        app.artworkMove(1, 0); app.artworkMove(1, 0);
+        if (!capture(L"artwork-background-crop-tv.png")) return 2187;
+        const auto canvas = app.renderer_.viewport();
+        const artwork_ui::Layout browser{canvas.width, canvas.height, art.kind(), art.providerChoice()};
+        if (browser.searchButton().right >= browser.cropButton().left || browser.cropButton().right >= browser.providerButton().left) return 2188;
+        const auto crop = browser.cropButton();
+        if (!app.hoverButton((crop.left + crop.right) * 0.5f * canvas.scale, (crop.top + crop.bottom) * 0.5f * canvas.scale)) return 2189;
+        app.artworkClick((crop.left + crop.right) * 0.5f, (crop.top + crop.bottom) * 0.5f, false);
+        if (!app.cropOpen() || !app.crop_state_.background) return 2190;
+        app.closeCropEditor();
+        art.crop_focus = false; art.back_focus = true;
+        app.artwork_glide_.valid = false;
+        if (!capture(L"artwork-back-circle-tv.png")) return 2191;
+        const auto back = browser.backButton();
+        if (!app.hoverButton((back.left + back.right) * 0.5f * canvas.scale, (back.top + back.bottom) * 0.5f * canvas.scale)) return 2192;
+        app.artworkClick((back.left + back.right) * 0.5f, (back.top + back.bottom) * 0.5f, false);
+        if (app.artworkOpen()) return 2193;
+        app.desktop_mode_ = true;
+        app.openArtworkBrowser(celeste_game);
+        art.category = artwork_ui::category(ArtworkKind::cover);
+        if (!capture(L"artwork-square-crop-desktop.png")) return 2194;
+        const auto crop_hotspot = [&] {
+            app.paint();
+            const auto& hot = app.renderer_.desktopHotspots();
+            return std::any_of(hot.begin(), hot.end(), [](const auto& item) { return item.hit.kind == desktop_ui::SheetHit::Kind::toggle; });
+        };
+        if (!crop_hotspot()) return 2195;
+        art.category = artwork_ui::category(ArtworkKind::hero);
+        if (!capture(L"artwork-background-crop-desktop.png") || !crop_hotspot()) return 2196;
+        app.desktopPageActivate({desktop_ui::SheetHit::Kind::toggle}, false);
+        if (!app.cropOpen() || !app.crop_state_.background) return 2197;
+        app.closeCropEditor();
+        art.category = artwork_ui::category(ArtworkKind::logo);
+        if (!capture(L"artwork-logo-no-crop-desktop.png") || crop_hotspot()) return 2198;
+        app.closeArtworkBrowser(); app.desktop_mode_ = false;
     }
 
     // Removing the folder takes two presses and empties the library.

@@ -68,6 +68,12 @@ void Renderer::drawArtworkBrowser() {
     }
     const auto search_ink = drawButton(box(search_button), 0, 1, false);
     textLine(tr(L"Szukaj"), search_button.left, center(search_button), search_button.right - search_button.left, button_font_.Get(), search_ink);
+    // "Kadruj" (covers and backgrounds): the crop editor, white with the focus.
+    if (state.croppable()) {
+        const auto crop = layout.cropButton();
+        const auto crop_ink = drawButton(box(crop), state.crop_focus ? 1.0f : 0.0f, 1, false);
+        textLine(tr(L"Kadruj"), crop.left, center(crop), crop.right - crop.left, button_font_.Get(), crop_ink, DWRITE_TEXT_ALIGNMENT_CENTER);
+    }
     // "Źródło: …" at the row's right end (emulated games): a dropdown, white with the focus.
     if (state.providerChoice()) {
         const auto source = layout.providerButton();
@@ -78,17 +84,21 @@ void Renderer::drawArtworkBrowser() {
         line(arrow - 6, cy - 3 * d, arrow, cy + 3 * d, source_ink, 1.8f);
         line(arrow, cy + 3 * d, arrow + 6, cy - 3 * d, source_ink, 1.8f);
     }
-    // The rail: the types, then "Z dysku…", "Popraw kadr" and Back as glass pills; one white pill
-    // glides to the focused entry (ViewContext::artwork_glide).
+    // The rail: the types, then "Z dysku…" as a glass pill; one white pill glides to the focused entry
+    // (ViewContext::artwork_glide). Back: the small circle with a dot at the top left, white with the focus.
     const bool rail_focus = state.railFocus();
     const bool type_focus = rail_focus && !state.railButton();
-    const auto back = base.backButton();
+    const auto back = layout.backButton();
+    {
+        const auto circle = backCircle(back.left, back.top, back.right, back.bottom);
+        const auto back_ink = drawButton(circle, rail_focus && state.back_focus ? 1.0f : 0.0f, 1, false);
+        brush(back_ink);
+        target_->FillEllipse(D2D1::Ellipse(D2D1::Point2F((circle.left + circle.right) * 0.5f, (circle.top + circle.bottom) * 0.5f), 3.5f, 3.5f), solid_.Get());
+    }
     if (!type_focus) fillPill(base.rail(state.category), shade(1, 0.07f)); // The type in view.
     drawButtonGlass(box(layout.localButton()), 1, false);
-    drawButtonGlass(box(layout.cropButton()), 1, false);
-    drawButtonGlass(box(back), 1, false);
-    if (rail_focus) {
-        const auto target = state.local_focus ? layout.localButton() : state.crop_focus ? layout.cropButton() : state.back_focus ? back : base.rail(state.category);
+    if (rail_focus && !state.back_focus) {
+        const auto target = state.local_focus ? layout.localButton() : base.rail(state.category);
         auto r = box(target);
         if (context_->artwork_glide) { const auto& g = *context_->artwork_glide; r = D2D1::RectF(g.left, g.top, g.right, g.bottom); }
         drawButtonFocus(r);
@@ -99,14 +109,11 @@ void Renderer::drawArtworkBrowser() {
         textLine(tr(artwork_ui::names[i]), r.left + 25, center(r), r.right - r.left - 50,
                  category_font_.Get(), focus ? shade(0.08f) : active ? shade(0.95f) : shade(0.57f));
     }
-    // "Z dysku…" opens the type/file panel; "Popraw kadr" opens the crop editor.
+    // "Z dysku…" opens the type/file panel.
     const auto caption = [&](settings_ui::Rect r, const std::wstring& label, bool focus) {
         textLine(label, r.left + 25, center(r), r.right - r.left - 50, menu_font_.Get(), buttonInk(rail_focus && focus ? 1.0f : 0.0f));
     };
     caption(layout.localButton(), tr(L"Z dysku…"), state.local_focus);
-    caption(layout.cropButton(), tr(L"Popraw kadr"), state.crop_focus);
-    brush(buttonInk(rail_focus && state.back_focus ? 1.0f : 0.0f));
-    target_->FillEllipse(D2D1::Ellipse(D2D1::Point2F((back.left + back.right) * 0.5f, (back.top + back.bottom) * 0.5f), 4, 4), solid_.Get());
     if (!state.results_mode && (state.page > 0 || state.more)) {
         for (bool next : {false, true}) {
             const auto r = layout.pageButton(next);

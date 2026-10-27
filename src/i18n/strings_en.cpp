@@ -1196,6 +1196,7 @@ constexpr Entry entries[] = {
 
     // Artwork browser and crop editor
     {L"Okładka", L"Cover"},
+    {L"Kwadrat", L"Square"},
     {L"Tło", L"Background"},
     {L"Logo", L"Logo"},
     {L"Nazwa gry lub Steam AppID", L"Game name or Steam AppID"},
@@ -1223,6 +1224,7 @@ constexpr Entry entries[] = {
     {L"Automatyczny", L"Automatic"},
     {L"Zapisz kadr", L"Save crop"},
     {L"Okładka jest kwadratowa.", L"The cover is square."},
+    {L"Kadruj", L"Crop"},
     {L"Kadr tła", L"Background crop"},
     {L"Wyśrodkuj", L"Center"},
     {L"Tło ma już kształt ekranu.", L"The background already has the screen's shape."},

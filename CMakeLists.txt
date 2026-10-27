@@ -841,6 +841,7 @@ add_test(NAME low_memory_mode COMMAND launcher_ui_tests --low-memory)
     add_dependencies(launcher_ui_tests launchme_studios) # The logos beside the test, as beside the program.
     add_test(NAME launchme_updates_and_whats_new COMMAND launcher_ui_tests --updates)
     add_test(NAME tray_while_playing_and_background_crop COMMAND launcher_ui_tests --tray)
+    add_test(NAME drm_free_artwork_crop_controls COMMAND launcher_ui_tests --drm-free)
     set_tests_properties(tarot_reading_cards_and_results PROPERTIES TIMEOUT 60)
     add_test(NAME companion_home_chat_and_settings COMMAND launcher_ui_tests --companion)
     add_test(NAME companion_semantic_prompt_and_settings COMMAND launcher_ui_tests --companion-semantic)

@@ -415,7 +415,7 @@ void Renderer::drawDesktopArtwork() {
     side_button({Kind::tile_action}, desktop_ui::glyph::folder_open, tr(L"Z dysku…"));
     if (state->providerChoice())
         side_button({Kind::cog}, desktop_ui::glyph::sync, std::wstring(tr(L"Źródło")) + L": " + artwork_ui::providerName(state->provider));
-    side_button({Kind::toggle}, desktop_ui::glyph::edit, tr(L"Popraw kadr"));
+    if (state->croppable()) side_button({Kind::toggle}, desktop_ui::glyph::edit, tr(L"Kadruj")); // Covers and backgrounds.
     // Search.
     const float left = nav_right + 24, right = p.right - 24;
     const Rect field{left, h.bottom + 14, right - 112, h.bottom + 52};

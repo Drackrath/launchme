@@ -989,9 +989,10 @@ public:
             context_menu::rows(own_rows) != context_menu::rows({}) + (own_rows.uninstall ? 1 : 0) || app.menu_selected_ != context_menu::rows(own_rows) - 1 ||
             own_rows.uninstall != (context_menu::item(app.menu_selected_, own_rows) == context_menu::Item::uninstall)) return 129;
         app.dismissMenu(); dispatched.clear();
-        // The crop editor opens from "Zmień grafikę" (its rail's "Popraw kadr"), no longer from the game menu.
+        // The crop editor opens from "Zmień grafikę" ("Kadruj" beside "Szukaj", on Kwadrat), no longer from the game menu.
         app.openArtworkBrowser(crop_game);
         if (!app.artworkOpen()) return 159;
+        app.artwork_state_.category = artwork_ui::category(ArtworkKind::cover);
         app.openArtworkCrop();
         if (!app.cropOpen() || app.pending_launch_ || app.artworkOpen()) return 123;
         crop_reply(); app.changeCategory(-10);
@@ -2299,6 +2300,15 @@ int main(int argc, char** argv) {
         CoUninitialize();
         if (code) std::cerr << "Guide overlay regression failed at checkpoint " << code << '\n';
         else std::cout << "Guide overlay keyboard, controller, focus and animation regression passed\n";
+        return code;
+    }
+    if (argc == 2 && std::string_view(argv[1]) == "--drm-free") {
+        std::filesystem::create_directories(root);
+        const auto code = window ? LauncherUiTest::drmFree(window) : 99;
+        if (window) DestroyWindow(window);
+        CoUninitialize();
+        if (code) std::cerr << "DRM-free/artwork regression failed at checkpoint " << code << '\n';
+        else std::cout << "DRM-free library, artwork search, square/background crop and Back routing passed\n";
         return code;
     }
     auto code = window ? (profiling ? LauncherUiTest::profile(window, std::clamp(_wtoi(duration), 3, 120)) : LauncherUiTest::run(window)) : 99;

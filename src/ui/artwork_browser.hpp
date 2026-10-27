@@ -9,7 +9,7 @@ namespace artwork_ui {
 // (and the screensaver's boxes); cover is the square card image.
 inline constexpr std::array<ArtworkKind, 6> kinds{ArtworkKind::cover, ArtworkKind::hero, ArtworkKind::logo,
                                                    ArtworkKind::poster, ArtworkKind::landscape, ArtworkKind::disc};
-inline constexpr std::array<const wchar_t*, 6> names{trKey(L"Okładka"), trKey(L"Tło"), trKey(L"Logo"),
+inline constexpr std::array<const wchar_t*, 6> names{trKey(L"Kwadrat"), trKey(L"Tło"), trKey(L"Logo"),
                                                       trKey(L"Plakat"), trKey(L"Kafel poziomy"), trKey(L"Płyta")};
 inline constexpr std::array<ArtworkProvider, 3> providers{ArtworkProvider::steamgriddb, ArtworkProvider::screenscraper, ArtworkProvider::esde};
 inline const wchar_t* providerName(ArtworkProvider provider) {
@@ -44,28 +44,34 @@ struct State {
     ArtworkProvider provider = ArtworkProvider::steamgriddb;
     bool provider_focus = false, provider_open = false;
     int provider_row = 0;
-    // "Popraw kadr" (the crop editor) under "Z dysku…", then Back at the rail's foot.
+    // "Kadruj" right of "Szukaj" (square artwork and backgrounds); Back is the top-left circle.
     bool crop_focus = false, back_focus = false;
     // The rail has the focus on one of its buttons rather than on a type.
-    bool railButton() const { return local_focus || crop_focus || back_focus; }
-    // Neither the gallery nor the search row (field or "Źródło") has the focus: the rail has it.
-    bool railFocus() const { return !gallery && !search_focus && !provider_focus; }
+    bool railButton() const { return local_focus || back_focus; }
+    // Neither the gallery nor the search row (field, "Kadruj" or "Źródło") has the focus: the rail has it.
+    bool railFocus() const { return !gallery && !search_focus && !provider_focus && !crop_focus; }
     bool emulated() const { return game.kind == GameKind::nonsteam && game.platform != L"PC"; }
     ArtworkKind kind() const { return kinds[category]; }
     bool providerChoice() const { return emulated() && kind() != ArtworkKind::disc; }
+    // "Kadruj": the cover's square or the part of the background a screen shows (src/app/crop.cpp).
+    bool croppable() const { return kind() == ArtworkKind::cover || kind() == ArtworkKind::hero; }
 };
 struct Layout {
     float width, height;
     ArtworkKind kind;
     bool providers = false; // The "Źródło" dropdown is shown (State::providerChoice()).
-    static constexpr float provider_width = 270, provider_gap = 12, provider_row_step = 54;
+    static constexpr float provider_width = 270, provider_gap = 12, provider_row_step = 54, crop_width = 150;
+    bool cropping() const { return kind == ArtworkKind::cover || kind == ArtworkKind::hero; } // State::croppable().
     settings_ui::Layout base() const { return {width, height}; }
     float left() const { return base().contentLeft(); }
     float right() const { return base().contentRight(); }
     static constexpr float top = 260, gap = 18;
     // The search field starts level with the first rail tab.
-    // Then "Szukaj" and, for emulated games, the "Źródło: …" dropdown at the row's right end.
-    float searchRight() const { return right() - (providers ? provider_width + provider_gap : 0.0f); }
+    // Then "Szukaj", "Kadruj" (covers and backgrounds) and, for emulated games, the "Źródło: …" dropdown at the row's right end.
+    float searchRight() const {
+        return right() - (providers ? provider_width + provider_gap : 0.0f) - (cropping() ? crop_width + provider_gap : 0.0f);
+    }
+    settings_ui::Rect cropButton() const { return {searchRight() + provider_gap, settings_ui::Layout::rail_top, searchRight() + provider_gap + crop_width, settings_ui::Layout::rail_top + 55}; }
     settings_ui::Rect searchBox() const { return {left(), settings_ui::Layout::rail_top, searchRight() - 100, settings_ui::Layout::rail_top + 55}; }
     settings_ui::Rect searchButton() const { return {searchRight() - 88, settings_ui::Layout::rail_top, searchRight(), settings_ui::Layout::rail_top + 55}; }
     settings_ui::Rect providerButton() const { return {right() - provider_width, settings_ui::Layout::rail_top, right(), settings_ui::Layout::rail_top + 55}; }
@@ -125,16 +131,18 @@ struct Layout {
         else if (r.bottom + 28 > bottom()) scroll += r.bottom + 28 - bottom();
         return std::clamp(scroll, 0.0f, maxScroll(count));
     }
-    // Directly under the last type, a little more compact than the types: "Z dysku…", "Popraw kadr".
+    // Directly under the last type, a little more compact than the types: "Z dysku…".
     settings_ui::Rect railButton(int index) const {
         const auto first = base().rail(static_cast<int>(kinds.size()));
         const float y = first.top + index * 62;
         return {first.left, y, first.right, y + 52};
     }
     settings_ui::Rect localButton() const { return railButton(0); }
-    settings_ui::Rect cropButton() const { return railButton(1); }
+    // Back: the small glass circle with a dot at the top left, as on Szczegóły, Osiągnięcia and Kadr
+    // (game_details_layout.hpp); its hit rectangle is the circle.
+    settings_ui::Rect backButton() const { return {56, 40, 100, 84}; }
     settings_ui::Rect pageButton(bool next) const {
-        const float center = (56 + base().railRight() - 22) * 0.5f, y = cropButton().bottom + 24;
+        const float center = (56 + base().railRight() - 22) * 0.5f, y = localButton().bottom + 24;
         return next ? settings_ui::Rect{center + 30, y, base().railRight() - 22, y + 48} :
                       settings_ui::Rect{56, y, center - 30, y + 48};
     }
