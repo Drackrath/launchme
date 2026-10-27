@@ -176,7 +176,7 @@ target_link_libraries(launchme_core PUBLIC ${LAUNCHME_CORE_LIBS})
 get_target_property(miniz_includes miniz INTERFACE_INCLUDE_DIRECTORIES)
 set_target_properties(miniz PROPERTIES INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${miniz_includes}")
 
-add_executable(launchme src/linux/main.cpp)
+add_executable(launchme src/linux/main.cpp src/platform/sdl_window.cpp)
 launchme_target_defaults(launchme)
 target_include_directories(launchme PRIVATE "${SDL3_INCLUDE_DIR}" "${SDL3_TTF_INCLUDE_DIR}")
 target_link_libraries(launchme PRIVATE launchme_core "${SDL3_LIBRARY}" "${SDL3_TTF_LIBRARY}")
@@ -198,6 +198,9 @@ function(launchme_executable name)
 endfunction()
 
 if(BUILD_TESTING)
+    launchme_executable(platform_sdl_window_tests TEST platform_sdl_window_events
+        SOURCES tests/platform_sdl_window_tests.cpp src/platform/sdl_window.cpp
+        LIBS "${SDL3_LIBRARY}")
     launchme_executable(game_fps_tests TEST game_fps_history_and_overlay_bar SOURCES tests/game_fps_tests.cpp)
     launchme_executable(failure_cache_tests TEST persistent_artwork_failure_cache SOURCES tests/failure_cache_tests.cpp)
     launchme_executable(controller_models_tests TEST controller_picture_classification SOURCES tests/controller_models_tests.cpp)
