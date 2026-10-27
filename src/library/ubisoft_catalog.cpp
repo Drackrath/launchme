@@ -3,7 +3,9 @@
 #include "../net/http.hpp"
 #include "../platform/atomic_file.hpp"
 
+#ifdef _WIN32
 #include <Windows.h>
+#endif
 #include <algorithm>
 #include <atomic>
 #include <chrono>

@@ -190,6 +190,15 @@ Close a running launcher before rebuilding. The C++ runtime is linked statically
 games, store clients, installers or change system settings; `*_live_test.exe` and `tools/` probes are
 manual (network, real accounts).
 
+### Linux (work in progress)
+
+A native Linux port is under way; so far the shared core and its tests build, but not the launcher itself.
+Status, plan and conventions: [docs/linux-port.md](docs/linux-port.md).
+
+```sh
+cmake -S . -B build/linux -G Ninja && cmake --build build/linux && ctest --test-dir build/linux
+```
+
 ## License
 
 [MIT](LICENSE). Third-party licenses (miniz, PresentMon, WebView2 SDK, SuccessStory for the Achievements

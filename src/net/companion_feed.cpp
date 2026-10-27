@@ -1,13 +1,16 @@
 #include "companion_feed.hpp"
+#include "../platform/hashing.hpp"
 #include "companion_photos.hpp"
 #include "json.hpp"
 #include "../platform/atomic_file.hpp"
 #include "../platform/text_encoding.hpp"
 
+#ifdef _WIN32
 #include <Windows.h>
 #include <bcrypt.h>
 #include <wincodec.h>
 #include <wrl/client.h>
+#endif
 #include <algorithm>
 #include <array>
 #include <charconv>
@@ -70,16 +73,7 @@ std::filesystem::path folderOf(const std::filesystem::path& config, std::string_
 
 std::string fingerprint(std::span<const uint8_t> bytes) {
     if (bytes.empty() || bytes.size() > 16 * 1024 * 1024) return {};
-    BCRYPT_ALG_HANDLE algorithm = nullptr;
-    if (BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_SHA256_ALGORITHM, nullptr, 0) < 0) return {};
-    std::array<uint8_t, 32> hash{};
-    const auto status = BCryptHash(algorithm, nullptr, 0, const_cast<PUCHAR>(bytes.data()), static_cast<ULONG>(bytes.size()), hash.data(), static_cast<ULONG>(hash.size()));
-    BCryptCloseAlgorithmProvider(algorithm, 0);
-    if (status < 0) return {};
-    constexpr char hex[] = "0123456789abcdef";
-    std::string result;
-    for (auto b : hash) { result += hex[b >> 4]; result += hex[b & 15]; }
-    return result;
+    return hashing::bytesHex(hashing::Algorithm::sha256, bytes);
 }
 
 std::optional<State> load(const std::filesystem::path& folder) {

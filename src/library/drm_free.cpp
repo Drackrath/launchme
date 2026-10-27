@@ -7,8 +7,10 @@
 #include "../platform/atomic_file.hpp"
 #include "../platform/text_encoding.hpp"
 
+#ifdef _WIN32
 #include <Windows.h>
 #include <winver.h>
+#endif
 
 #include <algorithm>
 #include <climits>
@@ -32,7 +34,7 @@ bool plainText(std::wstring_view text) {
 }
 
 bool validPath(const std::filesystem::path& path) {
-    const auto& text = path.native();
+    const auto& text = path.wstring();
     return !text.empty() && text.size() <= max_path && plainText(text) &&
            text.find_first_of(L"\"<>|*?") == std::wstring::npos && path.is_absolute();
 }
@@ -255,7 +257,7 @@ void collectChildren(const std::filesystem::path& folder, int depth, const ScanO
 // --- Catalog file --------------------------------------------------------------
 
 std::wstring folderKey(const std::filesystem::path& folder) {
-    auto value = folder.lexically_normal().native();
+    auto value = folder.lexically_normal().wstring();
     std::replace(value.begin(), value.end(), L'/', L'\\');
     while (value.size() > 3 && value.back() == L'\\') value.pop_back();
     return lower(value);
@@ -336,7 +338,7 @@ Loaded parse(std::string_view bytes) {
         if (!validId(entry.id) || !validPath(entry.folder) || entry.id != folderId(entry.folder) || !rootOf(catalog, entry.folder) ||
             (!entry.executable.empty() && !validPath(entry.executable)) ||
             (!entry.working_directory.empty() && !validPath(entry.working_directory)) || !ids.insert(entry.id).second) continue;
-        if (entry.title.empty()) entry.title = cleanTitle(entry.folder.filename().native()).text;
+        if (entry.title.empty()) entry.title = cleanTitle(entry.folder.filename().wstring()).text;
         if (entry.name.empty()) entry.name = entry.title;
         if (entry.name.empty()) continue;
         catalog.games.push_back(std::move(entry));
@@ -349,17 +351,17 @@ std::string format(const Catalog& catalog) {
                          ",\n  \"rawg_pause\": " + std::to_string(catalog.rawg_pause) + ",\n  \"roots\": [";
     for (size_t i = 0; i < catalog.roots.size(); ++i) {
         output += i ? ", " : "";
-        appendString(output, catalog.roots[i].native());
+        appendString(output, catalog.roots[i].wstring());
     }
     output += "],\n  \"games\": [";
     for (size_t i = 0; i < catalog.games.size(); ++i) {
         const auto& entry = catalog.games[i];
         output += i ? ",\n    {" : "\n    {";
         output += "\"id\": \"" + entry.id + "\"";
-        output += ", \"folder\": "; appendString(output, entry.folder.native());
-        output += ", \"exe\": "; appendString(output, entry.executable.native());
+        output += ", \"folder\": "; appendString(output, entry.folder.wstring());
+        output += ", \"exe\": "; appendString(output, entry.executable.wstring());
         if (!entry.arguments.empty()) { output += ", \"args\": "; appendString(output, entry.arguments); }
-        if (!entry.working_directory.empty()) { output += ", \"cwd\": "; appendString(output, entry.working_directory.native()); }
+        if (!entry.working_directory.empty()) { output += ", \"cwd\": "; appendString(output, entry.working_directory.wstring()); }
         output += ", \"title\": "; appendString(output, entry.title);
         if (!entry.product.empty()) { output += ", \"product\": "; appendString(output, entry.product); }
         output += ", \"name\": "; appendString(output, entry.name);
@@ -437,7 +439,7 @@ bool skippedFolder(std::wstring_view folder_name) {
 }
 
 int executableScore(const Candidate& candidate, std::wstring_view folder_name, std::wstring_view title) {
-    auto stem = lower(candidate.path.stem().native());
+    auto stem = lower(candidate.path.stem().wstring());
     const auto name = ratings::normalizedTitle(stem), folder = ratings::normalizedTitle(folder_name), cleaned = ratings::normalizedTitle(title);
     int score = 100 - 25 * candidate.depth;
     if (!name.empty() && (name == folder || name == cleaned)) score += 80;
@@ -462,7 +464,7 @@ int executableScore(const Candidate& candidate, std::wstring_view folder_name, s
     else if (candidate.size >= 2 * 1024 * 1024) score += 10;
     if (candidate.console) score -= 40;
     if (candidate.x64) score += 5;
-    const auto parent = lower(candidate.path.parent_path().filename().native());
+    const auto parent = lower(candidate.path.parent_path().filename().wstring());
     if (parent == L"x64" || parent == L"win64" || stem.find(L"64") != std::wstring::npos) score += 8;
     if (stem.find(L"launcher") != std::wstring::npos) score -= 15;
     for (const auto* weak : {L"config", L"setting", L"option", L"editor", L"tool", L"sdk", L"server", L"dedicated", L"benchmark",
@@ -514,13 +516,13 @@ Detection detect(const std::filesystem::path& folder, const Cancelled& cancelled
             }
         }
         for (const auto& [name, size] : executables) {
-            if (emulator(std::filesystem::path(name).stem().native())) return {}; // An emulator's folder, not a game.
+            if (emulator(std::filesystem::path(name).stem().wstring())) return {}; // An emulator's folder, not a game.
             if (excludedExecutable(name)) continue;
             Candidate candidate;
             candidate.path = current.folder / name;
             candidate.depth = current.depth;
             candidate.size = size;
-            const auto stem = lower(std::filesystem::path(name).stem().native());
+            const auto stem = lower(std::filesystem::path(name).stem().wstring());
             candidate.unity_data = names.contains(stem + L"_data");
             candidate.godot_pack = names.contains(stem + L".pck");
             candidate.gamemaker_data = names.contains(L"data.win");
@@ -552,7 +554,7 @@ Detection detect(const std::filesystem::path& folder, const Cancelled& cancelled
         }
         if (children.size() >= 2) { result.container = true; return result; }
     }
-    const auto folder_name = folder.filename().native();
+    const auto folder_name = folder.filename().wstring();
     const auto title = cleanTitle(folder_name).text;
     const Candidate* best = nullptr;
     int best_score = INT_MIN;
@@ -567,7 +569,7 @@ Detection detect(const std::filesystem::path& folder, const Cancelled& cancelled
     result.product = versionString(best->path);
     if (result.product.empty()) {
         // "RCG\RiverCityGirls.exe": the file name is the better second query.
-        const auto stem = cleanTitle(best->path.stem().native()).text;
+        const auto stem = cleanTitle(best->path.stem().wstring()).text;
         if (stem.size() >= 4 && !genericProduct(stem) && ratings::normalizedTitle(stem) != ratings::normalizedTitle(title)) result.product = stem;
     }
     return result;
@@ -628,7 +630,7 @@ Catalog scan(const Catalog& previous, const ScanOptions& options, const Cancelle
             state.total += work.size() - before_size;
         } else if (!detection.store_owned && (!detection.executable.empty() || (old && old->ignored))) {
             Entry entry = old ? *old : Entry{};
-            const auto cleaned = cleanTitle(folder.filename().native());
+            const auto cleaned = cleanTitle(folder.filename().wstring());
             const auto title = detection.title.empty() ? cleaned.text : detection.title;
             entry.id = id;
             entry.folder = folder;
@@ -713,7 +715,7 @@ std::filesystem::path workingDirectory(const Entry& entry) {
 
 GameAction action(const Entry& entry) {
     if (entry.executable.empty()) return {};
-    return {entry.executable.native(), entry.arguments, workingDirectory(entry), ActionKind::play};
+    return {entry.executable.wstring(), entry.arguments, workingDirectory(entry), ActionKind::play};
 }
 
 Game makeGame(const Entry& entry) {
@@ -721,7 +723,7 @@ Game makeGame(const Entry& entry) {
     game.kind = GameKind::store;
     game.source = GameSource::drmfree;
     game.source_id = entry.id;
-    game.name = !entry.name.empty() ? entry.name : !entry.title.empty() ? entry.title : entry.folder.filename().native();
+    game.name = !entry.name.empty() ? entry.name : !entry.title.empty() ? entry.title : entry.folder.filename().wstring();
     game.installed = !entry.missing && !entry.executable.empty();
     game.play_action = action(entry);
     // The game owns its folder: processes started from anywhere inside it count as playing.

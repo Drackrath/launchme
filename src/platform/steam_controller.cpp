@@ -1,6 +1,8 @@
 #include "steam_controller.hpp"
+#ifdef _WIN32
 #include <hidsdi.h>
 #include <xinput.h>
+#endif
 #include <algorithm>
 #include <cwctype>
 #include <mutex>

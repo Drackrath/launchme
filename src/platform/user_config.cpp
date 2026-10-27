@@ -3,9 +3,14 @@
 #include "sound_cues.hpp"
 #include "music_themes.hpp"
 #include "text_encoding.hpp"
+#include "system.hpp"
 
+#ifdef _WIN32
 #include <Windows.h>
+#ifdef _WIN32
 #include <ShlObj.h>
+#endif
+#endif
 
 #include <fstream>
 #include <algorithm>
@@ -17,29 +22,31 @@
 #include <sstream>
 #include <string_view>
 #include <vector>
+#include <chrono>
+#include <thread>
 
 std::filesystem::path userConfigDirectory() {
-    wchar_t override_path[4096]{};
-    const auto length = GetEnvironmentVariableW(L"LAUNCHME_CONFIG_DIR", override_path, static_cast<DWORD>(std::size(override_path)));
-    if (length && length < std::size(override_path) && std::filesystem::path(override_path).is_absolute()) return override_path;
+    if (const auto override_path = system_info::environment(L"LAUNCHME_CONFIG_DIR", 4095);
+        override_path && std::filesystem::path(*override_path).is_absolute()) return *override_path;
+#ifndef _WIN32
+    // XDG: $XDG_DATA_HOME/launchme, else ~/.local/share/launchme (settings and data stay together, as in LocalAppData).
+    if (const auto data = system_info::environment(L"XDG_DATA_HOME"); data && std::filesystem::path(*data).is_absolute())
+        return std::filesystem::path(*data) / L"launchme";
+    if (const auto home = system_info::environment(L"HOME"); home && std::filesystem::path(*home).is_absolute())
+        return std::filesystem::path(*home) / L".local" / L"share" / L"launchme";
+#else
     PWSTR folder = nullptr;
     if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &folder))) {
         std::filesystem::path result = std::filesystem::path(folder) / L"Launchme";
         CoTaskMemFree(folder);
         return result;
     }
+#endif
     return std::filesystem::temp_directory_path() / L"Launchme";
 }
 
 std::wstring userSecret(const wchar_t* environment, const wchar_t* filename) {
-    const DWORD length = GetEnvironmentVariableW(environment, nullptr, 0);
-    if (length > 1 && length <= 1024) {
-        std::wstring value(length, L'\0');
-        if (GetEnvironmentVariableW(environment, value.data(), length) == length - 1) {
-            value.resize(length - 1);
-            return value;
-        }
-    }
+    if (auto value = system_info::environment(environment, 1023); value && !value->empty()) return *value;
     std::ifstream input(userConfigDirectory() / filename, std::ios::binary);
     std::string bytes;
     std::getline(input, bytes);
@@ -525,7 +532,7 @@ AppSettings loadAppSettings(const std::filesystem::path& file) {
     // A file another program holds for a moment (an antivirus scan, a sync client) is tried
     // again; only then are these the defaults, marked so the user's file is never overwritten.
     for (int attempt = 0; attempt < 5; ++attempt) {
-        if (attempt) Sleep(60);
+        if (attempt) std::this_thread::sleep_for(std::chrono::milliseconds(60));
         std::ifstream input(file, std::ios::binary | std::ios::ate);
         if (!input || input.tellg() < 0) continue;
         if (input.tellg() > 1024 * 1024) break;
@@ -602,9 +609,9 @@ bool saveAppSettings(const AppSettings& settings, const std::filesystem::path& f
            << "ui_sound=" << std::clamp(settings.ui_sound, 0, static_cast<int>(ui_sounds.size()) - 1) << '\n'
            << "toast_sound=" << std::clamp(settings.toast_sound, 0, static_cast<int>(toast_sounds.size()) - 1) << '\n'
            << "boot_sound=" << std::clamp(settings.boot_sound, 0, static_cast<int>(boot_sounds.size()) - 1) << '\n'
-           << "sound_folder=" << text_encoding::utf8Lenient(settings.sound_folder.native()) << '\n'
-           << "file_browser_folder=" << text_encoding::utf8Lenient(settings.file_browser_folder.native()) << '\n'
-           << "multimc_path=" << text_encoding::utf8Lenient(settings.multimc_path.native()) << '\n'
+           << "sound_folder=" << text_encoding::utf8Lenient(settings.sound_folder.wstring()) << '\n'
+           << "file_browser_folder=" << text_encoding::utf8Lenient(settings.file_browser_folder.wstring()) << '\n'
+           << "multimc_path=" << text_encoding::utf8Lenient(settings.multimc_path.wstring()) << '\n'
            << "music_file=" << text_encoding::utf8Lenient(settings.music_file) << '\n'
            << "boot_file=" << text_encoding::utf8Lenient(settings.boot_file) << '\n'
            << "font_family=";
@@ -709,7 +716,7 @@ bool saveAppSettings(const AppSettings& settings, const std::filesystem::path& f
     output << "trailer_space_mb=" << settings.trailer_space_mb << '\n';
     output << "emulation_names=" << settings.emulation_names << '\n';
     output << "emulation_rom_art=" << settings.emulation_rom_art << '\n';
-    output << "video_folder=" << text_encoding::utf8Lenient(settings.video_folder.native()) << '\n';
+    output << "video_folder=" << text_encoding::utf8Lenient(settings.video_folder.wstring()) << '\n';
     output << "console_colors=" << settings.console_colors << '\n';
     output << "metro_3d=" << settings.metro_3d << '\n';
     output << "game_action=" << (settings.accept_action == AppSettings::AcceptAction::details ? "details" : "launch") << '\n';
@@ -772,7 +779,7 @@ bool saveAppSettings(const AppSettings& settings, const std::filesystem::path& f
         // The unreadable file stays for the user (or a later fix) before these settings replace it.
         std::error_code ec;
         if (std::filesystem::exists(file, ec) &&
-            !CopyFileW(file.c_str(), (file.parent_path() / L"settings.unreadable.ini").c_str(), FALSE)) return false;
+            !std::filesystem::copy_file(file, file.parent_path() / L"settings.unreadable.ini", std::filesystem::copy_options::overwrite_existing, ec)) return false;
     }
     return atomic_file::writeDurable(file, output.str());
 }

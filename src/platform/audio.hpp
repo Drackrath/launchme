@@ -1,8 +1,10 @@
 #pragma once
 
+#ifdef _WIN32
 #include <Windows.h>
 #include <xaudio2.h>
 #include <wrl/client.h>
+#endif
 
 #include <cstdint>
 #include <deque>

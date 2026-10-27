@@ -2,6 +2,7 @@
 #include "../model/controller_models.hpp"
 #include "../net/json.hpp"
 #include "text_encoding.hpp"
+#include "unicode_text.hpp"
 #include <filesystem>
 #include <fstream>
 
@@ -18,8 +19,7 @@ inline void applyControllerOverrides(std::vector<devices::Controller>& controlle
         const auto picture = devices::classifyController(0, 0, name);
         if (picture == devices::Picture::generic) continue; // Unknown overrides retain automatic detection.
         for (auto& pad : controllers) {
-            if (CompareStringOrdinal(pad.id.data(), static_cast<int>(pad.id.size()),
-                                     id.data(), static_cast<int>(id.size()), TRUE) != CSTR_EQUAL) continue;
+            if (!unicode_text::equalIgnoreCase(pad.id, id)) continue;
             pad.name = name;
             pad.picture = picture;
         }

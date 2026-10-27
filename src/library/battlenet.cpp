@@ -2,7 +2,9 @@
 #include "store_adapter.hpp"
 #include "../net/json.hpp"
 #include "../platform/text_encoding.hpp"
+#ifdef _WIN32
 #include <Windows.h>
+#endif
 #include <algorithm>
 #include <charconv>
 #include <map>

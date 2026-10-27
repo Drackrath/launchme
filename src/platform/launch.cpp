@@ -1,5 +1,7 @@
 #include "launch.hpp"
+#ifdef _WIN32
 #include <shellapi.h>
+#endif
 
 #include <algorithm>
 #include <cwctype>

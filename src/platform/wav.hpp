@@ -3,8 +3,10 @@
 // anything else (compressed formats, other sample sizes, truncated files).
 #include "flac.hpp"
 
+#ifdef _WIN32
 #include <Windows.h>
 #include <mmreg.h>
+#endif
 
 #include <cstring>
 #include <optional>

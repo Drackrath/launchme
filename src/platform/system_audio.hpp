@@ -1,9 +1,11 @@
 #pragma once
 
+#ifdef _WIN32
 #include <Windows.h>
 #include <endpointvolume.h>
 #include <mmdeviceapi.h>
 #include <wrl/client.h>
+#endif
 #include <array>
 #include "../model/devices.hpp"
 #include "../model/headphones.hpp"

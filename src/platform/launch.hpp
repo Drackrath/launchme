@@ -1,6 +1,8 @@
 #pragma once
 #include "../model/game.hpp"
+#ifdef _WIN32
 #include <Windows.h>
+#endif
 
 using ActionExecutor = INT_PTR (*)(HWND, const GameAction&);
 // > 32: started. <= 32: not started, as one of launch_error (ShellExecute-compatible values).

@@ -2,10 +2,21 @@
 // What a user can send when something goes wrong, all in the data folder:
 //   launchme.log            errors and notable events (1 MiB, then launchme.old.log)
 //   crashes\*.dmp           a minidump per crash, from the unhandled-exception filter
+//                           (Linux: crashes/*.txt, the signal and a backtrace)
 //   crashes\unseen.txt      the last crash, reported once at the next start (takeUnseenCrash)
 // Header-only: the filter and the log are usable before the Launcher exists.
+#include "system.hpp"
+#include "text_encoding.hpp"
+#ifdef _WIN32
 #include <Windows.h>
 #include <DbgHelp.h>
+#else
+#include <csignal>
+#include <cstring>
+#include <execinfo.h>
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 
 #include <cstdio>
 #include <cstdlib>
@@ -16,12 +27,22 @@
 #include <string>
 #include <string_view>
 
+#ifdef _WIN32
 #pragma comment(lib, "dbghelp.lib")
 #pragma comment(lib, "version.lib")
+#endif
 
 namespace diagnostics {
-// ProductVersion from the EXE's VERSIONINFO (CMake's project() version), e.g. "0.1.0".
+// ProductVersion from the EXE's VERSIONINFO (CMake's project() version), e.g. "0.1.0";
+// elsewhere LAUNCHME_VERSION, defined by the build from the same project() version.
 inline std::wstring version() {
+#ifndef _WIN32
+#ifdef LAUNCHME_VERSION
+    return text_encoding::wide(LAUNCHME_VERSION);
+#else
+    return {};
+#endif
+#else
     wchar_t path[MAX_PATH * 2]{};
     if (!GetModuleFileNameW(nullptr, path, static_cast<DWORD>(std::size(path)))) return {};
     DWORD ignored = 0;
@@ -33,33 +54,67 @@ inline std::wstring version() {
     if (!VerQueryValueW(buffer.data(), L"\\", reinterpret_cast<void**>(&info), &length) || !info) return {};
     return std::to_wstring(HIWORD(info->dwProductVersionMS)) + L'.' + std::to_wstring(LOWORD(info->dwProductVersionMS)) + L'.' +
            std::to_wstring(HIWORD(info->dwProductVersionLS));
+#endif
 }
 namespace detail {
 inline std::filesystem::path& folder() { static std::filesystem::path value; return value; }
 inline std::mutex& lock() { static std::mutex value; return value; }
-inline std::string utf8(std::wstring_view text) {
-    if (text.empty()) return {};
-    const int size = WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0, nullptr, nullptr);
-    std::string result(size > 0 ? static_cast<size_t>(size) : 0, '\0');
-    if (size > 0) WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), result.data(), size, nullptr, nullptr);
-    return result;
-}
+inline std::string utf8(std::wstring_view text) { return text_encoding::utf8Lenient(text); }
 inline std::wstring stamp(bool file_name) {
-    SYSTEMTIME now{}; GetLocalTime(&now);
+    const auto now = system_info::localTime();
     wchar_t text[64]{};
-    if (file_name) swprintf_s(text, L"%04u%02u%02u-%02u%02u%02u", now.wYear, now.wMonth, now.wDay, now.wHour, now.wMinute, now.wSecond);
-    else swprintf_s(text, L"%04u-%02u-%02u %02u:%02u:%02u.%03u", now.wYear, now.wMonth, now.wDay, now.wHour, now.wMinute, now.wSecond, now.wMilliseconds);
+    if (file_name) swprintf(text, std::size(text), L"%04d%02d%02d-%02d%02d%02d", now.year, now.month, now.day, now.hour, now.minute, now.second);
+    else swprintf(text, std::size(text), L"%04d-%02d-%02d %02d:%02d:%02d.%03d", now.year, now.month, now.day, now.hour, now.minute, now.second, now.millisecond);
     return text;
 }
 // No allocation-heavy work is safe in a crashing process; this only appends to a file.
 inline void append(const std::filesystem::path& file, std::string_view bytes) {
+#ifndef _WIN32
+    const int handle = ::open(file.c_str(), O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0644);
+    if (handle < 0) return;
+    [[maybe_unused]] const auto written = ::write(handle, bytes.data(), bytes.size());
+    ::close(handle);
+#else
     const HANDLE handle = CreateFileW(file.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                                       nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (handle == INVALID_HANDLE_VALUE) return;
     DWORD written = 0;
     WriteFile(handle, bytes.data(), static_cast<DWORD>(bytes.size()), &written, nullptr);
     CloseHandle(handle);
+#endif
 }
+#ifndef _WIN32
+// Signals instead of SEH: the report is crashes/<stamp>.txt with the signal and a backtrace
+// (no minidump), then the default action (a core dump where the system keeps them).
+inline void crashed(int signal_number, siginfo_t* info, void*) {
+    static volatile sig_atomic_t entered = 0;
+    if (!entered) {
+        entered = 1;
+        const auto& base = folder();
+        if (!base.empty()) {
+            const auto crashes = base / L"crashes";
+            std::error_code error;
+            std::filesystem::create_directories(crashes, error);
+            const auto name = L"launchme-" + stamp(true) + L".txt";
+            const auto report = crashes / name;
+            char code[160]{};
+            snprintf(code, sizeof(code), "signal %d (%s) at %p", signal_number, strsignal(signal_number), info ? info->si_addr : nullptr);
+            append(report, std::string(code) + "\n");
+            if (const int handle = ::open(report.c_str(), O_WRONLY | O_APPEND | O_CLOEXEC); handle >= 0) {
+                void* frames[64];
+                backtrace_symbols_fd(frames, backtrace(frames, 64), handle);
+                ::close(handle);
+            }
+            append(base / L"launchme.log", utf8(stamp(false)) + " [crash] " + code + " -> crashes/" + utf8(name) + "\n");
+            const auto unseen = crashes / L"unseen.txt";
+            std::filesystem::remove(unseen, error);
+            append(unseen, utf8(name) + "\n\n");
+        }
+    }
+    ::signal(signal_number, SIG_DFL);
+    ::raise(signal_number);
+}
+#else
 inline std::wstring moduleOf(const void* address) {
     HMODULE module = nullptr;
     if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
@@ -97,11 +152,19 @@ inline LONG WINAPI unhandled(EXCEPTION_POINTERS* info) {
     }
     return EXCEPTION_CONTINUE_SEARCH; // Windows Error Reporting still sees it.
 }
+#endif
 }
 
 // Call once, early. The data folder must be known (LAUNCHME_CONFIG_DIR applied).
 inline void install(const std::filesystem::path& data_folder) {
     detail::folder() = data_folder;
+#ifndef _WIN32
+    struct sigaction action{};
+    action.sa_sigaction = detail::crashed;
+    action.sa_flags = SA_SIGINFO | SA_RESETHAND;
+    for (const int signal_number : {SIGSEGV, SIGBUS, SIGFPE, SIGILL, SIGABRT}) sigaction(signal_number, &action, nullptr);
+    std::set_terminate([] { std::abort(); });
+#else
     SetUnhandledExceptionFilter(detail::unhandled);
     // CRT failures (invalid parameter, pure call, std::terminate) become the same crash report.
     _set_invalid_parameter_handler([](const wchar_t*, const wchar_t*, const wchar_t*, unsigned, uintptr_t) {
@@ -109,6 +172,7 @@ inline void install(const std::filesystem::path& data_folder) {
     });
     _set_purecall_handler([] { RaiseException(0xE0000002, EXCEPTION_NONCONTINUABLE, 0, nullptr); });
     std::set_terminate([] { RaiseException(0xE0000003, EXCEPTION_NONCONTINUABLE, 0, nullptr); std::abort(); });
+#endif
 }
 
 // One line in launchme.log. Thread-safe; never throws.
@@ -118,18 +182,16 @@ inline void log(std::string_view level, std::wstring_view text) {
         if (base.empty()) return;
         std::lock_guard guard(detail::lock());
         const auto file = base / L"launchme.log";
-        WIN32_FILE_ATTRIBUTE_DATA data{};
-        if (GetFileAttributesExW(file.c_str(), GetFileExInfoStandard, &data) && (data.nFileSizeHigh || data.nFileSizeLow > 1024 * 1024))
-            MoveFileExW(file.c_str(), (base / L"launchme.old.log").c_str(), MOVEFILE_REPLACE_EXISTING);
+        std::error_code error;
+        if (const auto size = std::filesystem::file_size(file, error); !error && size > 1024 * 1024)
+            std::filesystem::rename(file, base / L"launchme.old.log", error);
         std::string line = detail::utf8(detail::stamp(false)) + " [" + std::string(level) + "] " + detail::utf8(text);
         for (auto& ch : line) if (ch == '\r' || ch == '\n') ch = ' ';
         detail::append(file, line + "\r\n");
     } catch (...) {}
 }
 inline void log(std::string_view level, std::string_view text) {
-    const int size = MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
-    std::wstring wide(size > 0 ? static_cast<size_t>(size) : 0, L'\0');
-    if (size > 0) MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), wide.data(), size);
+    const auto wide = text_encoding::wideLenient(text);
     log(level, std::wstring_view(wide));
 }
 // The text of an exception caught as exception_ptr (worker failures), for the log.
@@ -146,20 +208,20 @@ inline std::optional<Crash> takeUnseenCrash() {
     const auto& base = detail::folder();
     if (base.empty()) return {};
     const auto file = base / L"crashes" / L"unseen.txt";
-    FILE* input = nullptr;
+    std::FILE* input = nullptr;
+#ifdef _WIN32
     if (_wfopen_s(&input, file.c_str(), L"rb") || !input) return {};
+#else
+    if (!(input = std::fopen(file.c_str(), "rb"))) return {};
+#endif
     char buffer[4096]{};
     const size_t length = fread(buffer, 1, sizeof(buffer) - 1, input);
     fclose(input);
-    DeleteFileW(file.c_str());
+    std::error_code error;
+    std::filesystem::remove(file, error);
     const std::string_view text(buffer, length);
     const auto line = text.find('\n');
-    const auto wide = [](std::string_view part) {
-        const int size = MultiByteToWideChar(CP_UTF8, 0, part.data(), static_cast<int>(part.size()), nullptr, 0);
-        std::wstring result(size > 0 ? static_cast<size_t>(size) : 0, L'\0');
-        if (size > 0) MultiByteToWideChar(CP_UTF8, 0, part.data(), static_cast<int>(part.size()), result.data(), size);
-        return result;
-    };
+    const auto wide = [](std::string_view part) { return text_encoding::wideLenient(part); };
     Crash crash;
     crash.dump = wide(text.substr(0, line));
     if (line != std::string_view::npos) {

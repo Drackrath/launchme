@@ -130,7 +130,7 @@ void Launcher::openCustomEditor(const std::string& id) {
         const auto found = std::find_if(custom_games_.begin(), custom_games_.end(), [&](const auto& entry) { return entry.id == id; });
         if (found == custom_games_.end()) return;
         ui.id = id;
-        ui.fields = {found->name, found->path.native(), found->arguments, found->directory.native()};
+        ui.fields = {found->name, found->path.wstring(), found->arguments, found->directory.wstring()};
     }
     ui.open = true;
     // A new game starts at "Wybierz…": one press picks the file, the next one saves it.
@@ -163,7 +163,7 @@ void Launcher::openLaunchEditor(const Game& game) {
         const auto entry = std::find_if(drm_catalog_.games.begin(), drm_catalog_.games.end(), [&](const auto& item) { return item.id == game.source_id; });
         ui.target = custom_game_ui::Target::drm_free;
         ui.key = entry->id;
-        ui.fields = {entry->name, entry->executable.native(), entry->arguments, entry->working_directory.native()};
+        ui.fields = {entry->name, entry->executable.wstring(), entry->arguments, entry->working_directory.wstring()};
         ui.focus = Item::file;
         ui.caret = ui.fields[custom_game_ui::file_field].size();
     } else {
@@ -367,13 +367,13 @@ void Launcher::customEditorBrowse(bool folder) {
         auto& ui = custom_editor_;
         if (!ui.open || picked.empty()) { InvalidateRect(hwnd_, nullptr, FALSE); return; }
         ui.error.clear();
-        if (folder) ui.fields[directory_field] = picked.native();
+        if (folder) ui.fields[directory_field] = picked.wstring();
         else {
-            ui.fields[file_field] = picked.native();
+            ui.fields[file_field] = picked.wstring();
             if (custom_games::trim(ui.fields[name_field]).empty())
-                ui.fields[name_field] = picked.stem().native().substr(0, custom_games::max_name);
+                ui.fields[name_field] = picked.stem().wstring().substr(0, custom_games::max_name);
             // A working directory the user chose stays; the default follows the file.
-            if (directory.empty() || directory == file.parent_path()) ui.fields[directory_field] = picked.parent_path().native();
+            if (directory.empty() || directory == file.parent_path()) ui.fields[directory_field] = picked.parent_path().wstring();
             if (!custom_games::trim(ui.fields[name_field]).empty()) customEditorFocus(Item::save);
         }
         InvalidateRect(hwnd_, nullptr, FALSE);
@@ -434,7 +434,7 @@ void Launcher::customEditorSave() {
     if (!custom_games::save(next, customGamesFile())) { fail(tr(L"Nie udało się zapisać listy gier."), Item::save); return; }
     custom_games_ = std::move(next);
     // A new file is assumed present until the worker has checked it.
-    if (!previous || previous->play_action.target != entry.path.native()) custom_installed_.erase(entry.id);
+    if (!previous || previous->play_action.target != entry.path.wstring()) custom_installed_.erase(entry.id);
     // Artwork was matched by title: a new name is matched again (the user's picks stay).
     if (previous && previous->name != entry.name) forgetCustomArtwork(*previous, false);
     closeCustomEditor();

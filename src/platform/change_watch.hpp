@@ -3,7 +3,9 @@
 // non-recursive directory watches (FindFirstChangeNotificationW) and registry key watches
 // (RegNotifyChangeKeyValue). A worker blocks in wait() and rescans only after something
 // it reads has really changed; a fired source is re-armed before wait() returns.
+#ifdef _WIN32
 #include <Windows.h>
+#endif
 
 #include <atomic>
 #include <cstdint>

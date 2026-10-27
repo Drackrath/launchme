@@ -1,7 +1,9 @@
 #include "file_listing.hpp"
 
+#ifdef _WIN32
 #include <Windows.h>
 #include <ShlObj.h>
+#endif
 
 #include <algorithm>
 
@@ -25,7 +27,7 @@ bool lessName(const std::wstring& left, const std::wstring& right) {
 Listing list(const std::filesystem::path& folder, size_t limit) {
     Listing result;
     if (folder.empty()) { result.error = ERROR_PATH_NOT_FOUND; return result; }
-    auto pattern = folder.native();
+    auto pattern = folder.wstring();
     if (!pattern.empty() && pattern.back() != L'\\' && pattern.back() != L'/') pattern += L'\\';
     pattern += L'*';
     WIN32_FIND_DATAW data{};

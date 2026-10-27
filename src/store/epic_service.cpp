@@ -1,5 +1,7 @@
 #include "epic_account.hpp"
+#ifdef _WIN32
 #include <Windows.h>
+#endif
 #include <algorithm>
 #include <atomic>
 #include <condition_variable>

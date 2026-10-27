@@ -3,6 +3,7 @@
 #include "../platform/atomic_file.hpp"
 #include "../platform/text_encoding.hpp"
 #include "../artwork/image_compact.hpp"
+#ifdef _WIN32
 #include <Windows.h>
 #include <winhttp.h>
 #include <objbase.h>
@@ -10,6 +11,7 @@
 #include <shlwapi.h>
 #include <wrl/client.h>
 #include <wincodec.h>
+#endif
 #include <algorithm>
 #include <cmath>
 #include <fstream>

@@ -2,10 +2,12 @@
 #include "steam_library_bridge.hpp"
 #include "text_encoding.hpp"
 #include "../net/json.hpp"
+#ifdef _WIN32
 #include <WinSock2.h>
 #include <Windows.h>
 #include <iphlpapi.h>
 #include <winhttp.h>
+#endif
 #include <algorithm>
 #include <charconv>
 #include <cmath>

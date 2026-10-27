@@ -1,7 +1,9 @@
 #include "power.hpp"
 
+#ifdef _WIN32
 #include <Windows.h>
 #include <powrprof.h>
+#endif
 
 namespace {
 bool enableShutdownPrivilege() {

@@ -1,10 +1,19 @@
 #pragma once
+// Files only this user can read back: DPAPI on Windows. Elsewhere AES-256-GCM with a key kept in
+// the desktop keyring (Secret Service), or, without one, in a 0600 file in the data folder
+// (protected_file.cpp).
 #include "atomic_file.hpp"
+#ifdef _WIN32
 #include <wincrypt.h>
+#endif
 #include <optional>
 #include <vector>
 
 namespace protected_file {
+#ifndef _WIN32
+std::optional<std::string> read(const std::filesystem::path& file, size_t limit);
+bool write(const std::filesystem::path& file, std::string_view text, const wchar_t* description);
+#else
 inline std::optional<std::string> read(const std::filesystem::path& file, size_t limit) {
     std::ifstream input(file, std::ios::binary | std::ios::ate);
     if (!input || input.tellg() < 0 || input.tellg() > static_cast<std::streamoff>(limit)) return {};
@@ -24,4 +33,5 @@ inline bool write(const std::filesystem::path& file, std::string_view text, cons
     const bool saved = atomic_file::write(file, std::span<const uint8_t>(encrypted.pbData, encrypted.cbData));
     LocalFree(encrypted.pbData); return saved;
 }
+#endif
 }

@@ -1,7 +1,9 @@
 #pragma once
+#ifdef _WIN32
 #include <Windows.h>
 #include <wincodec.h>
 #include <wrl/client.h>
+#endif
 #include <optional>
 #include <span>
 #include <vector>

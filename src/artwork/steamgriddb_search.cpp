@@ -3,7 +3,7 @@
 #include "../net/url_encoding.hpp"
 #include "../platform/text_encoding.hpp"
 #include "../i18n/i18n.hpp"
-#include <Windows.h>
+#include "../platform/unicode_text.hpp"
 #include <algorithm>
 #include <array>
 #include <charconv>
@@ -26,22 +26,14 @@ Words words(std::wstring_view value) {
     // Width/compatibility folding can turn ™ into the letters TM attached to a word.
     std::erase_if(clean, [](wchar_t c) { return c == L'™' || c == L'®' || c == L'©'; });
     if (clean.empty()) return {};
-    std::wstring folded(clean);
-    const auto size = FoldStringW(MAP_COMPOSITE | MAP_FOLDCZONE, clean.data(), static_cast<int>(clean.size()), nullptr, 0);
-    if (size > 0) {
-        folded.resize(size);
-        if (!FoldStringW(MAP_COMPOSITE | MAP_FOLDCZONE, clean.data(), static_cast<int>(clean.size()), folded.data(), size)) folded = clean;
-    }
-    std::wstring lower(folded.size(), L'\0');
-    if (LCMapStringEx(LOCALE_NAME_INVARIANT, LCMAP_LOWERCASE, folded.data(), static_cast<int>(folded.size()), lower.data(), static_cast<int>(lower.size()), nullptr, nullptr, 0)) folded = std::move(lower);
+    const auto folded = unicode_text::lower(unicode_text::decomposeCompatible(clean));
     Words result; std::wstring current;
     const auto flush = [&] { if (!current.empty()) { result.push_back(std::move(current)); current.clear(); } };
     for (wchar_t ch : folded) {
-        WORD type = 0, marks = 0; GetStringTypeW(CT_CTYPE1, &ch, 1, &type); GetStringTypeW(CT_CTYPE3, &ch, 1, &marks);
-        if (marks & (C3_NONSPACING | C3_DIACRITIC)) continue;
+        if (unicode_text::isMark(ch)) continue;
         if (ch == L'™' || ch == L'®' || ch == L'©' || ch == L'\'' || ch == L'’' || ch == L'.') continue;
         if (ch == L'&') { flush(); result.emplace_back(L"and"); continue; }
-        if (!(type & (C1_ALPHA | C1_DIGIT))) { flush(); continue; }
+        if (!unicode_text::isLetterOrDigit(ch)) { flush(); continue; }
         // Also accept "Borderlands3" while keeping sequel/year numbers significant.
         const bool digit = ch >= L'0' && ch <= L'9';
         if (!current.empty() && digit != (current.back() >= L'0' && current.back() <= L'9')) flush();

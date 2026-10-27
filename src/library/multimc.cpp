@@ -3,7 +3,9 @@
 #include "../platform/command_line.hpp"
 #include "../platform/text_encoding.hpp"
 
+#ifdef _WIN32
 #include <Windows.h>
+#endif
 
 #include <algorithm>
 #include <cwctype>
@@ -158,7 +160,7 @@ const wchar_t* flavorName(Flavor flavor) {
 }
 
 std::string instanceId(const std::filesystem::path& directory) {
-    auto key = lower(directory.lexically_normal().native());
+    auto key = lower(directory.lexically_normal().wstring());
     std::replace(key.begin(), key.end(), L'/', L'\\');
     while (key.size() > 3 && key.back() == L'\\') key.pop_back();
     uint64_t hash = 1469598103934665603ULL;
@@ -173,7 +175,7 @@ std::string instanceId(const std::filesystem::path& directory) {
 }
 
 std::optional<Flavor> flavorOf(const std::filesystem::path& executable) {
-    const auto name = lower(executable.filename().native());
+    const auto name = lower(executable.filename().wstring());
     if (name == L"multimc.exe") return Flavor::multimc;
     if (name == L"prismlauncher.exe") return Flavor::prism;
     if (name == L"polymc.exe") return Flavor::polymc;
@@ -215,7 +217,7 @@ std::optional<Instance> readInstance(const std::filesystem::path& directory) {
     if (const auto type = configValue(config, L"InstanceType"); !type.empty() && type != L"OneSix") return std::nullopt;
     Instance instance;
     instance.directory = directory;
-    instance.folder = directory.filename().native();
+    instance.folder = directory.filename().wstring();
     instance.id = instanceId(directory);
     instance.name = trim(configValue(config, L"name")).substr(0, 200);
     if (instance.name.empty()) instance.name = instance.folder;
@@ -234,7 +236,7 @@ std::vector<Instance> instances(const Installation& installation) {
     std::error_code ec;
     for (std::filesystem::directory_iterator it(folder, ec), end; !ec && it != end && result.size() < max_instances; it.increment(ec)) {
         std::error_code type;
-        if (!it->is_directory(type) || reservedFolder(it->path().filename().native())) continue;
+        if (!it->is_directory(type) || reservedFolder(it->path().filename().wstring())) continue;
         auto instance = readInstance(it->path());
         if (!instance) continue;
         if (const auto group = groups.find(instance->folder); group != groups.end()) instance->group = group->second;
@@ -283,9 +285,9 @@ std::vector<Installation> discover(const std::vector<std::filesystem::path>& cho
     std::set<std::wstring> data_folders, executables;
     for (const auto& executable : candidates) {
         const auto flavor = flavorOf(executable);
-        if (!flavor || !isFile(executable) || !executables.insert(lower(executable.lexically_normal().native())).second) continue;
+        if (!flavor || !isFile(executable) || !executables.insert(lower(executable.lexically_normal().wstring())).second) continue;
         auto data = dataDirectory(executable, *flavor);
-        if (!isFolder(data) || !data_folders.insert(lower(data.lexically_normal().native())).second) continue;
+        if (!isFolder(data) || !data_folders.insert(lower(data.lexically_normal().wstring())).second) continue;
         result.push_back({*flavor, executable, std::move(data)});
         if (result.size() >= 8) break;
     }
@@ -294,7 +296,7 @@ std::vector<Installation> discover(const std::vector<std::filesystem::path>& cho
 
 GameAction action(const Installation& installation, const Instance& instance) {
     if (installation.executable.empty() || instance.folder.empty()) return {};
-    return {installation.executable.native(), L"--launch " + command_line::quoteArgument(instance.folder), installation.executable.parent_path(), ActionKind::play};
+    return {installation.executable.wstring(), L"--launch " + command_line::quoteArgument(instance.folder), installation.executable.parent_path(), ActionKind::play};
 }
 
 Game makeGame(const Installation& installation, const Instance& instance) {

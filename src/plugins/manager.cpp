@@ -5,7 +5,12 @@
 #include "../../sdk/launchme_plugin.h"
 #include "../platform/protected_file.hpp"
 #include "../platform/text_encoding.hpp"
+#include "../platform/system.hpp"
+#ifdef _WIN32
 #include <Windows.h>
+#else
+#include <dlfcn.h>
+#endif
 #include <atomic>
 #include <algorithm>
 #include <charconv>
@@ -21,14 +26,14 @@ void loadIcon(Plugin& plugin, const std::filesystem::path& directory) {
     } catch (...) { plugin.icon.reset(); } // A missing optional picture retains the monogram.
 }
 struct Response { std::string bytes; unsigned calls = 0; bool invalid = false; };
-void __cdecl emit(void* context, const char* bytes, uint32_t length) {
+void LAUNCHME_CALL emit(void* context, const char* bytes, uint32_t length) {
     auto& out = *static_cast<Response*>(context);
     if (++out.calls != 1 || !bytes || length > LAUNCHME_PLUGIN_MAX_JSON) { out.invalid = true; return; }
     try { out.bytes.assign(bytes, length); } catch (...) { out.invalid = true; }
 }
 std::string unique() {
     static std::atomic_uint64_t serial{0};
-    return std::to_string(GetCurrentProcessId()) + '-' + std::to_string(GetTickCount64()) + '-' + std::to_string(serial++);
+    return std::to_string(system_info::processId()) + '-' + std::to_string(GetTickCount64()) + '-' + std::to_string(serial++);
 }
 std::optional<std::array<uint32_t, 3>> version(std::string_view text) {
     std::array<uint32_t, 3> out{};
@@ -46,7 +51,11 @@ json::Value request(std::string_view method, const json::Value& params, const js
 }
 }
 struct Manager::Module {
+#ifdef _WIN32
     HMODULE handle = nullptr;
+#else
+    void* handle = nullptr;
+#endif
     const LaunchmePluginV1* api = nullptr;
     bool activated = false;
     json::Value call(const json::Value& value) {
@@ -64,7 +73,11 @@ struct Manager::Module {
     }
     ~Module() {
         if (activated) try { call(request("deactivate", object(), object(), "en")); } catch (...) {}
+#ifdef _WIN32
         if (handle) FreeLibrary(handle);
+#else
+        if (handle) dlclose(handle);
+#endif
     }
 };
 const Plugin* Snapshot::find(const std::string& id) const {
@@ -102,9 +115,16 @@ std::shared_ptr<Manager::Module> Manager::activate(const Entry& entry) {
     const auto dll = std::filesystem::absolute(root_ / L"packages" / entry.revision / entry.plugin.manifest.entry);
     validateDll(dll);
     auto module = std::make_shared<Module>();
+#ifdef _WIN32
     module->handle = LoadLibraryExW(dll.c_str(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
     if (!module->handle) throw std::runtime_error("Cannot load plugin DLL (error " + std::to_string(GetLastError()) + ')');
     const auto getter = reinterpret_cast<LaunchmeGetPluginV1>(GetProcAddress(module->handle, "launchme_plugin_v1"));
+#else
+    // RTLD_LOCAL: one plugin's symbols never satisfy another's.
+    module->handle = dlopen(dll.c_str(), RTLD_NOW | RTLD_LOCAL);
+    if (!module->handle) { const char* error = dlerror(); throw std::runtime_error(std::string("Cannot load plugin library: ") + (error ? error : "unknown error")); }
+    const auto getter = reinterpret_cast<LaunchmeGetPluginV1>(dlsym(module->handle, "launchme_plugin_v1"));
+#endif
     module->api = getter ? getter(LAUNCHME_PLUGIN_ABI) : nullptr;
     if (!module->api || module->api->size < sizeof(LaunchmePluginV1) || module->api->abi != LAUNCHME_PLUGIN_ABI || !module->api->invoke)
         throw std::runtime_error("Plugin ABI mismatch");

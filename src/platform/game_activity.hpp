@@ -2,7 +2,9 @@
 
 #include <optional>
 #include <string>
+#ifdef _WIN32
 #include <Windows.h>
+#endif
 #include "../model/game.hpp"
 #include "../model/game_session.hpp"
 

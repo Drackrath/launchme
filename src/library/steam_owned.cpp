@@ -2,7 +2,14 @@
 #include "visibility.hpp"
 #include "../platform/atomic_file.hpp"
 #include "../platform/text_encoding.hpp"
+#include "../platform/system.hpp"
+#ifdef _WIN32
 #include <Windows.h>
+#else
+#include <cerrno>
+#include <csignal>
+#include <dlfcn.h>
+#endif
 #include <algorithm>
 #include <charconv>
 #include <cstring>
@@ -20,6 +27,7 @@ std::vector<uint8_t> bytes(const std::filesystem::path& path, size_t limit) {
     if (!input.read(reinterpret_cast<char*>(result.data()), static_cast<std::streamsize>(result.size()))) return {};
     return result;
 }
+#if defined(_WIN32)
 template<class Return, class... Args> Return invoke(void* object, size_t slot, Args... args) {
     using Method = Return(__thiscall*)(void*, Args...);
     return reinterpret_cast<Method>((*static_cast<void***>(object))[slot])(object, args...);
@@ -29,18 +37,70 @@ DWORD activeValue(const wchar_t* name) {
     RegGetValueW(HKEY_CURRENT_USER, L"Software\\Valve\\Steam\\ActiveProcess", name, RRF_RT_REG_DWORD, nullptr, &value, &size);
     return value;
 }
-bool sameAccount(uint64_t account, DWORD pid) {
+using Module = HMODULE;
+void closeModule(Module module) { FreeLibrary(module); }
+bool processRunning(uint32_t pid) {
+    // The registry can retain the PID after Steam exits. Never try connecting then.
+    const auto process = OpenProcess(SYNCHRONIZE, FALSE, pid);
+    if (!process) return false;
+    const bool running = WaitForSingleObject(process, 0) == WAIT_TIMEOUT;
+    CloseHandle(process);
+    return running;
+}
+#else
+// The Itanium C++ ABI passes `this` as the first argument; there is no __thiscall.
+template<class Return, class... Args> Return invoke(void* object, size_t slot, Args... args) {
+    using Method = Return(*)(void*, Args...);
+    return reinterpret_cast<Method>((*static_cast<void***>(object))[slot])(object, args...);
+}
+// ~/.steam/registry.vdf mirrors the Windows registry: HKCU/Software/Valve/Steam/ActiveProcess.
+uint32_t activeValue(const wchar_t* name) {
+    const auto home = system_info::environment(L"HOME");
+    if (!home) return 0;
+    const auto data = bytes(std::filesystem::path(*home) / L".steam" / L"registry.vdf", 1024 * 1024);
+    const std::string_view text(reinterpret_cast<const char*>(data.data()), data.size());
+    const std::string wanted = text_encoding::utf8(name);
+    // Quoted tokens and braces; the path of keys leading to each value.
+    std::vector<std::string> path;
+    std::string pending;
+    bool have_key = false;
+    for (size_t at = 0; at < text.size(); ++at) {
+        const char ch = text[at];
+        if (ch == '{') { path.push_back(pending); have_key = false; }
+        else if (ch == '}') { if (!path.empty()) path.pop_back(); have_key = false; }
+        else if (ch == '"') {
+            const auto end = text.find('"', at + 1);
+            if (end == std::string_view::npos) return 0;
+            std::string token(text.substr(at + 1, end - at - 1));
+            at = end;
+            if (!have_key) { pending = std::move(token); have_key = true; continue; }
+            have_key = false;
+            const bool active = path.size() >= 5 && path[path.size() - 1] == "ActiveProcess" && path[path.size() - 2] == "Steam";
+            if (active && pending == wanted) {
+                uint32_t value = 0;
+                const auto parsed = std::from_chars(token.data(), token.data() + token.size(), value);
+                return parsed.ec == std::errc{} ? value : 0;
+            }
+        }
+    }
+    return 0;
+}
+using Module = void*;
+void closeModule(Module module) { dlclose(module); }
+bool processRunning(uint32_t pid) { return pid && (::kill(static_cast<pid_t>(pid), 0) == 0 || errno == EPERM); }
+#endif
+bool sameAccount(uint64_t account, uint32_t pid) {
     return pid && activeValue(L"pid") == pid && account > steam_id_offset &&
            account - steam_id_offset <= UINT32_MAX && activeValue(L"ActiveUser") == account - steam_id_offset;
 }
 struct Connection {
-    HMODULE module = nullptr;
+    Module module = nullptr;
     void* client = nullptr;
     int pipe = 0, user = 0;
     ~Connection() {
         if (client && pipe && user) invoke<void>(client, 4, pipe, user);
         if (client && pipe) invoke<bool>(client, 1, pipe);
-        if (module) FreeLibrary(module);
+        if (module) closeModule(module);
     }
 };
 bool gameType(std::string_view type) {
@@ -81,25 +141,27 @@ std::optional<std::vector<uint32_t>> steamAppInfoIds(std::span<const uint8_t> da
 }
 
 std::optional<std::vector<Game>> clientSteamOwnedGames(const std::filesystem::path& root, uint64_t account) {
-#if !defined(_M_X64)
+#if !(defined(_WIN32) && defined(_M_X64)) && !(defined(__linux__) && defined(__x86_64__))
     (void)root; (void)account; return {};
 #else
     const auto pid = activeValue(L"pid");
     if (!root.is_absolute() || !sameAccount(account, pid) || activeSteamId(root) != account) return {};
-    // The registry can retain the PID after Steam exits. Never try connecting then.
-    const auto process = OpenProcess(SYNCHRONIZE, FALSE, pid);
-    if (!process) return {};
-    const bool running = WaitForSingleObject(process, 0) == WAIT_TIMEOUT;
-    CloseHandle(process);
-    if (!running) return {};
+    if (!processRunning(pid)) return {};
     const auto candidates = steamAppInfoIds(bytes(root / L"appcache" / L"appinfo.vdf", 128 * 1024 * 1024));
     if (!candidates) return {};
     Connection connection;
+#ifdef _WIN32
     connection.module = LoadLibraryExW((root / L"steamclient64.dll").c_str(), nullptr,
         LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
     if (!connection.module) return {};
     using Factory = void* (__cdecl*)(const char*, int*);
     const auto factory = reinterpret_cast<Factory>(GetProcAddress(connection.module, "CreateInterface"));
+#else
+    connection.module = dlopen((root / L"linux64" / L"steamclient.so").c_str(), RTLD_NOW | RTLD_LOCAL);
+    if (!connection.module) return {};
+    using Factory = void* (*)(const char*, int*);
+    const auto factory = reinterpret_cast<Factory>(dlsym(connection.module, "CreateInterface"));
+#endif
     if (!factory || !(connection.client = factory("SteamClient021", nullptr))) return {};
     connection.pipe = invoke<int>(connection.client, 0);
     if (!connection.pipe) return {};

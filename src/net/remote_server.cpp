@@ -1,7 +1,9 @@
 #include "remote_server.hpp"
+#ifdef _WIN32
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <iphlpapi.h>
+#endif
 
 #include <algorithm>
 #include <chrono>

@@ -1,4 +1,5 @@
 #include "screenscraper_config.hpp"
+#include "../platform/system.hpp"
 #include "../i18n/i18n.hpp"
 #include "../platform/protected_file.hpp"
 #include "../platform/text_encoding.hpp"
@@ -30,9 +31,7 @@ const FieldInfo& info(Field field) {
     return *std::find_if(fields.begin(), fields.end(), [&](const FieldInfo& item) { return item.field == field; });
 }
 std::wstring environment(const wchar_t* name) {
-    wchar_t buffer[1025]{};
-    const auto length = GetEnvironmentVariableW(name, buffer, 1025);
-    return length && length < 1025 ? std::wstring(buffer, length) : std::wstring{};
+    return system_info::environment(name, 1024).value_or(std::wstring{});
 }
 // The environment first, then the file (one text line, or DPAPI for passwords).
 std::wstring storedText(const FieldInfo& item) {

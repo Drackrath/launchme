@@ -5,12 +5,14 @@
 #include "user_config.hpp"
 #include "../i18n/i18n.hpp"
 #include "../model/controller_models.hpp"
+#ifdef _WIN32
 #include <xinput.h>
 #include <hidsdi.h>
 #include <winrt/Windows.Foundation.Collections.h>
 #include <winrt/Windows.Gaming.Input.h>
 #include <winrt/Windows.Devices.Power.h>
 #include <winrt/Windows.System.Power.h>
+#endif
 #include <map>
 #include <cwctype>
 #include <array>

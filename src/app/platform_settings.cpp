@@ -105,9 +105,9 @@ void Launcher::pcSettingsRows() {
         // Every instance is a game; MultiMC itself is portable, so it can be pointed at by hand.
         add({Id::pc_refresh, Control::action, tr(L"Instancje"), library(source), tr(L"Odśwież")});
         std::wstring found;
-        for (const auto& client : pc_clients_) if (client.source == source && !client.executable.empty()) found = client.executable.native();
+        for (const auto& client : pc_clients_) if (client.source == source && !client.executable.empty()) found = client.executable.wstring();
         auto description = settings_.multimc_path.empty() ? (found.empty() ? std::wstring(tr(L"Nie znaleziono Prism Launcher ani MultiMC")) :
-            tr(L"Znaleziono: ") + found) : settings_.multimc_path.native();
+            tr(L"Znaleziono: ") + found) : settings_.multimc_path.wstring();
         add({Id::multimc_path, Control::action, tr(L"Launcher"), std::move(description),
              settings_.multimc_path.empty() ? tr(L"Wskaż…") : tr(L"Wyczyść")});
     } else {
@@ -194,7 +194,7 @@ bool Launcher::pcSettingsActivate(const Row& row) {
 // the source is switched on (the user asked for its instances).
 void Launcher::setMultimcPath(const std::filesystem::path& picked) {
     if (!picked.empty() && !multimc::flavorOf(picked)) {
-        showNotification(NotificationKind::error, tr(L"To nie jest Prism Launcher ani MultiMC"), picked.native());
+        showNotification(NotificationKind::error, tr(L"To nie jest Prism Launcher ani MultiMC"), picked.wstring());
         return;
     }
     settings_.multimc_path = picked;

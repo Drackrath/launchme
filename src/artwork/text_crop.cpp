@@ -1,10 +1,13 @@
 #include "text_crop.hpp"
 #include "../platform/atomic_file.hpp"
 #include "../platform/text_encoding.hpp"
+#include "../platform/unicode_text.hpp"
 
+#ifdef _WIN32
 #include <Windows.h>
 #include <wincodec.h>
 #include <wrl/client.h>
+#endif
 
 #include <algorithm>
 #include <cstdint>
@@ -148,20 +151,14 @@ float asFloat(const std::string& text) {
 }
 
 std::wstring normalized(std::wstring_view input) {
-    std::wstring value(input), lower(input.size(), 0), result;
-    if (!value.empty() && LCMapStringEx(LOCALE_NAME_INVARIANT, LCMAP_LOWERCASE, value.data(),
-        static_cast<int>(value.size()), lower.data(), static_cast<int>(lower.size()), nullptr, nullptr, 0)) value = std::move(lower);
-    for (wchar_t ch : value) {
-        WORD type = 0;
-        if (GetStringTypeW(CT_CTYPE1, &ch, 1, &type) && (type & (C1_ALPHA | C1_DIGIT))) result += ch;
-    }
+    std::wstring result;
+    for (const wchar_t ch : unicode_text::lower(input)) if (unicode_text::isLetterOrDigit(ch)) result += ch;
     return result;
 }
 std::vector<std::wstring> titleTokens(std::wstring_view title) {
     std::wstring separated(title);
     for (auto& ch : separated) {
-        WORD type = 0;
-        if (!GetStringTypeW(CT_CTYPE1, &ch, 1, &type) || !(type & (C1_ALPHA | C1_DIGIT))) ch = L' ';
+        if (!unicode_text::isLetterOrDigit(ch)) ch = L' ';
     }
     std::wistringstream input(separated);
     std::vector<std::wstring> result;

@@ -4,10 +4,12 @@
 #include "../net/json.hpp"
 #include "../platform/text_encoding.hpp"
 
+#ifdef _WIN32
 #include <Windows.h>
 #include <appmodel.h>
 #include <objbase.h>
 #include <shellapi.h>
+#endif
 #include <algorithm>
 #include <cwctype>
 #include <cctype>

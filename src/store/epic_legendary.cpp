@@ -1,12 +1,16 @@
 #include "epic_legendary.hpp"
+#include "../platform/hashing.hpp"
+#include "../platform/unicode_text.hpp"
 #include "../net/http_download.hpp"
 #include "../platform/atomic_file.hpp"
 #include "../platform/command_line.hpp"
 #include "../platform/text_encoding.hpp"
+#ifdef _WIN32
 #include <Windows.h>
 #include <bcrypt.h>
 #include <sddl.h>
 #include <shellapi.h>
+#endif
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -36,14 +40,14 @@ bool regular(const std::filesystem::path& p) { std::error_code ec; return std::f
 std::filesystem::path childPath(const std::filesystem::path& root, std::wstring_view relative) {
     const std::filesystem::path part(relative);
     if (!root.is_absolute() || part.empty() || part.is_absolute() || part.has_root_name()) return {};
-    for (const auto& segment : part) if (segment == L".." || segment.native().find(L':') != std::wstring::npos) return {};
+    for (const auto& segment : part) if (segment == L".." || segment.wstring().find(L':') != std::wstring::npos) return {};
     const auto full = root / part;
     // A reparse point must not redirect an executable outside the selected installation.
     std::error_code ec;
     const auto canonical_root = std::filesystem::weakly_canonical(root, ec); if (ec) return {};
     const auto canonical = std::filesystem::weakly_canonical(full, ec); if (ec) return {};
     auto r = canonical_root.begin(), p = canonical.begin();
-    for (; r != canonical_root.end(); ++r, ++p) if (p == canonical.end() || _wcsicmp(r->c_str(), p->c_str()) != 0) return {};
+    for (; r != canonical_root.end(); ++r, ++p) if (p == canonical.end() || !unicode_text::equalIgnoreCase(r->wstring(), p->wstring())) return {};
     return full;
 }
 bool privateDirectory(const std::filesystem::path& p) {
@@ -59,17 +63,8 @@ bool privateDirectory(const std::filesystem::path& p) {
     LocalFree(sd); return ok;
 }
 bool sha256(const std::filesystem::path& path, std::string_view expected, const Cancel& cancel) {
-    BCRYPT_ALG_HANDLE alg = nullptr; BCRYPT_HASH_HANDLE hash = nullptr;
-    if (BCryptOpenAlgorithmProvider(&alg, BCRYPT_SHA256_ALGORITHM, nullptr, 0) < 0) return false;
-    bool ok = BCryptCreateHash(alg, &hash, nullptr, 0, nullptr, 0, 0) >= 0;
-    std::ifstream f(path, std::ios::binary); ok &= f.good(); std::array<char, 65536> buffer{};
-    while (ok && !cancel() && f) {
-        f.read(buffer.data(), buffer.size());
-        if (f.gcount()) ok = BCryptHashData(hash, reinterpret_cast<PUCHAR>(buffer.data()), static_cast<ULONG>(f.gcount()), 0) >= 0;
-    }
-    uint8_t digest[32]{}; ok = ok && f.eof() && !cancel() && BCryptFinishHash(hash, digest, sizeof(digest), 0) >= 0;
-    if (hash) BCryptDestroyHash(hash); BCryptCloseAlgorithmProvider(alg, 0);
-    return ok && key_codec::encode({reinterpret_cast<char*>(digest), sizeof(digest)}) == expected;
+    const auto digest = hashing::fileHex(hashing::Algorithm::sha256, path, cancel);
+    return !digest.empty() && !cancel() && digest == expected;
 }
 ProcessResult run(const std::filesystem::path& exe, const std::filesystem::path& profile, const std::vector<std::wstring>& args,
                   const Cancel& cancel, const std::function<void(std::string_view)>& line = {}) {
@@ -87,11 +82,11 @@ ProcessResult run(const std::filesystem::path& exe, const std::filesystem::path&
         if (key != L"LEGENDARY_CONFIG_PATH" && key != L"PYTHONIOENCODING" && key != L"LEGENDARY_WRAPPER_EXE") env[key] = entry.substr(pos + 1);
     }
     FreeEnvironmentStringsW(original);
-    env[L"LEGENDARY_CONFIG_PATH"] = profile.native(); env[L"PYTHONIOENCODING"] = L"utf-8";
+    env[L"LEGENDARY_CONFIG_PATH"] = profile.wstring(); env[L"PYTHONIOENCODING"] = L"utf-8";
     std::vector<wchar_t> environment;
     for (const auto& [key, value] : env) { const auto entry = key + L'=' + value; environment.insert(environment.end(), entry.begin(), entry.end()); environment.push_back(0); }
     environment.push_back(0);
-    std::wstring command = quoteArgument(exe.native()); for (const auto& arg : args) command += L' ' + quoteArgument(arg);
+    std::wstring command = quoteArgument(exe.wstring()); for (const auto& arg : args) command += L' ' + quoteArgument(arg);
     STARTUPINFOEXW start{}; start.StartupInfo.cb = sizeof(start); start.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
     start.StartupInfo.hStdInput = input.h; start.StartupInfo.hStdOutput = out_write.h; start.StartupInfo.hStdError = err_write.h;
     SIZE_T size = 0; InitializeProcThreadAttributeList(nullptr, 1, 0, &size); std::vector<uint8_t> attributes(size);
@@ -174,8 +169,8 @@ public:
         std::error_code ec; std::filesystem::remove(marker, ec);
         const auto installed = json::parse(readText(profile_ / L"installed.json"));
         const bool repair = installed && installed->get(game.source_id);
-        std::vector<std::wstring> args{L"-y", repair ? L"repair" : L"install", app, L"--base-path", request.install_directory.parent_path().native(),
-            L"--game-folder", request.install_directory.filename().native(), L"--platform", L"Windows", L"--skip-dlcs", L"--disable-sdl"};
+        std::vector<std::wstring> args{L"-y", repair ? L"repair" : L"install", app, L"--base-path", request.install_directory.parent_path().wstring(),
+            L"--game-folder", request.install_directory.filename().wstring(), L"--platform", L"Windows", L"--skip-dlcs", L"--disable-sdl"};
         if (repair) args.push_back(L"--repair-and-update");
         progress(gog::InstallState::downloading, 0, 0);
         auto proc = operations_.invoke(exe, profile_, args, cancel, [&](auto line) { if (const auto p = downloadPercent(line)) progress(gog::InstallState::downloading, *p, 10000); });
@@ -205,7 +200,7 @@ public:
             } else if (!field(*prereq, "path").empty()) return {Failure::invalid};
         }
         if (cancel()) return {Failure::cancelled};
-        return atomic_file::write(marker, utf8(dir.native())) ? Result{} : Result{Failure::storage};
+        return atomic_file::write(marker, utf8(dir.wstring())) ? Result{} : Result{Failure::storage};
     }
     Result launch(const Tokens& t, const Game& game, GameAction& action, const Cancel& cancel, bool offline) override {
         if (!game.epic_managed || !identifier(game.source_id)) return {Failure::unsupported};
@@ -234,12 +229,12 @@ std::optional<unsigned> downloadPercent(std::string_view line) {
     return static_cast<unsigned>(std::round(percent * 100));
 }
 std::optional<GameAction> launchAction(const json::Value& json, const std::filesystem::path& install) {
-    if (wide(field(json, "game_directory")) != install.native() || !field(json, "pre_launch_command").empty()) return {};
+    if (wide(field(json, "game_directory")) != install.wstring() || !field(json, "pre_launch_command").empty()) return {};
     const auto executable = childPath(install, wide(field(json, "game_executable")));
     if (!regular(executable)) return {};
     if (const auto command = json.get("launch_command"); command && !command->elements.empty()) return {};
     if (const auto env = json.get("environment"); env && !env->properties.empty()) return {};
-    GameAction action{executable.native(), {}, executable.parent_path(), ActionKind::play};
+    GameAction action{executable.wstring(), {}, executable.parent_path(), ActionKind::play};
     for (const auto name : {"game_parameters", "user_parameters", "egl_parameters"}) {
         const auto args = json.get(name); if (!args || args->type != json::Value::Type::array) return {};
         for (const auto& arg : args->elements) {
@@ -260,7 +255,7 @@ std::filesystem::path prepareLegendary(const std::filesystem::path& root, const 
     if (regular(bin) && sha256(bin, digest, cancel)) return bin;
     if (cancel()) return {};
     std::error_code ec; std::filesystem::create_directories(bin.parent_path(), ec); if (ec) return {};
-    const auto part = bin.native() + L".part";
+    const auto part = bin.wstring() + L".part";
     const auto error = httpDownload(L"https://github.com/legendary-gl/legendary/releases/download/0.21.1/legendary_windows_x64.exe", part, 17654404, cancel, [](auto) {},
         [](std::wstring_view url) { return url.starts_with(L"https://github.com/legendary-gl/legendary/releases/download/0.21.1/") || url.starts_with(L"https://release-assets.githubusercontent.com/"); });
     if (error != DownloadError::none || cancel()) return {};
@@ -276,12 +271,12 @@ std::vector<Game> installedGames(const std::filesystem::path& root) {
         if (!identifier(id) || field(item, "app_name") != id || flag(item, "is_dlc") || flag(item, "needs_verification") || flag(item, "is_preloaded") || field(item, "platform") != "Windows") continue;
         const auto marker = root / L"installed" / L"epic" / (key_codec::encode(id) + ".path");
         const std::filesystem::path dir(wide(field(item, "install_path")));
-        if (readText(marker, 32768) != utf8(dir.native())) continue;
+        if (readText(marker, 32768) != utf8(dir.wstring())) continue;
         const auto executable = childPath(dir, wide(field(item, "executable"))); if (!regular(executable)) continue;
         Game g; g.kind = GameKind::store; g.source = GameSource::epic; g.source_id = id; g.epic_managed = true;
         g.name = text_encoding::wideLenient(field(item, "title")); if (g.name.empty()) continue;
         g.install_directory = dir; g.executable = executable; g.manifest_path = marker;
-        g.play_action = {executable.native(), {}, executable.parent_path(), ActionKind::play};
+        g.play_action = {executable.wstring(), {}, executable.parent_path(), ActionKind::play};
         games.push_back(std::move(g));
     }
     return games;

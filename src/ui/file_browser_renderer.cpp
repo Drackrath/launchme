@@ -133,7 +133,7 @@ void Renderer::drawFileBrowser() {
     target_->FillRectangle(D2D1::RectF(0, 0, viewport_.width, viewport_.height), solid_.Get());
     const auto heading = settings_heading_font_.Get();
     textGroup(tr(L"Miejsca"), {}, 62, settings_ui::Layout::heading_cap_top, base.railRight() - 68, heading, gray(0.96f), body, gray(0.55f), 1, true);
-    const std::wstring where = ui.root() ? std::wstring(tr(L"Ten komputer")) : ui.folder.native();
+    const std::wstring where = ui.root() ? std::wstring(tr(L"Ten komputer")) : ui.folder.wstring();
     textGroup(ui.request.title, where, layout.listLeft(), settings_ui::Layout::heading_cap_top, base.contentRight() - layout.listLeft(),
               heading, gray(0.96f), body, gray(0.55f), 1, true, heading_group_gap);
 

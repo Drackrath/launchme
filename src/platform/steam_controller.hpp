@@ -1,6 +1,8 @@
 #pragma once
 #include "game_controllers.hpp"
+#ifdef _WIN32
 #include <Windows.h>
+#endif
 #include <cstdint>
 #include <memory>
 #include <optional>

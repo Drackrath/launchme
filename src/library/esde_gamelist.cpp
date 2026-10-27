@@ -1,8 +1,12 @@
 #include "esde_gamelist.hpp"
+#include "../platform/system.hpp"
+#include "../platform/unicode_text.hpp"
 #include "emulation_platforms.hpp"
 #include "../platform/text_encoding.hpp"
 
+#ifdef _WIN32
 #include <Windows.h>
+#endif
 
 #include <algorithm>
 #include <charconv>
@@ -102,9 +106,7 @@ std::wstring relative(std::wstring_view path) {
 }
 
 std::wstring environment(const wchar_t* name) {
-    wchar_t buffer[4096]{};
-    const auto length = GetEnvironmentVariableW(name, buffer, 4096);
-    return length && length < 4096 ? std::wstring(buffer, length) : std::wstring{};
+    return system_info::environment(name, 4095).value_or(std::wstring{});
 }
 } // namespace
 
@@ -165,7 +167,7 @@ const Entry* match(const Gamelist& entries, const std::filesystem::path& rom, co
     const Entry* best = nullptr;
     size_t best_length = 0;
     if (!rom.empty()) {
-        const auto file = normalized(rom.native());
+        const auto file = normalized(rom.wstring());
         for (const auto& entry : entries) {
             const auto wanted = relative(entry.path);
             if (wanted.empty() || wanted.size() <= best_length) continue;
@@ -228,7 +230,7 @@ std::vector<std::wstring> systems(const std::wstring& platform, const std::files
     std::vector<std::wstring> parts;
     for (const auto& part : rom.parent_path().relative_path()) parts.push_back(part.wstring());
     for (size_t i = 0; i + 1 < parts.size(); ++i)
-        if (_wcsicmp(parts[i].c_str(), L"roms") == 0) { add(parts[i + 1]); break; }
+        if (unicode_text::equalIgnoreCase(parts[i], L"roms")) { add(parts[i + 1]); break; }
     if (!parts.empty()) add(parts.back());
     return result;
 }

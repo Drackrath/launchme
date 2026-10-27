@@ -2,12 +2,16 @@
 #include "controller_overrides.hpp"
 #include "game_controllers.hpp"
 #include "user_config.hpp"
+#ifdef _WIN32
 #include <bluetoothapis.h>
+#endif
 #include <winioctl.h>
 #include <bthioctl.h>
+#ifdef _WIN32
 #include <cfgmgr32.h>
 #include <initguid.h>
 #include <devpkey.h>
+#endif
 #include <algorithm>
 #include <array>
 

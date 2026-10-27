@@ -2,9 +2,11 @@
 #include "../i18n/i18n.hpp"
 #include "../net/json.hpp"
 #include "../platform/text_encoding.hpp"
+#ifdef _WIN32
 #include <Windows.h>
 #include <wincodec.h>
 #include <wrl/client.h>
+#endif
 #include <cmath>
 #include <unordered_set>
 

@@ -1,12 +1,19 @@
 #include "i18n.hpp"
 
+#ifdef _WIN32
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
+#ifdef _WIN32
 #include <Windows.h>
+#endif
+#else
+#include <cstdlib>
+#include <string_view>
+#endif
 
 #include <atomic>
 #include <unordered_map>
@@ -39,12 +46,26 @@ const wchar_t* lookup(std::wstring_view polish, Language language) {
 } // namespace
 
 Language systemLanguage() {
+#ifdef _WIN32
     switch (PRIMARYLANGID(GetUserDefaultUILanguage())) {
     case LANG_POLISH: return Language::pl;
     case LANG_PORTUGUESE: return Language::pt_br;
     case LANG_SPANISH: return Language::es;
     default: return Language::en;
     }
+#else
+    // The first of LANGUAGE (a colon list), LC_ALL, LC_MESSAGES and LANG that is set (gettext's order).
+    for (const char* name : {"LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"}) {
+        const char* value = std::getenv(name);
+        if (!value || !*value) continue;
+        const std::string_view code(value);
+        if (code.starts_with("pl")) return Language::pl;
+        if (code.starts_with("pt")) return Language::pt_br;
+        if (code.starts_with("es")) return Language::es;
+        return Language::en;
+    }
+    return Language::en;
+#endif
 }
 
 void setLanguage(Language language) { current.store(language, std::memory_order_relaxed); }

@@ -1,9 +1,13 @@
 #include "video_player.hpp"
 
+#ifdef _WIN32
 #include <mfapi.h>
+#endif
 #include <mfmediaengine.h>
+#ifdef _WIN32
 #include <mfidl.h>
 #include <wincodec.h>
+#endif
 #include <wrl/implements.h>
 
 #include <algorithm>

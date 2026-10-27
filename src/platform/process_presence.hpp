@@ -1,6 +1,8 @@
 #pragma once
+#ifdef _WIN32
 #include <Windows.h>
 #include <tlhelp32.h>
+#endif
 
 namespace process_presence {
 // Windows may retain a terminated process object while another program holds a

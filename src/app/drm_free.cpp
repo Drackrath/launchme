@@ -292,8 +292,8 @@ void Launcher::drmSettingsRows() {
             std::wstring description;
             if (entry->ignored) description = tr(L"Ignorowana");
             else {
-                description = entry->executable.lexically_relative(entry->folder).native();
-                if (description.empty() || description.starts_with(L"..")) description = entry->executable.native();
+                description = entry->executable.lexically_relative(entry->folder).wstring();
+                if (description.empty() || description.starts_with(L"..")) description = entry->executable.wstring();
                 if (entry->missing) description = tr(L"Brak pliku") + (L" · " + description);
                 if (entry->manual_executable) description += L" · " + std::wstring(tr(L"wybrany plik"));
                 if (!entry->rawg_id && !entry->manual_identity && entry->checked) description += L" · " + std::wstring(tr(L"nie rozpoznano w RAWG"));
@@ -325,8 +325,8 @@ void Launcher::drmSettingsRows() {
             if (playable(entry) && drm_free::inside(entry.folder, root)) { ++count; missing += entry.missing; }
         auto description = tr(L"Gry: ") + std::to_wstring(count);
         if (count && missing == count) description += L" · " + std::wstring(tr(L"Katalog niedostępny"));
-        Row row{Id::drm_root, Control::action, root.native(), std::move(description)};
-        row.key = text_encoding::utf8(root.native());
+        Row row{Id::drm_root, Control::action, root.wstring(), std::move(description)};
+        row.key = text_encoding::utf8(root.wstring());
         row.value = drm_confirm_ == row.key ? tr(L"Potwierdź") : tr(L"Usuń");
         add(std::move(row));
     }

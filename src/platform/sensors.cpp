@@ -1,7 +1,9 @@
 #include "sensors.hpp"
 
+#ifdef _WIN32
 #include <Windows.h>
 #include <pdh.h>
+#endif
 #include <pdhmsg.h>
 
 #include <algorithm>

@@ -1,6 +1,8 @@
 #include "companion.hpp"
+#include "../platform/system.hpp"
 #include "companion_affinity.hpp"
 #include "companion_characters.hpp"
+#include "../platform/unicode_text.hpp"
 #include "companion_cognition.hpp"
 #include "companion_person.hpp"
 #include "companion_providers.hpp"
@@ -8,7 +10,9 @@
 #include "../platform/protected_file.hpp"
 #include "../platform/text_encoding.hpp"
 
+#ifdef _WIN32
 #include <Windows.h>
+#endif
 
 #include <algorithm>
 #include <atomic>
@@ -93,7 +97,7 @@ std::wstring trim(std::wstring_view text) {
     return std::wstring(text.substr(first, text.find_last_not_of(L" \t\r\n") - first + 1));
 }
 bool equalsIgnoringCase(std::wstring_view a, std::wstring_view b) {
-    return a.size() == b.size() && CompareStringOrdinal(a.data(), static_cast<int>(a.size()), b.data(), static_cast<int>(b.size()), TRUE) == CSTR_EQUAL;
+    return unicode_text::equalIgnoreCase(a, b);
 }
 // Letters and digits only, lower case: "Portal 2" == "portal-2" == "PORTAL™ 2".
 std::wstring folded(std::wstring_view text) {
@@ -539,14 +543,7 @@ std::wstring normalizeServer(std::wstring_view text) {
 
 Probe systemProbe() {
     Probe probe;
-    probe.environment = [](const wchar_t* name) {
-        const DWORD length = GetEnvironmentVariableW(name, nullptr, 0);
-        if (length <= 1 || length > 16384) return std::wstring{};
-        std::wstring value(length, L'\0');
-        if (GetEnvironmentVariableW(name, value.data(), length) != length - 1) return std::wstring{};
-        value.resize(length - 1);
-        return value;
-    };
+    probe.environment = [](const wchar_t* name) { return system_info::environment(name, 16383).value_or(std::wstring{}); };
     probe.read_file = [](const std::filesystem::path& file) -> std::optional<std::string> {
         std::ifstream input(file, std::ios::binary | std::ios::ate);
         if (!input || input.tellg() < 0 || input.tellg() > 1024 * 1024) return std::nullopt;

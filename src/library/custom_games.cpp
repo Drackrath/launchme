@@ -1,12 +1,15 @@
 #include "custom_games.hpp"
+#include "../platform/system.hpp"
 #include "../net/json.hpp"
 #include "../platform/atomic_file.hpp"
 #include "../platform/text_encoding.hpp"
 
+#ifdef _WIN32
 #include <Windows.h>
 #include <bcrypt.h>
 #include <ShlObj.h>
 #include <wrl/client.h>
+#endif
 
 #include <algorithm>
 #include <cwctype>
@@ -24,7 +27,7 @@ bool plainText(std::wstring_view text) {
 }
 
 bool validPath(const std::filesystem::path& path, bool file) {
-    const auto& text = path.native();
+    const auto& text = path.wstring();
     if (text.empty() || text.size() > max_path || !plainText(text) ||
         text.find_first_of(L"\"<>|*?") != std::wstring::npos || !path.is_absolute()) return false;
     return !file || path.has_filename();
@@ -105,9 +108,9 @@ std::string format(const std::vector<Entry>& games) {
         output += i ? ",\n    {" : "\n    {";
         output += "\"id\": "; appendString(output, text_encoding::wide(entry.id));
         output += ", \"name\": "; appendString(output, entry.name);
-        output += ", \"path\": "; appendString(output, entry.path.native());
+        output += ", \"path\": "; appendString(output, entry.path.wstring());
         output += ", \"arguments\": "; appendString(output, entry.arguments);
-        output += ", \"directory\": "; appendString(output, entry.directory.native());
+        output += ", \"directory\": "; appendString(output, entry.directory.wstring());
         output += '}';
     }
     output += games.empty() ? "]\n}\n" : "\n  ]\n}\n";
@@ -118,7 +121,7 @@ std::string newId(const std::vector<Entry>& existing) {
     constexpr char hex[] = "0123456789abcdef";
     for (int attempt = 0; attempt < 8; ++attempt) {
         unsigned char random[8]{};
-        if (BCryptGenRandom(nullptr, random, sizeof(random), BCRYPT_USE_SYSTEM_PREFERRED_RNG) < 0) return {};
+        if (!system_info::randomBytes(random, sizeof(random))) return {};
         std::string id;
         for (const unsigned char byte : random) { id += hex[byte >> 4]; id += hex[byte & 15]; }
         if (std::none_of(existing.begin(), existing.end(), [&](const Entry& entry) { return entry.id == id; })) return id;
@@ -131,7 +134,7 @@ std::filesystem::path workingDirectory(const Entry& entry) {
 }
 
 GameAction action(const Entry& entry) {
-    return {entry.path.native(), entry.arguments, workingDirectory(entry), ActionKind::play};
+    return {entry.path.wstring(), entry.arguments, workingDirectory(entry), ActionKind::play};
 }
 
 namespace {
@@ -168,12 +171,12 @@ Game makeGame(const Entry& entry, bool installed) {
     // "Otwórz folder" uses the working directory; process tracking for custom
     // games uses only executable, never ownership of this possibly shared folder.
     game.install_directory = workingDirectory(entry);
-    auto extension = entry.path.extension().native();
+    auto extension = entry.path.extension().wstring();
     std::transform(extension.begin(), extension.end(), extension.begin(), [](wchar_t ch) { return static_cast<wchar_t>(std::towlower(ch)); });
     if (extension == L".exe") game.executable = entry.path;
     else if (extension == L".lnk" && installed) {
         auto target = shortcutTarget(entry.path);
-        auto target_extension = target.extension().native();
+        auto target_extension = target.extension().wstring();
         std::transform(target_extension.begin(), target_extension.end(), target_extension.begin(), [](wchar_t ch) { return static_cast<wchar_t>(std::towlower(ch)); });
         if (target_extension == L".exe") game.executable = std::move(target);
     }

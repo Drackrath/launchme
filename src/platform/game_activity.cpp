@@ -1,7 +1,9 @@
 #include "game_activity.hpp"
 #include "../library/emulation_platforms.hpp"
+#ifdef _WIN32
 #include <Windows.h>
 #include <tlhelp32.h>
+#endif
 #include <algorithm>
 #include <cstdint>
 #include <cwctype>

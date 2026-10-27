@@ -1,6 +1,8 @@
 #pragma once
 #include "../model/devices.hpp"
+#ifdef _WIN32
 #include <Windows.h>
+#endif
 #include <memory>
 #include <span>
 

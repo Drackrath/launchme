@@ -1,6 +1,8 @@
 #pragma once
+#ifdef _WIN32
 #include <Windows.h>
 #include <winhttp.h>
+#endif
 
 namespace winhttp {
 // One process-wide session lets WinHTTP pool keep-alive TLS connections per

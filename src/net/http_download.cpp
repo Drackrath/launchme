@@ -1,5 +1,7 @@
 #include "http_download.hpp"
+#ifdef _WIN32
 #include "winhttp_session.hpp"
+#endif
 #include <algorithm>
 #include <array>
 #include <charconv>
@@ -8,25 +10,29 @@
 #include <thread>
 #include <vector>
 
-namespace {
-using Internet = winhttp::Handle;
-std::wstring header(HINTERNET request, DWORD field) {
-    std::array<wchar_t, 16384> value{}; DWORD size = static_cast<DWORD>(value.size() * sizeof(wchar_t));
-    return WinHttpQueryHeaders(request, field, WINHTTP_HEADER_NAME_BY_INDEX, value.data(), &size, WINHTTP_NO_HEADER_INDEX) ? std::wstring(value.data(), size / sizeof(wchar_t)) : std::wstring{};
-}
-std::optional<uint64_t> number(std::wstring_view value) {
+std::optional<uint64_t> downloadNumber(std::wstring_view value) {
     if (value.empty() || value.size() > 20 || value.find_first_not_of(L"0123456789") != value.npos) return {};
     std::string text; for (const auto c : value) text += static_cast<char>(c);
     uint64_t result = 0;
     const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), result);
     return error == std::errc{} && end == text.data() + text.size() ? std::optional{result} : std::nullopt;
 }
-}
 bool validDownloadRange(std::wstring_view value, uint64_t offset, uint64_t total) {
     if (!value.starts_with(L"bytes ") || !total || offset >= total) return false;
     value.remove_prefix(6); const auto dash = value.find(L'-'), slash = value.find(L'/');
     if (dash == value.npos || slash == value.npos || dash >= slash) return false;
-    return number(value.substr(0, dash)) == offset && number(value.substr(dash + 1, slash - dash - 1)) == total - 1 && number(value.substr(slash + 1)) == total;
+    return downloadNumber(value.substr(0, dash)) == offset && downloadNumber(value.substr(dash + 1, slash - dash - 1)) == total - 1 &&
+           downloadNumber(value.substr(slash + 1)) == total;
+}
+
+#ifdef _WIN32
+namespace {
+using Internet = winhttp::Handle;
+std::wstring header(HINTERNET request, DWORD field) {
+    std::array<wchar_t, 16384> value{}; DWORD size = static_cast<DWORD>(value.size() * sizeof(wchar_t));
+    return WinHttpQueryHeaders(request, field, WINHTTP_HEADER_NAME_BY_INDEX, value.data(), &size, WINHTTP_NO_HEADER_INDEX) ? std::wstring(value.data(), size / sizeof(wchar_t)) : std::wstring{};
+}
+const auto number = downloadNumber;
 }
 DownloadError httpDownload(const std::wstring& original_url, const std::filesystem::path& partial, uint64_t total,
     const std::function<bool()>& cancel, const std::function<void(uint64_t)>& progress,
@@ -106,3 +112,4 @@ DownloadError httpDownload(const std::wstring& original_url, const std::filesyst
     }
     return cancel() ? DownloadError::none : DownloadError::network;
 }
+#endif // _WIN32 (other systems: http_curl.cpp)

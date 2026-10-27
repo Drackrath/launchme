@@ -9,8 +9,10 @@
 #include "../net/http.hpp"
 #include "../model/headphones.hpp"
 #include "../model/controller_pictures.hpp"
+#ifdef _WIN32
 #include <winrt/Windows.Foundation.Collections.h>
 #include <winrt/Windows.Devices.Enumeration.h>
+#endif
 #include <atomic>
 #include <condition_variable>
 #include <deque>

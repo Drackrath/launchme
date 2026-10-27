@@ -27,16 +27,28 @@ bool plainDirectory(const std::filesystem::path& path) {
     // follow junctions/symlinks when resuming or deleting its own downloads.
     auto current = path;
     while (!current.empty() && current != current.root_path()) {
+#ifdef _WIN32
         const auto attrs = GetFileAttributesW(current.c_str());
         if (attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_REPARSE_POINT)) return false;
+#else
+        std::error_code ec;
+        if (std::filesystem::is_symlink(current, ec)) return false;
+#endif
         current = current.parent_path();
     }
     return true;
 }
 bool ordinaryFile(const std::filesystem::path& path) {
+#ifdef _WIN32
     const auto attrs = GetFileAttributesW(path.c_str());
     if (attrs == INVALID_FILE_ATTRIBUTES) return GetLastError() == ERROR_FILE_NOT_FOUND;
     return !(attrs & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY));
+#else
+    std::error_code ec;
+    const auto status = std::filesystem::symlink_status(path, ec);
+    if (ec) return status.type() == std::filesystem::file_type::not_found;
+    return status.type() != std::filesystem::file_type::symlink && status.type() != std::filesystem::file_type::directory;
+#endif
 }
 }
 bool installerFilename(std::wstring_view name) {
@@ -190,7 +202,7 @@ InstallError runOfflineInstaller(const InstallRequest& request, const std::vecto
                 return cancel() ? InstallError::none : InstallError::checksum;
             }
             if (cancel()) return InstallError::none;
-            if (!MoveFileExW(partial.c_str(), file.c_str(), MOVEFILE_WRITE_THROUGH)) return InstallError::storage;
+            if (!atomic_file::moveNew(partial, file)) return InstallError::storage;
         }
         completed += part.bytes;
     }

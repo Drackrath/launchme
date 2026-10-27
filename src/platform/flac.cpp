@@ -1,11 +1,13 @@
 #include "flac.hpp"
 
+#ifdef _WIN32
 #include <Windows.h>
 #include <ShlObj.h>
 #include <mfapi.h>
 #include <mfidl.h>
 #include <mfreadwrite.h>
 #include <wrl/client.h>
+#endif
 
 #include <algorithm>
 #include <cstring>

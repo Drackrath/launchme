@@ -1,9 +1,12 @@
 #include "elevenlabs.hpp"
+#include "../platform/system.hpp"
 #include "json.hpp"
 #include "../platform/protected_file.hpp"
 #include "../platform/text_encoding.hpp"
 
+#ifdef _WIN32
 #include <Windows.h>
+#endif
 
 #include <algorithm>
 #include <cmath>
@@ -76,11 +79,10 @@ bool saveKey(const std::filesystem::path& config, std::wstring_view key) {
 std::wstring key(const std::filesystem::path& config, bool* from_environment) {
     if (from_environment) *from_environment = false;
     if (auto saved = storedKey(config); !saved.empty()) return saved;
-    wchar_t value[1025]{};
-    const DWORD length = GetEnvironmentVariableW(environment, value, static_cast<DWORD>(std::size(value)));
-    if (!length || length >= std::size(value)) return {};
+    const auto value = system_info::environment(environment, 1024);
+    if (!value || value->empty()) return {};
     if (from_environment) *from_environment = true;
-    return trimmed(std::wstring_view(value, length));
+    return trimmed(*value);
 }
 
 Model model(std::string_view id) {

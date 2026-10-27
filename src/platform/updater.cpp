@@ -2,11 +2,14 @@
 #include <miniz.h>
 
 #include "updater.hpp"
+#include "hashing.hpp"
 #include "../net/json.hpp"
 #include "text_encoding.hpp"
 
+#ifdef _WIN32
 #include <Windows.h>
 #include <bcrypt.h>
+#endif
 
 #include <algorithm>
 #include <array>
@@ -160,25 +163,7 @@ bool newer(std::wstring_view candidate, std::wstring_view current) {
 }
 
 std::string sha256File(const std::filesystem::path& file) {
-    std::ifstream input(file, std::ios::binary);
-    if (!input) return {};
-    BCRYPT_HASH_HANDLE hash = nullptr;
-    if (!BCRYPT_SUCCESS(BCryptCreateHash(BCRYPT_SHA256_ALG_HANDLE, &hash, nullptr, 0, nullptr, 0, 0))) return {};
-    std::vector<char> buffer(1 << 16);
-    bool ok = true;
-    while (ok && input) {
-        input.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
-        const auto got = input.gcount();
-        if (got > 0) ok = BCRYPT_SUCCESS(BCryptHashData(hash, reinterpret_cast<PUCHAR>(buffer.data()), static_cast<ULONG>(got), 0));
-    }
-    uint8_t digest[32]{};
-    ok = ok && input.eof() && BCRYPT_SUCCESS(BCryptFinishHash(hash, digest, sizeof(digest), 0));
-    BCryptDestroyHash(hash);
-    if (!ok) return {};
-    static constexpr char hex[] = "0123456789abcdef";
-    std::string out;
-    for (const auto byte : digest) { out += hex[byte >> 4]; out += hex[byte & 15]; }
-    return out;
+    return hashing::fileHex(hashing::Algorithm::sha256, file);
 }
 
 std::optional<std::vector<std::filesystem::path>> unpack(const std::filesystem::path& zip, const std::filesystem::path& staging, std::wstring& error) {

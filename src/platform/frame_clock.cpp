@@ -1,5 +1,7 @@
 #include "frame_clock.hpp"
+#ifdef _WIN32
 #include <dwmapi.h>
+#endif
 #include <chrono>
 #include <cmath>
 

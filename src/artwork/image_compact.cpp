@@ -2,9 +2,11 @@
 #include "text_crop.hpp"
 #include "../platform/atomic_file.hpp"
 
+#ifdef _WIN32
 #include <Windows.h>
 #include <wincodec.h>
 #include <wrl/client.h>
+#endif
 
 #include <algorithm>
 #include <cwctype>

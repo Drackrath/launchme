@@ -1,6 +1,8 @@
 #include "performance.hpp"
 #include "../i18n/i18n.hpp"
+#ifdef _WIN32
 #include <Windows.h>
+#endif
 #include <algorithm>
 #include <fstream>
 #include <iomanip>

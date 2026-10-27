@@ -278,7 +278,7 @@ std::filesystem::path steamTrailerFile(uint32_t app_id, const std::filesystem::p
             ++index;
         }
         output.close();
-        complete = complete && !output.fail() && MoveFileExW(part.c_str(), target.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
+        complete = complete && !output.fail() && atomic_file::replace(part, target);
         if (!complete) std::filesystem::remove(part, ec);
         response.status = complete ? 200 : 0;
     }

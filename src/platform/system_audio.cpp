@@ -1,11 +1,13 @@
 #include "system_audio.hpp"
 #include "../i18n/i18n.hpp"
 #include "../model/headphones.hpp"
+#ifdef _WIN32
 #include <functiondiscoverykeys_devpkey.h>
 #include <propsys.h>
 #include <mmreg.h>
 #include <cfgmgr32.h>
 #include <devpkey.h>
+#endif
 #include <algorithm>
 #include <cmath>
 #include <cwchar>

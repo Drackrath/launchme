@@ -2,7 +2,9 @@ cmake_minimum_required(VERSION 3.24)
 project(launchme VERSION 0.3.0 LANGUAGES C CXX)
 
 if(NOT WIN32)
-    message(FATAL_ERROR "This native Direct2D prototype currently targets Windows.")
+    # Linux port in progress (docs/linux-port.md): the shared core and its tests, no launcher UI yet.
+    include(cmake/Linux.cmake)
+    return()
 endif()
 
 # ZIP reader/writer, pinned upstream revision (3.1.0); no external runtime DLL.
@@ -343,6 +345,7 @@ set(LAUNCHME_APP_SOURCES
     src/artwork/block_compression.cpp
     src/artwork/failure_cache.cpp
     src/net/http.cpp
+    src/net/http_winhttp.cpp
     src/net/json.cpp
     src/friends/steam_friends.cpp
     src/platform/audio.cpp
@@ -354,6 +357,8 @@ set(LAUNCHME_APP_SOURCES
     src/platform/steam_controller.cpp
     src/platform/device_service.cpp
     src/platform/user_config.cpp
+    src/platform/unicode_text.cpp
+    src/platform/hashing.cpp
     src/platform/library_state.cpp
     src/platform/launch.cpp
     src/platform/file_dialog.cpp

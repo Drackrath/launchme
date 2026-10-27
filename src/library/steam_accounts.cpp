@@ -3,7 +3,9 @@
 #include "../platform/atomic_file.hpp"
 #include "../platform/text_encoding.hpp"
 
+#ifdef _WIN32
 #include <Windows.h>
+#endif
 
 #include <algorithm>
 #include <charconv>

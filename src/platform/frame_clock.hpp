@@ -1,5 +1,7 @@
 #pragma once
+#ifdef _WIN32
 #include <Windows.h>
+#endif
 #include <algorithm>
 
 // Absolute deadlines avoid accumulating timer/paint rounding at 60/120/144 Hz.

@@ -1,12 +1,17 @@
 #include "companion_backup.hpp"
+#include "../platform/hashing.hpp"
 #include "companion_characters.hpp"
 #include "companion_feed.hpp"
+#include "../platform/unicode_text.hpp"
+#include "../platform/system.hpp"
 #include "../platform/atomic_file.hpp"
 #include "../platform/protected_file.hpp"
 #include "../platform/text_encoding.hpp"
+#ifdef _WIN32
 #include <bcrypt.h>
 #include <sddl.h>
 #include <objbase.h>
+#endif
 #include <array>
 #include <fstream>
 #include <set>
@@ -29,23 +34,10 @@ void regular(const std::filesystem::path& path) {
     require(attrs != INVALID_FILE_ATTRIBUTES && !(attrs & FILE_ATTRIBUTE_REPARSE_POINT), "Links and reparse points are not admitted in a backup.");
 }
 std::string sha(const std::filesystem::path& file) {
-    BCRYPT_ALG_HANDLE alg = nullptr; BCRYPT_HASH_HANDLE hash = nullptr;
-    require(BCryptOpenAlgorithmProvider(&alg, BCRYPT_SHA256_ALGORITHM, nullptr, 0) >= 0, "SHA-256 unavailable.");
-    struct Release { BCRYPT_ALG_HANDLE& a; BCRYPT_HASH_HANDLE& h; ~Release() { if (h) BCryptDestroyHash(h); if (a) BCryptCloseAlgorithmProvider(a, 0); } } release{alg, hash};
-    require(BCryptCreateHash(alg, &hash, nullptr, 0, nullptr, 0, 0) >= 0, "Cannot create SHA-256 hash.");
-    std::ifstream input(file, std::ios::binary); require(bool(input), "Cannot open a backup file.");
-    std::array<uint8_t, 65536> block{};
-    while (input) {
-        input.read(reinterpret_cast<char*>(block.data()), block.size());
-        const auto count = input.gcount();
-        if (count) require(BCryptHashData(hash, block.data(), static_cast<ULONG>(count), 0) >= 0, "SHA-256 read failed.");
-    }
-    require(input.eof(), "Incomplete backup hashing.");
-    std::array<uint8_t, 32> digest{};
-    require(BCryptFinishHash(hash, digest.data(), static_cast<ULONG>(digest.size()), 0) >= 0, "SHA-256 finalization failed.");
-    std::string out; constexpr char digits[] = "0123456789abcdef";
-    for (auto b : digest) { out += digits[b >> 4]; out += digits[b & 15]; }
-    return out;
+    { std::ifstream input(file, std::ios::binary); require(bool(input), "Cannot open a backup file."); }
+    auto digest = hashing::fileHex(hashing::Algorithm::sha256, file);
+    require(!digest.empty(), "SHA-256 read failed.");
+    return digest;
 }
 bool safeRelative(const std::filesystem::path& path) {
     if (path.empty() || path.is_absolute() || path.has_root_name() || path.has_root_directory()) return false;
@@ -58,7 +50,7 @@ bool safeRelative(const std::filesystem::path& path) {
 bool within(const std::filesystem::path& child, const std::filesystem::path& parent) {
     if (parent.empty()) return false;
     const auto a = std::filesystem::weakly_canonical(child).wstring(), b = std::filesystem::weakly_canonical(parent).wstring();
-    return a.size() >= b.size() && CompareStringOrdinal(a.data(), static_cast<int>(b.size()), b.data(), static_cast<int>(b.size()), TRUE) == CSTR_EQUAL &&
+    return unicode_text::startsWithIgnoreCase(a, b) &&
         (a.size() == b.size() || a[b.size()] == L'\\' || a[b.size()] == L'/');
 }
 std::wstring unique() {
@@ -241,7 +233,7 @@ Result create(const Input& input) {
         root.properties["photo_source"] = json::boolean(!input.settings.companion_photo_folder.empty());
         root.properties["feed_source"] = json::boolean(!input.settings.companion_feed_folder.empty());
         require(atomic_file::write(staging.path / L"backup.json", json::serialize(root)), "Cannot finalize backup manifest.");
-        SYSTEMTIME t{}; GetLocalTime(&t); wchar_t date[32]{}; swprintf_s(date, L"%04u%02u%02u-%02u%02u%02u", t.wYear,t.wMonth,t.wDay,t.wHour,t.wMinute,t.wSecond);
+        const auto t = system_info::localTime(); wchar_t date[32]{}; swprintf_s(date, L"%04d%02d%02d-%02d%02d%02d", t.year,t.month,t.day,t.hour,t.minute,t.second);
         result.path = input.destination / (wide_key + L"-backup-" + date + L"-" + id.substr(0,8));
         require(MoveFileExW(staging.path.c_str(), result.path.c_str(), MOVEFILE_WRITE_THROUGH), "Cannot publish the completed backup.");
         staging.path.clear(); result.files = writer.files.elements.size(); result.bytes = writer.bytes; result.ok = true;

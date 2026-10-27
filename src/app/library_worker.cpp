@@ -115,7 +115,7 @@ void Launcher::startLibraryWorker() {
             const auto game = [&](const Game& item) {
                 mix(item.app_id); mix(item.shortcut_id); text(item.name); mix(item.installed); mix(item.last_played); mix(item.last_updated);
                 mix(static_cast<uint64_t>(item.visibility)); mix(static_cast<uint64_t>(item.installation.phase));
-                text(item.executable.native()); text(item.rom.native()); text(item.platform); text(item.install_directory.native());
+                text(item.executable.wstring()); text(item.rom.wstring()); text(item.platform); text(item.install_directory.wstring());
             };
             for (const auto* list : {&message.games, &message.private_games}) { mix(list->size()); for (const auto& item : *list) game(item); }
             mix(message.shortcuts.size());

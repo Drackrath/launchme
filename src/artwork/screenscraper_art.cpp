@@ -1,4 +1,5 @@
 #include "screenscraper_art.hpp"
+#include "../platform/unicode_text.hpp"
 #include "image_compact.hpp"
 #include "cover_cache.hpp"
 #include "../library/game_ratings.hpp"
@@ -14,8 +15,10 @@
 #include <cstring>
 #include <fstream>
 #include <span>
+#ifdef _WIN32
 #include <wincodec.h>
 #include <wrl/client.h>
+#endif
 
 ScreenScraperGallery screenscraperGallery(const Game& game, const std::vector<std::wstring_view>& types,
                                           const std::filesystem::path& config_root, const screenscraper::Get& get) {
@@ -235,7 +238,7 @@ ScreenScraperGallery screenscraperDiscGallery(const Game& game, const std::files
         }
         if (cached->game) for (const auto& media : cached->game->media) if (media.type == L"support-2D") result.media.push_back(media);
     }
-    std::erase_if(result.media, [](const auto& media) { return media.url.empty() || _wcsicmp(media.format.c_str(), L"png") != 0; });
+    std::erase_if(result.media, [](const auto& media) { return media.url.empty() || !unicode_text::equalIgnoreCase(media.format, L"png"); });
     const auto rank = [](const auto& media) { return media.region == L"eu" ? 0 : media.region == L"wor" ? 1 : media.region == L"us" ? 2 : media.region == L"jp" ? 3 : 4; };
     std::stable_sort(result.media.begin(), result.media.end(), [&](const auto& a, const auto& b) { return rank(a) < rank(b); });
     return result;

@@ -269,7 +269,7 @@ void Launcher::buildSettingsRows() {
             add({Id::custom_add, Control::action, tr(L"Dodaj grę"),
                 tr(L"Program, skrót lub skrypt spoza sklepów."), tr(L"Dodaj")});
             for (const auto& entry : custom_games_) {
-                std::wstring description = entry.path.filename().native();
+                std::wstring description = entry.path.filename().wstring();
                 if (!entry.arguments.empty()) description += L"  " + entry.arguments;
                 if (const auto found = custom_installed_.find(entry.id); found != custom_installed_.end() && !found->second)
                     description = tr(L"Brak pliku") + (L" · " + description);
