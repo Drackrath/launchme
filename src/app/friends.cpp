@@ -259,6 +259,10 @@ void Launcher::dashboardActivate(int tile) {
     case dashboard::Tile::discord: openDiscord(); break;
     case dashboard::Tile::cpu:
     case dashboard::Tile::gpu: break; // Read-only values.
+    case dashboard::Tile::profile:
+        if (gameOverlayOpen()) break; // Over a game the page would open behind it.
+        openProfile(); // Closes the drawer and opens over the screen beneath it.
+        break;
     }
 }
 

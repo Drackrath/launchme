@@ -275,7 +275,7 @@ void Launcher::buildShelves() {
         Category pcs{tr(L"Platformy PC")};
         pcs.id = "pc-platforms";
         for (const auto source : {GameSource::steam, GameSource::gog, GameSource::battlenet, GameSource::ea, GameSource::ubisoft, GameSource::epic, GameSource::xbox,
-                                  GameSource::drmfree, GameSource::custom}) {
+                                  GameSource::multimc, GameSource::drmfree, GameSource::custom}) {
             if (source == GameSource::custom ? !custom_games : source == GameSource::drmfree ? !drm_games :
                 source != GameSource::steam && !settings_.enabled_pc_sources.contains(sourceSlug(source))) continue;
             // Steam without an account here and none of its games: its tile would open an empty library.

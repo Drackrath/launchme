@@ -394,10 +394,11 @@ AppSettings parseAppSettings(std::string_view text) {
             const auto decoded = text_encoding::wide(value);
             if (std::filesystem::path(decoded).is_absolute()) settings.video_folder = decoded;
         }
-        else if (key == "sound_folder" || key == "file_browser_folder" || key == "music_file" || key == "boot_file") {
+        else if (key == "sound_folder" || key == "file_browser_folder" || key == "music_file" || key == "boot_file" || key == "multimc_path") {
             // UTF-8; a folder must be absolute, a file a plain name (no folders, no line breaks).
             const auto decoded = text_encoding::wide(value);
             if (key == "sound_folder") { if (std::filesystem::path(decoded).is_absolute()) settings.sound_folder = decoded; }
+            else if (key == "multimc_path") { if (std::filesystem::path(decoded).is_absolute()) settings.multimc_path = decoded; }
             else if (key == "file_browser_folder") { if (std::filesystem::path(decoded).is_absolute()) settings.file_browser_folder = decoded; }
             else if (!decoded.empty() && decoded.find_first_of(L"\\/:\r\n") == std::wstring::npos) (key == "music_file" ? settings.music_file : settings.boot_file) = decoded;
         }
@@ -483,7 +484,8 @@ AppSettings parseAppSettings(std::string_view text) {
                 const auto id = trim(value.substr(0, comma));
                 if (!id.empty() && id.size() < 120) {
                     if (key == "pc_platforms") {
-                        if (id == "gog" || id == "battlenet" || id == "ea" || id == "ubisoft" || id == "epic" || id == "xbox" || id == "drmfree")
+                        if (id == "gog" || id == "battlenet" || id == "ea" || id == "ubisoft" || id == "epic" || id == "xbox" || id == "drmfree" ||
+                            id == "multimc")
                             settings.enabled_pc_sources.emplace(id);
                     } else if (key == "hidden_collections") settings.hidden_collections.emplace(id);
                     else settings.collection_order.emplace_back(id);
@@ -589,6 +591,7 @@ bool saveAppSettings(const AppSettings& settings, const std::filesystem::path& f
            << "boot_sound=" << std::clamp(settings.boot_sound, 0, static_cast<int>(boot_sounds.size()) - 1) << '\n'
            << "sound_folder=" << text_encoding::utf8Lenient(settings.sound_folder.native()) << '\n'
            << "file_browser_folder=" << text_encoding::utf8Lenient(settings.file_browser_folder.native()) << '\n'
+           << "multimc_path=" << text_encoding::utf8Lenient(settings.multimc_path.native()) << '\n'
            << "music_file=" << text_encoding::utf8Lenient(settings.music_file) << '\n'
            << "boot_file=" << text_encoding::utf8Lenient(settings.boot_file) << '\n'
            << "font_family=";
@@ -723,7 +726,7 @@ bool saveAppSettings(const AppSettings& settings, const std::filesystem::path& f
     output << '\n';
     output << "pc_platforms=";
     bool first_platform = true;
-    for (const auto* source : {"drmfree", "gog", "battlenet", "ea", "ubisoft", "epic", "xbox"}) if (settings.enabled_pc_sources.contains(source)) {
+    for (const auto* source : {"drmfree", "gog", "battlenet", "ea", "ubisoft", "epic", "xbox", "multimc"}) if (settings.enabled_pc_sources.contains(source)) {
         if (!first_platform) output << ',';
         output << source;
         first_platform = false;

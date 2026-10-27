@@ -28,7 +28,7 @@ GameOverlayBackend::GameOverlayBackend() {
     };
 }
 
-int Launcher::dashboardTileCount() const { return 4 + static_cast<int>(plugin_widgets_.size()) + settings_.game_fps; }
+int Launcher::dashboardTileCount() const { return friends_layout::dashboard::tile_count + static_cast<int>(plugin_widgets_.size()) + settings_.game_fps; }
 
 void Launcher::configureGameOverlay() {
     const bool guide = settings_.guide_overlay && settings_.guide_menu;

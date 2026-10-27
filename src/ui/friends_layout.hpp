@@ -56,8 +56,9 @@ inline Rect listBack(float drawer_left) { return {drawer_left + 24, 38, drawer_l
 
 // Dashboard: clock header, then a 2-column grid of tiles in Tile order.
 namespace dashboard {
-enum class Tile { steam, discord, cpu, gpu };
-constexpr int tile_count = 4;
+// profile: the player's page (src/app/profile.cpp), a wide tile under the others by default.
+enum class Tile { steam, discord, cpu, gpu, profile };
+constexpr int tile_count = 5;
 constexpr int columns = 2;
 constexpr float margin = 24.0f, gap = 14.0f;
 constexpr float grid_top = 172.0f;
@@ -101,6 +102,7 @@ struct Layout {
     Layout() = default;
     Layout(const std::vector<std::string>& available, const std::vector<widgets::Preference>& saved) {
         const auto add = [&](const std::string& id, widgets::Size size) {
+            if (id.empty()) return; // A slot not offered here (the profile over a game).
             const auto found = std::find(available.begin(), available.end(), id);
             if (found != available.end() && std::none_of(items.begin(), items.end(), [&](const auto& i) { return i.id == id; }))
                 items.push_back({id, static_cast<int>(found - available.begin()), size, {}});

@@ -188,6 +188,7 @@ std::unique_ptr<StoreAdapter> makeStoreAdapter(GameSource source) {
     case GameSource::ubisoft: return std::make_unique<CatalogAdapter<GameSource::ubisoft>>();
     case GameSource::epic: return std::make_unique<CatalogAdapter<GameSource::epic>>();
     case GameSource::xbox: return std::make_unique<CatalogAdapter<GameSource::xbox>>();
+    case GameSource::multimc: return std::make_unique<CatalogAdapter<GameSource::multimc>>(); // Play: src/library/multimc.cpp.
     default: return {};
     }
 }

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(launchme VERSION 0.2.1 LANGUAGES C CXX)
+project(launchme VERSION 0.2.2 LANGUAGES C CXX)
 
 if(NOT WIN32)
     message(FATAL_ERROR "This native Direct2D prototype currently targets Windows.")
@@ -85,7 +85,7 @@ function(launchme_executable name)
 endfunction()
 
 # Source groups reused by tools and tests.
-set(LAUNCHME_PC_SCAN_SOURCES src/library/pc_platforms.cpp src/library/battlenet.cpp src/library/ubisoft.cpp
+set(LAUNCHME_PC_SCAN_SOURCES src/library/pc_platforms.cpp src/library/multimc.cpp src/library/battlenet.cpp src/library/ubisoft.cpp
     src/library/store_adapter.cpp src/library/steam.cpp src/library/visibility.cpp src/net/json.cpp)
 set(LAUNCHME_WEB_SOURCES src/net/http.cpp src/net/json.cpp src/platform/user_config.cpp)
 set(LAUNCHME_COVER_SOURCES src/artwork/cover_cache.cpp src/artwork/steamgriddb_search.cpp src/artwork/image_compact.cpp src/artwork/download_art.cpp)
@@ -135,6 +135,7 @@ set(LAUNCHME_APP_SOURCES
     src/app/downloads.cpp
     src/app/glance.cpp
     src/app/tarot.cpp
+    src/app/profile.cpp
     src/app/companion.cpp
     src/app/companion_picker.cpp
     src/app/companion_events.cpp
@@ -170,6 +171,7 @@ set(LAUNCHME_APP_SOURCES
     src/ui/browser_window.cpp
     src/ui/glance_renderer.cpp
     src/ui/tarot_renderer.cpp
+    src/ui/profile_renderer.cpp
     src/ui/companion_renderer.cpp
     src/ui/companion_mind_renderer.cpp
     src/ui/companion_feed_renderer.cpp
@@ -299,9 +301,12 @@ set(LAUNCHME_APP_SOURCES
     src/library/store_adapter.cpp
     src/library/custom_games.cpp
     src/library/metadata_overrides.cpp
+    src/library/play_journal.cpp
+    src/library/achievement_history.cpp
     src/library/drm_free.cpp
     src/library/drm_free_titles.cpp
     src/library/pc_platforms.cpp
+    src/library/multimc.cpp
     src/library/battlenet.cpp
     src/library/ubisoft.cpp
     src/library/ubisoft_catalog.cpp
@@ -783,6 +788,7 @@ add_test(NAME uninstall_from_game_menus COMMAND launcher_ui_tests --uninstall)
     add_test(NAME glance_shortcut_navigation_and_hints COMMAND launcher_ui_tests --glance)
     set_tests_properties(glance_shortcut_navigation_and_hints PROPERTIES TIMEOUT 60)
     add_test(NAME tarot_reading_cards_and_results COMMAND launcher_ui_tests --tarot)
+    add_test(NAME profile_page_widget_week_achievements COMMAND launcher_ui_tests --profile)
     add_test(NAME launchme_updates_and_whats_new COMMAND launcher_ui_tests --updates)
     set_tests_properties(tarot_reading_cards_and_results PROPERTIES TIMEOUT 60)
     add_test(NAME companion_home_chat_and_settings COMMAND launcher_ui_tests --companion)
@@ -809,6 +815,8 @@ add_test(NAME uninstall_from_game_menus COMMAND launcher_ui_tests --uninstall)
         LIBS advapi32 winhttp shell32 ole32)
     launchme_executable(drm_free_tests TEST drm_free_folder_scan_and_matching
         SOURCES tests/drm_free_tests.cpp)
+    launchme_executable(profile_data_tests TEST play_journal_achievement_history_and_playtime
+        SOURCES tests/profile_data_tests.cpp)
     launchme_executable(custom_games_tests TEST user_added_games
         SOURCES tests/custom_games_tests.cpp src/library/custom_games.cpp src/library/store_adapter.cpp
             src/library/steam.cpp src/library/visibility.cpp src/net/json.cpp

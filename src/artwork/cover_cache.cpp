@@ -254,7 +254,7 @@ std::vector<uint8_t> artworkForGame(const Game& game, ArtworkKind kind,
     // Store/shortcut IDs are never Steam AppIDs. Only a separately verified artwork
     // mapping may borrow Steam art; this never changes launch/install actions.
     auto source = selectedArtworkSource(game, cache);
-    if (!source.id) source = {gameIdForTitle(0, game.name, directory), false};
+    if (!source.id) source = {gameIdForTitle(0, artworkTitle(game), directory), false};
     if (!source.id) return {};
     const auto route = source.steam ? L"steam" : L"game";
     std::vector<uint8_t> image;

@@ -388,9 +388,17 @@ void Renderer::drawDesktopMeta(const View& view) {
     const auto close = layout.close();
     if (meta.hover == static_cast<int>(MetaItem::close)) desktopFill(close, 8, gray(1, 0.08f));
     desktopGlyph(glyph::close, (close.left + close.right) * 0.5f, (close.top + close.bottom) * 0.5f, 12, palette::muted());
-    static const wchar_t* const labels[meta_fields] = {L"Tytuł", L"Opis", L"Producent", L"Wydawca", L"Data premiery", L"Gatunki", L"Czas przejścia (h)"};
+    static const wchar_t* const labels[meta_fields] = {L"Tytuł", L"Opis", L"Producent", L"Wydawca", L"Data premiery", L"Gatunki", L"Czas przejścia (h)",
+                                                        L"Czas gry"};
     static const wchar_t* const hints[meta_fields] = {L"Nazwa w bibliotece", L"Kilka zdań o grze", L"Studio", L"Firma wydająca",
-                                                       L"np. 2024 albo 12.05.2024", L"np. Akcja, Przygodowa", L"np. 22"};
+                                                       L"np. 2024 albo 12.05.2024", L"np. Akcja, Przygodowa", L"np. 22", L"np. 12:30"};
+    {
+        // Beside Czas gry: the automatic value and that later play is added to the typed one.
+        const auto f = layout.field(static_cast<int>(MetaItem::playtime));
+        textLine(meta.playtime_note, f.right + 16, f.top + 11, p.right - 24 - f.right - 16, desktop_small_font_.Get(), palette::muted());
+        textLine(tr(L"Dalsza gra doliczy się do wpisanej wartości."), f.right + 16, f.top + 29, p.right - 24 - f.right - 16,
+                 desktop_small_font_.Get(), palette::muted(0.75f));
+    }
     for (int i = 0; i < meta_fields; ++i) {
         const auto f = layout.field(i);
         const auto index = static_cast<size_t>(i);

@@ -60,7 +60,9 @@ enum class Id { font, home_layout, ui_accent, accent, uninstalled, emulation, co
                    // Towarzyszka → Gdzie mieszkają: one city for all of them, and the chosen one's own.
                    companion_city, companion_city_own,
                    // System → Aktualizacje: Launchme's own update (src/app/updates.cpp) and whether to look for one.
-                   update, update_check };
+                   update, update_check,
+                   // Platformy PC → MultiMC / Prism: the launcher picked by hand (portable MultiMC).
+                   multimc_path };
 inline bool hasOptionsButton(Id id) { return id == Id::plugin_enabled || id == Id::pc_platform; }
 // layout: drawn preview tiles in the row (one per home layout); Row::choice is the active one.
 // count: Row::value as a large number with a chevron; activating opens a sub-list.

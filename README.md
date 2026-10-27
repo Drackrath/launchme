@@ -42,6 +42,7 @@ never next to the EXE:
 | Metadata and ratings cache | `metadata`, `ratings`, `knowledge`, `glance` |
 | Downloaded game videos | `media\` (folder can be changed in Settings → Media & data) |
 | Glance browser profile | `browser\` |
+| Play journal and achievement history (Profile) | `play-journal.tsv`, `achievement-history.json` |
 | Logs and crash dumps | `launchme.log`, `crashes\` |
 
 Cache folders can be deleted — they are rebuilt from disk or the network — except your manual choices
@@ -55,8 +56,8 @@ Settings → System → Help → **Open folder** (the version row) opens it.
   entrance, frosted glass, button colour themes and several focus-outline styles. In Flix, resting
   on a game for a few seconds unfolds its poster into a wide card with its background, logo and facts,
   pushing the neighbouring tiles aside.
-- **Launch screen**: starting a game shows its background, slowly zooming in, with its logo for a few
-  seconds while the game opens (`Esc` / B hides it).
+- **Launch screen**: starting a game shows its background, slowly zooming in, with its logo until the game's
+  window shows, then fades away behind it (`Esc` / B hides it).
 - **Desktop window mode** with a sidebar, search and a details pane; switch with `F11` or from the power menu.
   The sidebar folds to its icons (the button by the logo) and the details pane is as wide as you drag
   its edge (double-click it for the default).
@@ -70,9 +71,10 @@ Settings → System → Help → **Open folder** (the version row) opens it.
 - **Stores**: local installs of every store above, Steam collections synced with the running client,
   GOG and Epic account libraries (Epic installs through Legendary, no Epic launcher needed),
   EA and Battle.net libraries imported from their store pages (no EA app needed: sign in on ea.com,
-  paste the token page), Ubisoft from the signed-in client.
+  paste the token page), Ubisoft from the signed-in client, and MultiMC / Prism Launcher instances as games.
 - **Artwork**: SteamGridDB covers, heroes, logos and posters with OCR-assisted cropping and a variant browser.
-- **Details**: Steam metadata, playtime (also for non-Steam games), achievements, Steam and RAWG ratings,
+- **Details**: Steam metadata, playtime (also for non-Steam games, Epic's and Prism's counts, or your own value from
+  *Edit metadata*), achievements, Steam and RAWG ratings,
   versions of the same game across stores, uninstall from the game menu (Steam's own dialog, GOG games
   silently after Launchme asks, other stores through the uninstaller they registered). Achievements of games outside
   Steam come from the Achievements plugin: GOG and Epic (with their accounts connected),
@@ -87,6 +89,8 @@ Settings → System → Help → **Open folder** (the version row) opens it.
 - **AI companion** (optional): a chat character that knows your library, with an optional voice and photo feed
   — see [AI companion](#ai-companion).
 - **Widgets drawer**: clock, Steam friends, Discord, CPU/GPU temperatures, controllers, audio and Bluetooth.
+- **Profile** (the drawer's *Profile* widget): this week's play time, games and launches with a chart, the latest
+  achievements, a year of achievement history, the games closest to 100 % and every platform with its hours.
 - **In-game Guide overlay** (experimental): back to the dashboard, close the game, optional FPS from PresentMon.
 - **Plugins** (ZIP + native DLL): HowLongToBeat (completion times in game details) and Achievements
   (after [SuccessStory](https://github.com/Lacro59/playnite-successstory-plugin), MIT) ship with the build;

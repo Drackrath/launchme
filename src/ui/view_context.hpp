@@ -28,6 +28,7 @@
 #include "downloads_view.hpp"
 #include "glance_view.hpp"
 #include "tarot_view.hpp"
+#include "profile_view.hpp"
 #include "update_view.hpp"
 #include "companion_view.hpp"
 #include "home_widgets.hpp"
@@ -56,6 +57,9 @@ struct DrawerDashboard {
     friends_layout::dashboard::Layout layout;
     float scroll = 0, edit_seconds = 0;
     bool editing = false, grabbed = false;
+    // The profile tile: the player's name and initials, this week's play time and what it held.
+    std::wstring profile_name, profile_initials, profile_value, profile_caption;
+    std::array<float, 7> profile_week{}; // Each day's share of the week's longest one (a small chart).
 };
 
 // First-run walkthrough (src/app/tour.cpp, src/ui/tour_renderer.cpp, geometry in tour_view.hpp).
@@ -272,6 +276,7 @@ struct ViewContext {
     float scroll_letter_alpha = 0;
     const gog_install_ui::State* gog_install = nullptr;
     const tarot_ui::State* tarot = nullptr; // Tarot's reading, while open or fading out.
+    const profile_ui::State* profile = nullptr; // Profil, while open or fading out.
     update_ui::WhatsNew* whats_new = nullptr; // Co nowego after an update; the renderer records the text's height.
     const custom_game_ui::State* custom_editor = nullptr; // Settings → Library add/edit panel.
     const file_browser::State* file_browser = nullptr;    // The launcher's file picker, over everything.
@@ -298,6 +303,7 @@ struct ViewContext {
     float menu_progress = 0;
     float launch_progress = 0;
     float launch_animation_seconds = -1; // -1 inactive; a brief zoom of the launched game's cover.
+    float launch_animation_ending = -1;  // Seconds into its fade-out; -1 while it stays.
     std::wstring launch_animation_title;
     size_t launch_artwork_index = static_cast<size_t>(-1);
     int menu_selected = 0;

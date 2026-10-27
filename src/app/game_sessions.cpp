@@ -274,6 +274,8 @@ void Launcher::onGameActivity(std::unique_ptr<GameActivityMessage> message) {
         const auto found = game_sessions_.find(key);
         if (found == game_sessions_.end()) continue;
         const bool was_running = found->second.running();
+        // The play journal (the profile's week) hears of every public game played here, Steam's too.
+        std::optional<std::wstring> journal_name;
         if (activity == GameActivity::running && !found->second.running()) {
             std::lock_guard lock(game_activity_jobs_->mutex);
             const auto tracked = game_activity_jobs_->active.find(key);
@@ -282,19 +284,27 @@ void Launcher::onGameActivity(std::unique_ptr<GameActivityMessage> message) {
                 // A client handoff, installer or failed start is not playtime.
                 library_state_.last_played[tracked->second.history_key] = gog::nowSeconds();
                 library_state_dirty_ = history_changed = true;
+                journal_name = tracked->second.game.name;
             }
         }
+        if (journal_name) journalLaunched(key, *journal_name);
         const auto result = found->second.observe(activity, message->observed_at);
         state_changed |= was_running != found->second.running();
         if (const auto elapsed = found->second.takePlaytime()) {
-            std::lock_guard lock(game_activity_jobs_->mutex);
-            const auto tracked = game_activity_jobs_->active.find(key);
-            if (tracked != game_activity_jobs_->active.end() && !tracked->second.history_key.empty() &&
-                !steamArtwork(tracked->second.game) && tracked->second.game.visibility == GameVisibility::public_game) {
-                auto& total = library_state_.playtime_ms[tracked->second.history_key];
-                total += std::min(elapsed, UINT64_MAX - total);
-                playtime_dirty_ = true;
+            std::optional<std::wstring> played_name;
+            {
+                std::lock_guard lock(game_activity_jobs_->mutex);
+                const auto tracked = game_activity_jobs_->active.find(key);
+                if (tracked != game_activity_jobs_->active.end() && tracked->second.game.visibility == GameVisibility::public_game) {
+                    played_name = tracked->second.game.name;
+                    if (!tracked->second.history_key.empty() && !steamArtwork(tracked->second.game)) {
+                        auto& total = library_state_.playtime_ms[tracked->second.history_key];
+                        total += std::min(elapsed, UINT64_MAX - total);
+                        playtime_dirty_ = true;
+                    }
+                }
             }
+            if (played_name) journalPlayed(key, *played_name, elapsed);
         }
         if (result == SessionResult::waiting) continue;
         if (result == SessionResult::start_failed) {
@@ -319,12 +329,18 @@ void Launcher::onGameActivity(std::unique_ptr<GameActivityMessage> message) {
         library_state_dirty_ = true; playtime_dirty_ = false;
         next_playtime_save_ = message->observed_at + 30000;
     }
+    if (journal_dirty_ && (!finished.empty() || message->observed_at >= next_journal_save_)) {
+        saveJournal();
+        next_journal_save_ = message->observed_at + 60000;
+    }
     // "W grze" badges change here; the idle launcher no longer repaints on its own, and a game
     // that simply keeps running costs no repaint of the launcher behind it.
     invalidateGameOverlay(); // Live playtime comparisons while the Guide drawer is visible.
     applyGameFocus(*message);
     if (state_changed || !finished.empty() || history_changed) InvalidateRect(hwnd_, nullptr, FALSE);
     if (finished.empty()) return;
+    // The started game ended (or never came): its picture, resting behind it, goes with it.
+    if (launchAnimationActive() && std::find(finished.begin(), finished.end(), launch_artwork_key_) != finished.end()) endLaunchAnimation();
     {
         std::lock_guard lock(game_activity_jobs_->mutex);
         for (const auto& key : finished) game_activity_jobs_->active.erase(key);
@@ -394,6 +410,18 @@ void Launcher::bringToFront() {
     if (attached) AttachThreadInput(self, other, FALSE);
     if (coversMonitor()) displayChanged(); // A game may have left the display in another mode.
     InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
+// Czas gry as shown everywhere: Steam's own count for Steam games (unknown until read), else the
+// larger of Launchme's count and the store's (a launcher like Prism counts every session too);
+// "Edytuj metadane" sets a value counted on from there.
+std::optional<uint32_t> Launcher::automaticPlaytime(const Game& game, std::optional<uint32_t> steam) const {
+    return steamArtwork(game) ? steam : std::optional<uint32_t>(std::max(localPlaytime(game), game.store_playtime_minutes));
+}
+std::optional<uint32_t> Launcher::gamePlaytime(const Game& game, std::optional<uint32_t> steam) const {
+    const auto automatic = automaticPlaytime(game, steam);
+    if (const auto* own = metadataOverride(game); own && own->playtime) return metadata::playtime(*own, automatic.value_or(own->playtime_base));
+    return automatic;
 }
 
 uint32_t Launcher::localPlaytime(const Game& game) const {

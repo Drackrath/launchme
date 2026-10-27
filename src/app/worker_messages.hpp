@@ -253,6 +253,7 @@ struct CropMessage {
 struct PcLibraryRequest {
     std::vector<Game> gog_owned, epic_owned, previous_battlenet;
     std::string gog_account, epic_account;
+    std::vector<std::filesystem::path> multimc; // Launchers the user pointed at (Ustawienia → MultiMC / Prism).
 };
 struct PcLibraryMessage {
     uint32_t generation = 0;

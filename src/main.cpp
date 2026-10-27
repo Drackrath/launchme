@@ -364,6 +364,7 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpara
                                   (GET_KEYSTATE_WPARAM(wparam) & MK_CONTROL) != 0)) {} // Grid, sidebar, pane, poster size.
             else if (app->companionOpen() && !app->friendsOpen() && modal == Launcher::Modal::none) app->companionWheel(raw);
             else if (modal == Launcher::Modal::tarot) {} // The reading has nothing to scroll.
+            else if (modal == Launcher::Modal::profile) app->profileScroll(-static_cast<float>(raw) / WHEEL_DELTA * 96.0f); // Smooth, as a page.
             else if (modal == Launcher::Modal::whats_new) app->whatsNewScroll(-static_cast<float>(raw) / WHEEL_DELTA * 60.0f); // Smooth, as text scrolls.
             else if (const int step = notch(); !step) {}
             else if (modal == Launcher::Modal::file_browser) app->fileBrowserWheel(step);

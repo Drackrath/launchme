@@ -11,8 +11,10 @@
 // custom: games the user added in Settings → Library ("Moje gry"), src/library/custom_games.hpp.
 // xbox: Xbox app / Microsoft Store PC games (Gaming Services packages); appended to keep values stable.
 // drmfree: games found in the user's DRM-free folders, src/library/drm_free.hpp.
-enum class GameSource { steam, gog, battlenet, ea, ubisoft, epic, custom, xbox, drmfree };
-inline constexpr std::array<GameSource, 6> pc_sources{GameSource::gog, GameSource::battlenet, GameSource::ea, GameSource::ubisoft, GameSource::epic, GameSource::xbox};
+// multimc: Minecraft instances of MultiMC / Prism Launcher / PolyMC, src/library/multimc.hpp.
+enum class GameSource { steam, gog, battlenet, ea, ubisoft, epic, custom, xbox, drmfree, multimc };
+inline constexpr std::array<GameSource, 7> pc_sources{GameSource::gog, GameSource::battlenet, GameSource::ea, GameSource::ubisoft, GameSource::epic,
+                                                      GameSource::xbox, GameSource::multimc};
 // category/settings are XMB home tiles: a Steam collection (app_id = category index) and the Settings shortcut.
 // glance/companion: the Glance and Towarzyszka tiles of the Metro and XMB homes (src/ui/home_widgets.hpp).
 enum class GameKind { steam, all, platform, back, nonsteam, store, catalog, pc_platform, category, settings, glance, companion };
@@ -61,6 +63,9 @@ struct Game {
     bool epic_managed = false;
     std::string catalog_plugin; // Catalog owner; retained when resolving to a local Steam game.
     std::string version_group; // Display-only aggregate; raw library entries retain their store identity.
+    // Play time the store or launcher counted itself (MultiMC/Prism instances, a store account),
+    // in minutes; 0 when unknown. Launchme's own count for the game is kept apart (library_state).
+    uint32_t store_playtime_minutes = 0;
 };
 
 inline const char* sourceSlug(GameSource source) {
@@ -73,6 +78,7 @@ inline const char* sourceSlug(GameSource source) {
     case GameSource::xbox: return "xbox";
     case GameSource::custom: return "custom";
     case GameSource::drmfree: return "drmfree";
+    case GameSource::multimc: return "multimc";
     default: return "steam";
     }
 }
@@ -87,8 +93,15 @@ inline const wchar_t* sourceName(GameSource source) {
     case GameSource::xbox: return L"Xbox";
     case GameSource::custom: return tr(L"Moje gry");
     case GameSource::drmfree: return L"DRM-free";
+    case GameSource::multimc: return L"MultiMC / Prism";
     default: return L"Steam";
     }
+}
+
+// The title artwork and metadata are looked up by: a Minecraft instance's own name ("1.20 Fabric")
+// names no game, so its pictures are Minecraft's.
+inline std::wstring artworkTitle(const Game& game) {
+    return game.source == GameSource::multimc ? std::wstring(L"Minecraft: Java Edition") : game.name;
 }
 
 // Games launched straight from a file on disk (user-added or found in DRM-free folders):

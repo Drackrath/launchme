@@ -116,6 +116,7 @@ public:
     static int snitch(HWND window);
     static int glanceHub(HWND window, bool live = false);
     static int tarotReading(HWND window);
+    static int profilePage(HWND window);
     static int updates(HWND window);
     static int gameLengths(HWND window);
     static int companionChat(HWND window);
@@ -1269,6 +1270,7 @@ public:
 #include "snitch_ui_cases.hpp"
 #include "glance_ui_cases.hpp"
 #include "tarot_ui_cases.hpp"
+#include "profile_ui_cases.hpp"
 #include "update_ui_cases.hpp"
 #include "companion_ui_cases.hpp"
 #include "game_index_ui_cases.hpp"
@@ -1996,6 +1998,15 @@ int main(int argc, char** argv) {
         CoUninitialize();
         if (code) std::cerr << "Tarot regression failed at checkpoint " << code << '\n';
         else std::cout << "Tarot: setting, T and View, deal, back, library and store readings, results, pad and mouse passed\n";
+        return code;
+    }
+    if (argc == 2 && std::string_view(argv[1]) == "--profile") {
+        std::filesystem::create_directories(root);
+        const auto code = window ? LauncherUiTest::profilePage(window) : 99;
+        if (window) DestroyWindow(window);
+        CoUninitialize();
+        if (code) std::cerr << "Profile regression failed at checkpoint " << code << '\n';
+        else std::cout << "Profile: drawer widget, week, achievements, history, platforms, keys, pad, mouse, desktop widgets, Czas gry and MultiMC passed\n";
         return code;
     }
     if (argc == 2 && std::string_view(argv[1]) == "--updates") {

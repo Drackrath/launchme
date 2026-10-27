@@ -101,6 +101,15 @@ void Launcher::pcSettingsRows() {
             tr(L"Po zalogowaniu odśwież kartę games-and-subs, skopiuj całą stronę i wklej tutaj."), tr(L"Wklej listę")});
         add({Id::pc_refresh, Control::action, tr(L"Zainstalowane gry"), library(source), tr(L"Odśwież")});
         if (state.snapshot) add({Id::battlenet_remove, Control::action, tr(L"Zapisana biblioteka"), tr(L"Usuń zaimportowaną listę gier."), tr(L"Usuń")});
+    } else if (source == GameSource::multimc) {
+        // Every instance is a game; MultiMC itself is portable, so it can be pointed at by hand.
+        add({Id::pc_refresh, Control::action, tr(L"Instancje"), library(source), tr(L"Odśwież")});
+        std::wstring found;
+        for (const auto& client : pc_clients_) if (client.source == source && !client.executable.empty()) found = client.executable.native();
+        auto description = settings_.multimc_path.empty() ? (found.empty() ? std::wstring(tr(L"Nie znaleziono Prism Launcher ani MultiMC")) :
+            tr(L"Znaleziono: ") + found) : settings_.multimc_path.native();
+        add({Id::multimc_path, Control::action, tr(L"Launcher"), std::move(description),
+             settings_.multimc_path.empty() ? tr(L"Wskaż…") : tr(L"Wyczyść")});
     } else {
         add({Id::pc_refresh, Control::action, tr(L"Biblioteka"), library(source), tr(L"Odśwież")});
     }
@@ -139,6 +148,15 @@ bool Launcher::pcSettingsActivate(const Row& row) {
         else if (row.source == GameSource::ea) { if (ea_import_.awaiting) cancelWebImport(row.source); else startWebImport(row.source); }
     } else if (row.id == Id::pc_excluded) openExcludedGames(row.source);
     else if (row.id == Id::pc_refresh) refreshPcLibraries();
+    else if (row.id == Id::multimc_path) {
+        if (!settings_.multimc_path.empty()) { setMultimcPath({}); return true; }
+        file_browser::Request request;
+        request.mode = file_browser::Mode::file;
+        request.title = tr(L"Wskaż Prism Launcher lub MultiMC");
+        request.extensions = {L".exe"};
+        request.filter_label = tr(L"Programy (.exe)");
+        openFileBrowser(std::move(request), [this](const std::filesystem::path& picked) { setMultimcPath(picked); });
+    }
     else if (row.id == Id::pc_client) {
         const auto action = connectPcClient(row.source, pc_clients_);
         if (execute_(hwnd_, action) <= 32) showNotification(NotificationKind::error, tr(L"Nie można otworzyć klienta"), sourceName(row.source));
@@ -170,6 +188,21 @@ bool Launcher::pcSettingsActivate(const Row& row) {
         InvalidateRect(hwnd_, nullptr, FALSE);
     } else return false;
     return true;
+}
+
+// MultiMC / Prism picked by hand: only one of their EXEs is accepted; the scan starts at once and
+// the source is switched on (the user asked for its instances).
+void Launcher::setMultimcPath(const std::filesystem::path& picked) {
+    if (!picked.empty() && !multimc::flavorOf(picked)) {
+        showNotification(NotificationKind::error, tr(L"To nie jest Prism Launcher ani MultiMC"), picked.native());
+        return;
+    }
+    settings_.multimc_path = picked;
+    if (!picked.empty()) settings_.enabled_pc_sources.insert(sourceSlug(GameSource::multimc));
+    settingsChanged(true);
+    refreshPcLibraries();
+    if (settingsOpen()) buildSettingsRows();
+    audio_.context();
 }
 
 void Launcher::cancelPlatformSignIn(GameSource source) {

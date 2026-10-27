@@ -174,6 +174,25 @@ public:
             games.push_back(std::move(game));
         }
         if (cancel()) return {Failure::cancelled};
+        // Play time Epic counted for each title (its launcher's own "Czas gry"), best effort: a
+        // refused or broken answer leaves the library as it is, without play time.
+        if (identifier(session.tokens.account)) {
+            HttpResponse response;
+            if (get(L"https://library-service.live.use1a.on.epicgames.com/library/api/public/playtime/account/" +
+                    url_encoding::component(std::string_view(session.tokens.account)) + L"/all", cfg, session.tokens, cancel, response)) {
+                std::map<std::string, uint32_t> minutes;
+                if (const auto root = json::parse(body(response)); root && root->type == json::Value::Type::array)
+                    for (const auto& entry : root->elements) {
+                        const auto* total = entry.get("totalTime");
+                        const auto id = field(entry, "artifactId");
+                        if (total && total->type == json::Value::Type::number && total->numeric >= 0 && total->numeric < 4e11 && identifier(id))
+                            minutes[id] = static_cast<uint32_t>(std::min<double>(UINT32_MAX, total->numeric / 60));
+                    }
+                for (auto& game : games)
+                    if (const auto found = minutes.find(game.source_id); found != minutes.end()) game.store_playtime_minutes = found->second;
+            }
+            if (cancel()) return {Failure::cancelled};
+        }
         session.games = std::move(games); session.synced_at = nowSeconds(); return {};
     }
 };

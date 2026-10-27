@@ -120,6 +120,7 @@ bool Launcher::receivePluginAchievements(const plugins::Result& message) {
                 game_index::Patch counts;
                 counts.achievements_unlocked = cache.list.unlocked; counts.achievements_total = cache.list.total;
                 gameIndexMerge(key, game_index::Source::achievements, std::move(counts));
+                recordAchievements(key, job.game.name, cache.list); // The profile's history: its unlocks with their times.
             }
         }
     }

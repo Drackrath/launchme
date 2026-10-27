@@ -92,9 +92,10 @@ void Launcher::paint(bool overlay) {
         const auto& game = cards_[selected_].game;
         context.preview = preview_.find(game);
         if (!context.preview) context.preview = localDetails(game);
-        if (!steamArtwork(game)) {
+        const auto* own = metadataOverride(game);
+        if (!steamArtwork(game) || (own && own->playtime)) {
             if (context.preview) local_preview = *context.preview;
-            local_preview.playtime_minutes = localPlaytime(game);
+            local_preview.playtime_minutes = gamePlaytime(game, context.preview ? context.preview->playtime_minutes : std::nullopt);
             context.preview = &local_preview;
         }
         // A Steam game's store details are on their way (the worker always answers, empty on failure).
@@ -116,10 +117,9 @@ void Launcher::paint(bool overlay) {
             auto& row = context.library_rows[i];
             if (info) {
                 row.year = gameReleaseYear(info->release_date);
-                if (info->playtime_minutes) row.playtime = formatPlaytime(*info->playtime_minutes);
                 row.rating = info->score;
             }
-            if (!steamArtwork(game)) row.playtime = formatPlaytime(localPlaytime(game));
+            if (const auto minutes = gamePlaytime(game, info ? info->playtime_minutes : std::nullopt)) row.playtime = formatPlaytime(*minutes);
             const auto key = gameKey(game);
             const ratings::Rating* rating = nullptr;
             if (const auto found = rawg_metadata_.find(key); found != rawg_metadata_.end()) rating = &found->second.rating;
@@ -215,9 +215,13 @@ void Launcher::paint(bool overlay) {
             context.game_details = &local_details;
         }
     }
-    if (screen_ == ScreenMode::details && !cards_.empty() && !steamArtwork(cards_[0].game)) {
-        local_details = details_; local_details.playtime_minutes = localPlaytime(cards_[0].game);
-        context.game_details = &local_details;
+    if (screen_ == ScreenMode::details && !cards_.empty() && !context.detail_playtime_seconds) {
+        const auto& game = cards_[0].game;
+        const auto* own = metadataOverride(game);
+        if (!steamArtwork(game) || (own && own->playtime)) {
+            local_details = details_; local_details.playtime_minutes = gamePlaytime(game, details_.playtime_minutes);
+            context.game_details = &local_details;
+        }
     }
     if (screen_ == ScreenMode::details && !cards_.empty())
         if (const auto* own = metadataOverride(cards_[0].game)) { // Edytuj metadane: over whatever was found.
@@ -296,9 +300,7 @@ void Launcher::paint(bool overlay) {
         const auto& game = cards_[selected_].game;
         const auto* info = preview_.find(game);
         if (!info) info = localDetails(game);
-        std::optional<uint32_t> minutes;
-        if (info) minutes = info->playtime_minutes;
-        if (!steamArtwork(game)) minutes = localPlaytime(game);
+        const auto minutes = gamePlaytime(game, info ? info->playtime_minutes : std::nullopt);
         const std::wstring none = L"—";
         context.hero_facts.push_back({tr(L"CZAS GRY"), minutes && *minutes ? formatPlaytime(*minutes) : none});
         context.hero_facts.push_back({tr(L"OSTATNIO GRANE"), desktopPlayedWhen(game.last_played)});
@@ -357,8 +359,7 @@ void Launcher::paint(bool overlay) {
             std::wstring released = info ? info->release_date : std::wstring{};
             if (const auto* own = metadataOverride(game); own && !own->release_date.empty()) released = own->release_date;
             if (const auto year = gameReleaseYear(released); !year.empty()) context.flix_unfold_facts.push_back(year);
-            std::optional<uint32_t> minutes = info ? info->playtime_minutes : std::nullopt;
-            if (!steamArtwork(game)) minutes = localPlaytime(game);
+            const auto minutes = gamePlaytime(game, info ? info->playtime_minutes : std::nullopt);
             if (minutes && *minutes) context.flix_unfold_facts.push_back(formatPlaytime(*minutes));
             if (const auto platform = activePlatformName(game); !platform.empty()) context.flix_unfold_facts.push_back(platform);
             if (info) {
@@ -480,6 +481,7 @@ void Launcher::paint(bool overlay) {
         context.dashboard.time = drawer_clock::time(local, i18n::localeName());
         context.dashboard.date = drawer_clock::date(local, i18n::localeName());
         clock_minute_ = drawer_clock::minute(local); // tick() repaints when this goes stale.
+        profileTile(context.dashboard);
     }
     context.categories = &category_titles_;
     context.category_rail = categoryRailActive();
@@ -508,7 +510,9 @@ void Launcher::paint(bool overlay) {
     context.volume_muted = volume_initialized_ && last_volume_.muted;
     context.launch_progress = launch_progress_;
     if (launchAnimationActive()) {
-        context.launch_animation_seconds = std::chrono::duration<float>(std::chrono::steady_clock::now() - *launch_animation_started_).count();
+        const auto now = std::chrono::steady_clock::now();
+        context.launch_animation_seconds = std::chrono::duration<float>(now - *launch_animation_started_).count();
+        if (launch_animation_ending_) context.launch_animation_ending = std::chrono::duration<float>(now - *launch_animation_ending_).count();
         context.launch_animation_title = launch_animation_title_;
         // The focused card first: its background and logo are the ones bound in the renderer.
         if (selected_ < cards_.size() && gameKey(cards_[selected_].game) == launch_artwork_key_) context.launch_artwork_index = selected_;
@@ -516,6 +520,7 @@ void Launcher::paint(bool overlay) {
     }
     if (gogInstallOpen()) context.gog_install = &gog_install_ui_;
     if (tarot_.open || tarot_.alpha > 0.003f) { context.tarot = &tarot_; context.hint_device = hintDevice(); } // Its own line of hints.
+    if (profile_.open || profile_.alpha > 0.003f) { context.profile = &profile_; context.hint_device = hintDevice(); }
     if (whats_new_.open) context.whats_new = &whats_new_;
     if (customEditorOpen()) context.custom_editor = &custom_editor_;
     if (fileBrowserOpen()) context.file_browser = &file_browser_;

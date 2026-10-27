@@ -180,7 +180,7 @@ std::vector<XboxInstall> discoverXboxGames() {
 }
 }
 
-PcDiscovery discoverPcInstallations() {
+PcDiscovery discoverPcInstallations(const std::vector<std::filesystem::path>& multimc_chosen) {
     PcDiscovery result;
     const auto data = environment(L"PROGRAMDATA");
     if (!data.empty()) {
@@ -211,6 +211,12 @@ PcDiscovery discoverPcInstallations() {
             const auto folder = app.empty() ? std::filesystem::path{} : packagePath(app.front());
             result.clients.push_back({source, !folder.empty() && file(folder / L"XboxPcApp.exe") ? folder / L"XboxPcApp.exe" : std::filesystem::path{}});
             result.xbox = discoverXboxGames();
+            continue;
+        }
+        if (source == GameSource::multimc) {
+            // No client of its own: the first launcher found opens (connectPcClient).
+            result.multimc = multimc::discover(multimc_chosen);
+            result.clients.push_back({source, result.multimc.empty() ? std::filesystem::path{} : result.multimc.front().executable});
             continue;
         }
         const auto scheme = source == GameSource::gog ? L"goggalaxy" : source == GameSource::battlenet ? L"battlenet" :
@@ -365,6 +371,7 @@ StoreLibrary scanNativePcLibraries(const PcDiscovery& discovery, const std::vect
         game.play_action = {L"shell:AppsFolder\\" + wide(install.family) + L"!" + install.app_id};
         add(std::move(game));
     }
+    for (auto& game : multimc::scan(discovery.multimc)) add(std::move(game));
     if (ubisoft_account) {
         // Not installed here: Instaluj hands the product to Ubisoft Connect (uplay://install).
         // A local installation of the same product keeps precedence (add() never replaces).
@@ -466,6 +473,7 @@ StoreLibrary mergeEpicLibrary(StoreLibrary native, const std::vector<Game>& owne
         const auto found = std::find_if(native.visible.begin(), native.visible.end(), [&](const Game& g) { return gameKey(g) == gameKey(game); });
         if (found != native.visible.end()) {
             found->epic_namespace = game.epic_namespace; found->epic_catalog = game.epic_catalog; found->epic_partner = game.epic_partner;
+            found->store_playtime_minutes = std::max(found->store_playtime_minutes, game.store_playtime_minutes); // Epic's own count.
             if (game.visibility != GameVisibility::public_game) found->visibility = game.visibility;
         } else {
             auto entry = game; entry.account_id = account; entry.installed = false; entry.play_action = {};
@@ -498,8 +506,8 @@ StoreLibrary mergeImportedLibrary(StoreLibrary native, const std::vector<Game>& 
 StoreLibrary scanPcLibraries(const std::filesystem::path& catalogs, const std::vector<Game>& gog_owned, const std::string& gog_account,
                              const std::vector<Game>& previous_battlenet, const std::vector<Game>& epic_owned,
                              const std::string& epic_account, const std::vector<Game>& epic_installed,
-                             const std::vector<Game>& imported) {
-    auto discovery = discoverPcInstallations();
+                             const std::vector<Game>& imported, const std::vector<std::filesystem::path>& multimc_chosen) {
+    auto discovery = discoverPcInstallations(multimc_chosen);
     discovery.ubisoft_names = catalogs.parent_path() / L"ubisoft" / L"names.tsv";
     // Offline GOG installers are also tracked independently of account state,
     // including installers that did not create an uninstall registry entry.
@@ -532,6 +540,7 @@ GameAction connectPcClient(GameSource source, const std::vector<StoreClient>& cl
     case GameSource::ea: return {L"https://www.ea.com/ea-app", {}, {}, ActionKind::open_client};
     case GameSource::ubisoft: return {L"https://www.ubisoft.com/ubisoft-connect", {}, {}, ActionKind::open_client};
     case GameSource::epic: return {L"https://store.epicgames.com/download", {}, {}, ActionKind::open_client};
+    case GameSource::multimc: return {L"https://prismlauncher.org/download/", {}, {}, ActionKind::open_client};
     default: return {};
     }
 }
@@ -555,7 +564,8 @@ GameAction uninstallAction(const Game& game, const std::vector<InstalledProgram>
         if (game.kind != GameKind::steam || !game.app_id) return {};
         return {L"steam://uninstall/" + std::to_wstring(game.app_id), {}, {}, ActionKind::open_client};
     }
-    if (game.kind == GameKind::nonsteam || localFileGame(game.source)) return {}; // Removing an entry is not uninstalling.
+    // Removing an entry is not uninstalling; a Minecraft instance is removed in its own launcher.
+    if (game.kind == GameKind::nonsteam || localFileGame(game.source) || game.source == GameSource::multimc) return {};
     const auto folder = [](const std::filesystem::path& path) {
         auto text = lower(path.lexically_normal().wstring());
         std::replace(text.begin(), text.end(), L'/', L'\\');

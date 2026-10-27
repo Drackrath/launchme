@@ -176,6 +176,10 @@ public:
     void setTarotImage(size_t index, ImageBytes pixels, bool poster);
     bool tarotPoster(size_t index) const { return index < tarot_posters_.size() && tarot_posters_[index]; }
     bool tarotImage(size_t index) const { return index < tarot_images_.size() && tarot_images_[index].loaded(); }
+    // Profil's pictures (src/ui/profile_renderer.cpp): the player's, game covers, achievement icons.
+    void resetProfileImages(size_t count) { profile_images_.clear(); profile_images_.resize(count); }
+    void setProfileImage(size_t index, ImageBytes pixels);
+    bool profileImage(size_t index) const { return index < profile_images_.size() && profile_images_[index].loaded(); }
     void setPlatformBadge(const std::wstring& platform, std::vector<uint8_t> pixels);
     void resetArtworkThumbnails(size_t count);
     // The file picker's image preview (src/ui/file_browser_renderer.cpp); empty bytes clear it.
@@ -534,6 +538,11 @@ private:
     void drawTarotSymbol(tarot::Symbol symbol, float cx, float cy, float size, D2D1_COLOR_F ink, float stroke);
     void drawTarotGlyph(float x, float y, float size, D2D1_COLOR_F ink);
     bool createTarotFonts();
+    // Profil (src/ui/profile_renderer.cpp): the page, its cards and charts.
+    void drawProfile();
+    bool createProfileFonts();
+    void drawProfileImage(size_t index, D2D1_RECT_F box, float radius, float alpha, const std::wstring& fallback);
+    void drawProfileCard(D2D1_RECT_F box, float alpha, float focus, float hover);
     void drawDownloadGlyph(float x, float cy, float scale, D2D1_COLOR_F ink); // An arrow into a tray.
     void drawSettings();
     void drawSettingsLayouts(const settings_ui::Layout& layout, int row, float scroll, bool focused);
@@ -860,6 +869,9 @@ private:
     std::vector<Cover> glance_thumbnails_;
     std::vector<Cover> tarot_images_; // Tarot's result cards.
     std::vector<bool> tarot_posters_; // Per result: the image is its poster (else a cover standing in).
+    std::vector<Cover> profile_images_; // Profil's pictures (Launcher::profile_slots_).
+    Microsoft::WRL::ComPtr<IDWriteTextFormat> profile_name_font_, profile_value_font_, profile_big_font_, profile_title_font_, profile_body_font_, profile_small_font_;
+    std::wstring profile_fonts_family_;
     // Tarot's type: a calligraphic title, serif card names and numerals, an italic question.
     Microsoft::WRL::ComPtr<IDWriteTextFormat> tarot_title_font_, tarot_name_font_, tarot_numeral_font_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> tarot_question_font_, tarot_body_font_, tarot_small_font_, tarot_result_font_;

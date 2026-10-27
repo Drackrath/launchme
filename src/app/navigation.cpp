@@ -201,6 +201,7 @@ void Launcher::back() {
     case Modal::identify: closeIdentify(); return;
     case Modal::gog_install: gogInstallKey(VK_ESCAPE, false); return;
     case Modal::tarot: closeTarot(); return;
+    case Modal::profile: closeProfile(); return;
     case Modal::whats_new: closeWhatsNew(); return;
     default: break;
     }
@@ -311,7 +312,7 @@ void Launcher::onCharacter(wchar_t character) {
     case Modal::library_dialog: collectionDialogEdit(character); return;
     case Modal::custom_editor: customEditorInsert(std::wstring_view(&character, 1)); return;
     case Modal::identify: identifyEdit(character); return;
-    case Modal::gog_install: case Modal::companion_picker: case Modal::tarot: case Modal::whats_new: return;
+    case Modal::gog_install: case Modal::companion_picker: case Modal::tarot: case Modal::whats_new: case Modal::profile: return;
     default: break; // No dialog, or one without a text field (Pobierz brakujące okładki).
     }
     if (desktopActive() && desktopCharacter(character)) return; // Type-to-search in the desktop window.
@@ -1018,6 +1019,8 @@ void Launcher::startLaunchAnimation(const Game& game) {
     launch_animation_title_ = game.name;
     launch_artwork_key_ = gameKey(game);
     launch_animation_started_ = std::chrono::steady_clock::now();
+    launch_animation_ending_.reset();
+    launch_animation_rested_ = false;
     launch_progress_ = 0;
     dismissMenu(); closeQuick(); closeFriends(); closeCategoryMenu();
     cancelEnterHold(); cancelTabHold();
@@ -1038,6 +1041,8 @@ void Launcher::startLaunchAnimation(const Game& game) {
 void Launcher::stopLaunchAnimation() {
     if (!launchAnimationActive()) return;
     launch_animation_started_.reset();
+    launch_animation_ending_.reset();
+    launch_animation_rested_ = false;
     launch_animation_title_.clear();
     launch_artwork_key_.clear();
     launch_played_key_.clear();
@@ -1046,10 +1051,45 @@ void Launcher::stopLaunchAnimation() {
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
+// The picture stays until the game is there (src/ui/launch_animation.hpp):
+// - another window in front (the game, its launcher): it rests, still, behind it;
+// - the launcher seen again after that while the game runs (Alt+Tab, the Guide's home): it fades out;
+// - in front all along: at least `seconds`, longer while the game still starts or its window is
+//   being brought forward, never beyond `longest`;
+// - the game's session ending (or failing to start) ends it at once (onGameActivity).
 void Launcher::tickLaunchAnimation(std::chrono::steady_clock::time_point now) {
-    // Wall time, independent of frame rate, focus, or how soon the game opens.
-    if (!launchAnimationActive() || now - *launch_animation_started_ < std::chrono::duration<float>(launch_animation::seconds)) return;
-    endLaunchAnimation();
+    if (!launchAnimationActive()) return;
+    if (launch_animation_ending_) {
+        if (now - *launch_animation_ending_ >= std::chrono::duration<float>(launch_animation::fade_out)) endLaunchAnimation();
+        return;
+    }
+    if (pending_launch_) return; // Waiting for a Steam account switch: the game is not started yet.
+    const float age = std::chrono::duration<float>(now - *launch_animation_started_).count();
+    if (const HWND foreground = overlay_backend_.foreground(); foreground != hwnd_) {
+        if (foreground) launch_animation_rested_ = true; // No foreground at all is a moment between two windows.
+        return;
+    }
+    const auto session = game_sessions_.find(launch_artwork_key_);
+    const bool running = session != game_sessions_.end() && session->second.running();
+    const bool starting = session != game_sessions_.end() && !running;
+    if (launch_animation_rested_ && running) { fadeLaunchAnimation(now); return; }
+    if (age < launch_animation::seconds) return;
+    if (age < launch_animation::longest && (starting || (running && launch_focus_key_ == launch_artwork_key_))) return;
+    fadeLaunchAnimation(now);
+}
+
+void Launcher::fadeLaunchAnimation(std::chrono::steady_clock::time_point now) {
+    if (!launchAnimationActive() || launch_animation_ending_) return;
+    launch_animation_ending_ = now;
+    InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
+// Behind the game the picture is still: no frames until it is seen again (or fades out).
+bool Launcher::launchAnimationMoving(std::chrono::steady_clock::time_point now) const {
+    if (!launchAnimationActive()) return false;
+    if (launch_animation_ending_) return true;
+    if (overlay_backend_.foreground() == hwnd_) return true;
+    return !launch_animation_rested_ && !launch_animation::still(std::chrono::duration<float>(now - *launch_animation_started_).count());
 }
 
 // Back (Esc, B, the mouse's back button) hides the picture early; the press that started the game

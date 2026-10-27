@@ -151,6 +151,22 @@ void Renderer::drawDashboardTile(int index, float drawer_left, bool focus_frame)
         if (celsius && *celsius >= hot_celsius) value_ink = palette::danger();
         break;
     }
+    case dashboard::Tile::profile: {
+        title = board.profile_name.empty() ? std::wstring(tr(L"Profil")) : board.profile_name;
+        value = board.profile_value;
+        caption = board.profile_caption;
+        // A wide tile: this week's seven days as small bars in its top right corner.
+        if (width >= dashboard::tile_width * 1.5f) {
+            const float bar = 9, gap = 6, chart_h = 46, right = r.right - tile_padding, bottom = r.top + tile_padding + chart_h;
+            for (size_t i = 0; i < 7; ++i) {
+                const float x = right - (7 - static_cast<float>(i)) * (bar + gap) + gap;
+                const float h = std::max(3.0f, chart_h * board.profile_week[i]);
+                brush(i == 6 ? uiAccent(0.95f) : gray(1, board.profile_week[i] > 0 ? 0.42f : 0.16f));
+                target_->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(x, bottom - h, x + bar, bottom), 3, 3), solid_.Get());
+            }
+        }
+        break;
+    }
     }
     // One typography/geometry contract for built-ins, plugins and FPS. Main status
     // never changes colour, font size or vertical origin according to its source. The glyph
@@ -286,6 +302,18 @@ void Renderer::drawDashboardGlyph(int tile, float x, float y, D2D1_COLOR_F ink) 
             line(x + 23, y + pin, x + 28, y + pin, ink, 2);
         }
         break;
+    case dashboard::Tile::profile: {
+        // The player: a round badge with their initials (as the profile's own picture stands in).
+        const auto& board = context_->dashboard;
+        target_->DrawEllipse(D2D1::Ellipse(D2D1::Point2F(x + 15, y + 15), 14, 14), solid_.Get(), stroke);
+        const auto initials = board.profile_initials.empty() ? std::wstring(L"?") : board.profile_initials;
+        ComPtr<IDWriteTextLayout> label;
+        if (SUCCEEDED(dwrite_->CreateTextLayout(initials.c_str(), static_cast<UINT32>(initials.size()), friend_status_font_.Get(), 30, 30, label.GetAddressOf()))) {
+            label->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER); label->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+            brush(ink); target_->DrawTextLayout(D2D1::Point2F(x, y), label.Get(), solid_.Get());
+        }
+        break;
+    }
     case dashboard::Tile::gpu:
         target_->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(x + 1, y + 6, x + 29, y + 22), 3, 3), solid_.Get(), stroke);
         target_->DrawEllipse(D2D1::Ellipse(D2D1::Point2F(x + 10, y + 14), 4.5f, 4.5f), solid_.Get(), 1.9f);

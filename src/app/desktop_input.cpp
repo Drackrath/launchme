@@ -651,7 +651,7 @@ void Launcher::desktopToolPick(desktop_ui::Tool tool) {
         if (plugin_menu_.size() == 1) pluginAction(plugin_menu_.front());
         else desktopOpenStoreMenu();
         return;
-    case Tool::friends: desktopToggleWidgets(); return;
+    case Tool::friends: toggleFriendsDrawer(); return; // The widgets themselves, as Tryb TV's drawer.
     case Tool::downloads: desktopToggleDownloads(); return;
     case Tool::tv: setDesktopMode(false); return;
     case Tool::settings: openSettings(); return;
@@ -1532,7 +1532,7 @@ std::wstring Launcher::desktopTooltip(const desktop_ui::Hit& hit) const {
         case Tool::tarot: return tr(L"Tarot — wróżba z kart");
         case Tool::companion: return companion::name(companionLook());
         case Tool::store: return tr(L"Sklep");
-        case Tool::friends: return tr(L"Widżety i znajomi");
+        case Tool::friends: return tr(L"Widżety · profil i znajomi");
         case Tool::downloads: {
             const auto moving = std::count_if(desktop_download_rows_.begin(), desktop_download_rows_.end(), [](const auto& row) { return row.moving; });
             return moving ? std::wstring(tr(L"Pobierania")) + L" · " + std::to_wstring(moving) : std::wstring(tr(L"Pobierania"));

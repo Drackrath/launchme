@@ -47,6 +47,9 @@ struct AppSettings {
     bool show_private = false;
     bool show_store = false;
     std::unordered_set<std::string> enabled_pc_sources;
+    // Platformy PC → MultiMC / Prism: a launcher the user pointed at (portable MultiMC is never
+    // installed anywhere Launchme looks); empty: only the ones found on their own.
+    std::filesystem::path multimc_path;
     float music_volume = 0.075f;
     int music_theme = 0;
     // Settings → Dźwięk → "Folder dźwięków": music themes and the start sound are also looked up

@@ -75,10 +75,10 @@ desktop_ui::Layout Launcher::desktopLayout() const {
 std::vector<desktop_ui::Tool> Launcher::desktopTools() const {
     std::vector<Tool> tools;
     if (updateAvailable()) tools.push_back(Tool::update); // A newer Launchme: first, in the accent colour.
+    tools.push_back(Tool::friends); // Widżety (the drawer: the profile, friends, sensors, plugins), first.
     if (settings_.glance) tools.push_back(Tool::glance);
     if (settings_.tarot) tools.push_back(Tool::tarot);
     if (!plugin_menu_.empty()) tools.push_back(Tool::store);
-    tools.push_back(Tool::friends);
     tools.push_back(Tool::downloads);
     tools.push_back(Tool::tv);
     tools.push_back(Tool::settings);
@@ -113,7 +113,7 @@ void Launcher::buildDesktopSidebar() {
     std::map<GameSource, size_t> per_source;
     for (const auto& game : public_library_) if (shown(game) && game.kind != GameKind::nonsteam) ++per_source[game.source];
     for (const auto source : {GameSource::steam, GameSource::gog, GameSource::epic, GameSource::battlenet, GameSource::ea, GameSource::ubisoft,
-                              GameSource::xbox, GameSource::drmfree, GameSource::custom}) {
+                              GameSource::xbox, GameSource::multimc, GameSource::drmfree, GameSource::custom}) {
         const auto found = per_source.find(source);
         if (found == per_source.end() || !found->second) continue;
         auto& entry = add(EntryKind::source, Group::platforms, std::string("source:") + sourceSlug(source), sourceName(source), found->second,
@@ -618,7 +618,7 @@ const GameDetails& Launcher::desktopDetails(const Game& game, bool& loading) {
     if (key != desktop_details_key_ || (preview != nullptr) != desktop_details_preview_ || game_index_revision_ != desktop_details_revision_) {
         const auto* local = localDetails(game);
         desktop_details_ = preview ? *preview : local ? *local : GameDetails{};
-        if (!steamArtwork(game)) desktop_details_.playtime_minutes = localPlaytime(game);
+        desktop_details_.playtime_minutes = gamePlaytime(game, desktop_details_.playtime_minutes);
         completeDetails(desktop_details_, game);
     if (const auto* own = metadataOverride(game)) metadata::apply(*own, desktop_details_); // Edytuj metadane wins.
         desktop_details_key_ = key;

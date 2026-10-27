@@ -492,6 +492,7 @@ void Renderer::paint(const std::vector<GameCard>& cards, size_t selected, bool s
             drawFileBrowser(); // Opened from the panels above; the power menu and exit prompt stay over it.
             drawKeyboard(); // Over the field's dialog it types into.
             drawCompanionPicker();
+            drawProfile(); // Over any screen, from the drawer: the lowest dialog.
             drawTarot(); // Over the home it opens from; the walkthrough, prompts and toasts above it.
             drawWhatsNew(); // After an update's restart: the top dialog; the walkthrough and prompts above it.
             drawTour(); // Over the panels it opens; notifications and the exit prompt stay above it.
@@ -643,7 +644,8 @@ Renderer::TextureStats Renderer::textureStats() const {
             ++stats.bitmaps; stats.bytes += static_cast<size_t>(relief.width) * relief.height * 4;
         }
     };
-    for (const auto* list : {&covers_, &logos_, &heroes_, &posters_, &discs_, &plugin_thumbnails_, &glance_thumbnails_, &tarot_images_}) for (const auto& cover : *list) count(cover);
+    for (const auto* list : {&covers_, &logos_, &heroes_, &posters_, &discs_, &plugin_thumbnails_, &glance_thumbnails_, &tarot_images_, &profile_images_})
+        for (const auto& cover : *list) count(cover);
     for (const auto& tile : tile_thumbnails_) for (const auto& thumbnail : tile) count(thumbnail);
     return stats;
 }

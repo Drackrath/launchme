@@ -1,5 +1,6 @@
 #pragma once
 #include "store_adapter.hpp"
+#include "multimc.hpp"
 
 #include <functional>
 #include <string_view>
@@ -26,13 +27,15 @@ struct PcDiscovery {
     std::vector<NativeInstall> installs;
     std::vector<InstalledProgram> programs;
     std::vector<XboxInstall> xbox;
+    std::vector<multimc::Installation> multimc; // MultiMC / Prism Launcher / PolyMC (Minecraft instances).
     std::filesystem::path epic_manifests, epic_installed, battlenet_database, battlenet_aggregate;
     // Ubisoft Connect cache roots (ownership/, settings/) and Launchme's title cache (names.tsv).
     std::vector<std::filesystem::path> ubisoft_caches;
     std::filesystem::path ubisoft_names;
 };
 
-PcDiscovery discoverPcInstallations();
+// multimc_chosen: launcher EXEs or folders the user pointed at (portable MultiMC).
+PcDiscovery discoverPcInstallations(const std::vector<std::filesystem::path>& multimc_chosen = {});
 StoreLibrary scanNativePcLibraries(const PcDiscovery& discovery, const std::vector<Game>& previous_battlenet = {});
 StoreLibrary mergePcLibraries(StoreLibrary native, const std::filesystem::path& catalogs);
 StoreLibrary mergeGogLibrary(StoreLibrary native, const std::vector<Game>& owned, const std::string& account);
@@ -43,7 +46,7 @@ StoreLibrary mergeImportedLibrary(StoreLibrary native, const std::vector<Game>& 
 StoreLibrary scanPcLibraries(const std::filesystem::path& catalogs, const std::vector<Game>& gog_owned = {}, const std::string& gog_account = {},
                              const std::vector<Game>& previous_battlenet = {}, const std::vector<Game>& epic_owned = {},
                              const std::string& epic_account = {}, const std::vector<Game>& epic_installed = {},
-                             const std::vector<Game>& imported = {});
+                             const std::vector<Game>& imported = {}, const std::vector<std::filesystem::path>& multimc_chosen = {});
 GameAction connectPcClient(GameSource source, const std::vector<StoreClient>& clients);
 // How Windows itself would remove this installed game (Ustawienia → Aplikacje): the uninstall
 // entry its installer registered, matched by the store's key (GOG "<id>_is1") or by its install

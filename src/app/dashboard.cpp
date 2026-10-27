@@ -4,10 +4,22 @@
 namespace board = friends_layout::dashboard;
 
 board::Layout Launcher::dashboardLayout() const {
-    std::vector<std::string> ids{"steam", "discord", "cpu", "gpu"};
+    // Indexed like board::Tile, then the plugins' widgets and the FPS reading.
+    // Over a game the profile (a whole page) is not offered: its slot stays, empty, so the
+    // plugins' and the FPS reading's indices do not move.
+    const bool profile = !gameOverlayOpen();
+    std::vector<std::string> ids{"steam", "discord", "cpu", "gpu", profile ? "profile" : ""};
     for (const auto& w : plugin_widgets_) ids.push_back(w.plugin + "/" + w.item.id);
     if (settings_.game_fps) ids.push_back("fps");
-    return {ids, settings_.widget_layout};
+    const auto& saved = settings_.widget_layout;
+    if (!profile || std::any_of(saved.begin(), saved.end(), [](const auto& p) { return p.id == "profile"; })) return {ids, saved};
+    // Not placed yet (a new profile, or one from before it existed): the others keep their places
+    // and the profile comes after them, as a wide tile.
+    auto placed = saved;
+    for (const auto& id : ids)
+        if (id != "profile" && std::none_of(placed.begin(), placed.end(), [&](const auto& p) { return p.id == id; })) placed.push_back({id, widgets::Size::square});
+    placed.push_back({"profile", widgets::Size::wide});
+    return {ids, placed};
 }
 
 bool Launcher::dashboardEditing() const {

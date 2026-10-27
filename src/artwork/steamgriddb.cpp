@@ -88,7 +88,7 @@ GridPage browseSteamGridDB(const Game& game, ArtworkKind kind, int page, GridSou
         auto result = fetch({game.app_id, true});
         if (!result.assets.empty() || !result.error.empty() || result.more) return result;
     }
-    const auto matched = resolveGridGame(game.name, key, get);
+    const auto matched = resolveGridGame(artworkTitle(game), key, get);
     return matched.source.id ? fetch(matched.source) : GridPage{{}, {}, false, matched.error};
 }
 

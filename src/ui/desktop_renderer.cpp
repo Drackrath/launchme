@@ -339,7 +339,21 @@ void Renderer::drawDesktopTitlebar(const Layout& layout, const View& view) {
         case Tool::tarot: drawTarotGlyph(x, y, 16, ink); break;
         case Tool::companion: desktopGlyph(glyph::people, x, y, 16, ink); break;
         case Tool::store: desktopGlyph(glyph::shop, x, y, 16, ink); break;
-        case Tool::friends: desktopGlyph(glyph::people, x, y, 16, ink); break;
+        case Tool::friends: { // Widżety: three tiles and a turned one, as a widgets icon.
+            brush(ink);
+            const float s = 6.4f, g = 2.8f, l = x - s - g * 0.5f, t = y - s - g * 0.5f;
+            for (const auto& [tx, ty] : {std::pair{l, t}, std::pair{l, t + s + g}, std::pair{l + s + g, t + s + g}})
+                target_->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(tx, ty, tx + s, ty + s), 1.6f, 1.6f), solid_.Get(), 1.4f);
+            const float dx = l + s + g + s * 0.5f, dy = t + s * 0.5f, d = s * 0.62f;
+            ComPtr<ID2D1PathGeometry> diamond; ComPtr<ID2D1GeometrySink> sink;
+            if (SUCCEEDED(factory_->CreatePathGeometry(diamond.GetAddressOf())) && SUCCEEDED(diamond->Open(sink.GetAddressOf()))) {
+                sink->BeginFigure(D2D1::Point2F(dx, dy - d), D2D1_FIGURE_BEGIN_HOLLOW);
+                sink->AddLine(D2D1::Point2F(dx + d, dy)); sink->AddLine(D2D1::Point2F(dx, dy + d)); sink->AddLine(D2D1::Point2F(dx - d, dy));
+                sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+                if (SUCCEEDED(sink->Close())) target_->DrawGeometry(diamond.Get(), solid_.Get(), 1.4f);
+            }
+            break;
+        }
         case Tool::tv: desktopGlyph(glyph::tv, x, y, 17, ink); break;
         case Tool::settings: desktopGlyph(glyph::settings, x, y, 16, ink); break;
         case Tool::update: {

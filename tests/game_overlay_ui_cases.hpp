@@ -105,7 +105,9 @@ int LauncherUiTest::gameOverlay(HWND window) {
     if (!capture(L"game-guide-widgets-button.png")) return 1885;
     pad.buttons = XINPUT_GAMEPAD_A; app.controller(pad);
     pad.buttons = 0; app.controller(pad);
-    if (!app.friends_open_ || app.friends_list_ || app.dashboardTileCount() != 5) return 1808;
+    const auto overlay_tiles = app.dashboardLayout().items;
+    if (!app.friends_open_ || app.friends_list_ || app.dashboardTileCount() != 6 ||
+        std::any_of(overlay_tiles.begin(), overlay_tiles.end(), [](const auto& item) { return item.id.empty() || item.id == "profile"; })) return 1808; // No profile over a game.
     if (focuses || shows != 1 || !app.gameOverlayOpen()) return 1886;
     app.couch_category_pending_ = true;
     app.focusCouchCategory(); // A virtual second pad must not close the Guide drawer.
@@ -121,7 +123,7 @@ int LauncherUiTest::gameOverlay(HWND window) {
     animate();
     if (app.overlay_motion_.drawer != 1 || app.overlay_motion_.bar != 0) return 1854;
     app.overlayKey(VK_DOWN); app.overlayKey(VK_DOWN); // FPS below the four built-ins.
-    if (app.dashboard_tile_ != 4) return 1809;
+    if (app.dashboard_tile_ != 5) return 1809;
     const bool dirty = app.settings_dirty_;
     app.overlayKey(VK_RETURN);
     if (app.settings_dirty_ != dirty || !app.gameOverlayOpen()) return 1810; // Read-only, no hidden pin toggle.

@@ -204,6 +204,7 @@ void Launcher::onAchievements(std::unique_ptr<AchievementsMessage> message) {
         InvalidateRect(hwnd_, nullptr, FALSE);
         return;
     }
+    recordAchievements(state.key, state.title, message->list); // The profile's history learns its unlocks.
     showAchievementList(message->list, message->final);
 }
 

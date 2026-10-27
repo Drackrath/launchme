@@ -103,7 +103,7 @@ void Launcher::onCover(std::unique_ptr<CoverMessage> cover) {
     } else if (cover->kind == CoverMessage::Kind::logo) asset.logo = shareImage(std::move(cover->bytes));
     else { asset.hero = shareImage(std::move(cover->bytes)); asset.hero_tone = cover->hero_tone; }
     art_.resize(cover->key);
-    if (cover->kind == CoverMessage::Kind::cover) tarotArtArrived(cover->key, cover->kind, asset.cover);
+    if (cover->kind == CoverMessage::Kind::cover) { tarotArtArrived(cover->key, cover->kind, asset.cover); profileArtArrived(cover->key, cover->kind, asset.cover); }
     if (friends_open_ && plugin_drawer_active_ && cover->kind == CoverMessage::Kind::cover) requestPluginPageArt();
     // The desktop grid binds only around its view (thousands of cards; a card scrolled away is
     // bound again from art_ when it returns) and a cover only where it stands in for a poster.

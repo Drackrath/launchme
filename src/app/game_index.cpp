@@ -71,7 +71,7 @@ std::vector<game_index::LibraryGame> Launcher::gameIndexGames() const {
         const auto history = recent_games::historyKey(game, account_, gog_state_.account, epic_state_.account);
         if (const auto found = library_state_.last_played.find(history); found != library_state_.last_played.end())
             item.last_played = std::max(item.last_played, found->second);
-        if (!item.app_id) if (const auto minutes = localPlaytime(game)) item.playtime_minutes = minutes;
+        if (!item.app_id) if (const auto minutes = gamePlaytime(game).value_or(0)) item.playtime_minutes = minutes;
         applyMetadataToIndex(item, game); // Edytuj metadane.
         games.push_back(std::move(item));
     }

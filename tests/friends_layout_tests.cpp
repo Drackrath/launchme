@@ -17,10 +17,10 @@ int main() {
         return 1;
     }
 
-    // Dashboard grid: 2 columns, 2D moves stop at the edges, hits match the drawn tiles.
+    // Dashboard grid: 2 columns, 2D moves stop at the edges (the profile alone in the last row), hits match the drawn tiles.
     namespace dashboard = friends_layout::dashboard;
     if (dashboard::move(0, 1, 0) != 1 || dashboard::move(1, 1, 0) != 1 || dashboard::move(0, 0, 1) != 2 ||
-        dashboard::move(3, 0, 1) != 3 || dashboard::move(3, -1, 0) != 2 || dashboard::move(2, 0, -1) != 0 ||
+        dashboard::move(3, 0, 1) != 4 || dashboard::move(4, 1, 1) != 4 || dashboard::move(3, -1, 0) != 2 || dashboard::move(2, 0, -1) != 0 ||
         dashboard::move(1, -1, 1) != 2 || dashboard::move(0, -1, -1) != 0) {
         std::cerr << "Dashboard tile navigation is wrong\n";
         return 2;

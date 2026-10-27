@@ -28,7 +28,7 @@ Launcher::DesktopText Launcher::desktopText() {
     if (!desktop_mode_) return target;
     if (desktop_meta_.open) {
         if (desktop_meta_.focus >= 0 && desktop_meta_.focus < desktop_ui::meta_fields) {
-            static constexpr size_t limits[desktop_ui::meta_fields] = {120, 4000, 160, 160, 40, 200, 16};
+            static constexpr size_t limits[desktop_ui::meta_fields] = {120, 4000, 160, 160, 40, 200, 16, 20};
             const auto index = static_cast<size_t>(desktop_meta_.focus);
             target = {&desktop_meta_.fields[index], &desktop_meta_.caret, &desktop_meta_.selected, limits[index], index == 1, 1};
         }

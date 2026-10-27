@@ -658,7 +658,7 @@ void Launcher::desktopSheetView(SheetView& view) const {
     }
     if (screen_ == ScreenMode::details && !cards_.empty()) {
         const auto& game = cards_[0].game;
-        const auto minutes = !steamArtwork(game) ? std::optional<uint32_t>(localPlaytime(game)) : details_.playtime_minutes;
+        const auto minutes = gamePlaytime(game, details_.playtime_minutes);
         view.playtime = minutes && *minutes ? formatPlaytime(*minutes) : std::wstring(tr(L"Brak"));
         view.last_played = desktopPlayedWhen(game.last_played);
         view.folder = !gameFolder(game).empty();

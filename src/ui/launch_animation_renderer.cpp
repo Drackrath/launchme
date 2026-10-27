@@ -7,7 +7,7 @@ using Microsoft::WRL::ComPtr;
 // the middle (its title without one), "Uruchamianie…" beneath. Without a background: its poster or
 // cover blurred, else the screen's own background darkened.
 void Renderer::drawLaunchAnimation() {
-    const float age = context_->launch_animation_seconds, alpha = launch_animation::opacity(age);
+    const float age = context_->launch_animation_seconds, alpha = launch_animation::opacity(age, context_->launch_animation_ending);
     if (alpha <= 0.001f) return;
     const float width = viewport_.width, height = viewport_.height;
     const auto index = context_->launch_artwork_index;

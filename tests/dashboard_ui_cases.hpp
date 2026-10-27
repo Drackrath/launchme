@@ -88,8 +88,12 @@ int LauncherUiTest::dashboard(HWND window) {
     if (app.dashboard_tile_ != static_cast<int>(board::Tile::gpu)) return 707;
     app.navigate(-1);
     if (app.dashboard_tile_ != static_cast<int>(board::Tile::cpu)) return 708;
-    app.friendsMove(1); app.navigate(-1);
-    if (app.dashboard_tile_ != static_cast<int>(board::Tile::cpu)) return 709;
+    app.friendsMove(1); // The profile: wide, under the temperatures, the last row.
+    if (app.dashboard_tile_ != static_cast<int>(board::Tile::profile)) return 709;
+    app.navigate(-1); app.friendsMove(1);
+    if (app.dashboard_tile_ != static_cast<int>(board::Tile::profile)) return 754;
+    app.friendsMove(-1);
+    if (app.dashboard_tile_ != static_cast<int>(board::Tile::cpu)) return 755;
     app.friendsMove(-1);
     if (app.dashboard_tile_ != static_cast<int>(board::Tile::steam)) return 710;
     // Read-only tiles do nothing; the list is not open and nothing was launched.

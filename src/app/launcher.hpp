@@ -29,6 +29,7 @@
 #include "../library/steam_accounts.hpp"
 #include "../library/rawg.hpp"
 #include "../library/game_index_service.hpp"
+#include "../library/play_journal.hpp"
 #include "../net/companion_memory.hpp"
 #include "../net/companion_mood.hpp"
 #include "../net/companion_photos.hpp"
@@ -67,6 +68,7 @@
 #include "launcher_queues.hpp"
 #include "companion_state.hpp"
 #include "library_preview.hpp"
+#include "profile_scan.hpp"
 #include "../ui/overlay_window.hpp"
 #include "../ui/browser_window.hpp"
 #include "../ui/guide_motion.hpp"
@@ -206,6 +208,18 @@ public:
     void tarotPointer(float x, float y); // Hover.
     bool tarotPointerOver(float x, float y) const;
     bool tickTarot(float dt);
+    // Profil (src/app/profile.cpp): the player's page over the launcher, a modal layer
+    // (Modal::profile) opened from its widget in the drawer and the desktop window's widgets.
+    bool profileOpen() const { return profile_.open; }
+    bool profileAvailable() const;
+    void openProfile();
+    void closeProfile();
+    void profileKey(WPARAM key, bool repeated);
+    void profileClick(float x, float y);   // Logical coordinates, as the renderer's viewport.
+    void profilePointer(float x, float y); // Hover.
+    bool profilePointerOver(float x, float y) const;
+    void profileScroll(float amount);      // Logical pixels; the mouse wheel and the shoulders.
+    bool tickProfile(float dt);
     // The home (any layout) with no menu, panel or dialog over it: Glance's and the companion's tiles.
     bool homeOverlayAvailable(bool allow_closing = false) const;
     // Where this layout puts Glance and Towarzyszka (src/ui/home_widgets.hpp), and their free-standing
@@ -731,7 +745,7 @@ public:
     // topmost open one takes keys, pad buttons, the wheel and clicks before any screen, drawer or
     // menu. The on-screen keyboard is not a layer: it types into the field of the layer beneath.
     enum class Modal { none, exit_prompt, power_menu, tour, file_browser, library_dialog, custom_editor, bulk_covers, identify, gog_install, companion_picker, tarot,
-                       whats_new };
+                       whats_new, profile };
     Modal topModal() const;
     // The topmost of the dialogs under the walkthrough (file picker … installer): Back and typed
     // characters reach it even under the exit prompt or the power menu.
@@ -833,6 +847,43 @@ private:
     void bindTarotArt();
     // A poster or cover that arrived (onCover): bound to the result showing that game.
     void tarotArtArrived(const std::string& key, CoverMessage::Kind kind, const ImageBytes& image);
+    // Profil (src/app/profile.cpp): the page, its pictures (the player's, game covers, achievement
+    // icons), the background read in flight, and the journal and achievement history it shows.
+    profile_ui::State profile_;
+    struct ProfileSlot {
+        enum class Kind { avatar, cover, icon } kind = Kind::cover;
+        std::string key;  // cover: the game.
+        std::wstring url; // icon: the achievement's picture.
+    };
+    std::vector<ProfileSlot> profile_slots_; // Renderer::setProfileImage indices.
+    std::vector<uint8_t> profile_avatar_;
+    std::map<std::wstring, std::vector<uint8_t>> profile_icons_;
+    uint32_t profile_generation_ = 0;
+    std::shared_ptr<std::atomic_bool> profile_cancel_ = std::make_shared<std::atomic_bool>(false);
+    ProfileReader profile_reader_; // UI tests answer it; empty: readProfile on a worker (the running launcher only).
+    play_journal::Journal journal_;
+    bool journal_loaded_ = false, journal_dirty_ = false;
+    uint64_t next_journal_save_ = 0;
+    achievement_history::History history_;
+    bool history_loaded_ = false;
+    void loadProfileData();
+    void journalPlayed(const std::string& key, const std::wstring& name, uint64_t ms);
+    void journalLaunched(const std::string& key, const std::wstring& name);
+    void saveJournal();
+    void recordAchievements(const std::string& key, const std::wstring& name, const SteamAchievements& list);
+    void rebuildProfile();
+    void bindProfileArt();
+    void profileArtArrived(const std::string& key, CoverMessage::Kind kind, const ImageBytes& image);
+    void startProfileScan(bool steam);
+    void profileScanned(uint32_t generation, bool steam, ProfileScanResult result);
+    void profileMove(int dx, int dy);
+    void profileAccept();
+    std::wstring profileName();
+    std::wstring profile_name_;
+    uint64_t profile_name_account_ = 0;
+    DrawerDashboard profile_tile_; // The drawer's tile, refreshed every few seconds (profileTile).
+    uint64_t profile_tile_at_ = 0;
+    void profileTile(DrawerDashboard& tile);
     // Her premiere remarks from Glance's calendar (companion_events.cpp); UI tests read no calendar.
 #ifdef LAUNCHME_UI_TEST
     std::function<std::vector<std::wstring>(bool, int)> companion_premieres_ = [](bool, int) { return std::vector<std::wstring>{}; };
@@ -993,7 +1044,10 @@ private:
     bool excludedGame(const Game& game) const;
     void excludeGame(const Game& game);
     void openExcludedGames(GameSource source);
-    uint32_t localPlaytime(const Game& game) const;
+    uint32_t localPlaytime(const Game& game) const; // Launchme's own count (minutes), never Steam's.
+    // Czas gry shown for a game: Steam's value (`steam`), the store's or Launchme's count, the player's own.
+    std::optional<uint32_t> gamePlaytime(const Game& game, std::optional<uint32_t> steam = std::nullopt) const;
+    std::optional<uint32_t> automaticPlaytime(const Game& game, std::optional<uint32_t> steam = std::nullopt) const; // Without the player's own.
     bool playtime_dirty_ = false;
     uint64_t next_playtime_save_ = 0;
     versions::Index versions_;
@@ -1236,6 +1290,8 @@ private:
     void stopLaunchAnimation();
     void tickLaunchAnimation(std::chrono::steady_clock::time_point now);
     void endLaunchAnimation(); // Its time is up or Back hid it: the home with the started game in front.
+    void fadeLaunchAnimation(std::chrono::steady_clock::time_point now); // Starts its fade-out (ends in tick).
+    bool launchAnimationMoving(std::chrono::steady_clock::time_point now) const; // A frame is worth painting.
 public:
     // Back while it plays (main.cpp: Esc/Backspace, the pad: B); false while too young to dismiss.
     bool dismissLaunchAnimation(std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now());
@@ -1374,6 +1430,7 @@ private:
     bool pcSettingsActivate(const settings_ui::Row& row);
     void openPlatformSettings(GameSource source);
     void cancelPlatformSignIn(GameSource source);
+    void setMultimcPath(const std::filesystem::path& picked); // Empty: forget it.
     bool pluginSettingsActivate(const settings_ui::Row& row);
     // query: a plugin page's search text (params.query). background: the page's periodic refresh,
     // which neither blocks nor outlives a command picked meanwhile.
@@ -2168,6 +2225,8 @@ private:
     std::string launch_played_key_; // Focused in Recent once the cover animation ends.
     std::string launch_artwork_key_;
     std::optional<std::chrono::steady_clock::time_point> launch_animation_started_;
+    std::optional<std::chrono::steady_clock::time_point> launch_animation_ending_; // Its fade-out began.
+    bool launch_animation_rested_ = false; // Another window (the game) was in front: it rests behind it.
     std::wstring launch_animation_title_;
     RECT previous_rect_{};
     std::chrono::steady_clock::time_point enter_started_{};
@@ -2407,6 +2466,7 @@ private:
     void refreshTitleLookups(); // Once a start: older title overrides get fresh lookups.
     bool metadata_lookups_checked_ = false;
     void desktopMetaOpen(const Game& game);
+    std::optional<uint32_t> desktopSteamPlaytime(const Game& game) const;
     void desktopMetaClose();
     void desktopMetadataChanged();
     void desktopMetaSave();

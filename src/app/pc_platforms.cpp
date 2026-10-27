@@ -26,7 +26,7 @@ PcLibraryMessage readPcLibrary(const PcLibraryRequest& request, const std::funct
     for (const auto* snapshot : {&message.ea_import, &message.battlenet_import})
         if (*snapshot) imported.insert(imported.end(), (*snapshot)->games.begin(), (*snapshot)->games.end());
     const auto scan = [&] { return scanPcLibraries(root / L"libraries", request.gog_owned, request.gog_account,
-        request.previous_battlenet, request.epic_owned, request.epic_account, epic::installedGames(root), imported); };
+        request.previous_battlenet, request.epic_owned, request.epic_account, epic::installedGames(root), imported, request.multimc); };
     if (cancel()) return message;
     message.library = scan();
     // Owned Ubisoft products are listed by title only; new titles come from the public catalogue.
@@ -66,7 +66,8 @@ void Launcher::refreshPcLibraries() {
     const auto token = pc_token_;
     const auto alive = alive_;
     const auto window = hwnd_;
-    PcLibraryRequest request{gog_state_.games, epic_state_.games, {}, gog_state_.account, epic_state_.account};
+    PcLibraryRequest request{gog_state_.games, epic_state_.games, {}, gog_state_.account, epic_state_.account, {}};
+    if (!settings_.multimc_path.empty()) request.multimc.push_back(settings_.multimc_path);
     for (const auto* list : {&store_library_, &store_private_library_}) for (const auto& game : *list)
         if (game.source == GameSource::battlenet && !game.manifest_path.empty()) request.previous_battlenet.push_back(game);
     const auto failure = [generation, alive, window](std::exception_ptr) {
@@ -124,6 +125,11 @@ void Launcher::startPcWatcher() {
             }
             if (const auto local = environment(L"LOCALAPPDATA"); !local.empty())
                 watch.directory(local / L"Ubisoft Game Launcher" / L"cache" / L"ownership");
+            // Minecraft instances added, renamed or removed in Prism Launcher / PolyMC.
+            if (const auto roaming = environment(L"APPDATA"); !roaming.empty()) {
+                watch.directory(roaming / L"PrismLauncher" / L"instances");
+                watch.directory(roaming / L"PolyMC" / L"instances");
+            }
             watch.directory(config / L"libraries");
             watch.directory(config / L"installed" / L"gog");
             watch.directory(config / L"installed" / L"epic");
@@ -161,7 +167,7 @@ void Launcher::onStoreChange(std::unique_ptr<StoreChangeMessage> message) {
 bool Launcher::canUninstall(const Game& game) const {
     if (!isGame(game) || !game.installed || game.installation.active() || game.kind == GameKind::catalog || game.kind == GameKind::nonsteam) return false;
     if (game.source == GameSource::steam) return game.kind == GameKind::steam && game.app_id;
-    if (localFileGame(game.source)) return false; // Removing an entry from the list is not uninstalling.
+    if (localFileGame(game.source) || game.source == GameSource::multimc) return false; // Removing an entry from the list is not uninstalling.
     return game.epic_managed || game.source == GameSource::gog || game.source == GameSource::xbox || game.install_directory.is_absolute();
 }
 
@@ -269,7 +275,7 @@ void Launcher::onPcLibrary(std::unique_ptr<PcLibraryMessage> message) {
                 else if (!old->second.installation.active() && game.installation.active() && game.installation.phase != InstallPhase::unknown)
                     downloadQueued(game.name);
             }
-            changed |= old->second.installation != game.installation;
+            changed |= old->second.installation != game.installation || old->second.store_playtime_minutes != game.store_playtime_minutes;
             if (game.source == GameSource::battlenet && old->second.installation.active() &&
                 old->second.installation.phase != InstallPhase::unknown && game.installed && game.visibility == GameVisibility::public_game)
                 completed_pc_installs_.insert(key);
@@ -322,6 +328,7 @@ void Launcher::onPcLibrary(std::unique_ptr<PcLibraryMessage> message) {
             game.installed = next.installed; game.installation = next.installation;
             game.play_action = next.play_action; game.install_action = next.install_action;
             game.install_directory = next.install_directory; game.executable = next.executable;
+            game.store_playtime_minutes = next.store_playtime_minutes;
         }
     };
     for (auto* list : {&public_library_, &grouped_library_, &pc_library_, &search_results_, &detail_games_, &store_results_, &private_category_.games, &nested_games_, &xmb_top_})

@@ -4,6 +4,7 @@
 // goes back to the automatic value, and Przywróć automatyczne forgets them all.
 #include "launcher.hpp"
 
+#include "../library/steam_stats.hpp"
 #include "../platform/text_encoding.hpp"
 
 #include <algorithm>
@@ -13,8 +14,10 @@
 using namespace desktop_ui;
 
 namespace {
-constexpr size_t limits[meta_fields] = {120, 4000, 160, 160, 40, 200, 16};
-std::wstring metadata::Override::* const members[meta_fields] = {
+constexpr size_t limits[meta_fields] = {120, 4000, 160, 160, 40, 200, 16, 20};
+constexpr int text_fields = 7; // Kept as typed; Czas gry (the last field) is kept in minutes.
+constexpr size_t playtime_field = 7;
+std::wstring metadata::Override::* const members[text_fields] = {
     &metadata::Override::title, &metadata::Override::description, &metadata::Override::developer,
     &metadata::Override::publisher, &metadata::Override::release_date, &metadata::Override::genres, &metadata::Override::hours,
 };
@@ -152,6 +155,14 @@ void Launcher::applyMetadataTitles(std::vector<Game>& games) const {
         if (const auto* value = metadataOverride(game); value && !value->title.empty()) game.name = value->title;
 }
 
+// Steam's own count for a Steam game, from what was already read (the list preview or Szczegóły).
+std::optional<uint32_t> Launcher::desktopSteamPlaytime(const Game& game) const {
+    if (!steamArtwork(game)) return std::nullopt;
+    if (const auto* preview = preview_.find(game); preview && preview->playtime_minutes) return preview->playtime_minutes;
+    if (!detail_games_.empty() && gameKey(detail_games_[0]) == gameKey(game)) return details_.playtime_minutes;
+    return std::nullopt;
+}
+
 void Launcher::desktopMetaOpen(const Game& game) {
     if (!desktopActive() || gameKey(game).empty()) return;
     desktopCloseMenu();
@@ -164,7 +175,7 @@ void Launcher::desktopMetaOpen(const Game& game) {
     meta = {};
     meta.open = true;
     meta.game = game.name;
-    meta.fields = {game.name, details.description, details.developer, details.publisher, details.release_date, details.genres, {}};
+    meta.fields = {game.name, details.description, details.developer, details.publisher, details.release_date, details.genres, {}, {}};
     // Czas przejścia: their own, else what HowLongToBeat gave the index.
     if (const auto* own = metadataOverride(game); own && !own->hours.empty()) meta.fields[6] = own->hours;
     else if (game_index_)
@@ -172,6 +183,13 @@ void Launcher::desktopMetaOpen(const Game& game) {
             const auto* record = index.get(key);
             return record && record->hltb_main ? hoursText(*record->hltb_main) : std::wstring{};
         });
+    // Czas gry: as shown (their own counted on, or the automatic one); beside it where the automatic one comes from.
+    const auto automatic = automaticPlaytime(game, desktopSteamPlaytime(game));
+    if (const auto shown = gamePlaytime(game, desktopSteamPlaytime(game)); shown && *shown) meta.fields[playtime_field] = metadata::playtimeText(*shown);
+    if (automatic) {
+        const auto* origin = steamArtwork(game) ? L"Steam" : game.store_playtime_minutes > localPlaytime(game) ? sourceName(game.source) : L"Launchme";
+        meta.playtime_note = tr(L"Automatycznie: ") + formatPlaytime(*automatic) + L" (" + origin + L")";
+    } else meta.playtime_note = tr(L"Steam: czas gry jeszcze się wczytuje");
     meta.shown = meta.fields;
     meta.overridden = metadataOverride(game) != nullptr;
     meta.caret = meta.fields[0].size();
@@ -203,9 +221,27 @@ void Launcher::desktopMetaSave() {
     if (!meta.open || desktop_meta_key_.empty()) return;
     metadata::Override value;
     if (const auto* existing = metadata_overrides_.find(desktop_meta_key_)) value = *existing;
-    for (int i = 0; i < meta_fields; ++i)
+    for (int i = 0; i < text_fields; ++i)
         if (meta.fields[static_cast<size_t>(i)] != meta.shown[static_cast<size_t>(i)]) // Edited: its own text; emptied: automatic again.
             value.*members[i] = trimmed(meta.fields[static_cast<size_t>(i)]);
+    if (meta.fields[playtime_field] != meta.shown[playtime_field]) {
+        // Czas gry: counted on from the typed value; emptied: the automatic one again.
+        const auto typed = trimmed(meta.fields[playtime_field]);
+        const Game* game = nullptr;
+        for (const auto* games : {&public_library_, &private_category_.games, &grouped_library_})
+            for (const auto& item : *games) if (!game && gameKey(item) == desktop_meta_key_) game = &item;
+        const auto automatic = game ? automaticPlaytime(*game, desktopSteamPlaytime(*game)) : std::nullopt;
+        if (typed.empty()) value.playtime.reset();
+        else if (const auto minutes = metadata::parsePlaytime(typed); !minutes) {
+            showNotification(NotificationKind::error, tr(L"Nie rozpoznano czasu gry"), tr(L"Wpisz np. 12, 12,5 albo 12:30."));
+            meta.focus = static_cast<int>(playtime_field); meta.caret = meta.fields[playtime_field].size();
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            return;
+        } else if (!automatic) {
+            showNotification(NotificationKind::error, tr(L"Czas gry ze Steam jeszcze się wczytuje"), tr(L"Spróbuj ponownie za chwilę."));
+            return;
+        } else { value.playtime = *minutes; value.playtime_base = *automatic; }
+    }
     const bool retitled = meta.fields[0] != meta.shown[0];
     const auto key = desktop_meta_key_;
     if (retitled) value.looked_up = !value.title.empty(); // Looked up afresh below.

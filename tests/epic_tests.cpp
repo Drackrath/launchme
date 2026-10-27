@@ -41,6 +41,8 @@ epic::Http fixture(ApiState& state) {
             if (state.unauthorized) { state.unauthorized = false; return response("", 401); }
             return response(R"({"account_id":"account-A","client_id":"test-client"})");
         }
+        if (url.find(L"/playtime/account/account-A/all") != url.npos)
+            return response(R"([{"accountId":"account-A","artifactId":"AppOne","totalTime":7260},{"accountId":"account-A","artifactId":"../x","totalTime":60}])");
         if (url.find(L"library/api") != url.npos) {
             ++state.pages;
             if (state.rate) return {429, {}, 123};
@@ -95,6 +97,7 @@ int main() {
     state.games.clear(); state.synced_at = 0;
     CHECK(api->library(config, state, never)); CHECK(state.games.size() == 1 && state.games[0].source_id == "AppOne" && api_state.pages == 2);
     CHECK(state.games[0].name == L"Owned Game");
+    CHECK(state.games[0].store_playtime_minutes == 121); // Epic's own play time (library service), 7260 s.
     {
         // An account call for a plugin (achievements): POST with the bearer, one refresh on 401.
         int posts = 0, renewals = 0;
@@ -124,6 +127,7 @@ int main() {
     CHECK(api->verify(config, state.tokens, never).failure == Failure::expired); CHECK(state.tokens.account == "account-A");
     auto vault = makeVault(root / L"epic.session"); CHECK(vault->save(state));
     std::optional<Session> restored; CHECK(vault->load(restored)); CHECK(restored && restored->games[0].source_id == "AppOne");
+    CHECK(restored->games[0].store_playtime_minutes == 121);
     std::ifstream encrypted(root / L"epic.session", std::ios::binary); const std::string ciphertext{std::istreambuf_iterator<char>{encrypted}, {}}; encrypted.close();
     CHECK(ciphertext.find(state.tokens.refresh) == ciphertext.npos && ciphertext.find("Owned Game") == ciphertext.npos);
     CHECK(vault->clear()); CHECK(vault->load(restored) && !restored);

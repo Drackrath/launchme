@@ -246,11 +246,12 @@ struct QuickLayout {
 
 // ---- Edytuj metadane: the player's own title and details (src/app/desktop_metadata.cpp) -----
 
-inline constexpr int meta_fields = 7; // Tytuł, Opis, Producent, Wydawca, Data premiery, Gatunki, Czas przejścia.
-enum class MetaItem { title, description, developer, publisher, release_date, genres, hours, save, restore, cancel, close };
+inline constexpr int meta_fields = 8; // Tytuł, Opis, Producent, Wydawca, Data premiery, Gatunki, Czas przejścia, Czas gry.
+enum class MetaItem { title, description, developer, publisher, release_date, genres, hours, playtime, save, restore, cancel, close };
 struct MetaView {
     bool open = false;
     std::wstring game;                           // Its name when the dialog opened.
+    std::wstring playtime_note;                  // Beside Czas gry: where the automatic value comes from.
     std::array<std::wstring, meta_fields> fields;
     std::array<std::wstring, meta_fields> shown; // As they were shown: unchanged ones keep their state.
     int focus = 0;                               // A MetaItem.
@@ -263,7 +264,7 @@ struct MetaLayout {
     float width = 0, height = 0;
     static constexpr float label_h = 22, line_h = 38, text_h = 136, gap = 14, button_h = 38;
     Rect panel() const {
-        const float w = std::min(700.0f, width - 48), h = std::min(584.0f, height - 48);
+        const float w = std::min(700.0f, width - 48), h = std::min(660.0f, height - 48);
         const float left = std::round((width - w) * 0.5f), top = std::round((height - h) * 0.5f);
         return {left, top, left + w, top + h};
     }
@@ -281,7 +282,9 @@ struct MetaLayout {
         y += line_h + gap + label_h;                  // Data premiery | Czas przejścia | Gatunki.
         if (index == 4) return {left, y, left + 170, y + line_h};
         if (index == 6) return {left + 186, y, left + 316, y + line_h};
-        return {left + 332, y, right, y + line_h};
+        if (index == 5) return {left + 332, y, right, y + line_h};
+        y += line_h + gap + label_h;                  // Czas gry (its note beside it).
+        return {left, y, left + 170, y + line_h};
     }
     Rect button(MetaItem item) const {
         const auto p = panel();

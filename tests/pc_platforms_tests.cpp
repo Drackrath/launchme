@@ -51,6 +51,20 @@ int main() {
     std::ofstream(input.epic_manifests / "game.item") << "\xef\xbb\xbf" << epic_manifest;
     std::ofstream(input.epic_manifests / "duplicate.item") << epic_manifest;
     std::ofstream(input.epic_manifests / "unfinished.item") << R"({"AppName":"Incomplete","bIsIncompleteInstall":true})";
+    // Prism Launcher: data beside its EXE (portable.txt), one instance plus folders that are none.
+    const auto prism = root / "multimc" / "prismlauncher.exe", prism_data = root / "multimc";
+    std::ofstream(prism) << "fixture";
+    std::ofstream(prism_data / "portable.txt") << "";
+    std::ofstream(prism_data / "prismlauncher.cfg") << "[General]\nConfigVersion=1.3\nInstanceDir=instances\n";
+    const auto instance = prism_data / "instances" / "Fabric 1.20";
+    fs::create_directories(instance);
+    fs::create_directories(prism_data / "instances" / ".LAUNCHER_TEMP");
+    fs::create_directories(prism_data / "instances" / "Empty");
+    std::ofstream(instance / "instance.cfg") << "[General]\nConfigVersion=1.3\nInstanceType=OneSix\niconKey=grass\n"
+        "lastLaunchTime=1700000000123\nname=\"Fabric, \\\"modded\\\" 1.20\"\ntotalTimePlayed=7260\n";
+    std::ofstream(instance / "mmc-pack.json") << R"({"components":[{"uid":"org.lwjgl3","version":"3.3.1"},{"uid":"net.minecraft","version":"1.20.1"}],"formatVersion":1})";
+    std::ofstream(prism_data / "instances" / "instgroups.json") << R"({"formatVersion":"1","groups":{"Modded":{"hidden":false,"instances":["Fabric 1.20"]}}})";
+    input.multimc.push_back({multimc::Flavor::prism, prism, prism_data});
     auto result = scanNativePcLibraries(input);
     if (result.visible.size() != pc_sources.size()) { std::cerr << "Expected one game per native source, got " << result.visible.size() << '\n'; return 1; }
     for (const auto source : pc_sources) {
@@ -64,6 +78,30 @@ int main() {
         if (source == GameSource::xbox && (game->play_action.target != L"shell:AppsFolder\\Fixture.Game_8wekyb3d8bbwe!Game" ||
             game->name != L"Xbox Fixture" || game->install_directory != root / "xbox" ||
             connection.target != L"shell:AppsFolder\\Microsoft.GamingApp_8wekyb3d8bbwe!Microsoft.Xbox.App")) return 13;
+        if (source == GameSource::multimc && (game->play_action.target != prism.wstring() || game->play_action.arguments != L"--launch \"Fabric 1.20\"" ||
+            game->play_action.working_directory != prism.parent_path() || game->name != L"Fabric, \"modded\" 1.20" || game->install_directory != instance ||
+            !game->executable.empty() || game->last_played != 1700000000 || game->store_playtime_minutes != 121 ||
+            game->source_id != multimc::instanceId(instance) || gameKey(*game) != "multimc:" + multimc::instanceId(instance))) return 23;
+    }
+    // MultiMC's own .cfg: no section, escapes; the instance reader and folder rules.
+    {
+        const auto config = multimc::parseConfig("\xef\xbb\xbf# comment\nname=Line\\nTwo\\\\x\nInstanceDir=C:\\\\Games\\\\MC\nbroken\n=value\nnotes=a\\#b\n");
+        if (multimc::configValue(config, L"name") != L"Line\nTwo\\x" || multimc::configValue(config, L"InstanceDir") != L"C:\\Games\\MC" ||
+            multimc::configValue(config, L"notes") != L"a#b" || config.size() != 3) return 24;
+        if (multimc::configValue(multimc::parseConfig("name=\\x0141\\x00f3d\\x017a\n"), L"name") != L"Łódź") return 25;
+        const auto read = multimc::readInstance(instance);
+        if (!read || read->version != L"1.20.1" || read->icon != L"grass" || read->played_seconds != 7260 || read->folder != L"Fabric 1.20") return 26;
+        const auto all = multimc::instances(input.multimc[0]);
+        if (all.size() != 1 || all[0].group != L"Modded") return 27;
+        std::ofstream(instance / "instance.cfg", std::ios::app) << "InstanceType=Legacy\n"; // Not Minecraft's current format: no game.
+        if (multimc::readInstance(instance)) return 28;
+        if (multimc::flavorOf(L"C:\\MMC\\MultiMC.exe") != multimc::Flavor::multimc || multimc::flavorOf(L"C:\\x\\PrismLauncher.exe") != multimc::Flavor::prism ||
+            multimc::flavorOf(L"C:\\x\\java.exe") || multimc::dataDirectory(L"C:\\MMC\\MultiMC.exe", multimc::Flavor::multimc) != L"C:\\MMC") return 29;
+        if (multimc::instanceId(L"C:\\A\\B") != multimc::instanceId(L"c:/a/b/") || multimc::instanceId(L"C:\\A\\B") == multimc::instanceId(L"C:\\A\\C")) return 30;
+        for (const auto& found : multimc::discover({root / "MultiMC.exe"})) if (found.executable == root / "MultiMC.exe") return 31; // No such file.
+        const auto chosen = multimc::discover({prism});
+        if (chosen.empty() || chosen.front().executable != prism || chosen.front().data != prism_data) return 32;
+        std::ofstream(instance / "instance.cfg", std::ios::trunc) << "InstanceType=OneSix\nname=Fabric 1.20\n";
     }
     if (connectPcClient(GameSource::xbox, {}).target != L"ms-windows-store://pdp/?ProductId=9MV0B5HZVK9Z") return 14;
     const auto catalogs = root / "catalogs";

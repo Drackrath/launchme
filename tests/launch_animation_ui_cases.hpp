@@ -30,10 +30,15 @@ int LauncherUiTest::launchAnimation(HWND window) {
     app.tickLaunchAnimation(started + std::chrono::seconds(5)); // About ten seconds, not a blink.
     if (!app.launchAnimationActive()) return 2523;
     using launch_animation::seconds;
+    using launch_animation::fade_out;
     if (seconds < 8 || launch_animation::opacity(0) != 0 || launch_animation::opacity(0.2f) <= 0 || launch_animation::opacity(0.2f) >= 1 ||
-        launch_animation::opacity(seconds * 0.5f) != 1 || launch_animation::opacity(seconds) != 0 ||
+        launch_animation::opacity(seconds * 0.5f) != 1 || launch_animation::opacity(seconds) != 1 || launch_animation::opacity(600) != 1 ||
+        launch_animation::opacity(seconds, fade_out) != 0 || launch_animation::opacity(seconds, fade_out * 0.5f) <= 0 ||
+        launch_animation::opacity(seconds, fade_out * 0.5f) >= 1 || launch_animation::opacity(seconds, 0) != 1 ||
         launch_animation::zoom(1) >= launch_animation::zoom(6) || launch_animation::zoom(0) != 1 ||
-        std::abs(launch_animation::zoom(seconds) - (1 + launch_animation::zoom_extra)) > 0.001f ||
+        std::abs(launch_animation::zoom(launch_animation::zoom_seconds) - (1 + launch_animation::zoom_extra)) > 0.001f ||
+        launch_animation::zoom(600) != launch_animation::zoom(launch_animation::zoom_seconds) ||
+        launch_animation::still(seconds) || !launch_animation::still(launch_animation::zoom_seconds) || launch_animation::longest < 60 ||
         launch_animation::logo(0) != 0 || launch_animation::logo(3) != 1) return 2519;
 
     auto captures = userConfigDirectory() / L"launch-captures";
@@ -50,12 +55,68 @@ int LauncherUiTest::launchAnimation(HWND window) {
     if (app.dismissLaunchAnimation(started + std::chrono::milliseconds(300)) || !app.launchAnimationActive()) return 2521;
     if (!app.dismissLaunchAnimation(started + std::chrono::seconds(2))) return 2522;
     if (app.launchAnimationActive() || app.screen_ != ScreenMode::shelves || dispatched.size() != 1) return 2513;
-    // Left alone, it ends on its own after its time.
-    app.focusCard(0); app.game_sessions_.clear();
+    // Left alone in front, it stays while the game still starts and while its window is being
+    // brought forward, then fades out once the game runs without it.
+    const auto after = [&](std::chrono::milliseconds ms) { return *app.launch_animation_started_ + ms; };
+    const auto past = std::chrono::milliseconds(static_cast<int>(seconds * 1000) + 50);
+    const auto fade = std::chrono::milliseconds(static_cast<int>(fade_out * 1000) + 50);
+    const auto run = [&](uint64_t at) { app.game_sessions_.at(gameKey(app.pending_game_)).observe(GameActivity::running, at); };
+    app.focusCard(0); app.game_sessions_.clear(); app.cancelGameFocus();
     app.launch(); app.tick();
-    if (!app.launchAnimationActive()) return 2524;
-    app.tickLaunchAnimation(*app.launch_animation_started_ + std::chrono::milliseconds(static_cast<int>(seconds * 1000) + 50));
-    if (app.launchAnimationActive() || app.screen_ != ScreenMode::shelves) return 2525;
+    if (!app.launchAnimationActive() || !app.game_sessions_.contains(app.launch_artwork_key_)) return 2524;
+    app.tickLaunchAnimation(after(past)); // The game is not there yet.
+    if (!app.launchAnimationActive() || app.launch_animation_ending_) return 2525;
+    run(GetTickCount64());
+    app.tickLaunchAnimation(after(past)); // Running; its window is still being brought forward.
+    if (!app.launchAnimationActive() || app.launch_animation_ending_ || app.launch_focus_key_ != app.launch_artwork_key_) return 2526;
+    app.cancelGameFocus();
+    app.tickLaunchAnimation(after(past));
+    if (!app.launchAnimationActive() || !app.launch_animation_ending_ || !app.launchAnimationMoving(after(past))) return 2527;
+    app.tickLaunchAnimation(*app.launch_animation_ending_ + fade);
+    if (app.launchAnimationActive() || app.screen_ != ScreenMode::shelves) return 2528;
+    // A game that never shows, the launcher in front: it gives up after its longest wait.
+    app.focusCard(0); app.game_sessions_.clear(); app.cancelGameFocus();
+    app.launch(); app.tick();
+    app.tickLaunchAnimation(after(std::chrono::seconds(static_cast<int>(launch_animation::longest) - 1)));
+    if (!app.launchAnimationActive() || app.launch_animation_ending_) return 2529;
+    app.tickLaunchAnimation(after(std::chrono::seconds(static_cast<int>(launch_animation::longest) + 1)));
+    if (!app.launch_animation_ending_) return 2530;
+    app.stopLaunchAnimation();
+    // The game takes the foreground: the picture rests behind it, still (no frames), as long as it runs.
+    HWND foreground = window;
+    app.overlay_backend_.foreground = [&] { return foreground; };
+    app.focusCard(0); app.game_sessions_.clear(); app.cancelGameFocus();
+    app.launch(); app.tick();
+    run(GetTickCount64());
+    foreground = reinterpret_cast<HWND>(static_cast<UINT_PTR>(0x5678));
+    app.tickLaunchAnimation(after(std::chrono::seconds(2)));
+    if (!app.launchAnimationActive() || !app.launch_animation_rested_ || app.launchAnimationMoving(after(std::chrono::seconds(2)))) return 2531;
+    app.tickLaunchAnimation(after(std::chrono::minutes(30)));
+    if (!app.launchAnimationActive() || app.launch_animation_ending_) return 2532;
+    foreground = nullptr; // A moment between two windows changes nothing.
+    app.tickLaunchAnimation(after(std::chrono::minutes(30)));
+    if (!app.launchAnimationActive() || app.launch_animation_ending_) return 2533;
+    // Seen again (Alt+Tab back): it fades out over the launcher.
+    foreground = window;
+    app.tickLaunchAnimation(after(std::chrono::minutes(31)));
+    if (!app.launch_animation_ending_) return 2534;
+    app.tickLaunchAnimation(*app.launch_animation_ending_ + fade);
+    if (app.launchAnimationActive()) return 2535;
+    // The game ends while the picture rests behind it: it ends with the session.
+    app.focusCard(0); app.game_sessions_.clear(); app.cancelGameFocus();
+    app.launch(); app.tick();
+    const auto started_at = GetTickCount64();
+    run(started_at);
+    foreground = reinterpret_cast<HWND>(static_cast<UINT_PTR>(0x5678));
+    app.tickLaunchAnimation(after(std::chrono::seconds(3)));
+    for (const uint64_t at : {started_at + 1000, started_at + 3000}) {
+        auto message = std::make_unique<GameActivityMessage>();
+        message->generation = app.game_activity_jobs_->generation.load(); message->observed_at = at;
+        message->activities.emplace_back(app.launch_artwork_key_, GameActivity::stopped);
+        app.onGameActivity(std::move(message));
+    }
+    if (app.launchAnimationActive() || !app.game_sessions_.empty()) return 2536;
+    app.overlay_backend_.foreground = [window] { return window; };
     dispatched.resize(1);
 
     // Failure reveals the error right away, without leaving a fake loading screen.

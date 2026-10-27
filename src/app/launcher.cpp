@@ -88,6 +88,8 @@ Launcher::~Launcher() {
     ++*identify_token_;
     if (drm_stop_) drm_stop_->store(true);
     if (playtime_dirty_) library_state_dirty_ = true;
+    profile_cancel_->store(true);
+    saveJournal(); // The profile's week: the last minutes of a game still running.
     desktopSaveState(); rememberDesktopWindow(); rememberTvMonitor(); // The window's section, selection and placement.
     rememberPlace(); saveLibraryPreferences();
     if (settings_dirty_) saveSettings();
@@ -487,11 +489,12 @@ void Launcher::tick() {
     const bool glance_motion = tickGlance(dt);
     const bool companion_motion = tickCompanion(dt);
     const bool tarot_motion = tickTarot(dt);
+    const bool profile_motion = tickProfile(dt);
     tickGameIndex();
     tickUpdates();
-    bool needs_paint = scanning_ || detail_ < 1.0f || screen_transitioning || wallpaper_moving || glance_motion || companion_motion || tarot_motion ||
+    bool needs_paint = scanning_ || detail_ < 1.0f || screen_transitioning || wallpaper_moving || glance_motion || companion_motion || tarot_motion || profile_motion ||
                        dashboardEditing() ||
-                       launch_progress_ > 0.003f || pending_launch_ || launchAnimationActive() ||
+                       launch_progress_ > 0.003f || pending_launch_ || launchAnimationMoving(now) ||
                         (friends_progress_ > 0.003f && friends_progress_ < 0.997f) ||
                        (category_menu_progress_ > 0.003f && category_menu_progress_ < 0.997f) ||
                        (category_menu_open_ && !psfiveActive() && std::abs(category_highlight_y_ -

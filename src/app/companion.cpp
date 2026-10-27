@@ -266,7 +266,7 @@ std::vector<companion::GameFact> Launcher::companionGames() const {
         if (const auto found = library_state_.last_played.find(history); found != library_state_.last_played.end())
             fact.last_played = std::max(fact.last_played, found->second);
         if (steamArtwork(game)) fact.app_id = game.app_id; // Play time and achievements: Steam's files, on the worker.
-        else if (const auto minutes = localPlaytime(game)) fact.minutes = minutes;
+        else if (const auto minutes = gamePlaytime(game).value_or(0)) fact.minutes = minutes;
         if (!fact.key.empty()) games.push_back(std::move(fact));
     }
     return games;

@@ -95,7 +95,7 @@ void Launcher::switchLibraryTab(int amount) {
         // Another store or console: its own library, in the same view.
         if (pc_source_) {
             for (const auto source : {GameSource::steam, GameSource::gog, GameSource::epic, GameSource::ea, GameSource::ubisoft, GameSource::battlenet,
-                                      GameSource::xbox, GameSource::drmfree, GameSource::custom})
+                                      GameSource::xbox, GameSource::multimc, GameSource::drmfree, GameSource::custom})
                 if (sourceSlug(source) == tab.id) { openPcLibrary(source); break; }
         } else openPlatform(text_encoding::wide(tab.id));
         auto options = libraryOptions();
@@ -398,7 +398,7 @@ void Launcher::restorePlace() {
     const bool category_library = saved.source == "category"; // A shelf category's own library.
     if (!saved.source.empty() && !category_library) {
         for (const auto candidate : {GameSource::steam, GameSource::gog, GameSource::battlenet, GameSource::ea, GameSource::ubisoft, GameSource::epic, GameSource::xbox,
-                                     GameSource::drmfree, GameSource::custom})
+                                     GameSource::multimc, GameSource::drmfree, GameSource::custom})
             if (saved.source == sourceSlug(candidate)) source = candidate;
         // User-added and DRM-free games are loaded before the first shelves; stores wait for their scan.
         const bool user_games = source == GameSource::custom || source == GameSource::drmfree;

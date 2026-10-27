@@ -164,6 +164,7 @@ bool Renderer::createTargetResources() {
     for (auto& thumbnail : plugin_thumbnails_) createBitmap(thumbnail);
     for (auto& thumbnail : glance_thumbnails_) createBitmap(thumbnail);
     for (auto& image : tarot_images_) createBitmap(image);
+    for (auto& image : profile_images_) createBitmap(image);
     for (auto& [id, icon] : widget_icons_) { (void)id; createBitmap(icon); }
     for (auto& tile : tile_thumbnails_) for (auto& thumbnail : tile) createBitmap(thumbnail);
     for (auto& [id, avatar] : avatars_) { (void)id; createBitmap(avatar); }
@@ -204,6 +205,7 @@ void Renderer::discardTarget() {
     for (auto& thumbnail : plugin_thumbnails_) { thumbnail.bitmap.Reset(); thumbnail.brush.Reset(); }
     for (auto& thumbnail : glance_thumbnails_) { thumbnail.bitmap.Reset(); thumbnail.brush.Reset(); }
     for (auto& image : tarot_images_) { image.bitmap.Reset(); image.brush.Reset(); }
+    for (auto& image : profile_images_) { image.bitmap.Reset(); image.brush.Reset(); }
     for (auto& [id, sprite] : companion_sprites_) { (void)id; sprite.cover.bitmap.Reset(); sprite.cover.brush.Reset(); sprite.cover.decoding.reset(); }
     for (auto& [id, icon] : widget_icons_) { (void)id; icon.bitmap.Reset(); icon.brush.Reset(); }
     for (auto& tile : tile_thumbnails_) for (auto& thumbnail : tile) { thumbnail.bitmap.Reset(); thumbnail.brush.Reset(); }
@@ -295,7 +297,8 @@ void Renderer::uploadDecoded() {
             ready.emplace_back(cover.decoding->priority.load(std::memory_order_relaxed), &cover);
         uploadSteelbook(cover);
     };
-    for (auto* list : {&covers_, &logos_, &heroes_, &posters_, &discs_, &artwork_thumbnails_, &plugin_thumbnails_, &glance_thumbnails_, &tarot_images_}) for (auto& cover : *list) collect(cover);
+    for (auto* list : {&covers_, &logos_, &heroes_, &posters_, &discs_, &artwork_thumbnails_, &plugin_thumbnails_, &glance_thumbnails_, &tarot_images_, &profile_images_})
+        for (auto& cover : *list) collect(cover);
     for (auto& tile : tile_thumbnails_) for (auto& thumbnail : tile) collect(thumbnail);
     for (auto& [id, avatar] : avatars_) { (void)id; collect(avatar); }
     for (auto& [id, icon] : widget_icons_) { (void)id; collect(icon); }

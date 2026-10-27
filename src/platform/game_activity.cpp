@@ -211,6 +211,55 @@ std::vector<SeenEmulator> emulatorSnapshot(const Game& game) {
     } while (Process32NextW(snapshot, &entry) && seen.size() < 64);
     return seen;
 }
+// Minecraft (MultiMC / Prism instances) runs as javaw.exe from a shared Java folder: the instance
+// is recognised by its folder on the Java command line (natives, game directory).
+struct JavaProcess {
+    GameProcess process;
+    std::wstring command; // folded()
+};
+bool javaName(std::wstring_view name) {
+    return CompareStringOrdinal(name.data(), static_cast<int>(name.size()), L"javaw.exe", -1, TRUE) == CSTR_EQUAL ||
+           CompareStringOrdinal(name.data(), static_cast<int>(name.size()), L"java.exe", -1, TRUE) == CSTR_EQUAL;
+}
+std::vector<JavaProcess> javaProcesses(DWORD only_pid = 0) {
+    std::vector<JavaProcess> result;
+    const auto snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snapshot == INVALID_HANDLE_VALUE) return result;
+    Handle snapshot_handle{snapshot};
+    PROCESSENTRY32W entry{}; entry.dwSize = sizeof(entry);
+    DWORD session = 0;
+    if (!Process32FirstW(snapshot, &entry) || !ProcessIdToSessionId(GetCurrentProcessId(), &session)) return result;
+    do {
+        DWORD owner = 0;
+        if (!entry.cntThreads || !javaName(entry.szExeFile) || (only_pid && entry.th32ProcessID != only_pid) ||
+            !ProcessIdToSessionId(entry.th32ProcessID, &owner) || owner != session) continue;
+        Handle process{OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, entry.th32ProcessID)};
+        FILETIME created{}, exited{}, kernel{}, user{};
+        if (!process.value || !GetProcessTimes(process.value, &created, &exited, &kernel, &user)) continue;
+        const auto line = commandLine(process.value);
+        if (!line) continue;
+        result.push_back({{entry.th32ProcessID, (static_cast<uint64_t>(created.dwHighDateTime) << 32) | created.dwLowDateTime}, folded(*line)});
+    } while (Process32NextW(snapshot, &entry) && result.size() < 64);
+    return result;
+}
+// The instance folder named as a whole path (not as the start of a longer folder name).
+bool namesInstance(const std::wstring& command, const Game& game) {
+    if (game.source != GameSource::multimc || !game.install_directory.is_absolute()) return false;
+    auto folder = folded(game.install_directory.lexically_normal().wstring());
+    while (folder.size() > 3 && folder.back() == L'\\') folder.pop_back();
+    if (folder.size() < 4) return false;
+    for (size_t at = command.find(folder); at != std::wstring::npos; at = command.find(folder, at + 1)) {
+        const size_t end = at + folder.size();
+        if (end == command.size() || command[end] == L'\\' || command[end] == L'"' || command[end] == L' ' || command[end] == L';') return true;
+    }
+    return false;
+}
+std::vector<GameProcess> minecraftProcesses(const Game& game) {
+    std::vector<GameProcess> found;
+    if (game.source != GameSource::multimc) return found;
+    for (const auto& java : javaProcesses()) if (namesInstance(java.command, game)) found.push_back(java.process);
+    return found;
+}
 bool holdProcess(uint32_t pid, std::vector<HANDLE>* hold) {
     if (!hold || hold->size() >= 64) return false;
     HANDLE process = OpenProcess(SYNCHRONIZE, FALSE, pid);
@@ -222,6 +271,7 @@ bool holdProcess(uint32_t pid, std::vector<HANDLE>* hold) {
 }
 
 GameActivity readGameActivity(const Game& game) {
+    if (game.source == GameSource::multimc) return minecraftProcesses(game).empty() ? GameActivity::stopped : GameActivity::running;
     const auto steam = steamActivity(game);
     if (steam == GameActivity::running) return *steam;
     // Running=0 (or no client state) says nothing about a directly started EXE.
@@ -262,6 +312,13 @@ GameActivity ProcessWatch::read(const Game& game) {
         CloseHandle(handle); return true;
     });
     if (!handles_.empty()) { confirmed_ = true; return GameActivity::running; }
+    if (game.source == GameSource::multimc) {
+        // Its Java process, held from then on; until it appears the launch job (the launcher
+        // started with --launch) speaks for the session.
+        for (const auto& process : minecraftProcesses(game)) holdProcess(process.pid, &handles_);
+        if (!handles_.empty()) { confirmed_ = true; return GameActivity::running; }
+        return GameActivity::stopped;
+    }
     const bool emulated = game.kind == GameKind::nonsteam && !game.rom.empty();
     const auto steam = steamActivity(game);
     // Steam's Running bit follows the shortcut script, not Cemu. A stuck bit must
@@ -304,6 +361,7 @@ std::vector<GameProcess> findEmulatorRomProcesses(const Game& game) {
 }
 
 std::vector<GameProcess> findGameProcesses(const Game& game) {
+    if (game.source == GameSource::multimc) return minecraftProcesses(game);
     const auto match = processMatch(game);
     if (!match) return findEmulatorRomProcesses(game);
     const auto snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
@@ -347,6 +405,14 @@ std::optional<GameWindow> findWindowGame(HWND window, const std::vector<Game>& c
     FILETIME created{}, exited{}, kernel{}, user{};
     if (!path || helper(std::filesystem::path(*path).filename().wstring()) ||
         !GetProcessTimes(process.value, &created, &exited, &kernel, &user)) return {};
+    const GameProcess identity{pid, (static_cast<uint64_t>(created.dwHighDateTime) << 32) | created.dwLowDateTime};
+    if (javaName(std::filesystem::path(*path).filename().wstring())) {
+        // Minecraft's window: the instance its command line names.
+        const auto java = javaProcesses(pid);
+        if (!java.empty())
+            for (const auto& game : candidates)
+                if (game.source == GameSource::multimc && isGame(game) && namesInstance(java.front().command, game)) return GameWindow{window, identity, gameKey(game)};
+    }
     const Game* best = nullptr;
     size_t score = 0;
     for (const auto& game : candidates) {
@@ -419,9 +485,21 @@ std::vector<size_t> findRunningGames(const std::vector<Game>& candidates) {
     std::vector<std::pair<size_t, ProcessMatch>> matchers;
     std::vector<char> found(candidates.size());
     bool needs_scan = false;
+    // Minecraft instances: one look at the Java processes' command lines for all of them.
+    std::vector<size_t> instances;
+    for (size_t i = 0; i < candidates.size(); ++i)
+        if (candidates[i].source == GameSource::multimc && isGame(candidates[i]) && candidates[i].installed) instances.push_back(i);
+    if (!instances.empty()) {
+        const auto java = javaProcesses();
+        for (const auto index : instances)
+            if (std::any_of(java.begin(), java.end(), [&](const JavaProcess& item) { return namesInstance(item.command, candidates[index]); })) {
+                found[index] = 1; running.push_back(index);
+            }
+    }
     for (size_t i = 0; i < candidates.size(); ++i) {
         const auto& game = candidates[i];
         if (!isGame(game) || !game.installed || game.installation.active() || game.kind == GameKind::nonsteam || game.kind == GameKind::catalog) continue;
+        if (game.source == GameSource::multimc) continue;
         if (game.source == GameSource::steam && steam_app && game.app_id == steam_app && steamActivity(game) == GameActivity::running) {
             found[i] = 1; running.push_back(i);
         }

@@ -42,6 +42,7 @@ void Launcher::click(float mouse_x, float mouse_y, bool double_click) {
     case Modal::none: break;
     case Modal::companion_picker: if (!double_click) companionPickerClick(x, y); return;
     case Modal::tarot: if (!double_click) tarotClick(x, y); return;
+    case Modal::profile: if (!double_click) profileClick(x, y); return;
     case Modal::whats_new: if (!double_click) whatsNewClick(x, y); return;
     case Modal::exit_prompt: if (!double_click) exitPromptClick(x, y); return;
     case Modal::power_menu: if (!double_click) powerMenuClick(x, y); return;
@@ -295,6 +296,7 @@ bool Launcher::hoverButton(float mouse_x, float mouse_y) const {
     case Modal::gog_install: return gog_install_ui::Layout{view.width, view.height, gog_install_ui_.game.source == GameSource::epic || gog_install_ui_.steam}.hit(x, y) >= 0;
     case Modal::companion_picker: return companion_ui::PickerLayout{view.width, view.height}.hit(companion_.picker, x, y) != companion_ui::no_hit;
     case Modal::tarot: return tarotPointerOver(x, y);
+    case Modal::profile: return profilePointerOver(x, y);
     case Modal::whats_new: return update_ui::WhatsNewLayout{view.width, view.height}.ok().contains(x, y);
     }
     if (launchAnimationActive()) return false;
@@ -369,8 +371,11 @@ bool Launcher::hoverButton(float mouse_x, float mouse_y) const {
         }
         if (!friends_list_) { // Temperature tiles only show values.
             const auto tile = dashboardLayout().hit(drawer_left, x, y, dashboard_scroll_, view.height);
+            using friends_layout::dashboard::Tile;
+            constexpr int plugins = friends_layout::dashboard::tile_count;
             return tile == friends_layout::dashboard::reorganize || (dashboard_editing_ && tile >= 0) ||
-                tile == 0 || tile == 1 || (tile >= 4 && tile < 4 + static_cast<int>(plugin_widgets_.size()));
+                tile == static_cast<int>(Tile::steam) || tile == static_cast<int>(Tile::discord) || tile == static_cast<int>(Tile::profile) ||
+                (tile >= plugins && tile < plugins + static_cast<int>(plugin_widgets_.size()));
         }
         return friends_layout::listBack(drawer_left).contains(x, y) ||
                (y >= 104 && friends_layout::hit(friends_.friends, y + friends_scroll_).has_value());
@@ -439,6 +444,11 @@ void Launcher::mouseMove(float mouse_x, float mouse_y) {
     if (topModal() == Modal::tarot) {
         const auto view = renderer_.viewport();
         tarotPointer(mouse_x / view.scale, mouse_y / view.scale);
+        return;
+    }
+    if (topModal() == Modal::profile) {
+        const auto view = renderer_.viewport();
+        profilePointer(mouse_x / view.scale, mouse_y / view.scale);
         return;
     }
     if (desktopTextDrag(mouse_x)) return; // Selecting in a desktop field.

@@ -54,9 +54,18 @@ const Launcher::PluginComparison* Launcher::pluginComparison(const std::string& 
 std::optional<uint64_t> Launcher::pluginPlaytimeSeconds(const Game& game) const {
     const auto key = recent_games::historyKey(game, account_, gog_state_.account, epic_state_.account);
     if (key.empty()) return {};
+    const auto* own = metadataOverride(game);
     if (!steamArtwork(game)) {
         const auto saved = library_state_.playtime_ms.find(key);
-        return saved == library_state_.playtime_ms.end() ? 0 : saved->second / 1000;
+        const uint64_t seconds = saved == library_state_.playtime_ms.end() ? 0 : saved->second / 1000;
+        // The store's count or the player's own value ("Edytuj metadane") may be larger than Launchme's.
+        const uint64_t shown = static_cast<uint64_t>(gamePlaytime(game).value_or(0)) * 60;
+        return own && own->playtime ? shown : std::max(seconds, shown);
+    }
+    if (own && own->playtime) {
+        const std::optional<uint32_t> steam = screen_ == ScreenMode::details && !detail_games_.empty() && gameKey(detail_games_[0]) == gameKey(game) ?
+            details_.playtime_minutes : std::nullopt;
+        return static_cast<uint64_t>(gamePlaytime(game, steam).value_or(0)) * 60;
     }
     const auto session = game_sessions_.find(gameKey(game));
     const auto token = session == game_sessions_.end() ? std::nullopt : std::optional<uint64_t>(session->second.startedAt());

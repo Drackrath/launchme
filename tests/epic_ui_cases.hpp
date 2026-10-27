@@ -1,4 +1,5 @@
 // Native settings / installer / launch routing. No real account, helper or game.
+#include "../src/ui/launch_animation.hpp"
 namespace {
 class FakeEpic final : public epic::Service {
 public:
@@ -64,7 +65,11 @@ int LauncherUiTest::epicAccount(HWND window) {
     const auto before = dispatched.size(); fake->start = epic::LaunchResult{local, {L"synthetic-game.exe"}}; app.pollEpic();
     if (dispatched.size() != before + 1 || dispatched.back() != L"synthetic-game.exe") return 1713;
     if (!app.launchAnimationActive() || app.launch_animation_title_ != local.name) return 1728;
-    app.tickLaunchAnimation(*app.launch_animation_started_ + std::chrono::seconds(11)); // Past its whole run.
+    // The game never shows and the launcher stays in front: past its longest wait it fades out.
+    app.overlay_backend_.foreground = [window] { return window; };
+    const auto launched = *app.launch_animation_started_ + std::chrono::seconds(static_cast<int>(launch_animation::longest) + 1);
+    app.tickLaunchAnimation(launched);
+    app.tickLaunchAnimation(launched + std::chrono::seconds(1));
     if (app.launchAnimationActive() || app.screen_ != ScreenMode::shelves) return 1729;
     app.epicCommand(epic::Command::logout);
     if (!app.epic_state_.account.empty() || app.store_library_.size() != 1 || !app.store_library_[0].epic_managed) return 1714;
