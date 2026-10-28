@@ -175,7 +175,7 @@ set(LAUNCHME_APP_SOURCES
     src/ui/desktop_dialogs_renderer.cpp
     src/ui/desktop_pages_renderer.cpp
     src/ui/brand_icons.cpp
-    src/ui/browser_window.cpp
+    src/ui/browser_window_windows.cpp
     src/ui/glance_renderer.cpp
     src/ui/tarot_renderer.cpp
     src/ui/profile_renderer.cpp
@@ -518,7 +518,7 @@ launchme_executable(epic_backend_probe
 launchme_executable(companion_backup SOURCES tools/companion_backup.cpp)
 if(BUILD_TESTING)
     launchme_executable(browser_window_tests TEST evergreen_browser_lifecycle
-        SOURCES tests/browser_window_tests.cpp src/ui/browser_window.cpp DEFINES LAUNCHME_UI_TEST)
+        SOURCES tests/browser_window_tests.cpp src/ui/browser_window_windows.cpp DEFINES LAUNCHME_UI_TEST)
     set_tests_properties(evergreen_browser_lifecycle PROPERTIES TIMEOUT 90 RUN_SERIAL TRUE SKIP_RETURN_CODE 77)
     launchme_executable(glance_tests TEST glance_sources_and_cache SOURCES tests/glance_tests.cpp)
     launchme_executable(tarot_tests TEST tarot_deck_wish_and_picks SOURCES tests/tarot_tests.cpp)

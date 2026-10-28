@@ -269,6 +269,31 @@ target_link_libraries(launchme PRIVATE launchme_core "${SDL3_LIBRARY}" "${SDL3_T
 companion_embedding_assets(launchme)
 target_link_libraries(launchme PRIVATE launchme_companion_resources)
 
+# Web view (phase 4): BrowserWindow (launchme_browser) starts the launchme-web helper, a WebKitGTK 6.0
+# window in a GTK4 process of its own. Without WebKitGTK the helper is not built and pages open in
+# the user's default browser (BrowserWindow::runtimeAvailable() is false).
+add_library(launchme_browser STATIC src/ui/browser_window_linux.cpp)
+launchme_target_defaults(launchme_browser)
+target_link_libraries(launchme_browser PUBLIC launchme_core)
+target_link_libraries(launchme PRIVATE launchme_browser)
+option(LAUNCHME_WEBKIT "Build the launchme-web reader window (WebKitGTK 6.0)" ON)
+if(LAUNCHME_WEBKIT)
+    pkg_check_modules(WEBKITGTK IMPORTED_TARGET webkitgtk-6.0)
+endif()
+if(WEBKITGTK_FOUND)
+    message(STATUS "Web view: WebKitGTK ${WEBKITGTK_VERSION} (launchme-web)")
+    add_executable(launchme-web src/linux/web_helper.cpp)
+    launchme_target_defaults(launchme-web)
+    # Only what the window uses from the core (i18n, the YouTube player page), not its libraries.
+    target_link_options(launchme-web PRIVATE -Wl,--as-needed)
+    target_link_libraries(launchme-web PRIVATE launchme_core PkgConfig::WEBKITGTK)
+    set_target_properties(launchme-web PROPERTIES BUILD_RPATH "$ORIGIN" INSTALL_RPATH "$ORIGIN")
+    add_dependencies(launchme launchme-web)
+elseif(LAUNCHME_WEBKIT)
+    message(STATUS "Web view: unavailable, WebKitGTK 6.0 not found (Arch: webkitgtk-6.0, Debian/Ubuntu: "
+        "libwebkitgtk-6.0-dev, Fedora: webkitgtk6.0-devel); Glance pages open in the default browser")
+endif()
+
 # Same signature as the Windows build's helper (the WIN32 flag is ignored).
 function(launchme_executable name)
     cmake_parse_arguments(PARSE_ARGV 1 ARG "WIN32" "TEST" "SOURCES;LIBS;DEFINES")
@@ -381,5 +406,13 @@ if(BUILD_TESTING)
     # Controllers:
     launchme_executable(controller_linux_tests TEST controller_linux_sysfs_and_bluez SOURCES tests/controller_linux_tests.cpp)
     launchme_executable(device_live_test SOURCES tests/device_live_test_linux.cpp)
+
+    # Web view:
+    launchme_executable(browser_window_linux_tests TEST webkitgtk_browser_lifecycle
+        SOURCES tests/browser_window_linux_tests.cpp src/ui/browser_window_linux.cpp DEFINES LAUNCHME_UI_TEST)
+    set_tests_properties(webkitgtk_browser_lifecycle PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE SKIP_RETURN_CODE 77)
+    if(TARGET launchme-web)
+        add_dependencies(browser_window_linux_tests launchme-web)
+    endif()
 
 endif()
