@@ -4,6 +4,7 @@
 #include <atomic>
 #include <chrono>
 #include <future>
+#include <Windows.h>
 #include <iostream>
 #include <thread>
 

@@ -151,7 +151,21 @@ set(LAUNCHME_LINUX_STORE_SOURCES
 
 # Companion assets and embeddings, updater.
 set(LAUNCHME_LINUX_COMPANION_SOURCES
+    src/net/companion_characters.cpp
+    src/net/companion_embeddings.cpp
+    src/platform/embedded_resources.cpp
+    src/platform/updater.cpp
 )
+# ONNX Runtime (Linux x64), sentencepiece, SQLite and the model, pinned as on Windows.
+include(cmake/CompanionEmbeddings.cmake)
+# Her characters (generated/companion_manifest.inc) as the Windows build makes them; her pictures
+# in launchme_companion_resources (embedded_resources::find), linked only where they are shown.
+set(LAUNCHME_RES_DIR "${CMAKE_CURRENT_SOURCE_DIR}/res")
+include(cmake/CompanionManifest.cmake)
+include(cmake/CompanionResources.cmake)
+add_library(launchme_companion_manifest INTERFACE)
+target_include_directories(launchme_companion_manifest INTERFACE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+list(APPEND LAUNCHME_CORE_LIBS companion_ort companion_sqlite sentencepiece-static launchme_companion_manifest)
 
 # System services: memory, sensors, power, Discord, downloads.
 set(LAUNCHME_LINUX_SERVICE_SOURCES
@@ -180,6 +194,9 @@ add_executable(launchme src/linux/main.cpp src/platform/sdl_window.cpp)
 launchme_target_defaults(launchme)
 target_include_directories(launchme PRIVATE "${SDL3_INCLUDE_DIR}" "${SDL3_TTF_INCLUDE_DIR}")
 target_link_libraries(launchme PRIVATE launchme_core "${SDL3_LIBRARY}" "${SDL3_TTF_LIBRARY}")
+# Companion: ONNX Runtime and the model next to it ($ORIGIN), her pictures inside (as companion.rc on Windows).
+companion_embedding_assets(launchme)
+target_link_libraries(launchme PRIVATE launchme_companion_resources)
 
 # Same signature as the Windows build's helper (the WIN32 flag is ignored).
 function(launchme_executable name)
@@ -226,6 +243,24 @@ if(BUILD_TESTING)
     # Stores:
 
     # Companion and updater:
+    # Later: companion_tests (src/platform/wav.hpp, audio), companion_feed_tests (net/companion_feed.cpp,
+    # images), companion_backup_tests (net/companion_backup.cpp, files).
+    launchme_executable(updater_tests TEST updater_release_package_and_swap SOURCES tests/updater_tests.cpp)
+    launchme_executable(companion_social_tests TEST companion_social_rules_history_and_plans SOURCES tests/companion_social_tests.cpp)
+    launchme_executable(companion_memory_tests TEST companion_weighted_memory_and_capacity SOURCES tests/companion_memory_tests.cpp)
+    launchme_executable(companion_semantic_tests TEST companion_semantic_storage_and_privacy SOURCES tests/companion_semantic_tests.cpp)
+    companion_embedding_assets(companion_semantic_tests)
+    add_test(NAME companion_semantic_real_model COMMAND companion_semantic_tests --model)
+    set_tests_properties(companion_semantic_real_model PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
+    add_test(NAME companion_semantic_installed_package COMMAND ${CMAKE_COMMAND}
+        "-DBUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}" "-DTEST_EXE=$<TARGET_FILE:companion_semantic_tests>" "-DCONFIG=$<CONFIG>"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/companion_semantic_install.cmake")
+    set_tests_properties(companion_semantic_installed_package PROPERTIES TIMEOUT 240 RUN_SERIAL TRUE)
+    launchme_executable(companion_links_tests TEST companion_bounded_link_previews SOURCES tests/companion_links_tests.cpp)
+    launchme_executable(companion_feelings_tests TEST companion_named_feelings SOURCES tests/companion_feelings_tests.cpp)
+    launchme_executable(companion_reply_style_tests TEST companion_reply_length_and_history SOURCES tests/companion_reply_style_tests.cpp)
+    launchme_executable(companion_resources_tests TEST companion_embedded_pictures SOURCES tests/companion_resources_tests.cpp
+        LIBS launchme_companion_resources)
 
     # System services:
 

@@ -9,6 +9,12 @@
 #ifdef _WIN32
 #include <Windows.h>
 #include <bcrypt.h>
+#else
+#include "system.hpp"
+#include <cerrno>
+#include <cstring>
+#include <span>
+#include <unistd.h>
 #endif
 
 #include <algorithm>
@@ -54,6 +60,7 @@ std::string bodyHash(std::string_view body) {
     hex = lowered(hex);
     return hex64(hex) ? hex : std::string{};
 }
+#ifdef _WIN32
 // A relative path inside the package, "launchme/" removed; empty when it is not a safe one.
 std::filesystem::path packagePath(std::string_view name) {
     constexpr std::string_view root = "launchme/";
@@ -73,6 +80,20 @@ std::filesystem::path packagePath(std::string_view name) {
     }
     return out;
 }
+#else
+// The package's first bytes: ELF, 64-bit, little-endian, an executable or PIE for x86-64, with the
+// AppImage type 2 mark in e_ident's padding.
+bool appImageFile(std::span<const uint8_t> head) {
+    if (head.size() < 64 || std::memcmp(head.data(), "\x7F" "ELF", 4) != 0) return false;
+    if (head[4] != 2 || head[5] != 1 || head[6] != 1) return false; // ELFCLASS64, ELFDATA2LSB, EV_CURRENT.
+    if (head[8] != 'A' || head[9] != 'I' || head[10] != 2) return false;
+    const unsigned type = head[16] | head[17] << 8, machine = head[18] | head[19] << 8;
+    return (type == 2 || type == 3) && machine == 62; // ET_EXEC or ET_DYN; EM_X86_64.
+}
+std::wstring failure(std::wstring what, const std::filesystem::path& file) {
+    return what + L" " + file.wstring() + L" (error " + std::to_wstring(errno) + L")";
+}
+#endif
 std::wstring oldName(const std::filesystem::path& file) { return file.wstring() + old_suffix; }
 }
 
@@ -82,7 +103,21 @@ bool allowedDownload(std::wstring_view url) {
            url.starts_with(L"https://objects.githubusercontent.com/");
 }
 
+#ifndef _WIN32
+std::optional<std::filesystem::path> appImage() {
+    const auto value = system_info::environment(L"APPIMAGE", 4096);
+    if (!value || value->empty()) return std::nullopt;
+    const std::filesystem::path path(*value);
+    std::error_code ec;
+    if (!path.is_absolute() || !std::filesystem::is_regular_file(path, ec)) return std::nullopt;
+    return path;
+}
+#endif
+
 std::optional<Release> parseRelease(std::string_view text) {
+#ifndef _WIN32
+    if (!appImage()) return std::nullopt; // Not an AppImage: nothing it could replace.
+#endif
     const auto root = json::parse(text, 4 * 1024 * 1024);
     if (!root || root->type != json::Value::Type::object) return std::nullopt;
     if (const auto* draft = root->get("draft"); draft && draft->flag) return std::nullopt;
@@ -96,7 +131,11 @@ std::optional<Release> parseRelease(std::string_view text) {
     out.page = page.starts_with("https://github.com/uxandai/launchme/") ? text_encoding::wideLenient(page) : std::wstring(releases_page);
     const auto body = root->get("body") ? root->get("body")->stringOr() : std::string{};
     out.notes = plainNotes(body);
+#ifdef _WIN32
     const auto wanted = "launchme-" + tag + "-win64.zip";
+#else
+    const auto wanted = "launchme-" + tag + "-x86_64.AppImage";
+#endif
     if (const auto* assets = root->get("assets"); assets && assets->type == json::Value::Type::array) {
         for (const auto& asset : assets->elements) {
             if (!asset.get("name") || asset.get("name")->stringOr() != wanted) continue;
@@ -166,6 +205,7 @@ std::string sha256File(const std::filesystem::path& file) {
     return hashing::fileHex(hashing::Algorithm::sha256, file);
 }
 
+#ifdef _WIN32
 std::optional<std::vector<std::filesystem::path>> unpack(const std::filesystem::path& zip, const std::filesystem::path& staging, std::wstring& error) {
     std::error_code ec;
     if (std::filesystem::exists(staging, ec)) std::filesystem::remove_all(staging, ec);
@@ -209,7 +249,31 @@ std::optional<std::vector<std::filesystem::path>> unpack(const std::filesystem::
     }
     return files;
 }
+#else
+std::optional<std::vector<std::filesystem::path>> unpack(const std::filesystem::path& package, const std::filesystem::path& staging, std::wstring& error) {
+    std::error_code ec;
+    if (std::filesystem::exists(staging, ec)) std::filesystem::remove_all(staging, ec);
+    if (!std::filesystem::create_directories(staging, ec)) { error = L"Cannot create " + staging.wstring(); return std::nullopt; }
+    std::ifstream in(package, std::ios::binary);
+    std::array<uint8_t, 64> head{};
+    if (!in || !in.read(reinterpret_cast<char*>(head.data()), head.size())) { error = L"Cannot open the package"; return std::nullopt; }
+    if (!appImageFile(head)) { error = L"The package is not an x86-64 AppImage"; return std::nullopt; }
+    const auto size = std::filesystem::file_size(package, ec);
+    if (ec || size > 1024ULL * 1024 * 1024) { error = L"The package is too large"; return std::nullopt; }
+    const auto running = appImage();
+    const std::filesystem::path name = running ? running->filename() : std::filesystem::path(L"launchme.AppImage");
+    const auto target = staging / name;
+    if (!std::filesystem::copy_file(package, target, std::filesystem::copy_options::overwrite_existing, ec)) {
+        error = L"Cannot write " + target.wstring(); return std::nullopt;
+    }
+    std::filesystem::permissions(target, std::filesystem::perms::owner_all | std::filesystem::perms::group_read | std::filesystem::perms::group_exec |
+                                 std::filesystem::perms::others_read | std::filesystem::perms::others_exec, ec);
+    if (ec) { error = L"Cannot make " + target.wstring() + L" executable"; return std::nullopt; }
+    return std::vector<std::filesystem::path>{name};
+}
+#endif
 
+#ifdef _WIN32
 void rollback(const std::filesystem::path& app, const std::vector<std::filesystem::path>& files) {
     for (const auto& relative : files) {
         const auto target = app / relative;
@@ -246,6 +310,49 @@ bool apply(const std::filesystem::path& staging, const std::vector<std::filesyst
     }
     return true;
 }
+#else
+void rollback(const std::filesystem::path& app, const std::vector<std::filesystem::path>& files) {
+    for (const auto& relative : files) {
+        const auto target = app / relative;
+        const std::filesystem::path old = oldName(target);
+        std::error_code ec;
+        if (std::filesystem::exists(old, ec)) {
+            // Back in one step; when the new one never moved in, both names are the same file.
+            if (std::filesystem::equivalent(old, target, ec)) std::filesystem::remove(old, ec);
+            else ::rename(old.c_str(), target.c_str());
+        }
+        else std::filesystem::remove(target, ec); // A file the package added.
+    }
+}
+
+bool apply(const std::filesystem::path& staging, const std::vector<std::filesystem::path>& files, const std::filesystem::path& app, std::wstring& error) {
+    std::vector<std::filesystem::path> done;
+    for (const auto& relative : files) {
+        const auto target = app / relative, staged = staging / relative;
+        std::error_code ec;
+        std::filesystem::create_directories(target.parent_path(), ec);
+        if (std::filesystem::exists(target, ec)) {
+            // The old copy stays under its name until the new one replaces it: a second name (a
+            // copy where the file system has no hard links), so there is never a moment without one.
+            const std::filesystem::path old = oldName(target);
+            std::filesystem::remove(old, ec); // A leftover of an earlier update.
+            if (::link(target.c_str(), old.c_str()) != 0 &&
+                !std::filesystem::copy_file(target, old, std::filesystem::copy_options::overwrite_existing, ec)) {
+                error = failure(L"Cannot keep", target);
+                rollback(app, done);
+                return false;
+            }
+        }
+        done.push_back(relative);
+        if (::rename(staged.c_str(), target.c_str()) != 0) { // Atomic; the running AppImage stays mapped.
+            error = failure(L"Cannot install", target);
+            rollback(app, done);
+            return false;
+        }
+    }
+    return true;
+}
+#endif
 
 void cleanup(const std::filesystem::path& app) {
     std::error_code ec;
@@ -255,7 +362,11 @@ void cleanup(const std::filesystem::path& app) {
         if (it.depth() > 4) { it.disable_recursion_pending(); continue; }
         if (it->is_regular_file(ec) && it->path().wstring().ends_with(old_suffix)) old.push_back(it->path());
     }
+#ifdef _WIN32
     for (const auto& file : old) DeleteFileW(file.c_str());
+#else
+    for (const auto& file : old) std::filesystem::remove(file, ec);
+#endif
     std::filesystem::remove_all(app / work_folder, ec);
 }
 }
