@@ -366,14 +366,14 @@ set(LAUNCHME_APP_SOURCES
     src/platform/hashing.cpp
     src/platform/library_state.cpp
     src/platform/launch.cpp
-    src/platform/file_dialog.cpp
+    src/platform/file_dialog_windows.cpp
     src/platform/file_listing.cpp
     src/platform/performance.cpp
     src/platform/memory_usage.cpp
-    src/platform/frame_clock.cpp
+    src/platform/frame_clock_windows.cpp
     src/platform/game_activity.cpp
     src/platform/game_overlay_monitor.cpp
-    src/platform/layered_surface.cpp
+    src/platform/layered_surface_windows.cpp
     src/platform/process_freeze.cpp
     src/platform/steam_downloads.cpp
     src/platform/steam_library_sync.cpp

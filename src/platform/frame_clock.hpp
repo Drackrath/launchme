@@ -1,7 +1,5 @@
 #pragma once
-#ifdef _WIN32
-#include <Windows.h>
-#endif
+#include "native_window.hpp"
 #include <algorithm>
 
 // Absolute deadlines avoid accumulating timer/paint rounding at 60/120/144 Hz.
@@ -24,14 +22,19 @@ private:
     double next_ = 0;
     bool initialized_ = false;
 };
+// The frame loop's pace: the window's monitor refresh rate while it is in front, 30 Hz behind
+// another window, 5 Hz minimized or hidden. wait() sleeps until the next frame or until input
+// arrives (Windows: a waitable timer and MsgWaitForMultipleObjectsEx; Linux: SDL_WaitEventTimeout,
+// then SDL_DelayPrecise for the last part of a millisecond). On Linux, work that must wake the
+// loop early posts an SDL event.
 class FrameClock {
 public:
     FrameClock();
     ~FrameClock();
-    void update(HWND window);
-    void update(HWND window, bool foreground);
+    void update(platform::NativeWindow window);
+    void update(platform::NativeWindow window, bool foreground);
     // An upper bound for the next updates: the screensaver's slow motion (30 Hz), a display
-    // Windows switched off (5 Hz). 240 = no bound.
+    // the system switched off (5 Hz). 240 = no bound.
     void limit(int hz) { limit_ = std::clamp(hz, 5, 240); }
     bool ready() const;
     void consume();
@@ -39,7 +42,9 @@ public:
     int targetHz() const { return schedule_.hz(); }
     int refreshHz() const { return refresh_hz_; }
 private:
+#ifdef _WIN32
     HANDLE timer_ = nullptr;
+#endif
     FrameSchedule schedule_;
     double next_probe_ = 0;
     int refresh_hz_ = 0;
