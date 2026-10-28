@@ -4,12 +4,17 @@
 
 #ifdef _WIN32
 #include <Windows.h>
+#else
+#include "proc_fs.hpp"
+#include <cerrno>
+#include <csignal>
 #endif
 
 #include <algorithm>
 #include <fstream>
 #include <utility>
 
+#ifdef _WIN32
 namespace {
 using ProcessCall = LONG(NTAPI*)(HANDLE);
 // Undocumented but stable since Windows XP; used by Resource Monitor and PsSuspend.
@@ -36,8 +41,47 @@ Open open(const GameProcess& process, DWORD access, Handle& handle) {
     return wait == WAIT_TIMEOUT ? Open::ok : Open::denied;
 }
 }
+#else
+namespace {
+enum class Open { ok, gone, denied };
+// The exact process identity: a PID reused by another program (another start time) counts as gone.
+Open open(const GameProcess& process) {
+    const auto stat = proc_fs::stat(process.pid);
+    if (!stat || stat->ended() || stat->start != process.created) return Open::gone;
+    if (::kill(static_cast<pid_t>(process.pid), 0) == 0) return Open::ok;
+    return errno == ESRCH ? Open::gone : Open::denied;
+}
+// `signal` to each process that is still the same one; results as on Windows.
+process_freeze::Result signalAll(const std::vector<GameProcess>& processes, int signal) {
+    bool done = false, denied = false;
+    for (const auto& process : processes) {
+        const auto state = open(process);
+        if (state == Open::gone) continue;
+        if (state == Open::denied || ::kill(static_cast<pid_t>(process.pid), signal) != 0) {
+            if (state == Open::denied || errno != ESRCH) denied = true;
+        } else done = true;
+    }
+    return denied ? process_freeze::Result::denied : done ? process_freeze::Result::ok : process_freeze::Result::gone;
+}
+// The processes and every process below them (a launcher stub's game, a script's program):
+// stopping only the parent would leave the game itself running.
+std::vector<GameProcess> withDescendants(const std::vector<GameProcess>& processes) {
+    std::vector<GameProcess> tree = processes;
+    std::vector<proc_fs::Stat> all;
+    for (const auto pid : proc_fs::processes())
+        if (const auto stat = proc_fs::stat(pid); stat && !stat->ended() && stat->start) all.push_back(*stat);
+    for (size_t at = 0; at < tree.size() && tree.size() < 64; ++at)
+        for (const auto& stat : all)
+            if (stat.parent == tree[at].pid && tree.size() < 64 &&
+                std::none_of(tree.begin(), tree.end(), [&](const GameProcess& known) { return known.pid == stat.pid; }))
+                tree.push_back({stat.pid, stat.start});
+    return tree;
+}
+}
+#endif
 
 namespace process_freeze {
+#ifdef _WIN32
 Result suspend(std::vector<GameProcess>& processes) {
     const auto call = ntdll("NtSuspendProcess"), undo = ntdll("NtResumeProcess");
     if (!call || !undo) return Result::denied;
@@ -126,6 +170,38 @@ bool focus(const std::vector<GameProcess>& processes) {
     const auto foreground = GetForegroundWindow();
     return foreground == search.best || (foreground && GetAncestor(foreground, GA_ROOTOWNER) == search.best);
 }
+#else
+// SIGSTOP stops every thread of a process; it cannot be caught or ignored.
+Result suspend(std::vector<GameProcess>& processes) {
+    std::vector<GameProcess> suspended;
+    for (const auto& process : withDescendants(processes)) {
+        const auto state = open(process);
+        if (state == Open::gone) continue;
+        if (state == Open::denied || ::kill(static_cast<pid_t>(process.pid), SIGSTOP) != 0) {
+            if (state == Open::ok && errno == ESRCH) continue; // Exited in between.
+            for (const auto& held : suspended) ::kill(static_cast<pid_t>(held.pid), SIGCONT);
+            return Result::denied;
+        }
+        suspended.push_back(process);
+    }
+    if (suspended.empty()) return Result::gone;
+    processes = std::move(suspended);
+    return Result::ok;
+}
+
+Result resume(const std::vector<GameProcess>& processes) { return signalAll(processes, SIGCONT); }
+
+// SIGKILL, as TerminateProcess: it also ends a stopped process.
+Result terminate(const std::vector<GameProcess>& processes) { return signalAll(processes, SIGKILL); }
+
+bool alive(const std::vector<GameProcess>& processes) {
+    return std::any_of(processes.begin(), processes.end(), [](const GameProcess& process) { return open(process) != Open::gone; });
+}
+
+// Raising another program's window needs the display server (X11, Wayland activation), which
+// is the UI's: false lets the caller bring the game forward its own way.
+bool focus(const std::vector<GameProcess>&) { return false; }
+#endif
 
 std::optional<std::vector<FrozenGame>> load(const std::filesystem::path& file) {
     std::error_code error;

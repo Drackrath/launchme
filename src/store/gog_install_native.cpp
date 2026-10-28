@@ -22,6 +22,7 @@ bool checksum(const std::filesystem::path& file, const std::string& expected, co
     const auto digest = hashing::fileHex(hashing::Algorithm::md5, file, cancel);
     return !digest.empty() && !cancel() && digest == expected;
 }
+#ifdef _WIN32
 InstallError execute(const std::filesystem::path& file, const InstallRequest& request, const InstallCancel& cancel) {
     if (cancel()) return InstallError::none;
     const auto args = silentInstallerArguments(request.install_directory);
@@ -46,6 +47,12 @@ InstallError execute(const std::filesystem::path& file, const InstallRequest& re
     if (!GetExitCodeProcess(info.hProcess, &code) || (code != 0 && code != 3010)) return InstallError::installer;
     return InstallError::none;
 }
+#else
+// GOG's offline installers here are Windows (Inno Setup) programs; only Wine could run them, and
+// the game they install would need it too. Not supported on Linux: `unavailable`, never a
+// started installer.
+InstallError execute(const std::filesystem::path&, const InstallRequest&, const InstallCancel&) { return InstallError::unavailable; }
+#endif
 bool detect(const InstallRequest& request) {
     const auto file = request.install_directory / (L"goggame-" + text_encoding::wide(request.product) + L".info");
     std::ifstream input(file, std::ios::binary | std::ios::ate);
@@ -74,9 +81,15 @@ bool detect(const InstallRequest& request) {
 InstallOperations nativeInstallOperations() {
     return {
         [](const InstallerPart& part, const std::filesystem::path& file, const InstallCancel& cancel, const std::function<void(uint64_t)>& progress) {
+#ifndef _WIN32
+            // Nothing is downloaded for an installer this system cannot run (see execute).
+            (void)part; (void)file; (void)cancel; (void)progress;
+            return InstallError::unavailable;
+#else
             const auto result = httpDownload(part.url, file, part.bytes, cancel, progress, installerDownloadUrl);
             return result == DownloadError::none ? InstallError::none : result == DownloadError::storage ? InstallError::storage :
                 result == DownloadError::invalid_response ? InstallError::manifest : InstallError::network;
+#endif
         }, checksum, execute, detect
     };
 }

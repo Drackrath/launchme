@@ -8,6 +8,8 @@
 // Experimental quick resume. A game is suspended in RAM (every thread of its
 // processes via NtSuspendProcess, as in Resource Monitor) and resumed later.
 // Nothing is dumped: Windows may page an idle game out under memory pressure.
+// Linux: SIGSTOP/SIGCONT/SIGKILL on the processes and, when suspending, every process
+// below them; identity is the PID with its start time (/proc/<pid>/stat). focus() is false.
 namespace process_freeze {
 enum class Result { ok, denied, gone };
 // All or nothing. On success `processes` keeps only the ones actually suspended;
