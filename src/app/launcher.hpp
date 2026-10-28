@@ -2241,6 +2241,7 @@ private:
     uint64_t xmb_slots_ = ~uint64_t{0};
     // The same for the default shelves: the shelf's category id and its cards' identities.
     std::string shelf_cards_category_;
+    library_view::Options shelf_cards_presentation_; // The library view the kept cards were bound for.
     std::vector<std::string> shelf_card_keys_;
     uint64_t shelf_slots_ = ~uint64_t{0};
     ScreenMode screen_ = ScreenMode::shelves;

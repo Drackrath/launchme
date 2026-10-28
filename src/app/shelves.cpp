@@ -414,8 +414,9 @@ void Launcher::onMetadata(std::unique_ptr<MetadataMessage> message) {
         for (const auto kind : {CoverMessage::Kind::cover, CoverMessage::Kind::logo, CoverMessage::Kind::hero}) invalidateArtwork(game, kind);
         if (const auto* art = art_.peek(gameKey(game)); art && art->cover) requestArt(game, CoverMessage::Kind::cover);
     }
-    if (libraryControls() && message->finished) applyLibraryOptions(); // Every order sorts by names.
-    if (message->finished) refreshRecentGames(); // Resolved titles can identify cross-store copies.
+    // Resolved titles can identify cross-store copies, and every order sorts by names: one rebuild,
+    // which keeps the cards, the scroll and the focus (applyLibraryOptions would scroll to the top).
+    if (message->finished) refreshRecentGames();
     if (runtime_started_) prefetchLibraryArt();
     if (screen_ == ScreenMode::search) { updateSearch(); return; }
     requestVisibleArt();
@@ -428,11 +429,17 @@ void Launcher::rebuildCards(bool preserve_background) {
     if (xmbActive()) { rebuildXmb(false, preserve_background); return; }
     if (flixActive()) { rebuildFlix(preserve_background); return; }
     if (metroActive()) { rebuildMetro(preserve_background); return; }
-    // The same home shelf rebuilt while on screen (the startup Steam rescan, the PC scan,
-    // resolved names, the restored bookmark): unchanged cards keep their decoded art, position
-    // and fade instead of the whole row entering again. Other screens rebuild from scratch.
-    const auto shelf_id = screen_ == ScreenMode::shelves && category_ < categories_.size() ? categories_[category_].id : std::string{};
-    const bool same_list = !shelf_id.empty() && shelf_id == shelf_cards_category_ &&
+    // The same home shelf, library or console page rebuilt while on screen (the startup Steam rescan,
+    // the PC scan, store syncs, resolved names, the game index learning studios, the restored
+    // bookmark): unchanged cards keep their decoded art, position and fade, and the focus stays on its
+    // game, instead of the whole view entering again. Other screens rebuild from scratch.
+    const auto shelf_id = screen_ == ScreenMode::shelves && category_ < categories_.size() ? categories_[category_].id :
+        (screen_ == ScreenMode::library || screen_ == ScreenMode::platform_games) ? "screen:" + std::to_string(static_cast<int>(screen_)) + ':' + libraryScope() :
+        std::string{};
+    // A view's look decides which artwork its slots hold: another view or tile shape starts afresh.
+    auto presentation = screen_ == ScreenMode::library ? libraryOptions() : library_view::Options{};
+    presentation.order = {}; presentation.installed_only = false;
+    const bool same_list = !shelf_id.empty() && shelf_id == shelf_cards_category_ && presentation == shelf_cards_presentation_ &&
         shelf_slots_ == renderer_.slotGeneration() && shelf_card_keys_.size() == cards_.size();
     std::unordered_map<std::string, size_t> previous;
     std::vector<GameCard> old_cards;
@@ -531,9 +538,12 @@ void Launcher::rebuildCards(bool preserve_background) {
                          screen_ != ScreenMode::shelves ? size_t{0} :
                          categories_[category_].selected,
                           cards_.empty() ? size_t{0} : cards_.size() - 1);
+    if (same_list && screen_ != ScreenMode::shelves && !old_focus.empty())
+        if (const auto kept = std::find(keys.begin(), keys.end(), old_focus); kept != keys.end()) selected_ = static_cast<size_t>(kept - keys.begin());
     if (same_list) renderer_.remapCovers(from, preserve_background);
     else renderer_.resetCovers(cards_.size(), preserve_background);
     shelf_cards_category_ = shelf_id;
+    shelf_cards_presentation_ = presentation;
     shelf_card_keys_ = std::move(keys);
     shelf_slots_ = renderer_.slotGeneration();
     for (size_t i = 0; i < cards_.size(); ++i) {

@@ -75,6 +75,21 @@ int LauncherUiTest::xboxAccount(HWND window) {
     auto pc = std::make_unique<PcLibraryMessage>(); pc->generation = app.pc_token_->load(); pc->library.visible = {owned, pass}; app.onPcLibrary(std::move(pc));
     app.openPcLibrary(GameSource::xbox);
     if (app.cards_.size() < 2 || !app.actionEnabled(owned) || !app.actionEnabled(pass) || std::wstring(primaryActionLabel(owned)) != tr(L"Instaluj")) return 9309;
+    // Background work rebuilding this library (the game index learning studios, a store sync) keeps
+    // the tiles where they are: no second entrance, the focus stays on its game.
+    {
+        app.focusCard(1); app.arrived_ = 5;
+        const auto focused = gameKey(app.cards_[1].game);
+        app.refreshRecentGames();
+        if (app.arrived_ != 5 || app.selected_ >= app.cards_.size() || gameKey(app.cards_[app.selected_].game) != focused) return 9326;
+        // A sync bringing the store's art for games shown without it: in place, the same tiles.
+        auto art = std::make_unique<PcLibraryMessage>(); art->generation = app.pc_token_->load();
+        auto owned_art = owned; owned_art.store_tall_art = "https://store-images.s-microsoft.com/poster.png";
+        art->library.visible = {owned_art, pass}; app.onPcLibrary(std::move(art));
+        const auto card = std::find_if(app.cards_.begin(), app.cards_.end(), [&](const auto& c) { return gameKey(c.game) == gameKey(owned); });
+        if (card == app.cards_.end() || card->game.store_tall_art != owned_art.store_tall_art || app.arrived_ != 5) return 9327;
+        app.focusCard(0);
+    }
     // Default: Instaluj hands the product to the Xbox app.
     auto before = dispatched.size();
     app.launchGame(owned);

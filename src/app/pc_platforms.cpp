@@ -272,6 +272,7 @@ void Launcher::onPcLibrary(std::unique_ptr<PcLibraryMessage> message) {
     applyGogInstallProgress();
     std::map<std::string, const Game*> current;
     bool active = false, changed = structure;
+    std::vector<std::string> art_arrived; // Store art the account sync brought for a game shown without it.
     for (const auto* list : {&store_library_, &store_private_library_}) for (const auto& game : *list) {
         const auto key = gameKey(game);
         current.emplace(key, &game);
@@ -287,6 +288,11 @@ void Launcher::onPcLibrary(std::unique_ptr<PcLibraryMessage> message) {
                     downloadQueued(game.name);
             }
             changed |= old->second.installation != game.installation || old->second.store_playtime_minutes != game.store_playtime_minutes;
+            if (old->second.store_tall_art != game.store_tall_art || old->second.store_wide_art != game.store_wide_art || old->second.store_logo_art != game.store_logo_art) {
+                changed = true;
+                if ((old->second.store_tall_art.empty() && !game.store_tall_art.empty()) || (old->second.store_wide_art.empty() && !game.store_wide_art.empty()) ||
+                    (old->second.store_logo_art.empty() && !game.store_logo_art.empty())) art_arrived.push_back(key);
+            }
             if (game.source == GameSource::battlenet && old->second.installation.active() &&
                 old->second.installation.phase != InstallPhase::unknown && game.installed && game.visibility == GameVisibility::public_game)
                 completed_pc_installs_.insert(key);
@@ -340,14 +346,19 @@ void Launcher::onPcLibrary(std::unique_ptr<PcLibraryMessage> message) {
             game.play_action = next.play_action; game.install_action = next.install_action;
             game.install_directory = next.install_directory; game.executable = next.executable;
             game.store_playtime_minutes = next.store_playtime_minutes;
+            game.store_tall_art = next.store_tall_art; game.store_wide_art = next.store_wide_art; game.store_logo_art = next.store_logo_art;
         }
+    };
+    // Its earlier art request found nothing (and was recorded so): ask again with the store's art.
+    const auto retryArt = [&] {
+        for (const auto& key : art_arrived) if (const auto found = current.find(key); found != current.end() && visible(*found->second)) retryGameArtwork(*found->second, false);
     };
     for (auto* list : {&public_library_, &grouped_library_, &pc_library_, &search_results_, &detail_games_, &store_results_, &private_category_.games, &nested_games_, &xmb_top_})
         for (auto& game : *list) update(game);
     for (auto& category : categories_) for (auto& game : category.games) update(game);
     for (auto& card : cards_) update(card.game);
     if (pending_launch_) update(pending_game_);
-    if (!structure) { InvalidateRect(hwnd_, nullptr, FALSE); return; }
+    if (!structure) { retryArt(); InvalidateRect(hwnd_, nullptr, FALSE); return; }
     buildShelves();
     const auto category = std::find_if(categories_.begin(), categories_.end(), [&](const Category& entry) { return entry.id == category_id; });
     if (category != categories_.end()) category_ = static_cast<size_t>(category - categories_.begin());
@@ -360,6 +371,7 @@ void Launcher::onPcLibrary(std::unique_ptr<PcLibraryMessage> message) {
         else rebuildCards();
         if (const auto found = findCard(selected_key, false)) focusCard(*found, library_controls_.focus < 0);
     }
+    retryArt();
     InvalidateRect(hwnd_, nullptr, FALSE);
     restorePlace();
 }
