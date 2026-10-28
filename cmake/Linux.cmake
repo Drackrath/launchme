@@ -6,6 +6,10 @@ include(FetchContent)
 # Strict ISO C++: GNU mode predefines the macro `unix`, which the companion code uses as a name.
 set(CMAKE_CXX_EXTENSIONS OFF)
 include(CTest)
+include(GNUInstallDirs)
+# Installed, the program keeps its files next to it as on Windows (assets/, libonnxruntime.so.1,
+# launchme-web): <prefix>/lib/launchme, with bin/launchme a link to it (install rules at the end).
+set(LAUNCHME_APP_DESTINATION "${CMAKE_INSTALL_LIBDIR}/launchme")
 find_package(PkgConfig REQUIRED)
 find_package(Threads REQUIRED)
 find_package(ICU REQUIRED COMPONENTS uc i18n)
@@ -380,6 +384,7 @@ if(BUILD_TESTING)
     set_tests_properties(companion_semantic_real_model PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
     add_test(NAME companion_semantic_installed_package COMMAND ${CMAKE_COMMAND}
         "-DBUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}" "-DTEST_EXE=$<TARGET_FILE:companion_semantic_tests>" "-DCONFIG=$<CONFIG>"
+        "-DAPP_DIR=${LAUNCHME_APP_DESTINATION}"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/companion_semantic_install.cmake")
     set_tests_properties(companion_semantic_installed_package PROPERTIES TIMEOUT 240 RUN_SERIAL TRUE)
     launchme_executable(companion_links_tests TEST companion_bounded_link_previews SOURCES tests/companion_links_tests.cpp)
@@ -416,3 +421,28 @@ if(BUILD_TESTING)
     endif()
 
 endif()
+
+# Installation (phase 5, packaging/linux): `cmake --install <build> --prefix /usr` for packages,
+# the AppImage (packaging/linux/build-appimage.sh) and the Flatpak (/app).
+install(TARGETS launchme RUNTIME DESTINATION "${LAUNCHME_APP_DESTINATION}" COMPONENT Runtime)
+if(TARGET launchme-web)
+    install(TARGETS launchme-web RUNTIME DESTINATION "${LAUNCHME_APP_DESTINATION}" COMPONENT Runtime)
+endif()
+install(FILES res/HorizonsTheme.mp3 DESTINATION "${LAUNCHME_APP_DESTINATION}/assets" COMPONENT Runtime)
+# Publisher and developer logos (src/library/studios.cpp), as on Windows.
+file(GLOB LAUNCHME_STUDIO_LOGOS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/res/studios/*.png")
+install(FILES ${LAUNCHME_STUDIO_LOGOS} res/studios/LICENSE.txt DESTINATION "${LAUNCHME_APP_DESTINATION}/assets/studios" COMPONENT Runtime)
+install(FILES "${miniz_SOURCE_DIR}/LICENSE" DESTINATION "${CMAKE_INSTALL_DATADIR}/licenses/launchme" RENAME miniz.txt COMPONENT Runtime)
+install(FILES LICENSE DESTINATION "${CMAKE_INSTALL_DATADIR}/licenses/launchme" COMPONENT Runtime)
+# bin/launchme: a relative link, so the program still finds its folder through /proc/self/exe.
+file(RELATIVE_PATH LAUNCHME_BIN_LINK "/${CMAKE_INSTALL_BINDIR}" "/${LAUNCHME_APP_DESTINATION}/launchme")
+install(CODE "
+    set(bin \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}\")
+    file(MAKE_DIRECTORY \"\${bin}\")
+    file(CREATE_LINK \"${LAUNCHME_BIN_LINK}\" \"\${bin}/launchme\" SYMBOLIC)
+    message(STATUS \"Installing: \${bin}/launchme -> ${LAUNCHME_BIN_LINK}\")" COMPONENT Runtime)
+# Desktop integration, under the AppStream / Flatpak id.
+set(LAUNCHME_APP_ID io.github.uxandai.Launchme)
+install(FILES "packaging/linux/${LAUNCHME_APP_ID}.desktop" DESTINATION "${CMAKE_INSTALL_DATADIR}/applications" COMPONENT Runtime)
+install(FILES "packaging/linux/${LAUNCHME_APP_ID}.metainfo.xml" DESTINATION "${CMAKE_INSTALL_DATADIR}/metainfo" COMPONENT Runtime)
+install(DIRECTORY packaging/linux/icons/hicolor DESTINATION "${CMAKE_INSTALL_DATADIR}/icons" COMPONENT Runtime)

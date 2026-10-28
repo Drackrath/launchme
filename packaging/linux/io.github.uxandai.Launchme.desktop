@@ -1,0 +1,22 @@
+[Desktop Entry]
+Type=Application
+Name=Launchme
+GenericName=Game Launcher
+GenericName[pl]=Launcher gier
+GenericName[pt_BR]=Inicializador de jogos
+GenericName[es]=Lanzador de juegos
+Comment=Your games from every store in one console-style library, built for a gamepad
+Comment[pl]=Gry ze wszystkich sklepów w jednej bibliotece w stylu konsoli, do obsługi padem
+Comment[pt_BR]=Seus jogos de todas as lojas em uma biblioteca no estilo de console, feita para controle
+Comment[es]=Tus juegos de todas las tiendas en una biblioteca de estilo consola, pensada para el mando
+Exec=launchme
+Icon=io.github.uxandai.Launchme
+Terminal=false
+Categories=Game;
+Keywords=games;launcher;library;Steam;Heroic;Lutris;Epic;GOG;gamepad;controller;big picture;
+Keywords[pl]=gry;launcher;biblioteka;Steam;Heroic;Lutris;Epic;GOG;pad;kontroler;
+Keywords[pt_BR]=jogos;inicializador;biblioteca;Steam;Heroic;Lutris;Epic;GOG;controle;
+Keywords[es]=juegos;lanzador;biblioteca;Steam;Heroic;Lutris;Epic;GOG;mando;
+StartupNotify=true
+StartupWMClass=io.github.uxandai.Launchme
+SingleMainWindow=true

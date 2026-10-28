@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <title>Launchme</title>
+  <rect width="256" height="256" rx="57.6" fill="#111111"/>
+  <rect x="1" y="1" width="254" height="254" rx="56.6" fill="none" stroke="#ffffff" stroke-opacity="0.1" stroke-width="2"/>
+  <path transform="translate(32.9728 32.9728) scale(0.742400)" fill="#f2f2f2" fill-rule="evenodd" d="M28 228 V128 A100 100 0 0 1 228 128 V228 H172 V128 A44 44 0 0 0 84 128 V172 H128 V228 Z"/>
+</svg>
