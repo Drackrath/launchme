@@ -35,6 +35,21 @@ const Game* find(const std::vector<Game>& games, const std::string& key) {
     const auto found = std::find_if(games.begin(), games.end(), [&](const Game& game) { return gameKey(game) == key; });
     return found == games.end() ? nullptr : &*found;
 }
+// The Linux launcher's argument splitting (src/platform/launch.cpp): spaces, "..." and \".
+std::vector<std::string> splitArguments(const std::string& line) {
+    std::vector<std::string> result;
+    std::string argument;
+    bool quoted = false, started = false;
+    for (size_t i = 0; i < line.size(); ++i) {
+        const char ch = line[i];
+        if (ch == '\\' && i + 1 < line.size() && line[i + 1] == '"') { argument += line[++i]; started = true; }
+        else if (ch == '"') { quoted = !quoted; started = true; }
+        else if ((ch == ' ' || ch == '\t') && !quoted) { if (started) result.push_back(std::move(argument)); argument.clear(); started = false; }
+        else { argument += ch; started = true; }
+    }
+    if (started) result.push_back(std::move(argument));
+    return result;
+}
 void exec(sqlite3* db, const char* sql) {
     char* error = nullptr;
     if (sqlite3_exec(db, sql, nullptr, nullptr, &error) != SQLITE_OK) { sqlite3_free(error); throw std::runtime_error(sql); }
@@ -68,7 +83,7 @@ int main() try {
     write(cat / "goggame-1958338581.info", R"({"gameId":"1958338581","name":"Cat Quest II"})");
     write(config / "store" / "timestamp.json", R"({"1604903045":{"firstPlayed":"2026-06-16T19:12:38.413Z","lastPlayed":"2026-09-01T22:08:25.393Z","totalPlayed":126}})");
     require(heroic::parseLegendaryInstalled("{").empty() && heroic::parseGogInstalled("[]").empty() && heroic::parseGogTitles("null").empty(), "malformed Heroic files");
-    const auto heroic_games = heroic::scan(config);
+    const auto heroic_games = heroic::scan(config, {}); // No backends: Heroic's own links.
     require(heroic_games.size() == 3, "one game per installed Heroic title");
     const auto* epic = find(heroic_games, "epic:4ad17ed617f44a4dbf7e8a960484c619");
     require(epic && epic->name == L"Two Point Hospital" && epic->installed && epic->install_directory == hospital, "Epic via legendary");
@@ -82,6 +97,68 @@ int main() try {
     const auto* fallback = find(heroic_games, "gog:1958338581");
     require(fallback && fallback->name == L"Cat Quest II" && !fallback->last_played, "GOG title from goggame-<id>.info");
     require(heroic::scan(root / "missing").empty(), "no Heroic");
+
+    // Heroic's backends, started directly: legendary and gogdl with the games' Wine/Proton settings.
+    {
+        const auto home = root / "home";
+        SetEnvironmentVariableW(L"HOME", home.wstring().c_str());
+        const auto resources = root / "Heroic" / "resources", bin = resources / "app.asar.unpacked" / "build" / "bin" / "x64" / "linux";
+        const auto alternative = root / "tools" / "legendary", proton = root / "Proton GE" / "proton", wine = root / "wine" / "bin" / "wine";
+        for (const auto& program : {bin / "legendary", bin / "gogdl", alternative, proton, wine}) {
+            write(program, "#!/bin/sh\n");
+            chmod(program.c_str(), 0755);
+        }
+        write(config / "config.json", R"({"defaultSettings":{"altLegendaryBin":")" + alternative.string() + R"(","altGogdlBin":""},"version":"v0"})");
+        const auto backends = heroic::findBackends(config, {root / "nowhere", resources});
+        require(backends.legendary == alternative && backends.gogdl == bin / "gogdl", "Heroic's alternative legendary, its bundled gogdl");
+        require(heroic::findBackends(root / "missing", {resources}).legendary == bin / "legendary", "bundled legendary");
+        const auto hospital_prefix = root / "Prefixes" / "Two Point Hospital", cat_prefix = root / "Prefixes" / "Cat Quest II";
+        write(config / "GamesConfig" / "4ad17ed617f44a4dbf7e8a960484c619.json", R"({"4ad17ed617f44a4dbf7e8a960484c619":{
+            "wineVersion":{"bin":"')" + proton.string() + R"('","name":"GE-Proton","type":"proton"},"winePrefix":")" + hospital_prefix.string() + R"(",
+            "launcherArgs":"-windowed -lang en","enviromentOptions":[{"key":"DXVK_HUD","value":"fps"},{"key":"bad key","value":"x"}],
+            "wrapperOptions":[],"enableEsync":true,"enableFsync":false,"language":""},"version":"v0","explicit":true})");
+        write(config / "GamesConfig" / "1958338581.json", R"({"1958338581":{"wineVersion":{"bin":")" + wine.string() + R"(","type":"wine"},
+            "winePrefix":")" + cat_prefix.string() + R"(","enviromentOptions":[],"wrapperOptions":[{"exe":"gamemoderun","args":""}],
+            "enableEsync":true,"enableFsync":true}})");
+        const auto settings = heroic::parseSettings(R"({"x":{"wineVersion":{"bin":"'/w/proton'","type":"proton"},"winePrefix":"relative"}})", "x");
+        require(settings.found && settings.wine_bin == "/w/proton" && settings.wine_prefix.empty() && !heroic::parseSettings("{}", "x").found, "settings");
+        const auto played = heroic::scan(config, backends);
+        const auto action = [&](const std::string& key) { const auto* game = find(played, key); require(game, key.c_str()); return game->play_action; };
+        const auto cfg = config.string(), pfx = hospital_prefix.string(), catpfx = cat_prefix.string();
+        const auto epic_action = action("epic:4ad17ed617f44a4dbf7e8a960484c619");
+        const auto expected_epic = "DXVK_HUD=fps STEAM_COMPAT_CLIENT_INSTALL_PATH=" + (home / ".steam" / "steam").string() + " \"WINEPREFIX=" + pfx +
+            "\" \"STEAM_COMPAT_DATA_PATH=" + pfx + "\" \"PROTONPATH=" + proton.parent_path().string() + "\" PROTON_NO_FSYNC=1 LEGENDARY_CONFIG_PATH=" + cfg +
+            "/legendaryConfig/legendary " + alternative.string() + " launch 4ad17ed617f44a4dbf7e8a960484c619 --no-wine --wrapper \"'" + proton.string() +
+            "' waitforexitandrun\" -windowed -lang en";
+        require(epic_action.target == L"/usr/bin/env" && epic_action.arguments == text_encoding::wide(expected_epic) && epic_action.working_directory == hospital,
+            "Epic Windows game: legendary with Proton");
+        const auto mia_action = action("gog:1604903045");
+        const auto expected_mia = "GOGDL_CONFIG_PATH=" + cfg + "/gogdlConfig " + (bin / "gogdl").string() + " --auth-config-path " + cfg +
+            "/gog_store/auth.json launch \"" + mia.string() + "\" 1604903045 --platform linux";
+        require(mia_action.arguments == text_encoding::wide(expected_mia), "GOG Linux game: gogdl, no Wine");
+        const auto cat_action = action("gog:1958338581");
+        const auto expected_cat = "\"WINEPREFIX=" + catpfx + "\" WINEDLLOVERRIDES=winemenubuilder.exe=d WINEESYNC=1 WINEFSYNC=1 GOGDL_CONFIG_PATH=" + cfg +
+            "/gogdlConfig " + (bin / "gogdl").string() + " --auth-config-path " + cfg + "/gog_store/auth.json launch \"" + cat.string() +
+            "\" 1958338581 --wine " + wine.string() + " --wine-prefix \"" + catpfx + "\" --wrapper gamemoderun --platform windows";
+        require(cat_action.arguments == text_encoding::wide(expected_cat), "GOG Windows game: gogdl with Wine");
+        // As launch.cpp splits it: one argument per flag value, the wrapper whole.
+        const auto words = splitArguments(text_encoding::utf8(epic_action.arguments));
+        const auto wrapper = std::find(words.begin(), words.end(), "--wrapper");
+        require(wrapper != words.end() && wrapper + 1 != words.end() && wrapper[1] == "'" + proton.string() + "' waitforexitandrun" &&
+            std::find(words.begin(), words.end(), "WINEPREFIX=" + pfx) != words.end(), "arguments survive launch.cpp's splitting");
+        std::cout << "Epic Windows: /usr/bin/env " << expected_epic << "\nGOG Linux: /usr/bin/env " << expected_mia << "\nGOG Windows: /usr/bin/env " << expected_cat << '\n';
+        // Missing pieces fall back to Heroic: no settings, an unknown Wine type, a missing Wine binary.
+        heroic::Install windows_game{"1958338581", L"Cat Quest II", cat, "windows"};
+        require(!heroic::backendAction("gog", windows_game, config, backends, {}, home), "Windows game without settings");
+        auto toolkit = heroic::parseSettings(R"({"a":{"wineVersion":{"bin":")" + wine.string() + R"(","type":"toolkit"},"winePrefix":"/p"}})", "a");
+        require(!heroic::backendAction("gog", windows_game, config, backends, toolkit, home), "Wine toolkit");
+        toolkit.wine_type = "wine"; toolkit.wine_bin = root / "missing-wine";
+        require(!heroic::backendAction("gog", windows_game, config, backends, toolkit, home), "missing Wine");
+        require(!heroic::backendAction("legendary", windows_game, config, {}, {}, home), "no legendary");
+        fs::remove(config / "GamesConfig" / "4ad17ed617f44a4dbf7e8a960484c619.json");
+        const auto unset = heroic::scan(config, backends);
+        require(find(unset, "epic:4ad17ed617f44a4dbf7e8a960484c619")->play_action.target.starts_with(L"heroic://launch?"), "fallback to Heroic's link");
+    }
 
     // Lutris: store games of pga.db, Battle.net in the prefix of its installer.
     require(lutris::winePrefix("game:\n  exe: drive_c/x.exe\n  prefix: '/home/u/Games/battlenet'\nwine:\n  prefix: /wrong\n") == "/home/u/Games/battlenet", "prefix of the game section");
