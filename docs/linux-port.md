@@ -9,12 +9,13 @@ Windows build is unchanged in behaviour.
 | Part | State |
 | --- | --- |
 | Build (`cmake/Linux.cmake`) | Configures with CMake + Ninja, Clang or GCC, C++20 without GNU extensions |
-| Shared core (`launchme_core`) | All shared sources build on Linux or have a Linux counterpart, except `artwork/platform_logo.cpp` (Direct2D) and the window-bound `file_dialog`, `frame_clock` and `layered_surface` (phase 3) |
+| Shared core (`launchme_core`) | All shared sources build on Linux or have a Linux counterpart, except `artwork/platform_logo.cpp` (Direct2D) |
 | Platform services (phase 2) | Audio (SDL3), decoding and trailers (FFmpeg), system volume (PulseAudio/PipeWire), controllers (SDL3, hidraw, BlueZ), processes (`/proc`, signals), power (logind), sensors (hwmon), memory, Discord, Steam downloads |
 | Stores | Steam (native, Flatpak, Snap), Heroic (Epic and GOG, launched through its legendary/gogdl backends with the game's Wine/Proton settings), Lutris, Prism Launcher/PolyMC/MultiMC, Battle.net in a Lutris prefix |
-| Tests | 57 CTest suites build and pass |
-| Launcher window | SDL3 library browser with keyboard/gamepad navigation and selected-game details; SDL window/input event boundary is available |
-| Renderer, web view | Not started (phases 3–4) |
+| Tests | 59 CTest suites build and pass |
+| Launcher window | SDL3 library browser with keyboard/gamepad navigation and selected-game details, on `SdlWindow`, its events and `FrameClock` |
+| Window and input (phase 3) | One event model for both systems (`platform/window_events.hpp`); the Launcher's key, text, wheel, click and focus routing shared by the Win32 window procedure and the SDL window (`app/window_input.hpp`); frame clock, layered surface and file dialogs (xdg-desktop-portal) on Linux; no in-game Guide on Linux |
+| Renderer, web view | Not started (phase 3 item 2, phase 4) |
 
 ## Building on Linux
 
@@ -63,6 +64,10 @@ still overrides it.
   real port, not a shim. Note that in `swprintf` on Linux `%s` takes a narrow string; use `%ls` for
   `wchar_t*`. MSVC accepts `%ls` too.
 - **Windows headers** in shared files are wrapped in `#ifdef _WIN32`.
+- **Windows and keys.** Window-bound code takes `platform::NativeWindow` (`platform/native_window.hpp`:
+  `HWND` on Windows, `SDL_Window*` on Linux). Key handling keeps using virtual-key values; portable
+  code names them through `keys::` (`platform/key_codes.hpp`, checked against `VK_*` on Windows), and
+  window input is described by `platform/window_events.hpp`.
 - **Tests** may use `GetCurrentProcessId`, `GetEnvironmentVariableW` and similar through
   `tests/linux_compat/Windows.h`, a stand-in that is on the include path of test targets only.
 
@@ -90,24 +95,84 @@ Known gaps on Linux:
 - Flatpak Steam: the account switcher and Steam library sync expect the native layout.
 - Updates: only as an AppImage (`launchme-<version>-x86_64.AppImage` release asset with a SHA-256).
 - Some messages still name Windows (no new translation keys yet).
+- No in-game Guide over running games (phase 3, item 3).
 
 ### Phase 3: window, input and renderer
 
 This is the largest phase: 48 files in `src/ui` and `src/app` call Direct2D and DirectWrite directly
 (`ID2D1RenderTarget`, geometries, effects, `IDWriteTextLayout`), and about 50 use `HWND`.
 
-1. **Window and input**: SDL3 for the window, DPI, keyboard, mouse, touch and text input (IME). The
-   `platform/sdl_window` event boundary now covers window resize/focus, keyboard, text, mouse and
-   gamepad events. The `WM_*` handling in `main.cpp` and `app/input.cpp` still needs to move behind
-   this interface before the real Launcher can build.
+1. **Window and input** (largely done; branch `linux-port-window`):
+   - `platform/window_events.hpp`: one event model for both systems — keys as Windows virtual-key
+     values (`platform/key_codes.hpp`, `keys::`) with Shift/Ctrl/Alt, committed text (UTF-8) and IME
+     composition, mouse moves/leave, buttons with click counts, the wheel in 1/120 notches, touch,
+     gamepad buttons, focus, resize, placement (maximized/restored/minimized/full screen), display
+     scale (DPI), display changes, close requests, dropped files, and `HitArea` for desktop mode's own
+     top bar.
+   - `platform/sdl_window`: translates SDL3 events into it (`translateSdlEvent`, `virtualKey`) and
+     wraps the window: `native()`, logical and pixel size, `displayScale()`, text input on/off and the
+     IME candidate area, system cursors, hit testing (`SDL_SetWindowHitTest`), maximize/restore/full
+     screen. The SDL 2D renderer is optional (`SdlWindowConfig::renderer`).
+   - `app/window_input.hpp`: the Launcher's routing of keys, typed text, the wheel (with the
+     touchpad accumulation), clicks, mouse moves and focus, moved out of `main.cpp`'s window procedure.
+     It is a template over the application: `main.cpp` instantiates it with `Launcher` and calls it
+     from `WM_KEYDOWN`, `WM_CHAR`, `WM_KEYUP`, `WM_MOUSEWHEEL`, `WM_[LR]BUTTON*`, `WM_MOUSEMOVE`,
+     `WM_MOUSELEAVE`, `WM_CAPTURECHANGED`, `WM_SETFOCUS`/`WM_KILLFOCUS` with the values it used to pass
+     (modifiers from `GetKeyState` at the same point), so Windows behaves as before. On Linux,
+     `Dispatcher::handle(app, event)` takes every SDL event and also applies what the window procedure
+     does before its switch (closing, screensaver, launch animation); the mouse's Back button is Esc,
+     as on Windows. `tests/window_input_tests.cpp` drives it with a recording stand-in, from SDL events
+     too.
+   - `platform/native_window.hpp`: `platform::NativeWindow` is `HWND` on Windows and `SDL_Window*` on
+     Linux; window-bound helpers take it.
+   - `frame_clock`: `frame_clock_sdl.cpp` takes the refresh rate of the window's display, 5 Hz while
+     minimized, hidden or occluded, 30 Hz without focus, and waits with `SDL_WaitEventTimeout` (wakes on
+     input) plus `SDL_DelayPrecise`. Work that must wake the loop early posts an SDL event.
+   - `file_dialog`: `file_dialog_sdl.cpp` shows every picker through
+     `SDL_ShowFileDialogWithProperties` (the xdg-desktop-portal FileChooser; zenity without a portal) and
+     waits for the answer while pumping SDL events, so it is modal as on Windows. Game files also offer
+     `.sh`, `.desktop` and `.AppImage`, then every file.
+   - The interim `src/linux/main.cpp` runs on `SdlWindow`, its events and `FrameClock`.
+   - The Windows side of these changes (`main.cpp`, `game_overlay.cpp`, the headers and the renamed
+     `file_dialog_windows`, `frame_clock_windows`, `layered_surface_windows`) has not been compiled yet.
+
+   Remaining, once the Launcher itself builds on Linux (it needs the renderer): the SDL main loop
+   calling `Dispatcher::handle`, `Launcher::screensaverEvent` (the portable twin of
+   `screensaverInput`, which reads `screensaver::Gate` the same way), text input switched on with
+   the search fields and the IME area at the caret, the cursor shapes (`desktopCursor`/`hoverButton`
+   to `SdlWindow::setCursor`), desktop mode's hit testing (`desktopNonClientHit` returns `HT*` values;
+   map to `HitArea`), worker messages posted as SDL user events instead of `PostMessage`
+   (`message_dispatch.hpp`), drops (`DropFileEvent` instead of `HDROP`), touch, the single-instance
+   handoff and Jump List commands (`WM_COPYDATA`; a socket or D-Bus on Linux), session end and display
+   power (logind), and the notification-area icon while a game runs (`tray.cpp`;
+   StatusNotifierItem). `desktop_window.cpp`, `pointer.cpp`, `keyboard.cpp` and the rest of
+   `app/` still call Win32 (`InvalidateRect`, `SetWindowPos`, `GetKeyState`, ...) and move with the
+   Launcher.
+   
+   **For the renderer:** a window's native surface is `platform::NativeWindow` — `HWND` for Direct2D,
+   `SDL_Window*` for a Skia backend (GL/Vulkan surface from the window, or raster into
+   `SDL_GetWindowSurface`). Create the `SdlWindow` with `renderer = false` when the Canvas presents by
+   itself. Layout units on Linux are logical pixels; `SdlWindow::displayScale()` and `pixelSize()` give
+   the backing scale. `LayeredSurface` keeps `dc()` on Windows; on Linux it offers `pixels()`/`stride()`
+   (premultiplied BGRA) and `present(NativeWindow)`.
 2. **Renderer**: introduce a `Canvas` interface that covers the Direct2D subset Launchme actually uses (rects,
    rounded rects, paths, linear and radial gradients, bitmaps with opacity masks, blur and shadow, clip
    layers, text layouts). Port the Windows renderer onto it first, with identical pixels (the UI tests
    compare against reference renders), then add a **Skia** backend (prebuilt Skia, HarfBuzz shaping,
    Fontconfig fonts). `ui/image_decoder.cpp` moves to Skia's codecs.
-3. **Layered and overlay windows** (`layered_surface`, `ui/overlay_window.cpp`): on Wayland an overlay over
-   other applications is not possible in general; the in-game guide becomes a gamescope/Steam Deck–style
-   feature or is left out.
+3. **Layered and overlay windows** (done for now):
+   - `layered_surface_sdl.cpp`: the transparent-window backing store is plain premultiplied BGRA
+     memory, presented by copying it unblended into the SDL window's surface (a window created with
+     `SDL_WINDOW_TRANSPARENT` keeps its alpha). The Windows DIB section is unchanged
+     (`layered_surface_windows.cpp`).
+   - The in-game Guide over a running game (`ui/overlay_window.cpp`) is **unavailable on Linux**:
+     `platform/overlay_support.hpp` says so at run time and `Launcher::openGameOverlay` asks it first
+     (always available on Windows), so the Guide button brings up the launcher's own window instead.
+     Wayland lets no client put a window above another application's. Possible later routes:
+     gamescope (Steam Deck, Big Picture sessions) shows an X11 window that carries
+     `GAMESCOPE_EXTERNAL_OVERLAY` above the game, as mangoapp does; on a plain X11 session an
+     override-redirect window can cover windowed and borderless games, not unredirected full-screen
+     ones. `ui/overlay_window.cpp` itself is not built on Linux (it owns a Direct2D `Renderer`).
 
 ### Phase 4: web view
 

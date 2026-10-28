@@ -250,9 +250,23 @@ if(NOT SDL3_INCLUDE_DIR IN_LIST CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES) # -I/usr
 endif()
 list(APPEND LAUNCHME_CORE_LIBS "${SDL3_LIBRARY}" PkgConfig::LIBSYSTEMD)
 
+# Window and input (phase 3): the SDL window and its events, frame pacing, transparent-window
+# surfaces, file pickers (the xdg-desktop-portal through SDL).
+set(LAUNCHME_LINUX_WINDOW_SOURCES
+    src/platform/file_dialog_sdl.cpp
+    src/platform/frame_clock_sdl.cpp
+    src/platform/layered_surface_sdl.cpp
+    src/platform/sdl_window.cpp
+)
+if(NOT SDL3_INCLUDE_DIR IN_LIST CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES) # -I/usr/include would break #include_next.
+    set_property(SOURCE ${LAUNCHME_LINUX_WINDOW_SOURCES} APPEND PROPERTY INCLUDE_DIRECTORIES "${SDL3_INCLUDE_DIR}")
+endif()
+list(APPEND LAUNCHME_CORE_LIBS "${SDL3_LIBRARY}")
+
 list(APPEND LAUNCHME_CORE_SOURCES ${LAUNCHME_LINUX_PROCESS_SOURCES} ${LAUNCHME_LINUX_IMAGE_SOURCES}
     ${LAUNCHME_LINUX_FILES_SOURCES} ${LAUNCHME_LINUX_STORE_SOURCES} ${LAUNCHME_LINUX_COMPANION_SOURCES}
-    ${LAUNCHME_LINUX_SERVICE_SOURCES} ${LAUNCHME_LINUX_MEDIA_SOURCES} ${LAUNCHME_LINUX_CONTROLLER_SOURCES})
+    ${LAUNCHME_LINUX_SERVICE_SOURCES} ${LAUNCHME_LINUX_MEDIA_SOURCES} ${LAUNCHME_LINUX_CONTROLLER_SOURCES}
+    ${LAUNCHME_LINUX_WINDOW_SOURCES})
 
 add_library(launchme_core STATIC ${LAUNCHME_CORE_SOURCES})
 launchme_target_defaults(launchme_core)
@@ -261,7 +275,7 @@ target_link_libraries(launchme_core PUBLIC ${LAUNCHME_CORE_LIBS})
 get_target_property(miniz_includes miniz INTERFACE_INCLUDE_DIRECTORIES)
 set_target_properties(miniz PROPERTIES INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${miniz_includes}")
 
-add_executable(launchme src/linux/main.cpp src/platform/sdl_window.cpp)
+add_executable(launchme src/linux/main.cpp)
 launchme_target_defaults(launchme)
 target_include_directories(launchme PRIVATE "${SDL3_INCLUDE_DIR}" "${SDL3_TTF_INCLUDE_DIR}")
 target_link_libraries(launchme PRIVATE launchme_core "${SDL3_LIBRARY}" "${SDL3_TTF_LIBRARY}")
@@ -377,6 +391,11 @@ if(BUILD_TESTING)
     add_dependencies(soundtrack_tests launchme_audio)
     launchme_executable(volume_monitor_tests TEST off_thread_system_volume SOURCES tests/volume_monitor_tests.cpp)
     launchme_executable(audio_output_tests TEST audio_cues_music_and_voice SOURCES tests/audio_output_tests.cpp)
+
+    # Window and input:
+    launchme_executable(window_input_tests TEST window_input_routing SOURCES tests/window_input_tests.cpp)
+    launchme_executable(window_platform_linux_tests TEST linux_frame_clock_surface_dialogs_overlay
+        SOURCES tests/window_platform_linux_tests.cpp)
 
     # Controllers:
     launchme_executable(controller_linux_tests TEST controller_linux_sysfs_and_bluez SOURCES tests/controller_linux_tests.cpp)

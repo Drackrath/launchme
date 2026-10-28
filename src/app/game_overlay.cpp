@@ -1,6 +1,7 @@
 #include "launcher.hpp"
 #include "../ui/quick_menu.hpp"
 #include "../ui/friends_layout.hpp"
+#include "../platform/overlay_support.hpp"
 #include <windowsx.h>
 #include <algorithm>
 #include <cmath>
@@ -130,6 +131,8 @@ void Launcher::openOverlayDrawer() {
 }
 
 bool Launcher::openGameOverlay(const GameWindow& target) {
+    // Linux: no overlay over other applications yet (platform/overlay_support.hpp).
+    if (!overlay_support::available()) return false;
     if (!settings_.guide_overlay || !settings_.guide_menu || !overlay_backend_.valid(target)) return false;
     cancelGameFocus();
     if (!game_overlay_) {
