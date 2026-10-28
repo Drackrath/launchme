@@ -2,6 +2,10 @@
 tile, every size drawn on its own (not scaled down from the largest), written to res/launchme.ico (Pillow + NumPy).
 
     python tools/launchme_icon.py [--preview <png>]
+    python tools/launchme_icon.py --hicolor packaging/linux/icons
+
+--hicolor writes the Linux icons instead: hicolor/<n>x<n>/apps/<app id>.png for the freedesktop theme sizes
+and hicolor/scalable/apps/<app id>.svg, the same tile as a vector (installed by cmake/Linux.cmake).
 
 The symbol's path is read from the SVG (M L H V A Q C Z, absolute and relative); each figure is flattened and filled
 even-odd, so a hole drawn as its own figure stays a hole. Rebuild the launcher afterwards (res/launchme.rc.in)."""
@@ -14,6 +18,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 SYMBOL = ROOT / "res" / "launchme_symbol.svg"
 ICON = ROOT / "res" / "launchme.ico"
 SIZES = [16, 20, 24, 32, 40, 48, 64, 96, 128, 256]
+APP_ID = "io.github.uxandai.Launchme"  # packaging/linux: desktop entry, AppStream, Flatpak.
+HICOLOR = [16, 24, 32, 48, 64, 128, 256, 512]
 TILE = (0x11, 0x11, 0x11)  # The logo's own ink, as the tile.
 INK = (0xF2, 0xF2, 0xF2)
 
@@ -137,14 +143,40 @@ def draw(size: int, shape: list[list[tuple[float, float]]], bounds) -> Image.Ima
     return Image.fromarray(np.dstack([rgb * 255, alpha * 255]).clip(0, 255).round().astype(np.uint8), "RGBA")
 
 
+def scalable(d: str, bounds) -> str:
+    """The large sizes' tile as SVG: share 0.58, the faint light rim, even-odd fill."""
+    left, top, right, bottom = bounds
+    scale = 256 * 0.58 / max(right - left, bottom - top)
+    ox, oy = (256 - (right - left) * scale) / 2 - left * scale, (256 - (bottom - top) * scale) / 2 - top * scale
+    tile, ink = "#%02x%02x%02x" % TILE, "#%02x%02x%02x" % INK
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <title>Launchme</title>
+  <rect width="256" height="256" rx="57.6" fill="{tile}"/>
+  <rect x="1" y="1" width="254" height="254" rx="56.6" fill="none" stroke="#ffffff" stroke-opacity="0.1" stroke-width="2"/>
+  <path transform="translate({ox:.4f} {oy:.4f}) scale({scale:.6f})" fill="{ink}" fill-rule="evenodd" d="{d}"/>
+</svg>
+"""
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--preview", help="also write every size side by side to this PNG")
+    parser.add_argument("--hicolor", help="write the Linux hicolor icons under this folder instead of the ICO")
     args = parser.parse_args()
     d, _ = path_data(SYMBOL)
     shape = figures(d)
     xs = [x for f in shape for x, _ in f]; ys = [y for f in shape for _, y in f]
     bounds = (min(xs), min(ys), max(xs), max(ys))
+    if args.hicolor:
+        theme = pathlib.Path(args.hicolor) / "hicolor"
+        for size in HICOLOR:
+            folder = theme / f"{size}x{size}" / "apps"
+            folder.mkdir(parents=True, exist_ok=True)
+            draw(size, shape, bounds).save(folder / f"{APP_ID}.png", optimize=True)
+        (theme / "scalable" / "apps").mkdir(parents=True, exist_ok=True)
+        (theme / "scalable" / "apps" / f"{APP_ID}.svg").write_text(scalable(d, bounds), encoding="utf-8")
+        print(theme, ", ".join(str(s) for s in HICOLOR), "+ scalable")
+        return
     images = [draw(size, shape, bounds) for size in SIZES]
     images[-1].save(ICON, format="ICO", sizes=[(s, s) for s in SIZES], append_images=images[:-1])
     print(ICON, ", ".join(str(s) for s in SIZES))

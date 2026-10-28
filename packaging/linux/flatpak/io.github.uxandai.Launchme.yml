@@ -1,0 +1,139 @@
+# Flatpak manifest for Launchme (docs/linux-port.md, phase 5).
+#
+#   flatpak-builder --user --install-deps-from=flathub --force-clean --install \
+#       build/flatpak packaging/linux/flatpak/io.github.uxandai.Launchme.yml
+#   flatpak run io.github.uxandai.Launchme
+#
+# Builds offline: every FetchContent download of the CMake build is a source below. The GNOME
+# runtime brings WebKitGTK 6.0 / GTK4 for the reader window (launchme-web), libsecret, ICU, curl,
+# FFmpeg, PulseAudio and SQLite. A Flatpak does not update itself: the updater only offers releases
+# to an AppImage ($APPIMAGE), so it stays quiet here.
+app-id: io.github.uxandai.Launchme
+runtime: org.gnome.Platform
+runtime-version: '49'
+sdk: org.gnome.Sdk
+command: launchme
+finish-args:
+  # Window, input, sound.
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  # GPU, and controllers: evdev for SDL, hidraw for the Steam Controller and other HID pads.
+  - --device=all
+  - --socket=pulseaudio
+  # Store APIs, artwork, news, the reader window, the companion's providers, phone access (LAN).
+  - --share=network
+  # Desktop keyring for encrypted settings and store accounts (libsecret, Secret Service).
+  - --talk-name=org.freedesktop.secrets
+  # Bluetooth controllers (BlueZ), logind for sleep/shutdown and idle inhibition.
+  - --system-talk-name=org.bluez
+  - --system-talk-name=org.freedesktop.login1
+  # Starting games and store clients outside the sandbox (flatpak-spawn --host).
+  - --talk-name=org.freedesktop.Flatpak
+  # Discord rich presence.
+  - --filesystem=xdg-run/discord-ipc-0
+  - --filesystem=xdg-run/app/com.discordapp.Discord:create
+  # Steam (native, Flatpak, Snap): libraries, shortcuts and collections are read and written.
+  - --filesystem=~/.steam
+  - --filesystem=~/.local/share/Steam
+  - --filesystem=~/.var/app/com.valvesoftware.Steam
+  - --filesystem=~/snap/steam:ro
+  # Heroic (Epic, GOG): its legendary/gogdl configuration is used to launch, install and sync.
+  - --filesystem=~/.config/heroic
+  - --filesystem=~/.var/app/com.heroicgameslauncher.hgl
+  - --filesystem=~/Games
+  # Lutris, Prism Launcher / PolyMC / MultiMC: libraries are only read.
+  - --filesystem=~/.local/share/lutris:ro
+  - --filesystem=~/.config/lutris:ro
+  - --filesystem=~/.var/app/net.lutris.Lutris:ro
+  - --filesystem=~/.local/share/PrismLauncher:ro
+  - --filesystem=~/.local/share/PolyMC:ro
+  - --filesystem=~/.local/share/multimc:ro
+  - --filesystem=~/.var/app/org.prismlauncher.PrismLauncher:ro
+  # Games added by hand, cover images and soundtracks picked in Launchme's own file browser.
+  - --filesystem=xdg-download:ro
+  - --filesystem=xdg-music:ro
+  - --filesystem=xdg-pictures:ro
+
+modules:
+  - name: sdl3
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DSDL_TESTS=OFF
+      - -DSDL_EXAMPLES=OFF
+      - -DSDL_STATIC=OFF
+    cleanup:
+      - /include
+      - /lib/cmake
+      - /lib/pkgconfig
+      - /share
+    sources:
+      - type: archive
+        url: https://github.com/libsdl-org/SDL/releases/download/release-3.4.16/SDL3-3.4.16.tar.gz
+        sha256: 7322236cd12090c3eb40b9728be4d49c76f66ad17d04369584d4ecad5cf77c68
+
+  - name: sdl3-ttf
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DSDLTTF_VENDORED=OFF
+      - -DSDLTTF_HARFBUZZ=ON
+      - -DSDLTTF_SAMPLES=OFF
+    cleanup:
+      - /include
+      - /lib/cmake
+      - /lib/pkgconfig
+      - /share
+    sources:
+      - type: archive
+        url: https://github.com/libsdl-org/SDL_ttf/releases/download/release-3.2.2/SDL3_ttf-3.2.2.tar.gz
+        sha256: 63547d58d0185c833213885b635a2c0548201cc8f301e6587c0be1a67e1e045d
+
+  - name: launchme
+    buildsystem: cmake-ninja
+    builddir: true
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DBUILD_TESTING=OFF
+      - -DFETCHCONTENT_FULLY_DISCONNECTED=ON
+      - -DFETCHCONTENT_SOURCE_DIR_MINIZ=/run/build/launchme/deps/miniz
+      - -DFETCHCONTENT_SOURCE_DIR_COMPANION_ORT=/run/build/launchme/deps/onnxruntime
+      - -DFETCHCONTENT_SOURCE_DIR_COMPANION_SPM=/run/build/launchme/deps/sentencepiece
+      - -DFETCHCONTENT_SOURCE_DIR_COMPANION_SQLITE=/run/build/launchme/deps/sqlite
+    sources:
+      - type: dir
+        path: ../../..
+        skip:
+          - build
+          - dist
+          - .flatpak-builder
+      - type: git
+        url: https://github.com/richgel999/miniz.git
+        commit: 174573d60290f447c13a2b1b3405de2b96e27d6c
+        dest: deps/miniz
+      - type: git
+        url: https://github.com/google/sentencepiece.git
+        commit: 31646a467d2051eb904e0b45de3a73e91fe1c1e3
+        dest: deps/sentencepiece
+      - type: archive
+        url: https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-linux-x64-1.23.2.tgz
+        sha256: 1fa4dcaef22f6f7d5cd81b28c2800414350c10116f5fdd46a2160082551c5f9b
+        dest: deps/onnxruntime
+        only-arches:
+          - x86_64
+      - type: archive
+        url: https://www.sqlite.org/2025/sqlite-amalgamation-3500400.zip
+        sha256: 1d3049dd0f830a025a53105fc79fd2ab9431aea99e137809d064d8ee8356b032
+        dest: deps/sqlite
+      # The companion's embedding model, where cmake/CompanionEmbeddings.cmake looks before downloading.
+      - type: file
+        url: https://huggingface.co/Xenova/paraphrase-multilingual-MiniLM-L12-v2/resolve/2c4055b12046f11709e9df2c122e59ffbdc2f900/onnx/model_quantized.onnx
+        sha256: 66fc00f5f29afcaff34092e1bdd20008ca3918265a82fb9695a551e510cc4ebc
+        dest: _flatpak_build/companion-model
+        dest-filename: model.onnx
+      - type: file
+        url: https://huggingface.co/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2/resolve/e8f8c211226b894fcb81acc59f3b34ba3efd5f42/sentencepiece.bpe.model
+        sha256: cfc8146abe2a0488e9e2a0c56de7952f7c11ab059eca145a0a727afce0db2865
+        dest: _flatpak_build/companion-model
+        dest-filename: sentencepiece.bpe.model

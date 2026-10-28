@@ -15,6 +15,10 @@ execute_process(COMMAND "${CMAKE_COMMAND}" --install "${BUILD_DIR}" --config "${
 if(NOT installed EQUAL 0)
     message(FATAL_ERROR "Runtime installation failed.")
 endif()
+# Linux installs the program into a folder of the prefix (APP_DIR, e.g. lib/launchme).
+if(DEFINED APP_DIR AND NOT APP_DIR STREQUAL "" AND NOT APP_DIR STREQUAL ".")
+    set(package "${package}/${APP_DIR}")
+endif()
 foreach(file ${runtime} assets/companion-embeddings/model.onnx assets/companion-embeddings/sentencepiece.bpe.model
         assets/companion-embeddings/onnxruntime-license.txt assets/companion-embeddings/sentencepiece-license.txt assets/companion-embeddings/companion-embeddings-NOTICE.txt)
     if(NOT EXISTS "${package}/${file}")

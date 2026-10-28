@@ -414,6 +414,8 @@ void BrowserWindow::close(bool restore) {
 bool BrowserWindow::isOpen() const { return state_ && state_->window; }
 bool BrowserWindow::owns(HWND window) const { return isOpen() && window && (window==state_->window || IsChild(state_->window,window)); }
 HWND BrowserWindow::handle() const { return state_ ? state_->window : nullptr; }
+bool BrowserWindow::focused() const { return owns(GetForegroundWindow()); }
+void BrowserWindow::pump() {} // Its messages arrive through the launcher's own message loop.
 BrowserWindow::Status BrowserWindow::status() const { return state_ ? state_->status : Status::closed; }
 void BrowserWindow::command(Command command) { if (isOpen()) state_->command(command); }
 void BrowserWindow::scroll(int pixels) { if (isOpen()) state_->scroll(pixels); }

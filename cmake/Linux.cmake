@@ -6,6 +6,10 @@ include(FetchContent)
 # Strict ISO C++: GNU mode predefines the macro `unix`, which the companion code uses as a name.
 set(CMAKE_CXX_EXTENSIONS OFF)
 include(CTest)
+include(GNUInstallDirs)
+# Installed, the program keeps its files next to it as on Windows (assets/, libonnxruntime.so.1,
+# launchme-web): <prefix>/lib/launchme, with bin/launchme a link to it (install rules at the end).
+set(LAUNCHME_APP_DESTINATION "${CMAKE_INSTALL_LIBDIR}/launchme")
 find_package(PkgConfig REQUIRED)
 find_package(Threads REQUIRED)
 find_package(ICU REQUIRED COMPONENTS uc i18n)
@@ -283,6 +287,31 @@ target_link_libraries(launchme PRIVATE launchme_core "${SDL3_LIBRARY}" "${SDL3_T
 companion_embedding_assets(launchme)
 target_link_libraries(launchme PRIVATE launchme_companion_resources)
 
+# Web view (phase 4): BrowserWindow (launchme_browser) starts the launchme-web helper, a WebKitGTK 6.0
+# window in a GTK4 process of its own. Without WebKitGTK the helper is not built and pages open in
+# the user's default browser (BrowserWindow::runtimeAvailable() is false).
+add_library(launchme_browser STATIC src/ui/browser_window_linux.cpp)
+launchme_target_defaults(launchme_browser)
+target_link_libraries(launchme_browser PUBLIC launchme_core)
+target_link_libraries(launchme PRIVATE launchme_browser)
+option(LAUNCHME_WEBKIT "Build the launchme-web reader window (WebKitGTK 6.0)" ON)
+if(LAUNCHME_WEBKIT)
+    pkg_check_modules(WEBKITGTK IMPORTED_TARGET webkitgtk-6.0)
+endif()
+if(WEBKITGTK_FOUND)
+    message(STATUS "Web view: WebKitGTK ${WEBKITGTK_VERSION} (launchme-web)")
+    add_executable(launchme-web src/linux/web_helper.cpp)
+    launchme_target_defaults(launchme-web)
+    # Only what the window uses from the core (i18n, the YouTube player page), not its libraries.
+    target_link_options(launchme-web PRIVATE -Wl,--as-needed)
+    target_link_libraries(launchme-web PRIVATE launchme_core PkgConfig::WEBKITGTK)
+    set_target_properties(launchme-web PROPERTIES BUILD_RPATH "$ORIGIN" INSTALL_RPATH "$ORIGIN")
+    add_dependencies(launchme launchme-web)
+elseif(LAUNCHME_WEBKIT)
+    message(STATUS "Web view: unavailable, WebKitGTK 6.0 not found (Arch: webkitgtk-6.0, Debian/Ubuntu: "
+        "libwebkitgtk-6.0-dev, Fedora: webkitgtk6.0-devel); Glance pages open in the default browser")
+endif()
+
 # Same signature as the Windows build's helper (the WIN32 flag is ignored).
 function(launchme_executable name)
     cmake_parse_arguments(PARSE_ARGV 1 ARG "WIN32" "TEST" "SOURCES;LIBS;DEFINES")
@@ -369,6 +398,7 @@ if(BUILD_TESTING)
     set_tests_properties(companion_semantic_real_model PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
     add_test(NAME companion_semantic_installed_package COMMAND ${CMAKE_COMMAND}
         "-DBUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}" "-DTEST_EXE=$<TARGET_FILE:companion_semantic_tests>" "-DCONFIG=$<CONFIG>"
+        "-DAPP_DIR=${LAUNCHME_APP_DESTINATION}"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/companion_semantic_install.cmake")
     set_tests_properties(companion_semantic_installed_package PROPERTIES TIMEOUT 240 RUN_SERIAL TRUE)
     launchme_executable(companion_links_tests TEST companion_bounded_link_previews SOURCES tests/companion_links_tests.cpp)
@@ -401,4 +431,37 @@ if(BUILD_TESTING)
     launchme_executable(controller_linux_tests TEST controller_linux_sysfs_and_bluez SOURCES tests/controller_linux_tests.cpp)
     launchme_executable(device_live_test SOURCES tests/device_live_test_linux.cpp)
 
+    # Web view:
+    launchme_executable(browser_window_linux_tests TEST webkitgtk_browser_lifecycle
+        SOURCES tests/browser_window_linux_tests.cpp src/ui/browser_window_linux.cpp DEFINES LAUNCHME_UI_TEST)
+    set_tests_properties(webkitgtk_browser_lifecycle PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE SKIP_RETURN_CODE 77)
+    if(TARGET launchme-web)
+        add_dependencies(browser_window_linux_tests launchme-web)
+    endif()
+
 endif()
+
+# Installation (phase 5, packaging/linux): `cmake --install <build> --prefix /usr` for packages,
+# the AppImage (packaging/linux/build-appimage.sh) and the Flatpak (/app).
+install(TARGETS launchme RUNTIME DESTINATION "${LAUNCHME_APP_DESTINATION}" COMPONENT Runtime)
+if(TARGET launchme-web)
+    install(TARGETS launchme-web RUNTIME DESTINATION "${LAUNCHME_APP_DESTINATION}" COMPONENT Runtime)
+endif()
+install(FILES res/HorizonsTheme.mp3 DESTINATION "${LAUNCHME_APP_DESTINATION}/assets" COMPONENT Runtime)
+# Publisher and developer logos (src/library/studios.cpp), as on Windows.
+file(GLOB LAUNCHME_STUDIO_LOGOS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/res/studios/*.png")
+install(FILES ${LAUNCHME_STUDIO_LOGOS} res/studios/LICENSE.txt DESTINATION "${LAUNCHME_APP_DESTINATION}/assets/studios" COMPONENT Runtime)
+install(FILES "${miniz_SOURCE_DIR}/LICENSE" DESTINATION "${CMAKE_INSTALL_DATADIR}/licenses/launchme" RENAME miniz.txt COMPONENT Runtime)
+install(FILES LICENSE DESTINATION "${CMAKE_INSTALL_DATADIR}/licenses/launchme" COMPONENT Runtime)
+# bin/launchme: a relative link, so the program still finds its folder through /proc/self/exe.
+file(RELATIVE_PATH LAUNCHME_BIN_LINK "/${CMAKE_INSTALL_BINDIR}" "/${LAUNCHME_APP_DESTINATION}/launchme")
+install(CODE "
+    set(bin \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}\")
+    file(MAKE_DIRECTORY \"\${bin}\")
+    file(CREATE_LINK \"${LAUNCHME_BIN_LINK}\" \"\${bin}/launchme\" SYMBOLIC)
+    message(STATUS \"Installing: \${bin}/launchme -> ${LAUNCHME_BIN_LINK}\")" COMPONENT Runtime)
+# Desktop integration, under the AppStream / Flatpak id.
+set(LAUNCHME_APP_ID io.github.uxandai.Launchme)
+install(FILES "packaging/linux/${LAUNCHME_APP_ID}.desktop" DESTINATION "${CMAKE_INSTALL_DATADIR}/applications" COMPONENT Runtime)
+install(FILES "packaging/linux/${LAUNCHME_APP_ID}.metainfo.xml" DESTINATION "${CMAKE_INSTALL_DATADIR}/metainfo" COMPONENT Runtime)
+install(DIRECTORY packaging/linux/icons/hicolor DESTINATION "${CMAKE_INSTALL_DATADIR}/icons" COMPONENT Runtime)

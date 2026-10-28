@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright 2026 uxandai -->
+<component type="desktop-application">
+  <id>io.github.uxandai.Launchme</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+
+  <name>Launchme</name>
+  <summary>Your games from every store in one console-style library</summary>
+  <developer id="io.github.uxandai">
+    <name>uxandai</name>
+  </developer>
+
+  <description>
+    <p>
+      Launchme is a full-screen, console-style game launcher built for a gamepad. It brings the games
+      you have installed through Steam, Heroic (Epic Games and GOG), Lutris and Prism Launcher into one
+      library, with artwork, details and trailers, and starts them for you.
+    </p>
+    <ul>
+      <li>Home layouts in the style of game consoles, a desktop window with a sidebar and details pane</li>
+      <li>Grid, list, cinematic, coverflow and shelf library views with sorting, filters and search</li>
+      <li>Covers, backgrounds and logos from SteamGridDB and the stores themselves</li>
+      <li>Playtime, achievements and ratings for each game</li>
+      <li>Glance: news about your games and new releases, read in a reader window driven by the pad</li>
+      <li>An optional AI companion that knows your library</li>
+    </ul>
+    <p>
+      The interface is available in English, Polish, Brazilian Portuguese and Spanish.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">io.github.uxandai.Launchme.desktop</launchable>
+  <provides>
+    <binary>launchme</binary>
+  </provides>
+
+  <url type="homepage">https://github.com/uxandai/launchme</url>
+  <url type="bugtracker">https://github.com/uxandai/launchme/issues</url>
+  <url type="vcs-browser">https://github.com/uxandai/launchme</url>
+
+  <categories>
+    <category>Game</category>
+  </categories>
+  <keywords>
+    <keyword>launcher</keyword>
+    <keyword>library</keyword>
+    <keyword>Steam</keyword>
+    <keyword>Heroic</keyword>
+    <keyword>Lutris</keyword>
+    <keyword>gamepad</keyword>
+  </keywords>
+
+  <supports>
+    <control>gamepad</control>
+    <control>keyboard</control>
+    <control>pointing</control>
+  </supports>
+  <requires>
+    <display_length compare="ge">768</display_length>
+  </requires>
+
+  <screenshots>
+    <screenshot type="default">
+      <caption>The PSfive home layout</caption>
+      <image>https://raw.githubusercontent.com/uxandai/launchme/main/docs/screenshots/psfive.jpg</image>
+    </screenshot>
+    <screenshot>
+      <caption>The desktop window</caption>
+      <image>https://raw.githubusercontent.com/uxandai/launchme/main/docs/screenshots/desktop.jpg</image>
+    </screenshot>
+    <screenshot>
+      <caption>Game details</caption>
+      <image>https://raw.githubusercontent.com/uxandai/launchme/main/docs/screenshots/game-details.jpg</image>
+    </screenshot>
+    <screenshot>
+      <caption>Glance, the news hub</caption>
+      <image>https://raw.githubusercontent.com/uxandai/launchme/main/docs/screenshots/glance.jpg</image>
+    </screenshot>
+  </screenshots>
+
+  <content_rating type="oars-1.1"/>
+
+  <releases>
+    <release version="0.3.0" date="2026-10-27">
+      <url type="details">https://github.com/uxandai/launchme/releases/tag/v0.3.0</url>
+      <description>
+        <p>Hide to tray while playing, background crops, the stores' own artwork for every store, Steam trailers for games from other stores, and social dynamics for the companion.</p>
+      </description>
+    </release>
+    <release version="0.2.6" date="2026-10-27">
+      <url type="details">https://github.com/uxandai/launchme/releases/tag/v0.2.6</url>
+      <description>
+        <p>Brazilian Portuguese and Spanish, Epic artwork, faster missing artwork, and a local semantic memory for the companion.</p>
+      </description>
+    </release>
+  </releases>
+</component>
