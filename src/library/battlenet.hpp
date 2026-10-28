@@ -27,9 +27,15 @@ std::optional<std::vector<AggregateEntry>> parseAggregate(std::string_view bytes
 std::string uninstallUid(std::wstring_view command);
 // No catalogue/entitlement inference. Only known retail UIDs are launchable;
 // PTR/beta/region variants are never silently mapped to the retail game.
+// wine_prefix: the Agent runs in Wine (Linux); its install paths are mapped into the prefix.
 Scan scan(const std::filesystem::path& database, const std::filesystem::path& aggregate,
           const std::wstring& client, const std::vector<RegistryHint>& hints = {},
-          const std::vector<Game>& previous = {});
+          const std::vector<Game>& previous = {}, const std::filesystem::path& wine_prefix = {});
+// A Windows path of a program in a Wine prefix ("C:\Program Files (x86)\Overwatch", "C:/...")
+// → <prefix>/drive_c/Program Files (x86)/Overwatch. Empty for another drive or a relative path.
+std::filesystem::path winePath(const std::filesystem::path& prefix, std::string_view windows_path);
+// The launch code (Game::source_id) of an Agent product code: "pro" → "Pro"; empty when unknown.
+std::string familyOfCode(std::string_view code);
 // account.battle.net/api/games-and-subs as copied from the browser. Game accounts carry a title
 // ID; only titles with a known launch code (the GameKey family) are returned, not installed.
 // The page lists game accounts, not every licence: the result is a partial library.

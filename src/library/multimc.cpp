@@ -5,6 +5,8 @@
 
 #ifdef _WIN32
 #include <Windows.h>
+#else
+#include "xdg_paths.hpp"
 #endif
 
 #include <algorithm>
@@ -31,6 +33,7 @@ std::string readFile(const std::filesystem::path& path, size_t limit = 1024 * 10
     if (!input.read(bytes.data(), static_cast<std::streamsize>(bytes.size()))) return {};
     return bytes;
 }
+#ifdef _WIN32
 std::filesystem::path environment(const wchar_t* name) {
     wchar_t value[4096]{};
     const auto count = GetEnvironmentVariableW(name, value, 4096);
@@ -42,6 +45,18 @@ std::wstring registryString(HKEY root, const wchar_t* path, const wchar_t* value
     if (RegGetValueW(root, path, value, RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ, nullptr, buffer, &size) != ERROR_SUCCESS) return {};
     return buffer;
 }
+#else
+std::filesystem::path environment(const wchar_t* name) { return xdg_paths::variable(name); }
+// Flatpak's launch wrappers (exports/bin/<app ID>) keep their data in the sandbox's folder.
+constexpr const wchar_t* prism_flatpak = L"org.prismlauncher.PrismLauncher";
+constexpr const wchar_t* polymc_flatpak = L"org.polymc.PolyMC";
+std::filesystem::path flatpakData(const std::filesystem::path& executable) {
+    const auto name = executable.filename().wstring();
+    const auto sandbox = xdg_paths::flatpakHome(name);
+    if (sandbox.empty() || (name != prism_flatpak && name != polymc_flatpak)) return {};
+    return sandbox / "data" / (name == prism_flatpak ? L"PrismLauncher" : L"PolyMC");
+}
+#endif
 std::wstring trim(std::wstring_view text) {
     size_t begin = 0, end = text.size();
     while (begin < end && std::iswspace(text[begin])) ++begin;
@@ -179,19 +194,37 @@ std::optional<Flavor> flavorOf(const std::filesystem::path& executable) {
     if (name == L"multimc.exe") return Flavor::multimc;
     if (name == L"prismlauncher.exe") return Flavor::prism;
     if (name == L"polymc.exe") return Flavor::polymc;
+#ifndef _WIN32
+    // Linux: the binaries, Flatpak's wrappers and AppImages ("PrismLauncher-Linux-x86_64.AppImage").
+    if (name == L"multimc") return Flavor::multimc;
+    if (name == L"prismlauncher" || name == lower(prism_flatpak) || (name.starts_with(L"prismlauncher") && name.ends_with(L".appimage"))) return Flavor::prism;
+    if (name == L"polymc" || name == lower(polymc_flatpak) || (name.starts_with(L"polymc") && name.ends_with(L".appimage"))) return Flavor::polymc;
+#endif
     return std::nullopt;
 }
 
 std::filesystem::path dataDirectory(const std::filesystem::path& executable, Flavor flavor) {
     const auto folder = executable.parent_path();
+#ifdef _WIN32
     if (flavor == Flavor::multimc) return folder; // Always portable.
+#else
+    // MultiMC's own Linux build is portable too; a packaged /usr/bin/multimc keeps ~/.local/share/multimc.
+    if (flavor == Flavor::multimc && (isFile(folder / L"multimc.cfg") || isFolder(folder / L"instances"))) return folder;
+    if (const auto sandbox = flatpakData(executable); !sandbox.empty()) return sandbox;
+#endif
     if (isFolder(folder / L"UserData")) return folder / L"UserData";
     std::error_code ec;
     if (std::filesystem::exists(folder / L"portable.txt", ec) || isFile(folder / configFile(flavor))) return folder;
     if (flavor == Flavor::prism)
         if (const auto chosen = environment(L"PRISMLAUNCHER_DATA_DIR"); isFolder(chosen)) return chosen;
+#ifdef _WIN32
     const auto roaming = environment(L"APPDATA");
     return roaming.empty() ? std::filesystem::path{} : roaming / (flavor == Flavor::prism ? L"PrismLauncher" : L"PolyMC");
+#else
+    const auto data = xdg_paths::dataHome();
+    return data.empty() ? std::filesystem::path{} :
+        data / (flavor == Flavor::prism ? L"PrismLauncher" : flavor == Flavor::polymc ? L"PolyMC" : L"multimc");
+#endif
 }
 
 std::filesystem::path instancesDirectory(const Installation& installation) {
@@ -257,6 +290,7 @@ std::vector<Installation> discover(const std::vector<std::filesystem::path>& cho
         if (flavorOf(path)) add(path);
         else addFolder(path);
     }
+#ifdef _WIN32
     // Prism Launcher's installer (also winget's) records its folder twice.
     addFolder(registryString(HKEY_CURRENT_USER, L"Software\\PrismLauncher", L"InstallDir"));
     addFolder(registryString(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\PrismLauncher", L"InstallLocation"));
@@ -281,6 +315,12 @@ std::vector<Installation> discover(const std::vector<std::filesystem::path>& cho
         add(drive / L"\\" / L"MultiMC" / L"MultiMC.exe");
         add(drive / L"\\" / L"Games" / L"MultiMC" / L"MultiMC.exe");
     }
+#else
+    // Distribution packages on PATH, Flatpak's wrappers, MultiMC's own folder.
+    for (const auto* name : {L"prismlauncher", L"polymc", L"multimc"}) add(xdg_paths::findProgram({name}));
+    for (const auto* name : {prism_flatpak, polymc_flatpak}) add(xdg_paths::flatpakWrapper(name));
+    if (const auto data = xdg_paths::dataHome(); !data.empty()) add(data / L"multimc" / L"MultiMC");
+#endif
     std::vector<Installation> result;
     std::set<std::wstring> data_folders, executables;
     for (const auto& executable : candidates) {

@@ -147,7 +147,14 @@ set(LAUNCHME_LINUX_FILES_SOURCES
 
 # Game store discovery on Linux (Steam, Heroic, Lutris, Prism Launcher, ...).
 set(LAUNCHME_LINUX_STORE_SOURCES
+    src/library/battlenet.cpp
+    src/library/heroic.cpp
+    src/library/lutris.cpp
+    src/library/multimc.cpp
+    src/library/pc_platforms.cpp
 )
+pkg_check_modules(SQLITE3 REQUIRED IMPORTED_TARGET sqlite3)
+list(APPEND LAUNCHME_CORE_LIBS PkgConfig::SQLITE3)
 
 # Companion assets and embeddings, updater.
 set(LAUNCHME_LINUX_COMPANION_SOURCES
@@ -224,6 +231,14 @@ if(BUILD_TESTING)
     # Files and sockets:
 
     # Stores:
+    launchme_executable(linux_stores_tests TEST linux_heroic_lutris_prism_libraries SOURCES tests/linux_stores_tests.cpp)
+    launchme_executable(pc_platforms_tests TEST native_pc_platform_libraries SOURCES tests/pc_platforms_tests.cpp)
+    launchme_executable(battlenet_tests TEST battlenet_local_installation_lifecycle SOURCES tests/battlenet_tests.cpp)
+    launchme_executable(ubisoft_tests TEST ubisoft_connect_client_library SOURCES tests/ubisoft_tests.cpp)
+    launchme_executable(store_import_tests TEST ea_battlenet_website_imports SOURCES tests/store_import_tests.cpp)
+    launchme_executable(store_art_tests TEST store_own_artwork SOURCES tests/store_art_tests.cpp)
+    launchme_executable(owned_games_tests TEST steam_app_names SOURCES tests/owned_games_tests.cpp)
+    launchme_executable(steam_owned_tests TEST steam_client_owned_library SOURCES tests/steam_owned_tests.cpp)
 
     # Companion and updater:
 

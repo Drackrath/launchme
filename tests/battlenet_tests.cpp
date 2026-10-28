@@ -79,11 +79,13 @@ int main() try {
     require(!scan.available && scan.games.size() == 1 && !scan.games[0].installed && scan.games[0].visibility == GameVisibility::private_game &&
         scan.games[0].installation.phase == InstallPhase::unknown, "torn read retains membership and privacy without completing");
     write(database, ready);
+#ifdef _WIN32 // Share modes: Windows only (Linux has no exclusive open to test).
     HANDLE lock = CreateFileW(database.c_str(), GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     require(lock != INVALID_HANDLE_VALUE, "test writer lock");
     scan = battlenet::scan(database, aggregate, client, {}, previous);
     CloseHandle(lock);
     require(!scan.available && scan.games.size() == 1 && !scan.games[0].installed, "sharing violation preserves unknown");
+#endif
     scan = battlenet::scan(database, aggregate, client, {}, previous);
     require(scan.available && scan.games[0].installed, "retry restores confirmed ready");
     write(database, record("hs_beta", "hsb", root / "missing-drive", state(true, true, true)));

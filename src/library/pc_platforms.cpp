@@ -9,6 +9,9 @@
 #include <appmodel.h>
 #include <objbase.h>
 #include <shellapi.h>
+#else
+#include "heroic.hpp"
+#include "lutris.hpp"
 #endif
 #include <algorithm>
 #include <cwctype>
@@ -80,6 +83,7 @@ std::string xmlContentId(std::string_view text) {
     }
     return {};
 }
+#ifdef _WIN32
 struct Key {
     HKEY handle = nullptr;
     Key(HKEY root, const std::wstring& path, REGSAM view) { RegOpenKeyExW(root, path.c_str(), 0, KEY_READ | view, &handle); }
@@ -158,7 +162,9 @@ std::wstring packageString(const std::wstring& full_name, const std::wstring& va
     FreeLibrary(module);
     return result;
 }
+#endif
 constexpr const wchar_t* xbox_app_family = L"Microsoft.GamingApp_8wekyb3d8bbwe";
+#ifdef _WIN32
 // Gaming Services registers every GDK title under GameConfig\<package full name>; entries of
 // removed games stay behind, so only families installed for this user are kept.
 std::vector<XboxInstall> discoverXboxGames() {
@@ -180,8 +186,10 @@ std::vector<XboxInstall> discoverXboxGames() {
     }
     return result;
 }
+#endif
 }
 
+#ifdef _WIN32
 PcDiscovery discoverPcInstallations(const std::vector<std::filesystem::path>& multimc_chosen) {
     PcDiscovery result;
     const auto data = environment(L"PROGRAMDATA");
@@ -263,6 +271,26 @@ PcDiscovery discoverPcInstallations(const std::vector<std::filesystem::path>& mu
         result.ubisoft_caches.insert(result.ubisoft_caches.begin(), local / L"Ubisoft Game Launcher" / L"cache");
     return result;
 }
+#else
+PcDiscovery discoverPcInstallations(const std::vector<std::filesystem::path>& multimc_chosen) {
+    // No registry: the stores' games come from the Linux launchers that installed them. Heroic opens
+    // for Epic and GOG, Lutris for the stores it runs in Wine; Xbox has no client here.
+    PcDiscovery result;
+    result.heroic_configs = heroic::configFolders();
+    result.lutris_databases = lutris::databases();
+    result.lutris = lutris::executable();
+    const auto heroic_client = heroic::executable();
+    result.multimc = multimc::discover(multimc_chosen);
+    for (const auto source : pc_sources) {
+        std::filesystem::path executable;
+        if (source == GameSource::multimc) { if (!result.multimc.empty()) executable = result.multimc.front().executable; }
+        else if (source == GameSource::gog || source == GameSource::epic) executable = heroic_client.empty() ? result.lutris : heroic_client;
+        else if (source != GameSource::xbox) executable = result.lutris;
+        result.clients.push_back({source, executable});
+    }
+    return result;
+}
+#endif
 
 StoreLibrary scanNativePcLibraries(const PcDiscovery& discovery, const std::vector<Game>& previous_battlenet) {
     StoreLibrary result;
@@ -328,9 +356,22 @@ StoreLibrary scanNativePcLibraries(const PcDiscovery& discovery, const std::vect
         }
         add(std::move(game));
     }
+#ifndef _WIN32
+    // Linux launchers' store games (before Battle.net's own retained entries; add() never replaces).
+    bool lutris_battlenet = false;
+    for (const auto& config : discovery.heroic_configs) for (auto& game : heroic::scan(config)) add(std::move(game));
+    for (const auto& database : discovery.lutris_databases) {
+        auto lutris = lutris::scan(database, discovery.lutris);
+        lutris_battlenet |= lutris.battlenet;
+        for (auto& game : lutris.games) add(std::move(game));
+    }
+#endif
     auto battle = battlenet::scan(discovery.battlenet_database, discovery.battlenet_aggregate,
         client(discovery, GameSource::battlenet), battle_hints, previous_battlenet);
     result.battlenet_available = battle.available;
+#ifndef _WIN32
+    result.battlenet_available |= lutris_battlenet;
+#endif
     for (auto& game : battle.games) add(std::move(game));
     std::map<std::string, std::filesystem::path> epic_locations;
     if (const auto list = json::parse(textFile(discovery.epic_installed))) {
@@ -569,6 +610,7 @@ GameAction connectPcClient(GameSource source, const std::vector<StoreClient>& cl
 
 std::vector<InstalledProgram> installedPrograms() {
     std::vector<InstalledProgram> programs;
+#ifdef _WIN32
     for (const auto root : {HKEY_LOCAL_MACHINE, HKEY_CURRENT_USER}) for (const REGSAM view : {KEY_WOW64_32KEY, KEY_WOW64_64KEY}) {
         Key list(root, L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall", view);
         for (const auto& name : children(list.handle)) {
@@ -577,6 +619,7 @@ std::vector<InstalledProgram> installedPrograms() {
                 regString(entry.handle, L"UninstallString"), regString(entry.handle, L"InstallLocation")});
         }
     }
+#endif
     return programs;
 }
 
@@ -605,11 +648,17 @@ GameAction uninstallAction(const Game& game, const std::vector<InstalledProgram>
     }
     if (!match) return {};
     // "C:\Games\X\unins000.exe" /SILENT-free: the entry's own command, interactive, as Windows runs it.
+    GameAction action;
+#ifdef _WIN32
     int count = 0;
     auto** parts = CommandLineToArgvW(match->uninstall.c_str(), &count);
     if (!parts || count < 1) { if (parts) LocalFree(parts); return {}; }
-    GameAction action;
     action.target = parts[0];
+#else
+    // CommandLineToArgvW's rule for the program: quoted up to the next quote, else up to a space.
+    if (!match->uninstall.empty() && match->uninstall.front() == L'"') action.target = match->uninstall.substr(1, match->uninstall.find(L'"', 1) - 1);
+    else action.target = match->uninstall.substr(0, match->uninstall.find_first_of(L" \t"));
+#endif
     action.kind = ActionKind::open_client;
     // The rest of the line exactly as registered (quoting preserved), after the program itself.
     const auto& line = match->uninstall;
@@ -618,7 +667,9 @@ GameAction uninstallAction(const Game& game, const std::vector<InstalledProgram>
     else after = std::min(line.find(L' '), line.size());
     action.arguments = line.substr(after);
     while (!action.arguments.empty() && action.arguments.front() == L' ') action.arguments.erase(0, 1);
+#ifdef _WIN32
     LocalFree(parts);
+#endif
     if (action.target.empty()) return {};
     // MsiExec.exe /X{...} names a system program; an installer's own uninstaller runs in its folder.
     if (std::filesystem::path(action.target).is_absolute()) action.working_directory = std::filesystem::path(action.target).parent_path();
@@ -646,6 +697,11 @@ GameAction silentUninstallAction(const GameAction& interactive) {
 
 UninstallResult runSilentUninstaller(const GameAction& action, void* owner, const std::function<bool()>& cancel) {
     if (!innoUninstaller(action) || !file(action.target)) return UninstallResult::failed;
+#ifndef _WIN32
+    // Inno Setup uninstallers are Windows programs: on Linux their games are removed in Heroic or Lutris.
+    (void)owner; (void)cancel;
+    return UninstallResult::failed;
+#else
     const auto com = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     struct Com { HRESULT result; ~Com() { if (SUCCEEDED(result)) CoUninitialize(); } } initialized{com};
     const auto folder = action.working_directory.empty() ? std::filesystem::path(action.target).parent_path() : action.working_directory;
@@ -673,4 +729,5 @@ UninstallResult runSilentUninstaller(const GameAction& action, void* owner, cons
         Sleep(250);
     }
     return file(action.target) ? UninstallResult::failed : UninstallResult::done;
+#endif
 }
