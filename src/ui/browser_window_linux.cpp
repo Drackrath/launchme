@@ -121,7 +121,7 @@ struct BrowserWindow::State {
     Options options;
     Status status = Status::closed;
     std::wstring url, title, error;
-    bool open = false, loading = true, can_back = false, can_forward = false, video = false, active = false;
+    bool open = false, heard = false, loading = true, can_back = false, can_forward = false, video = false, active = false;
     uint64_t next_id = 1;
     std::map<uint64_t, std::function<void(std::wstring)>> scripts;
     std::map<uint64_t, std::function<void(bool)>> captures;
@@ -152,6 +152,7 @@ struct BrowserWindow::State {
     }
     void apply(const std::vector<std::string>& f, std::vector<std::function<void()>>& later) {
         const auto& kind = f[0];
+        heard = true;
         const auto number = [&](size_t i) { return i < f.size() ? std::strtoull(f[i].c_str(), nullptr, 10) : 0ull; };
         if (kind == "status" && f.size() >= 2) {
             const auto value = number(1);
@@ -289,7 +290,14 @@ void BrowserWindow::pump() {
         if (!f.empty()) state->apply(f, later);
     }
     if (ended && state->open) { // The helper ended without saying so (it crashed, or was killed).
+        const bool started = state->heard;
         state->end();
+        if (!started) {
+            // It never came up (WebKitGTK missing or incompatible, as in an AppImage on a system without
+            // it): the page opens in the user's browser instead.
+            state->status = Status::missing_runtime;
+            if (state->options.external) later.push_back([external = state->options.external, url = state->url] { external(url); });
+        }
         if (state->options.closed) later.push_back(state->options.closed);
     }
     for (const auto& callback : later) callback();

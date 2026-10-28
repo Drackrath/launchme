@@ -82,7 +82,15 @@ int main() {
     BrowserWindow browser;
     browser.testPage(LR"(<!doctype html><html><head><title>Launchme browser fixture</title><style>body{background:#151824;color:#fff;font:24px system-ui;margin:40px;min-height:6000px}a{color:#abe}#inner{display:none}</style></head><body><h1>Glance · WebKitGTK</h1><p>Controlled local response. Scroll with the controller; B/Esc closes.</p><a href="/second">Next page</a><div id="inner"><div style="height:5000px">Nested scrolling area</div></div></body></html>)");
     if (!browser.open(owner, L"https://launchme.test/first", root / "profile", options) || !browser.isOpen() || !browser.owns(browser.handle()) || browser.owns(owner)) return 12;
-    if (!wait(browser, [&] { return browser.status() == BrowserWindow::Status::ready && !browser.loadingForTest() && browser.urlForTest().ends_with(L"/first"); }, 30000)) return 13;
+    if (!wait(browser, [&] { return !browser.isOpen() || browser.status() == BrowserWindow::Status::missing_runtime ||
+            (browser.status() == BrowserWindow::Status::ready && !browser.loadingForTest() && browser.urlForTest().ends_with(L"/first")); }, 30000)) return 13;
+    if (browser.status() == BrowserWindow::Status::missing_runtime) {
+        // The helper could not start (its libraries or the display): the page went to the default browser.
+        if (browser.isOpen() || external != 2 || external_url != L"https://launchme.test/first" || closes != 1) return 43;
+        std::cout << "Protocol and fallbacks passed; launchme-web could not start here\n";
+        return 77;
+    }
+    if (!browser.isOpen()) return 44; // The helper started and then ended (see its messages on stderr).
     if (!browser.errorForTest().empty()) return 14;
     if (query(browser, L"document.title") != L"\"Launchme browser fixture\"") return 15;
     if (query(browser, L"location.origin") != L"\"https://launchme.test\"") return 16;
