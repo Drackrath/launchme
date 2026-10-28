@@ -1,20 +1,24 @@
 #pragma once
 #include "../model/devices.hpp"
+#include "pad_buttons.hpp"
+#ifdef _WIN32
 #include <Windows.h>
+#endif
+#include <cstdint>
 #include <memory>
 #include <span>
 
 // Guide (Xbox logo) / PS button. XInput has no public flag for it; the value is
 // what XInputGetStateEx reports, and the DualSense parser maps PS to the same bit.
-constexpr WORD pad_guide = 0x0400;
+constexpr uint16_t pad_guide = 0x0400;
 // Reserved XInput bit, normalized from analog R2/RT (also participates in wake/refocus gates).
-constexpr WORD pad_right_trigger = 0x0800;
+constexpr uint16_t pad_right_trigger = 0x0800;
 
 struct PadReading {
     bool connected = false;
     std::wstring id;
-    WORD buttons = 0; // XINPUT_GAMEPAD_* plus pad_guide and pad_right_trigger.
-    SHORT x = 0, y = 0;
+    uint16_t buttons = 0; // XINPUT_GAMEPAD_* plus pad_guide and pad_right_trigger.
+    int16_t x = 0, y = 0; // Y up, as XInput.
     bool left_trigger = false; // Analog L2/LT past half way (no free bit is left in `buttons`).
     std::optional<int> battery;
     bool charging = false;
@@ -29,16 +33,27 @@ PadReading parseDualShock4(std::span<const uint8_t> report);
 std::vector<uint8_t> dualSenseRumbleReport(bool bluetooth, bool running, uint8_t sequence = 0);
 std::vector<devices::Controller> enumerateControllers();
 // Windows setting "Open Xbox Game Bar using this button on a controller" (on by default).
+// Always false elsewhere.
 bool gameBarUsesGuideButton();
+// Windows: XInput, Windows.Gaming.Input and Raw Input (game_controllers_windows.cpp).
+// Linux: SDL3's gamepad API, polled by read(); hotplug is SDL's (game_controllers_linux.cpp).
 class ControllerInput {
 public:
     ControllerInput();
     ~ControllerInput();
+#ifdef _WIN32
     void initialize(HWND window);
+#else
+    void initialize(void* window); // SDL_Window*, for the Steam Controller's focus check; may be null.
+#endif
     // Experimental: 2026 Steam Controller straight from HID (steam_controller.hpp). After initialize().
     void steamController(bool enabled);
+#ifdef _WIN32
     void rawInput(HRAWINPUT input);
     void deviceChanged(HANDLE device);
+#else
+    void deviceChanged(void* device); // SDL tracks hotplug; stops a rumble on a pad that left.
+#endif
     PadReading read();
     void pulseBoundary();
     void stopRumble();

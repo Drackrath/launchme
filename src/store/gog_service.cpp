@@ -1,6 +1,9 @@
 #include "gog_account.hpp"
+#include "../platform/system.hpp"
+#ifdef _WIN32
 #include <Windows.h>
 #include <bcrypt.h>
+#endif
 #include <atomic>
 #include <condition_variable>
 #include <deque>
@@ -13,7 +16,7 @@ namespace gog {
 namespace {
 std::string nonce() {
     uint8_t bytes[32]{};
-    if (BCryptGenRandom(nullptr, bytes, sizeof(bytes), BCRYPT_USE_SYSTEM_PREFERRED_RNG) < 0) return {};
+    if (!system_info::randomBytes(bytes, sizeof(bytes))) return {};
     return key_codec::encode({reinterpret_cast<const char*>(bytes), sizeof(bytes)});
 }
 class AccountService final : public Service {

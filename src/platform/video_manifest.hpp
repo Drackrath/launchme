@@ -2,6 +2,7 @@
 
 #include "atomic_file.hpp"
 #include "text_encoding.hpp"
+#include "unicode_text.hpp"
 
 #include <filesystem>
 #include <fstream>
@@ -25,7 +26,7 @@ inline std::vector<std::filesystem::path> read(const std::filesystem::path& fold
         while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
         const std::filesystem::path entry(text_encoding::wideLenient(line));
         // Only plain relative paths inside the folder.
-        if (line.empty() || entry.is_absolute() || entry.has_root_name() || entry.lexically_normal().native().starts_with(L"..")) continue;
+        if (line.empty() || entry.is_absolute() || entry.has_root_name() || entry.lexically_normal().wstring().starts_with(L"..")) continue;
         entries.push_back(entry.lexically_normal());
     }
     return entries;
@@ -33,7 +34,7 @@ inline std::vector<std::filesystem::path> read(const std::filesystem::path& fold
 
 inline bool write(const std::filesystem::path& folder, const std::vector<std::filesystem::path>& entries) {
     std::string text;
-    for (const auto& entry : entries) text += text_encoding::utf8Lenient(entry.native()) + "\n";
+    for (const auto& entry : entries) text += text_encoding::utf8Lenient(entry.wstring()) + "\n";
     if (entries.empty()) { std::error_code ec; std::filesystem::remove(folder / file_name, ec); return true; }
     return atomic_file::write(folder / file_name, text);
 }
@@ -41,10 +42,15 @@ inline bool write(const std::filesystem::path& folder, const std::vector<std::fi
 // After a download: file (inside folder) is Launchme's.
 inline void add(const std::filesystem::path& folder, const std::filesystem::path& file) {
     const auto relative = file.lexically_normal().lexically_relative(folder.lexically_normal());
-    if (relative.empty() || relative.native().starts_with(L"..")) return;
+    if (relative.empty() || relative.wstring().starts_with(L"..")) return;
     std::lock_guard lock(guard());
     auto entries = read(folder);
-    for (const auto& entry : entries) if (_wcsicmp(entry.c_str(), relative.c_str()) == 0) return;
+    // File names compare as the file system does: without case on Windows only.
+#ifdef _WIN32
+    for (const auto& entry : entries) if (unicode_text::equalIgnoreCase(entry.wstring(), relative.wstring())) return;
+#else
+    for (const auto& entry : entries) if (entry == relative) return;
+#endif
     entries.push_back(relative);
     write(folder, entries);
 }

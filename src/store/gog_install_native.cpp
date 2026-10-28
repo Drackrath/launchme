@@ -1,14 +1,17 @@
 #include "gog_install.hpp"
+#include "../platform/hashing.hpp"
 #include "../net/http_download.hpp"
 #include "../net/json.hpp"
 #include "../model/key_codec.hpp"
 #include "../platform/text_encoding.hpp"
 #include "../platform/user_config.hpp"
 #include "../platform/atomic_file.hpp"
+#ifdef _WIN32
 #include <Windows.h>
 #include <objbase.h>
 #include <bcrypt.h>
 #include <shellapi.h>
+#endif
 #include <array>
 #include <fstream>
 #include <vector>
@@ -16,19 +19,10 @@
 namespace gog {
 namespace {
 bool checksum(const std::filesystem::path& file, const std::string& expected, const InstallCancel& cancel) {
-    BCRYPT_ALG_HANDLE algorithm = nullptr; BCRYPT_HASH_HANDLE hash = nullptr;
-    struct Cleanup { BCRYPT_ALG_HANDLE& a; BCRYPT_HASH_HANDLE& h; ~Cleanup() { if (h) BCryptDestroyHash(h); if (a) BCryptCloseAlgorithmProvider(a, 0); } } cleanup{algorithm, hash};
-    if (BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_MD5_ALGORITHM, nullptr, 0) < 0 || BCryptCreateHash(algorithm, &hash, nullptr, 0, nullptr, 0, 0) < 0) return false;
-    std::ifstream input(file, std::ios::binary); if (!input) return false;
-    std::vector<uint8_t> buffer(256 * 1024);
-    while (input && !cancel()) {
-        input.read(reinterpret_cast<char*>(buffer.data()), static_cast<std::streamsize>(buffer.size()));
-        if (input.gcount() && BCryptHashData(hash, buffer.data(), static_cast<ULONG>(input.gcount()), 0) < 0) return false;
-    }
-    std::array<uint8_t, 16> digest{};
-    return !cancel() && input.eof() && BCryptFinishHash(hash, digest.data(), static_cast<ULONG>(digest.size()), 0) >= 0 &&
-        key_codec::encode({reinterpret_cast<const char*>(digest.data()), digest.size()}) == expected;
+    const auto digest = hashing::fileHex(hashing::Algorithm::md5, file, cancel);
+    return !digest.empty() && !cancel() && digest == expected;
 }
+#ifdef _WIN32
 InstallError execute(const std::filesystem::path& file, const InstallRequest& request, const InstallCancel& cancel) {
     if (cancel()) return InstallError::none;
     const auto args = silentInstallerArguments(request.install_directory);
@@ -53,6 +47,12 @@ InstallError execute(const std::filesystem::path& file, const InstallRequest& re
     if (!GetExitCodeProcess(info.hProcess, &code) || (code != 0 && code != 3010)) return InstallError::installer;
     return InstallError::none;
 }
+#else
+// GOG's offline installers here are Windows (Inno Setup) programs; only Wine could run them, and
+// the game they install would need it too. Not supported on Linux: `unavailable`, never a
+// started installer.
+InstallError execute(const std::filesystem::path&, const InstallRequest&, const InstallCancel&) { return InstallError::unavailable; }
+#endif
 bool detect(const InstallRequest& request) {
     const auto file = request.install_directory / (L"goggame-" + text_encoding::wide(request.product) + L".info");
     std::ifstream input(file, std::ios::binary | std::ios::ate);
@@ -81,9 +81,15 @@ bool detect(const InstallRequest& request) {
 InstallOperations nativeInstallOperations() {
     return {
         [](const InstallerPart& part, const std::filesystem::path& file, const InstallCancel& cancel, const std::function<void(uint64_t)>& progress) {
+#ifndef _WIN32
+            // Nothing is downloaded for an installer this system cannot run (see execute).
+            (void)part; (void)file; (void)cancel; (void)progress;
+            return InstallError::unavailable;
+#else
             const auto result = httpDownload(part.url, file, part.bytes, cancel, progress, installerDownloadUrl);
             return result == DownloadError::none ? InstallError::none : result == DownloadError::storage ? InstallError::storage :
                 result == DownloadError::invalid_response ? InstallError::manifest : InstallError::network;
+#endif
         }, checksum, execute, detect
     };
 }

@@ -1,16 +1,11 @@
 #include "image_compact.hpp"
 #include "text_crop.hpp"
+#include "image_codec.hpp"
 #include "../platform/atomic_file.hpp"
-
-#include <Windows.h>
-#include <wincodec.h>
-#include <wrl/client.h>
 
 #include <algorithm>
 #include <cwctype>
 #include <fstream>
-
-using Microsoft::WRL::ComPtr;
 
 namespace {
 struct Box { uint32_t width, height; };
@@ -24,11 +19,6 @@ Box limit(ImageRole role) {
     default: return {1280, 720}; // Logos.
     }
 }
-
-struct Com {
-    HRESULT result = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    ~Com() { if (SUCCEEDED(result)) CoUninitialize(); }
-};
 
 std::wstring lower(std::wstring text) {
     for (auto& ch : text) ch = static_cast<wchar_t>(std::towlower(ch));
@@ -60,75 +50,27 @@ std::vector<uint8_t> compactImage(std::span<const uint8_t> bytes, ImageRole role
     const bool png = bytes.size() > 8 && bytes[0] == 0x89 && bytes[1] == 'P';
     const bool jpeg = bytes.size() > 3 && bytes[0] == 0xff && bytes[1] == 0xd8;
     if ((!png && !jpeg) || bytes.size() > 64 * 1024 * 1024 || bytes.size() < 96 * 1024) return {};
-    Com com;
-    ComPtr<IWICImagingFactory> factory;
-    ComPtr<IWICStream> input;
-    ComPtr<IWICBitmapDecoder> decoder;
-    ComPtr<IWICBitmapFrameDecode> frame;
-    if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory))) ||
-        FAILED(factory->CreateStream(&input)) ||
-        FAILED(input->InitializeFromMemory(const_cast<BYTE*>(bytes.data()), static_cast<DWORD>(bytes.size()))) ||
-        FAILED(factory->CreateDecoderFromStream(input.Get(), nullptr, WICDecodeMetadataCacheOnDemand, &decoder)) ||
-        FAILED(decoder->GetFrame(0, &frame))) return {};
-    UINT width = 0, height = 0;
-    if (FAILED(frame->GetSize(&width, &height)) || !width || !height || width > 16384 || height > 16384) return {};
-    const double scale = compactScale(width, height, role);
     // A JPEG already within the limits gains nothing from a second encoding.
-    if (jpeg && scale >= 1.0) return {};
-    const UINT target_width = std::max<UINT>(1, static_cast<UINT>(width * scale + 0.5));
-    const UINT target_height = std::max<UINT>(1, static_cast<UINT>(height * scale + 0.5));
-    ComPtr<IWICBitmapSource> source = frame;
-    if (scale < 1.0) {
-        ComPtr<IWICBitmapScaler> scaler;
-        if (FAILED(factory->CreateBitmapScaler(&scaler)) ||
-            FAILED(scaler->Initialize(frame.Get(), target_width, target_height, WICBitmapInterpolationModeHighQualityCubic))) return {};
-        source = scaler;
-    }
-    ComPtr<IWICFormatConverter> converter;
-    if (FAILED(factory->CreateFormatConverter(&converter)) ||
-        FAILED(converter->Initialize(source.Get(), GUID_WICPixelFormat32bppBGRA, WICBitmapDitherTypeNone, nullptr, 0, WICBitmapPaletteTypeCustom))) return {};
-    std::vector<uint8_t> pixels(size_t(target_width) * target_height * 4);
-    if (FAILED(converter->CopyPixels(nullptr, target_width * 4, static_cast<UINT>(pixels.size()), pixels.data()))) return {};
+    const auto image = image_codec::decode(bytes, [&](const image_codec::Info& info) -> std::optional<image_codec::Size> {
+        if (info.width > 16384 || info.height > 16384) return {};
+        const double scale = compactScale(info.width, info.height, role);
+        if (jpeg && scale >= 1.0) return {};
+        return image_codec::Size{std::max<uint32_t>(1, static_cast<uint32_t>(info.width * scale + 0.5)),
+                                 std::max<uint32_t>(1, static_cast<uint32_t>(info.height * scale + 0.5))};
+    }, image_codec::Filter::cubic);
+    if (!image) return {};
     bool transparent = false;
-    for (size_t i = 3; i < pixels.size(); i += 4) if (pixels[i] < 250) { transparent = true; break; }
-    ComPtr<IWICBitmap> bitmap;
-    if (FAILED(factory->CreateBitmapFromMemory(target_width, target_height, GUID_WICPixelFormat32bppBGRA, target_width * 4,
-                                               static_cast<UINT>(pixels.size()), pixels.data(), &bitmap))) return {};
-    ComPtr<IStream> output;
-    if (FAILED(CreateStreamOnHGlobal(nullptr, TRUE, &output))) return {};
-    ComPtr<IWICBitmapEncoder> encoder;
-    ComPtr<IWICBitmapFrameEncode> target;
-    ComPtr<IPropertyBag2> options;
-    if (!output || FAILED(factory->CreateEncoder(transparent ? GUID_ContainerFormatPng : GUID_ContainerFormatJpeg, nullptr, &encoder)) ||
-        FAILED(encoder->Initialize(output.Get(), WICBitmapEncoderNoCache)) || FAILED(encoder->CreateNewFrame(&target, &options))) return {};
-    if (!transparent) {
-        PROPBAG2 option{}; option.pstrName = const_cast<LPOLESTR>(L"ImageQuality");
-        VARIANT value{}; value.vt = VT_R4; value.fltVal = 0.88f;
-        options->Write(1, &option, &value);
-    }
-    if (FAILED(target->Initialize(options.Get())) || FAILED(target->SetSize(target_width, target_height))) return {};
-    ComPtr<IWICBitmapSource> written = bitmap;
-    if (!transparent) { // The JPEG encoder takes 24-bit BGR.
-        ComPtr<IWICFormatConverter> opaque;
-        if (FAILED(factory->CreateFormatConverter(&opaque)) ||
-            FAILED(opaque->Initialize(bitmap.Get(), GUID_WICPixelFormat24bppBGR, WICBitmapDitherTypeNone, nullptr, 0, WICBitmapPaletteTypeCustom))) return {};
-        written = opaque;
-    }
-    if (FAILED(target->WriteSource(written.Get(), nullptr)) || FAILED(target->Commit()) || FAILED(encoder->Commit())) return {};
-    STATSTG stat{};
-    if (FAILED(output->Stat(&stat, STATFLAG_NONAME)) || !stat.cbSize.QuadPart || stat.cbSize.QuadPart > bytes.size()) return {};
-    std::vector<uint8_t> result(static_cast<size_t>(stat.cbSize.QuadPart));
-    LARGE_INTEGER start{};
-    ULONG read = 0;
-    if (FAILED(output->Seek(start, STREAM_SEEK_SET, nullptr)) || FAILED(output->Read(result.data(), static_cast<ULONG>(result.size()), &read)) ||
-        read != result.size()) return {};
+    for (size_t i = 3; i < image->pixels.size(); i += 4) if (image->pixels[i] < 250) { transparent = true; break; }
+    const auto result = transparent ? image_codec::encodePng(*image) : image_codec::encodeJpeg(*image, 0.88f);
+    if (result.empty() || result.size() > bytes.size()) return {};
     // Worth it only when clearly smaller.
     return result.size() < bytes.size() * 9 / 10 ? result : std::vector<uint8_t>{};
 }
 
 bool imageRoleFor(const std::filesystem::path& file, ImageRole& role) {
     if (lower(file.extension().wstring()) != L".img") return false;
-    const auto path = lower(file.lexically_normal().wstring());
+    auto path = lower(file.lexically_normal().wstring());
+    std::replace(path.begin(), path.end(), L'/', L'\\'); // Folder rules below use Windows separators.
     const auto name = lower(file.filename().wstring());
     const auto has = [&](std::wstring_view part) { return path.find(part) != std::wstring::npos; };
     // Achievement icons, browser thumbnails and platform logos stay as they are.

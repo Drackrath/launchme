@@ -1,5 +1,7 @@
 #include "steam_downloads.hpp"
+#ifdef _WIN32
 #include <Windows.h>
+#endif
 #include <vector>
 
 namespace {

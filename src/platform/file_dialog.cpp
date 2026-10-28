@@ -1,8 +1,10 @@
 #include "file_dialog.hpp"
 #include "../i18n/i18n.hpp"
 
+#ifdef _WIN32
 #include <shobjidl.h>
 #include <wrl/client.h>
+#endif
 
 std::filesystem::path pickPluginPackage(HWND owner) {
     Microsoft::WRL::ComPtr<IFileOpenDialog> dialog;

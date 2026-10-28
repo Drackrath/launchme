@@ -1,5 +1,6 @@
 # Pinned, CPU-only local semantic memory. No runtime downloads or external service.
 include(FetchContent)
+if(WIN32)
 FetchContent_Declare(companion_ort
     URL https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-win-x64-1.23.2.zip
     URL_HASH SHA256=0b38df9af21834e41e73d602d90db5cb06dbd1ca618948b8f1d66d607ac9f3cd
@@ -10,6 +11,22 @@ set_target_properties(companion_ort PROPERTIES
     IMPORTED_IMPLIB "${companion_ort_SOURCE_DIR}/lib/onnxruntime.lib"
     IMPORTED_LOCATION "${companion_ort_SOURCE_DIR}/lib/onnxruntime.dll"
     INTERFACE_INCLUDE_DIRECTORIES "${companion_ort_SOURCE_DIR}/include")
+set(COMPANION_ORT_RUNTIME onnxruntime.dll) # Its name next to the program.
+else()
+# Linux (cmake/Linux.cmake): the same release's x64 build; programs find it next to them ($ORIGIN).
+FetchContent_Declare(companion_ort
+    URL https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-linux-x64-1.23.2.tgz
+    URL_HASH SHA256=1fa4dcaef22f6f7d5cd81b28c2800414350c10116f5fdd46a2160082551c5f9b
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+FetchContent_MakeAvailable(companion_ort)
+add_library(companion_ort SHARED IMPORTED GLOBAL)
+set_target_properties(companion_ort PROPERTIES
+    IMPORTED_LOCATION "${companion_ort_SOURCE_DIR}/lib/libonnxruntime.so.1.23.2"
+    IMPORTED_SONAME "libonnxruntime.so.1"
+    INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${companion_ort_SOURCE_DIR}/include"
+    INTERFACE_INCLUDE_DIRECTORIES "${companion_ort_SOURCE_DIR}/include")
+set(COMPANION_ORT_RUNTIME libonnxruntime.so.1) # Its SONAME: what the loader looks for.
+endif()
 
 set(SPM_ENABLE_SHARED OFF CACHE BOOL "" FORCE)
 set(SPM_BUILD_TEST OFF CACHE BOOL "" FORCE)
@@ -26,6 +43,11 @@ foreach(spm_target IN LISTS companion_spm_targets)
     endif()
 endforeach()
 set_property(TARGET sentencepiece-static PROPERTY MSVC_RUNTIME_LIBRARY "${LAUNCHME_RUNTIME}")
+if(NOT WIN32)
+    # Its headers for launchme_core (Windows adds them to launchme_core in CMakeLists.txt); its own warnings stay quiet.
+    target_include_directories(sentencepiece-static SYSTEM INTERFACE "${companion_spm_SOURCE_DIR}/src")
+    target_compile_options(sentencepiece-static PRIVATE -w)
+endif()
 
 FetchContent_Declare(companion_sqlite
     URL https://www.sqlite.org/2025/sqlite-amalgamation-3500400.zip
@@ -36,6 +58,10 @@ add_library(companion_sqlite STATIC "${companion_sqlite_SOURCE_DIR}/sqlite3.c")
 target_include_directories(companion_sqlite PUBLIC "${companion_sqlite_SOURCE_DIR}")
 target_compile_definitions(companion_sqlite PRIVATE SQLITE_THREADSAFE=1 SQLITE_OMIT_LOAD_EXTENSION SQLITE_DQS=0)
 set_property(TARGET companion_sqlite PROPERTY MSVC_RUNTIME_LIBRARY "${LAUNCHME_RUNTIME}")
+if(NOT WIN32)
+    target_link_libraries(companion_sqlite PUBLIC Threads::Threads ${CMAKE_DL_LIBS} m)
+    target_compile_options(companion_sqlite PRIVATE -w) # The amalgamation as released (newer GCC warns).
+endif()
 
 set(COMPANION_MODEL_DIR "${CMAKE_BINARY_DIR}/companion-model")
 set(COMPANION_MODEL_URL "https://huggingface.co/Xenova/paraphrase-multilingual-MiniLM-L12-v2/resolve/2c4055b12046f11709e9df2c122e59ffbdc2f900")
@@ -63,14 +89,21 @@ companion_model_file(sentencepiece.bpe.model sentencepiece.bpe.model cfc8146abe2
 
 function(companion_embedding_assets target)
     add_custom_command(TARGET ${target} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:companion_ort>" "$<TARGET_FILE_DIR:${target}>/onnxruntime.dll"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:companion_ort>" "$<TARGET_FILE_DIR:${target}>/${COMPANION_ORT_RUNTIME}"
         COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${target}>/assets/companion-embeddings"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${COMPANION_MODEL_DIR}/model.onnx" "${COMPANION_MODEL_DIR}/sentencepiece.bpe.model"
             "$<TARGET_FILE_DIR:${target}>/assets/companion-embeddings/"
         VERBATIM)
+    if(NOT WIN32)
+        set_target_properties(${target} PROPERTIES BUILD_RPATH "$ORIGIN" INSTALL_RPATH "$ORIGIN")
+    endif()
 endfunction()
-install(FILES "${companion_ort_SOURCE_DIR}/lib/onnxruntime.dll" DESTINATION . COMPONENT Runtime)
+if(WIN32)
+    install(FILES "${companion_ort_SOURCE_DIR}/lib/onnxruntime.dll" DESTINATION . COMPONENT Runtime)
+else()
+    install(FILES "${companion_ort_SOURCE_DIR}/lib/libonnxruntime.so.1.23.2" DESTINATION . RENAME libonnxruntime.so.1 COMPONENT Runtime)
+endif()
 install(FILES "${COMPANION_MODEL_DIR}/model.onnx" "${COMPANION_MODEL_DIR}/sentencepiece.bpe.model"
     DESTINATION assets/companion-embeddings COMPONENT Runtime)
 install(FILES "${companion_ort_SOURCE_DIR}/LICENSE" DESTINATION assets/companion-embeddings RENAME onnxruntime-license.txt COMPONENT Runtime)

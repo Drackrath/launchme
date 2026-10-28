@@ -1,9 +1,12 @@
 #include "web_search.hpp"
+#include "../platform/system.hpp"
 #include "http.hpp"
 #include "../platform/protected_file.hpp"
 #include "../platform/text_encoding.hpp"
 
+#ifdef _WIN32
 #include <Windows.h>
+#endif
 
 namespace web_search {
 namespace {
@@ -45,11 +48,10 @@ bool saveKey(const std::filesystem::path& config, std::wstring_view key) {
 std::wstring key(const std::filesystem::path& config, bool* from_environment) {
     if (from_environment) *from_environment = false;
     if (auto saved = storedKey(config); !saved.empty()) return saved;
-    wchar_t value[1025]{};
-    const DWORD length = GetEnvironmentVariableW(environment, value, static_cast<DWORD>(std::size(value)));
-    if (!length || length >= std::size(value)) return {};
+    auto value = system_info::environment(environment, 1024);
+    if (!value || value->empty()) return {};
     if (from_environment) *from_environment = true;
-    return std::wstring(value, length);
+    return *value;
 }
 
 json::Value search(const std::wstring& key, const std::wstring& query) {

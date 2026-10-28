@@ -1,10 +1,13 @@
 #include "companion_embeddings.hpp"
+#include "../platform/hashing.hpp"
 #include "../platform/text_encoding.hpp"
 #include "../platform/updater.hpp"
 #include <onnxruntime_cxx_api.h>
 #include <sentencepiece_processor.h>
+#ifdef _WIN32
 #include <Windows.h>
 #include <bcrypt.h>
+#endif
 #include <algorithm>
 #include <cmath>
 #include <fstream>
@@ -91,13 +94,8 @@ float cosine(const Vector& a, const Vector& b) {
 }
 std::string contentKey(std::wstring_view text) {
     const auto bytes = text_encoding::utf8Lenient(std::wstring(text));
-    std::array<unsigned char, 32> hash{};
-    if (BCryptHash(BCRYPT_SHA256_ALG_HANDLE, nullptr, 0, reinterpret_cast<PUCHAR>(const_cast<char*>(bytes.data())),
-                   static_cast<ULONG>(bytes.size()), hash.data(), static_cast<ULONG>(hash.size())) < 0)
-        throw std::runtime_error("Cannot hash embedding content.");
-    std::string out;
-    constexpr char digits[] = "0123456789abcdef";
-    for (const auto byte : hash) { out += digits[byte >> 4]; out += digits[byte & 15]; }
+    auto out = hashing::bytesHex(hashing::Algorithm::sha256, std::span(reinterpret_cast<const uint8_t*>(bytes.data()), bytes.size()));
+    if (out.empty()) throw std::runtime_error("Cannot hash embedding content.");
     return out;
 }
 std::unique_ptr<Embedder> localEmbedder(const std::filesystem::path& directory) { return std::make_unique<Local>(directory); }

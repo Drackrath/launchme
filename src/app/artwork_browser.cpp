@@ -75,9 +75,9 @@ GridPage providerPage(const Game& game, ArtworkKind kind, ArtworkProvider provid
     } else {
         for (const auto& file : esdeMediaFiles(game.platform, game.name, game.rom, esdeFolders(kind))) {
             GridAsset asset;
-            asset.id = esde_ids | (fnv(file.native()) & 0x1fffffffu);
+            asset.id = esde_ids | (fnv(file.wstring()) & 0x1fffffffu);
             if (!seen.insert(asset.id).second) continue;
-            asset.url = asset.thumbnail = file.native();
+            asset.url = asset.thumbnail = file.wstring();
             asset.author = L"ES-DE · " + file.parent_path().filename().wstring();
             page.assets.push_back(std::move(asset));
         }
@@ -512,7 +512,7 @@ void Launcher::applyLocalArtwork(const std::filesystem::path& picked) {
     state.applying = true;
     state.status = tr(L"Wczytywanie grafiki…");
     ArtworkBrowserJob job;
-    job.type = ArtworkBrowserMessage::Type::local; job.game = state.game; job.kind = artwork_ui::kinds[kind]; job.query = picked.native();
+    job.type = ArtworkBrowserMessage::Type::local; job.game = state.game; job.kind = artwork_ui::kinds[kind]; job.query = picked.wstring();
     {
         std::lock_guard lock(artwork_jobs_->mutex);
         job.generation = artwork_jobs_->generation.load();

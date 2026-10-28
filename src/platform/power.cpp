@@ -1,7 +1,9 @@
 #include "power.hpp"
 
+#ifdef _WIN32
 #include <Windows.h>
 #include <powrprof.h>
+#endif
 
 namespace {
 bool enableShutdownPrivilege() {
@@ -41,4 +43,12 @@ bool performPowerAction(PowerAction action) {
     case PowerAction::restart: return InitiateShutdownW(nullptr, nullptr, 0, SHUTDOWN_RESTART, reason) == ERROR_SUCCESS;
     }
     return false;
+}
+
+// The drawer clock's battery test (BatteryFlag 128: no system battery; 255: unknown).
+std::optional<BatteryStatus> batteryStatus() {
+    SYSTEM_POWER_STATUS power{};
+    if (!GetSystemPowerStatus(&power) || power.BatteryFlag == 255 || (power.BatteryFlag & 128) || power.BatteryLifePercent > 100)
+        return std::nullopt;
+    return BatteryStatus{power.BatteryLifePercent, (power.BatteryFlag & 8) != 0};
 }

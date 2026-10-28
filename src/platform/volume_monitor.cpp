@@ -3,9 +3,11 @@
 bool VolumeMonitor::start(BackgroundWork& work, Reader reader) {
     if (started_) return true;
     started_ = work.start([state = state_, reader = std::move(reader)]() mutable {
+#ifdef _WIN32
         const auto hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
         if (FAILED(hr)) return;
         struct Apartment { ~Apartment() { CoUninitialize(); } } apartment;
+#endif
         SystemAudio audio;
         if (!reader) reader = [&audio](bool refresh) -> std::optional<VolumeLevel> {
             if (refresh) audio.refreshDevice();

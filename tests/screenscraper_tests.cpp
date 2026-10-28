@@ -7,8 +7,12 @@
 #include "disc_fixture.hpp"
 
 #include <Windows.h>
+#ifdef _WIN32
 #include <wincodec.h>
 #include <wrl/client.h>
+#else
+#include "../src/artwork/image_codec.hpp"
+#endif
 
 #include <cstring>
 #include <filesystem>
@@ -21,7 +25,6 @@ namespace ss = screenscraper;
 HttpResponse text(uint32_t status, std::string_view body) {
     return {status, std::vector<uint8_t>(body.begin(), body.end()), 0};
 }
-std::string_view bodyOf(const std::vector<uint8_t>& bytes) { return {reinterpret_cast<const char*>(bytes.data()), bytes.size()}; }
 
 // As ES-DE reads it (Data/jeu, nom@region, synopsis@langue, media@type/region/format).
 constexpr std::string_view xml_game =
@@ -57,10 +60,10 @@ int main() {
     const auto root = fs::temp_directory_path() / (L"launchme-screenscraper-id-" + std::to_wstring(GetCurrentProcessId()));
     struct Cleanup { fs::path path; ~Cleanup() { std::error_code ec; fs::remove_all(path, ec); } } cleanup{root};
     fs::create_directories(root / "roms" / "amiga");
-    SetEnvironmentVariableW(L"LAUNCHME_CONFIG_DIR", (root / "config").c_str());
+    SetEnvironmentVariableW(L"LAUNCHME_CONFIG_DIR", (root / "config").wstring().c_str());
     // No real ES-DE installation may answer: its media would win over the sandbox's.
-    SetEnvironmentVariableW(L"APPDATA", (root / "appdata").c_str());
-    SetEnvironmentVariableW(L"USERPROFILE", (root / "profile").c_str());
+    SetEnvironmentVariableW(L"APPDATA", (root / "appdata").wstring().c_str());
+    SetEnvironmentVariableW(L"USERPROFILE", (root / "profile").wstring().c_str());
     fs::create_directories(root / "config");
     for (const auto& field : ss::fields) SetEnvironmentVariableW(field.environment, nullptr);
 
@@ -293,8 +296,6 @@ int main() {
     // Artwork compaction: a 3840 px opaque PNG hero becomes a 2560 px JPEG; small or transparent ones stay PNG.
     {
         const auto png = [](UINT width, UINT height, bool alpha) {
-            Microsoft::WRL::ComPtr<IWICImagingFactory> factory;
-            CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory));
             std::vector<uint8_t> pixels(size_t(width) * height * 4);
             uint32_t noise = 12345; // Photo-like detail: PNG cannot squeeze it, as with real heroes.
             for (size_t i = 0; i < pixels.size(); i += 4) {
@@ -303,6 +304,11 @@ int main() {
                 pixels[i] = static_cast<uint8_t>(x / 16 + (noise >> 28)); pixels[i + 1] = static_cast<uint8_t>(y / 8 + (noise >> 26 & 15)); pixels[i + 2] = static_cast<uint8_t>((x + y) / 32);
                 pixels[i + 3] = alpha && x < width / 2 ? 0 : 255;
             }
+#ifndef _WIN32
+            return image_codec::encodePng({image_codec::Format::png, width, height, std::move(pixels)});
+#else
+            Microsoft::WRL::ComPtr<IWICImagingFactory> factory;
+            CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory));
             Microsoft::WRL::ComPtr<IWICBitmap> bitmap;
             factory->CreateBitmapFromMemory(width, height, GUID_WICPixelFormat32bppBGRA, width * 4, static_cast<UINT>(pixels.size()), pixels.data(), &bitmap);
             Microsoft::WRL::ComPtr<IStream> stream; CreateStreamOnHGlobal(nullptr, TRUE, &stream);
@@ -315,8 +321,11 @@ int main() {
             LARGE_INTEGER start{}; stream->Seek(start, STREAM_SEEK_SET, nullptr);
             ULONG read = 0; stream->Read(bytes.data(), static_cast<ULONG>(bytes.size()), &read);
             return bytes;
+#endif
         };
+#ifdef _WIN32
         CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+#endif
         const auto hero = png(3840, 1240, false), logo = png(3000, 1000, true);
         const auto compact = compactImage(hero, ImageRole::background);
         const auto compact_logo = compactImage(logo, ImageRole::logo);

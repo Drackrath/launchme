@@ -6,8 +6,13 @@
 #include "../src/platform/memory_usage.hpp"
 
 #include <Windows.h>
+#ifdef _WIN32
 #include <wincodec.h>
 #include <wrl/client.h>
+#else
+#include "../src/artwork/image_codec.hpp"
+#include <chrono>
+#endif
 
 #include <algorithm>
 #include <cmath>
@@ -18,7 +23,9 @@
 #include <string>
 #include <vector>
 
+#ifdef _WIN32
 using Microsoft::WRL::ComPtr;
+#endif
 
 namespace {
 double psnr(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b) {
@@ -47,6 +54,29 @@ std::vector<uint8_t> picture(uint32_t width, uint32_t height) {
 struct Blob { size_t size = 0; };
 struct BlobBytes { size_t operator()(const Blob& blob) const { return blob.size; } };
 
+#ifndef _WIN32
+int sample(const wchar_t* in, const wchar_t* out) {
+    const auto image = image_codec::decodeFile(std::filesystem::path(in), image_codec::original, image_codec::Filter::fant, true);
+    if (!image) return 200;
+    // The top-left part whose sides are multiples of four.
+    const uint32_t width = image->width - image->width % 4, height = image->height - image->height % 4;
+    std::vector<uint8_t> pixels(size_t{width} * height * 4);
+    for (uint32_t y = 0; y < height; ++y)
+        std::copy_n(image->pixels.data() + size_t{y} * image->width * 4, size_t{width} * 4, pixels.data() + size_t{y} * width * 4);
+    const auto started = std::chrono::steady_clock::now();
+    std::vector<uint8_t> blocks;
+    for (int run = 0; run < 5; ++run) blocks = block_compression::encodeBc1(pixels.data(), width, height);
+    const double spent = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count() / 5;
+    if (blocks.empty()) { std::cout << "sample has transparency: kept as BGRA\n"; return 0; }
+    const auto decoded = block_compression::decodeBc1(blocks.data(), blocks.size(), width, height);
+    std::cout << "sample " << width << 'x' << height << ": BC1 " << blocks.size() / 1024 << " KB (BGRA " << pixels.size() / 1024
+              << " KB), PSNR " << psnr(pixels, decoded) << " dB, encoded in " << spent << " ms\n";
+    if (!out) return 0;
+    const auto png = image_codec::encodePng({image_codec::Format::png, width, height, decoded});
+    std::ofstream file(std::filesystem::path(out), std::ios::binary);
+    return !png.empty() && file.write(reinterpret_cast<const char*>(png.data()), static_cast<std::streamsize>(png.size())) ? 0 : 202;
+}
+#else
 int sample(const wchar_t* in, const wchar_t* out) {
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     ComPtr<IWICImagingFactory> wic;
@@ -84,6 +114,7 @@ int sample(const wchar_t* in, const wchar_t* out) {
         FAILED(target->Commit()) || FAILED(encoder->Commit()))) return 202;
     return 0;
 }
+#endif
 } // namespace
 
 int main() {

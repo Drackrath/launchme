@@ -1,6 +1,7 @@
 #include "game_ratings.hpp"
 #include "../net/json.hpp"
 #include "../net/url_encoding.hpp"
+#include "../platform/unicode_text.hpp"
 #include "../platform/atomic_file.hpp"
 #include "../platform/text_encoding.hpp"
 #include <algorithm>
@@ -106,14 +107,8 @@ std::wstring requestUrl(const Game& game, const std::wstring& key) {
 }
 
 std::wstring normalizedTitle(std::wstring_view name) {
-    std::wstring lower(name);
-    if (!name.empty()) LCMapStringEx(LOCALE_NAME_INVARIANT, LCMAP_LOWERCASE, name.data(), static_cast<int>(name.size()),
-                                   lower.data(), static_cast<int>(lower.size()), nullptr, nullptr, 0);
     std::wstring result;
-    for (const wchar_t c : lower) {
-        WORD type = 0; GetStringTypeW(CT_CTYPE1, &c, 1, &type);
-        if (type & (C1_ALPHA | C1_DIGIT)) result += c;
-    }
+    for (const wchar_t c : unicode_text::lower(name)) if (unicode_text::isLetterOrDigit(c)) result += c;
     return result;
 }
 bool saveIdentified(const std::filesystem::path& cache, const Game& game, const Rating& rating) {

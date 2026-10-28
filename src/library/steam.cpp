@@ -1,8 +1,12 @@
 #include "steam.hpp"
+#include "../platform/unicode_text.hpp"
 #include "visibility.hpp"
 #include "../platform/text_encoding.hpp"
+#include "../platform/system.hpp"
 
+#ifdef _WIN32
 #include <Windows.h>
+#endif
 
 #include <algorithm>
 #include <cstdlib>
@@ -61,7 +65,7 @@ bool sameFolder(const std::filesystem::path& a, const std::filesystem::path& b) 
         return result;
     };
     const auto left = text(a), right = text(b);
-    return CompareStringOrdinal(left.c_str(), static_cast<int>(left.size()), right.c_str(), static_cast<int>(right.size()), TRUE) == CSTR_EQUAL;
+    return unicode_text::equalIgnoreCase(left, right);
 }
 
 std::vector<std::filesystem::path> libraries(const std::filesystem::path& root) {
@@ -152,19 +156,30 @@ std::optional<Game> manifest(const std::filesystem::path& path, bool& complete) 
 bool steamTool(const Game& game) {
     // 1716750 Ubisoft Connect PC Client, 4099820 Ubisoft Connect Services, 4874400 FramePacer.
     for (const uint32_t id : {1716750u, 4099820u, 4874400u}) if (game.app_id == id) return true;
-    const auto is = [&](const wchar_t* name) { return CompareStringOrdinal(game.name.c_str(), -1, name, -1, TRUE) == CSTR_EQUAL; };
-    const auto starts = [&](std::wstring_view prefix) {
-        return game.name.size() >= prefix.size() &&
-               CompareStringOrdinal(game.name.c_str(), static_cast<int>(prefix.size()), prefix.data(), static_cast<int>(prefix.size()), TRUE) == CSTR_EQUAL;
-    };
+    const auto is = [&](const wchar_t* name) { return unicode_text::equalIgnoreCase(game.name, name); };
+    const auto starts = [&](std::wstring_view prefix) { return unicode_text::startsWithIgnoreCase(game.name, prefix); };
     return is(L"Steamworks Common Redistributables") || is(L"framepacer") || starts(L"Steam Linux Runtime") ||
            starts(L"Proton ") || starts(L"Ubisoft Connect");
 }
 
 std::filesystem::path findSteamRoot() {
+    if (auto value = system_info::environment(L"STEAM_DIR", 4095); value && !value->empty()) return *value;
+#ifndef _WIN32
+    // Native (~/.steam/steam links to the real one), then the Flatpak and Snap packages.
+    const auto home = std::filesystem::path(system_info::environment(L"HOME").value_or(L""));
+    const auto data = system_info::environment(L"XDG_DATA_HOME");
+    std::vector<std::filesystem::path> candidates{home / L".steam" / L"steam", home / L".steam" / L"root",
+        data ? std::filesystem::path(*data) / L"Steam" : home / L".local" / L"share" / L"Steam",
+        home / L".var" / L"app" / L"com.valvesoftware.Steam" / L".local" / L"share" / L"Steam",
+        home / L".var" / L"app" / L"com.valvesoftware.Steam" / L"data" / L"Steam",
+        home / L"snap" / L"steam" / L"common" / L".local" / L"share" / L"Steam"};
+    for (const auto& candidate : candidates) {
+        std::error_code ec;
+        if (!home.empty() && std::filesystem::is_directory(candidate / L"steamapps", ec)) return std::filesystem::weakly_canonical(candidate, ec);
+    }
+    return home.empty() ? std::filesystem::path{} : home / L".local" / L"share" / L"Steam";
+#else
     wchar_t buffer[4096]{};
-    const DWORD length = GetEnvironmentVariableW(L"STEAM_DIR", buffer, 4096);
-    if (length > 0 && length < 4096) return buffer;
     DWORD bytes = sizeof(buffer);
     if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\Valve\\Steam", L"SteamPath",
                      RRF_RT_REG_SZ, nullptr, buffer, &bytes) == ERROR_SUCCESS) return buffer;
@@ -172,6 +187,7 @@ std::filesystem::path findSteamRoot() {
     if (RegGetValueW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\WOW6432Node\\Valve\\Steam", L"InstallPath",
                      RRF_RT_REG_SZ, nullptr, buffer, &bytes) == ERROR_SUCCESS) return buffer;
     return L"C:\\Program Files (x86)\\Steam";
+#endif
 }
 
 std::vector<std::filesystem::path> steamLibraryFolders(const std::filesystem::path& steam_root) {
@@ -270,7 +286,11 @@ std::wstring steamActionUrl(const Game& game) {
 std::filesystem::path steamExecutable(const std::filesystem::path& steam_root) {
     if (steam_root.empty()) return {};
     std::error_code ec;
+#ifdef _WIN32
     const auto exe = steam_root / L"steam.exe";
+#else
+    const auto exe = steam_root / L"steam.sh"; // The native client's launcher script.
+#endif
     return std::filesystem::is_regular_file(exe, ec) ? exe.lexically_normal() : std::filesystem::path{};
 }
 

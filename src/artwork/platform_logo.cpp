@@ -5,12 +5,16 @@
 #include "../library/studios.hpp"
 #include "../platform/text_encoding.hpp"
 
+#ifdef _WIN32
 #include <d2d1.h>
 #include <dwrite.h>
 #include <wincodec.h>
 #include <wrl/client.h>
+#endif
 
+#ifdef _WIN32
 #include <Windows.h>
+#endif
 #include <fstream>
 #include <optional>
 

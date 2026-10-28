@@ -4,12 +4,25 @@
 #include "../src/platform/process_freeze.hpp"
 #include "../src/platform/atomic_file.hpp"
 #include <Windows.h>
+#ifndef _WIN32
+#include "../src/platform/proc_fs.hpp"
+#include "../src/platform/process_spawn.hpp"
+#include "../src/platform/text_encoding.hpp"
+#include <csignal>
+#include <fcntl.h>
+#include <map>
+#include <sys/mman.h>
+#include <sys/prctl.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
 #include <chrono>
 #include <iomanip>
 #include <iostream>
 #include <string>
 
 namespace {
+#ifdef _WIN32
 // Redirect HKCU in this test process only; never read/write the user's Steam state.
 class SteamRegistry {
 public:
@@ -276,11 +289,237 @@ int emulatorPlaytime() {
     if (spawned.read(game) != GameActivity::running || !spawned.holding()) return 88;
     return 0;
 }
+#else
+// Redirect ~/.steam/registry.vdf (HOME) in this test process only; never read/write the user's Steam state.
+class SteamRegistry {
+public:
+    SteamRegistry() {
+        if (const char* home = std::getenv("HOME")) previous_ = home;
+        home_ = std::filesystem::temp_directory_path() / ("launchme-test-steam-" + std::to_string(getpid()) + '-' + std::to_string(GetTickCount64()));
+        std::error_code ec;
+        std::filesystem::create_directories(home_ / ".steam", ec);
+        ready_ = !ec && ::setenv("HOME", home_.c_str(), 1) == 0 && write();
+    }
+    ~SteamRegistry() {
+        if (previous_) ::setenv("HOME", previous_->c_str(), 1); else ::unsetenv("HOME");
+        std::error_code ignored; std::filesystem::remove_all(home_, ignored);
+    }
+    bool ready() const { return ready_; }
+    bool report(DWORD app, DWORD running, DWORD foreground) {
+        if (!ready_) return false;
+        apps_[app] = running; foreground_ = foreground;
+        return write();
+    }
+private:
+    bool write() {
+        std::string apps;
+        for (const auto& [app, running] : apps_)
+            apps += "\t\t\t\t\t\t\"" + std::to_string(app) + "\"\n\t\t\t\t\t\t{\n\t\t\t\t\t\t\t\"Running\"\t\t\"" + std::to_string(running) + "\"\n\t\t\t\t\t\t}\n";
+        return atomic_file::write(home_ / ".steam" / "registry.vdf", "\"Registry\"\n{\n\t\"HKCU\"\n\t{\n\t\t\"Software\"\n\t\t{\n\t\t\t\"Valve\"\n\t\t\t{\n\t\t\t\t\"Steam\"\n\t\t\t\t{\n"
+            "\t\t\t\t\t\"RunningAppID\"\t\t\"" + std::to_string(foreground_) + "\"\n\t\t\t\t\t\"Apps\"\n\t\t\t\t\t{\n" + apps + "\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n}\n");
+    }
+    std::filesystem::path home_;
+    std::optional<std::string> previous_;
+    std::map<DWORD, DWORD> apps_;
+    DWORD foreground_ = 0;
+    bool ready_ = false;
+};
+
+// Child mode: a busy counter in a shared file mapping proves whether it runs. SIGUSR1 makes it
+// not dumpable (its /proc/<pid>/exe then denied, as a protected game's image on Windows).
+int child(const wchar_t* mapping_name) {
+    std::signal(SIGUSR1, [](int) { ::prctl(PR_SET_DUMPABLE, 0, 0, 0, 0); });
+    const int fd = ::open(text_encoding::utf8(mapping_name).c_str(), O_RDWR | O_CLOEXEC);
+    auto* counter = fd >= 0 ? static_cast<volatile long*>(::mmap(nullptr, sizeof(long), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0)) : nullptr;
+    if (!counter || counter == MAP_FAILED) return 1;
+    for (const auto started = GetTickCount64(); GetTickCount64() - started < 20000;) { __atomic_add_fetch(counter, 1, __ATOMIC_SEQ_CST); Sleep(2); }
+    return 0;
+}
+// Idle mode: stands in for an emulator, never touches anything, ends itself after 20 s.
+int idle() { Sleep(20000); return 0; }
+
+struct Child {
+    pid_t pid = 0;
+    ~Child() { end(); }
+    void end() { if (pid > 0) { ::kill(pid, SIGKILL); ::waitpid(pid, nullptr, 0); pid = 0; } }
+};
+bool start(Child& child, const std::vector<std::string>& arguments) {
+    process_spawn::Options options;
+    return process_spawn::spawn(arguments, options, child.pid) == 0;
+}
+struct Counter {
+    std::filesystem::path file;
+    int fd = -1;
+    volatile long* value = nullptr;
+    Counter() {
+        file = std::filesystem::temp_directory_path() / ("launchme-freeze-test-" + std::to_string(getpid()));
+        fd = ::open(file.c_str(), O_RDWR | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+        if (fd < 0 || ::ftruncate(fd, sizeof(long)) != 0) return;
+        void* view = ::mmap(nullptr, sizeof(long), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+        if (view != MAP_FAILED) value = static_cast<volatile long*>(view);
+    }
+    ~Counter() {
+        if (value) ::munmap(const_cast<long*>(value), sizeof(long));
+        if (fd >= 0) ::close(fd);
+        std::error_code ignored; std::filesystem::remove(file, ignored);
+    }
+    long read() const { return __atomic_load_n(value, __ATOMIC_SEQ_CST); }
+};
+
+// Games started outside the launcher: a copy of this test in a folder of its own is the "game".
+int runningDiscovery(const std::filesystem::path& executable, const Counter& counter) {
+    SteamRegistry registry;
+    if (!registry.ready()) return 58;
+    const auto folder = std::filesystem::temp_directory_path() / ("launchme-running-" + std::to_string(getpid()));
+    std::error_code ec;
+    std::filesystem::create_directories(folder, ec);
+    const auto copy = folder / "game";
+    struct Cleanup { std::filesystem::path folder; Child process;
+        ~Cleanup() { process.end(); std::error_code ignored; std::filesystem::remove_all(folder, ignored); } } cleanup{folder};
+    if (!std::filesystem::copy_file(executable, copy, std::filesystem::copy_options::overwrite_existing, ec)) return 40;
+    Game by_folder; by_folder.source = GameSource::gog; by_folder.kind = GameKind::store; by_folder.install_directory = folder;
+    Game by_exe; by_exe.source = GameSource::custom; by_exe.kind = GameKind::store; by_exe.executable = copy;
+    Game custom_folder = by_exe; custom_folder.executable = folder / "other"; custom_folder.install_directory = folder;
+    Game shortcut = by_exe; shortcut.source = GameSource::steam; shortcut.kind = GameKind::nonsteam;
+    Game not_installed = by_folder; not_installed.installed = false;
+    Game system_folder = by_folder; system_folder.install_directory = "/usr/bin"; // Shells, coreutils... run there.
+    Game steam; steam.app_id = 0xFFFFFFF0u; steam.name = L"Not running";
+    const std::vector<Game> candidates{by_folder, custom_folder, shortcut, not_installed, system_folder, steam};
+    if (!findRunningGames(candidates).empty()) return 41; // The game is not started yet.
+    if (!start(cleanup.process, {copy.string(), "--child", counter.file.string()})) return 42;
+    std::vector<size_t> running;
+    for (int i = 0; i < 400 && running.empty(); ++i) { Sleep(25); running = findRunningGames(candidates); }
+    if (running != std::vector<size_t>{0}) return 43;
+    if (findRunningGames({by_folder, by_exe}) != std::vector<size_t>{1}) return 44;
+    if (!findGameProcesses(custom_folder).empty() || readGameActivity(custom_folder) != GameActivity::stopped) return 46;
+    ProcessWatch unrelated;
+    if (unrelated.read(custom_folder) != GameActivity::stopped || unrelated.holding()) return 47;
+    const auto exact = findGameProcesses(by_exe);
+    if (exact.size() != 1 || exact[0].pid != static_cast<uint32_t>(cleanup.process.pid)) return 48;
+    if (!findGameProcesses(system_folder).empty()) return 49;
+    auto script = custom_folder; script.executable.clear();
+    if (!findGameProcesses(script).empty() || readGameActivity(script) != GameActivity::unknown) return 50;
+
+    Game direct = steam; direct.install_directory = folder;
+    if (findRunningGames({direct}) != std::vector<size_t>{0}) return 59;
+    if (!registry.report(direct.app_id, 0, 0)) return 60;
+    ProcessWatch watch;
+    if (findRunningGames({direct}) != std::vector<size_t>{0} || readGameActivity(direct) != GameActivity::running ||
+        watch.read(direct) != GameActivity::running || !watch.holding() || watch.read(direct) != GameActivity::running) return 61;
+    if (findRunningGames({direct, by_exe}) != std::vector<size_t>{1}) return 62;
+    Game reported = steam; reported.app_id -= 1;
+    if (!registry.report(reported.app_id, 1, reported.app_id) ||
+        findRunningGames({reported, direct}) != std::vector<size_t>({0, 1})) return 63;
+    ProcessWatch steam_watch;
+    if (readGameActivity(reported) != GameActivity::running || steam_watch.read(reported) != GameActivity::running ||
+        steam_watch.holding()) return 64;
+    if (!registry.report(direct.app_id, 1, direct.app_id) || findRunningGames({direct, custom_folder}) != std::vector<size_t>{0} ||
+        watch.read(direct) != GameActivity::running || !watch.holding()) return 65;
+    if (!registry.report(direct.app_id, 0, 0) || watch.read(direct) != GameActivity::running || !watch.holding()) return 66;
+    // A process that denies inspection (not dumpable, like a protected game) stays alive and
+    // makes its executable's activity unknown, never stopped.
+    ::kill(cleanup.process.pid, SIGUSR1);
+    std::error_code denied;
+    for (int i = 0; i < 200; ++i) {
+        (void)std::filesystem::read_symlink("/proc/" + std::to_string(cleanup.process.pid) + "/exe", denied);
+        if (denied) break;
+        Sleep(10);
+    }
+    if (!denied) return 76;
+    if (!process_freeze::alive(exact) || readGameActivity(by_exe) != GameActivity::unknown || watch.read(direct) != GameActivity::running) return 77;
+    cleanup.process.end();
+    if (process_freeze::alive(exact)) return 78;
+    if (!findRunningGames(candidates).empty()) return 45;
+    if (!findRunningGames({direct}).empty() || readGameActivity(direct) != GameActivity::stopped ||
+        watch.read(direct) != GameActivity::stopped || watch.holding()) return 67;
+    if (readGameActivity(steam) != GameActivity::stopped || ProcessWatch{}.read(steam) != GameActivity::stopped) return 68;
+    return 0;
 }
 
+// Suspends and resumes only a child copy of this test executable (SIGSTOP/SIGCONT).
+int realSuspension() {
+    const auto executable = std::filesystem::read_symlink("/proc/self/exe");
+    Counter counter;
+    if (!counter.value) return 20;
+    Child process;
+    if (!start(process, {executable.string(), "--child", counter.file.string()})) return 21;
+    for (int i = 0; i < 500 && counter.read() < 5; ++i) Sleep(10);
+    if (counter.read() < 5) return 22;
+    Game fixture; fixture.source = GameSource::gog; fixture.executable = executable;
+    auto processes = findGameProcesses(fixture);
+    if (processes.size() != 1 || processes[0].pid != static_cast<uint32_t>(process.pid) || !processes[0].created) return 23;
+
+    if (process_freeze::suspend(processes) != process_freeze::Result::ok || processes.size() != 1) return 24;
+    Sleep(120);
+    const auto frozen = counter.read();
+    Sleep(250);
+    if (counter.read() != frozen || !process_freeze::alive(processes)) return 25;
+    if (readGameActivity(fixture) != GameActivity::running) return 26; // A suspended game still runs.
+    if (process_freeze::resume(processes) != process_freeze::Result::ok) return 27;
+    for (int i = 0; i < 100 && counter.read() == frozen; ++i) Sleep(10);
+    if (counter.read() == frozen) return 28;
+    auto reused = processes; reused[0].created += 1;
+    if (process_freeze::suspend(reused) != process_freeze::Result::gone || process_freeze::alive(reused)) return 29;
+    if (process_freeze::suspend(processes) != process_freeze::Result::ok ||
+        process_freeze::terminate(processes) != process_freeze::Result::ok) return 31;
+    int status = 0;
+    if (::waitpid(process.pid, &status, 0) != process.pid || !WIFSIGNALED(status)) return 31;
+    process.pid = 0;
+    if (process_freeze::alive(processes) || process_freeze::resume(processes) != process_freeze::Result::gone ||
+        process_freeze::terminate(processes) != process_freeze::Result::gone) return 30;
+    return runningDiscovery(executable, counter);
+}
+
+// A copy named cemu stands in for the emulator; it only sleeps (--idle) and is killed here.
+int emulatorPlaytime() {
+    const auto executable = std::filesystem::read_symlink("/proc/self/exe");
+    const auto folder = std::filesystem::temp_directory_path() / ("launchme-emu-" + std::to_string(getpid()));
+    std::error_code ec;
+    std::filesystem::create_directories(folder, ec);
+    const auto cemu = folder / "cemu";
+    const auto rom = folder / "Zelda.wua";
+    struct Cleanup { std::filesystem::path folder; Child named, fresh;
+        ~Cleanup() { named.end(); fresh.end(); std::error_code ignored; std::filesystem::remove_all(folder, ignored); } } cleanup{folder};
+    if (!std::filesystem::copy_file(executable, cemu, std::filesystem::copy_options::overwrite_existing, ec)) return 80;
+    Game game;
+    game.kind = GameKind::nonsteam;
+    game.platform = L"Wii U";
+    game.rom = rom;
+    game.name = L"Zelda";
+    ProcessWatch waiting;
+    if (waiting.read(game) != GameActivity::stopped || waiting.holding()) return 81;
+    if (!start(cleanup.named, {cemu.string(), "--idle", "-g", rom.string()})) return 82;
+    std::vector<GameProcess> found;
+    for (int i = 0; i < 200 && found.empty(); ++i) { found = findEmulatorRomProcesses(game); if (found.empty()) Sleep(10); }
+    if (found.size() != 1 || found[0].pid != static_cast<uint32_t>(cleanup.named.pid)) return 83;
+    ProcessWatch by_rom;
+    if (by_rom.read(game) != GameActivity::running || !by_rom.holding() || by_rom.read(game) != GameActivity::running) return 84;
+    cleanup.named.end();
+    if (by_rom.read(game) != GameActivity::stopped || by_rom.holding()) return 85;
+    ProcessWatch spawned;
+    if (spawned.read(game) != GameActivity::stopped) return 86;
+    if (!start(cleanup.fresh, {cemu.string(), "--idle"})) return 87;
+    for (int i = 0; i < 200 && proc_fs::image(static_cast<uint32_t>(cleanup.fresh.pid)) != cemu; ++i) Sleep(10);
+    if (spawned.read(game) != GameActivity::running || !spawned.holding()) return 88;
+    return 0;
+}
+#endif
+}
+
+#ifdef _WIN32
 int wmain(int argc, wchar_t** argv) {
     if (argc == 3 && std::wstring(argv[1]) == L"--child") return child(argv[2]);
     if (argc == 2 && std::wstring(argv[1]) == L"--discovery-benchmark") return discoveryBenchmark();
+#else
+int main(int argc, char** arguments) {
+    std::vector<std::wstring> wide;
+    for (int i = 0; i < argc; ++i) wide.push_back(text_encoding::wideLenient(arguments[i]));
+    std::vector<wchar_t*> pointers;
+    for (auto& argument : wide) pointers.push_back(argument.data());
+    wchar_t** argv = pointers.data();
+    if (argc == 3 && std::wstring(argv[1]) == L"--child") return child(argv[2]);
+    if (argc >= 2 && std::wstring(argv[1]) == L"--idle") return idle();
+#endif
     GameSession pending(100);
     {
         GameSession clock;
@@ -354,12 +593,15 @@ int wmain(int argc, wchar_t** argv) {
     if (process_freeze::save(file, oversized) || process_freeze::load(file) != frozen) return 52;
     oversized = frozen; oversized[0].key.assign(40000, 'x');
     if (process_freeze::save(file, oversized) || process_freeze::load(file) != frozen) return 53;
+#ifdef _WIN32
+    // Windows only: a file opened without sharing (no such lock on Linux).
     const HANDLE locked = CreateFileW(file.c_str(), GENERIC_READ, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (locked == INVALID_HANDLE_VALUE) return 54;
     const bool read_failed = !process_freeze::load(file);
     const bool write_failed = !process_freeze::save(file, frozen);
     CloseHandle(locked);
     if (!read_failed || !write_failed || process_freeze::load(file) != frozen) return 55;
+#endif
     if (!atomic_file::write(file, formatFrozenGames(frozen) + "invalid record\n") || process_freeze::load(file)) return 56;
     if (!process_freeze::save(file, {}) || std::filesystem::exists(file)) return 17;
     const auto missing = process_freeze::load(file);

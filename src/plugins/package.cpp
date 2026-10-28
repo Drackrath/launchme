@@ -2,7 +2,11 @@
 #include "../platform/atomic_file.hpp"
 #define MINIZ_NO_ZLIB_COMPATIBLE_NAMES
 #include <miniz.h>
+#ifndef _WIN32
+#include <elf.h>
+#endif
 #include <algorithm>
+#include <cstring>
 #include <fstream>
 #include <set>
 
@@ -17,6 +21,7 @@ std::string readFile(const std::filesystem::path& file, size_t limit) {
 }
 void validateDll(const std::filesystem::path& dll) {
     const auto bytes = readFile(dll, 32 * 1024 * 1024);
+#ifdef _WIN32
     IMAGE_DOS_HEADER dos{};
     if (bytes.size() < sizeof(dos)) throw std::runtime_error("Invalid DLL");
     memcpy(&dos, bytes.data(), sizeof(dos));
@@ -26,6 +31,14 @@ void validateDll(const std::filesystem::path& dll) {
     if (pe.Signature != IMAGE_NT_SIGNATURE || pe.FileHeader.Machine != IMAGE_FILE_MACHINE_AMD64 ||
         !(pe.FileHeader.Characteristics & IMAGE_FILE_DLL) || pe.OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR64_MAGIC)
         throw std::runtime_error("Plugin must be an x64 DLL");
+#else
+    Elf64_Ehdr elf{};
+    if (bytes.size() < sizeof(elf)) throw std::runtime_error("Invalid shared object");
+    memcpy(&elf, bytes.data(), sizeof(elf));
+    if (memcmp(elf.e_ident, ELFMAG, SELFMAG) != 0 || elf.e_ident[EI_CLASS] != ELFCLASS64 || elf.e_ident[EI_DATA] != ELFDATA2LSB)
+        throw std::runtime_error("Invalid ELF header");
+    if (elf.e_machine != EM_X86_64 || elf.e_type != ET_DYN) throw std::runtime_error("Plugin must be an x86-64 shared object");
+#endif
 }
 Manifest inspectPackage(const std::filesystem::path& file) {
     const auto bytes = readFile(file, 64 * 1024 * 1024);
@@ -57,7 +70,7 @@ Manifest extractPackage(const std::filesystem::path& file, const std::filesystem
         if (stat.m_is_directory && name.ends_with('/')) name.pop_back();
         // Unix symlinks, special files and Windows reparse attributes are never extracted.
         const auto type = (stat.m_external_attr >> 16) & 0170000;
-        if ((type && type != 0100000 && type != 0040000) || (stat.m_external_attr & FILE_ATTRIBUTE_REPARSE_POINT) || !packagePath(name))
+        if ((type && type != 0100000 && type != 0040000) || (stat.m_external_attr & 0x400) /* FILE_ATTRIBUTE_REPARSE_POINT */ || !packagePath(name))
             throw std::runtime_error("Unsafe ZIP path or file type");
         std::transform(name.begin(), name.end(), name.begin(), [](unsigned char c) { return static_cast<char>(tolower(c)); });
         if (!paths.insert(name).second) throw std::runtime_error("Duplicate ZIP path");

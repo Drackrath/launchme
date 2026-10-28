@@ -1,17 +1,30 @@
 #include "performance.hpp"
 #include "../i18n/i18n.hpp"
+#ifdef _WIN32
 #include <Windows.h>
+#else
+#include "system.hpp"
+#include <charconv>
+#include <ctime>
+#include <unistd.h>
+#endif
 #include <algorithm>
 #include <fstream>
 #include <iomanip>
 #include <sstream>
 
 void FrameProfiler::configure() {
+#ifdef _WIN32
     wchar_t value[4096]{};
     overlay_ = GetEnvironmentVariableW(L"LAUNCHME_PERF", value, 4096) == 1 && value[0] == L'1';
     const auto size = GetEnvironmentVariableW(L"LAUNCHME_PERF_TRACE", value, 4096);
     if (size && size < 4096) {
         const std::filesystem::path file(value);
+#else
+    overlay_ = system_info::environment(L"LAUNCHME_PERF", 1) == L"1";
+    if (const auto value = system_info::environment(L"LAUNCHME_PERF_TRACE", 4095); value && !value->empty()) {
+        const std::filesystem::path file(*value);
+#endif
         std::error_code error;
         if (file.is_absolute() && std::filesystem::is_directory(file.parent_path(), error)) {
             trace_file_ = file; trace_.reserve(36000);
@@ -28,7 +41,7 @@ FrameProfiler::~FrameProfiler() {
         << sample.input_ms << ',' << sample.system_ms << ',' << sample.render.draw_ms << ',' << sample.render.present_ms << ','
         << sample.render.upload_ms << ',' << sample.render.uploads << '\n';
     const auto stats = summary();
-    std::ofstream report(trace_file_.wstring() + L".summary.txt");
+    std::ofstream report(std::filesystem::path(trace_file_.wstring() + L".summary.txt"));
     report << "Recent " << count_ << " frames\nFPS=" << stats.fps << "\nFrame p95=" << stats.frame_p95 << " ms\nFrame p99=" << stats.frame_p99
         << " ms\nUpdate=" << stats.tick_ms << " ms\nUpdate max=" << stats.tick_max << " ms\nInput=" << stats.input_ms
         << " ms\nSystem=" << stats.system_ms << " ms\nDraw=" << stats.draw_ms << " ms\nEndDraw/present=" << stats.present_ms
@@ -39,11 +52,32 @@ FrameProfiler::~FrameProfiler() {
 void FrameProfiler::startup(Startup mark) {
     auto& slot = startup_[static_cast<size_t>(mark)];
     if (slot >= 0 || !enabled()) return;
+#ifdef _WIN32
     FILETIME creation{}, exited{}, kernel{}, user{}, now{};
     if (!GetProcessTimes(GetCurrentProcess(), &creation, &exited, &kernel, &user)) return;
     GetSystemTimePreciseAsFileTime(&now);
     const auto ticks = [](FILETIME time) { return (static_cast<unsigned long long>(time.dwHighDateTime) << 32) | time.dwLowDateTime; };
     slot = static_cast<double>(ticks(now) - ticks(creation)) / 10000.0;
+#else
+    // /proc/self/stat field 22: start time in clock ticks since boot (CLOCK_BOOTTIME). The command
+    // name (field 2) may hold spaces and parentheses, so count fields after its last ')'.
+    std::ifstream input("/proc/self/stat");
+    std::string stat;
+    std::getline(input, stat);
+    const auto name_end = stat.rfind(')');
+    if (name_end == std::string::npos) return;
+    std::istringstream fields(stat.substr(name_end + 1));
+    std::string field;
+    int index = 2;
+    while (index < 22 && (fields >> field)) ++index;
+    const long hertz = sysconf(_SC_CLK_TCK);
+    timespec now{};
+    unsigned long long ticks = 0;
+    const auto [end, failed] = std::from_chars(field.data(), field.data() + field.size(), ticks);
+    if (index != 22 || failed != std::errc{} || end == field.data() || hertz <= 0 || clock_gettime(CLOCK_BOOTTIME, &now) != 0) return;
+    const double started_ms = static_cast<double>(ticks) * 1000.0 / static_cast<double>(hertz);
+    slot = std::max(0.0, static_cast<double>(now.tv_sec) * 1000.0 + static_cast<double>(now.tv_nsec) / 1e6 - started_ms);
+#endif
 }
 void FrameProfiler::tick(double total_ms, double input_ms, double system_ms) {
     pending_.tick_ms = total_ms; pending_.input_ms = input_ms; pending_.system_ms = system_ms;

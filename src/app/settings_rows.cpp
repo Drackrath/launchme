@@ -273,7 +273,7 @@ void Launcher::buildSettingsRows() {
                 add({Id::custom_covers, Control::action, tr(L"Okładki"),
                     tr(L"Wyszukaj i pobierz brakujące okładki tych gier (SteamGridDB, sklep Steam)."), tr(L"Szukaj")});
             for (const auto& entry : custom_games_) {
-                std::wstring description = entry.path.empty() ? std::wstring(tr(L"Bez pliku gry")) : entry.path.filename().native();
+                std::wstring description = entry.path.empty() ? std::wstring(tr(L"Bez pliku gry")) : entry.path.filename().wstring();
                 if (!entry.arguments.empty()) description += L"  " + entry.arguments;
                 if (const auto found = custom_installed_.find(entry.id); !entry.path.empty() && found != custom_installed_.end() && !found->second)
                     description = tr(L"Brak pliku") + (L" · " + description);

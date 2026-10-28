@@ -23,6 +23,16 @@ void executable(const fs::path& file, size_t size, bool console = false) {
     bytes[0x80 + 24 + 68] = console ? 3 : 2;
     std::ofstream(file, std::ios::binary) << bytes;
 }
+#ifndef _WIN32
+// A minimal ELF header: an executable (type 2) or a shared library (type 3, no interpreter).
+void elf(const fs::path& file, size_t size, bool library = false) {
+    fs::create_directories(file.parent_path());
+    std::string bytes(std::max<size_t>(size, 128), '\0');
+    bytes[0] = 0x7F; bytes[1] = 'E'; bytes[2] = 'L'; bytes[3] = 'F'; bytes[4] = 2; bytes[5] = 1;
+    bytes[16] = library ? 3 : 2; bytes[18] = 62; // x86-64.
+    std::ofstream(file, std::ios::binary) << bytes;
+}
+#endif
 void text(const fs::path& file, const std::string& value) {
     fs::create_directories(file.parent_path());
     std::ofstream(file, std::ios::binary) << value;
@@ -64,15 +74,27 @@ int main() {
     if (!genericProduct(L"Unity Player") || !genericProduct(L"UnrealEngine") || genericProduct(L"Hollow Knight")) return 3;
     if (!excludedExecutable(L"unins000.exe") || !excludedExecutable(L"UnityCrashHandler64.exe") || !excludedExecutable(L"vc_redist.x64.exe") ||
         !excludedExecutable(L"CrashReportClient.exe") || excludedExecutable(L"Celeste.exe") || excludedExecutable(L"witcher3.exe")) return 4;
+#ifdef _WIN32
     if (folderId(L"D:\\Gry\\Celeste") != folderId(L"d:/gry/celeste/") || folderId(L"D:\\Gry\\Celeste").size() != 16 ||
         folderId(L"D:\\Gry\\Celeste") == folderId(L"D:\\Gry\\Celeste 2")) return 5;
     if (!inside(L"D:\\Gry\\Celeste", L"D:\\Gry") || inside(L"D:\\Gry2\\Celeste", L"D:\\Gry") || inside(L"D:\\Gry", L"D:\\Gry") ||
         !inside(L"D:\\Gry", L"D:\\") || validRoot(L"Gry") || !validRoot(L"D:\\Gry")) return 6;
+#else
+    // Linux paths keep their case.
+    if (folderId(L"/mnt/Gry/Celeste") != folderId(L"/mnt/Gry/Celeste/") || folderId(L"/mnt/Gry/Celeste").size() != 16 ||
+        folderId(L"/mnt/Gry/Celeste") == folderId(L"/mnt/gry/celeste") || folderId(L"/mnt/Gry/Celeste") == folderId(L"/mnt/Gry/Celeste 2")) return 5;
+    if (!inside(L"/mnt/Gry/Celeste", L"/mnt/Gry") || inside(L"/mnt/Gry2/Celeste", L"/mnt/Gry") || inside(L"/mnt/Gry", L"/mnt/Gry") ||
+        !inside(L"/mnt/Gry", L"/") || validRoot(L"Gry") || !validRoot(L"/mnt/Gry")) return 6;
+#endif
 
     // (2) A real folder tree: engines, a folder of games, a GOG install, noise and other sources.
+#ifdef _WIN32
     wchar_t temp[MAX_PATH]{};
     GetTempPathW(MAX_PATH, temp);
     const auto base = fs::path(temp) / (L"launchme-drm-free-" + std::to_wstring(GetCurrentProcessId()));
+#else
+    const auto base = fs::temp_directory_path() / (L"launchme-drm-free-" + std::to_wstring(GetCurrentProcessId()));
+#endif
     std::error_code ignored_error;
     fs::remove_all(base, ignored_error);
     struct Cleanup { fs::path path; ~Cleanup() { std::error_code e; fs::remove_all(path, e); } } cleanup{base};
@@ -116,8 +138,8 @@ int main() {
     const auto scanned = scan(catalog, options, {}, [&](Progress progress) { last = progress; });
     const auto expect = [&](const fs::path& folder, const fs::path& exe) {
         const auto* entry = byFolder(scanned, folder);
-        if (!entry) { std::wcerr << L"missing " << folder.native() << L'\n'; return false; }
-        if (folderKey(entry->executable) != folderKey(exe)) { std::wcerr << folder.native() << L" chose " << entry->executable.native() << L'\n'; return false; }
+        if (!entry) { std::wcerr << L"missing " << folder.wstring() << L'\n'; return false; }
+        if (folderKey(entry->executable) != folderKey(exe)) { std::wcerr << folder.wstring() << L" chose " << entry->executable.wstring() << L'\n'; return false; }
         return entry->found == 1000 && !entry->missing && entry->id == folderId(folder);
     };
     if (!expect(root / L"Celeste", root / L"Celeste" / L"Celeste.exe") ||
@@ -259,6 +281,40 @@ int main() {
     identify(keyless, L"", paths, {}, {}, backend);
     if (keyless != scanned) return 66;
 
+#ifndef _WIN32
+    // (8) Native Linux games: ELF executables and launcher scripts, ahead of a Windows build beside them.
+    const auto native = base / L"Linux";
+    elf(native / L"Celeste" / L"Celeste.x86_64", 300 * 1024);
+    fs::create_directories(native / L"Celeste" / L"Celeste_Data");
+    executable(native / L"Celeste" / L"Celeste.exe", 300 * 1024);
+    elf(native / L"Celeste" / L"UnityPlayer.so", 30 * 1024 * 1024, true);
+    elf(native / L"Factorio" / L"bin" / L"x64" / L"factorio", 40 * 1024 * 1024);
+    elf(native / L"Factorio" / L"bin" / L"x64" / L"libsteam_api.so", 400 * 1024, true);
+    text(native / L"GOG Linux" / L"start.sh", "#!/bin/bash\nexec game/run\n");
+    text(native / L"GOG Linux" / L"gameinfo", "Linux Fixture\n1.0\n");
+    text(native / L"GOG Linux" / L"uninstall-Linux Fixture.sh", "#!/bin/bash\n");
+    elf(native / L"GOG Linux" / L"game" / L"LinuxFixture", 9 * 1024 * 1024);
+    elf(native / L"GOG Linux" / L"support" / L"helper", 9 * 1024 * 1024);
+    text(native / L"Notes" / L"README", "not an executable");
+    text(native / L"Notes" / L"notes.sh", "echo no shebang");
+    Catalog linux_catalog; linux_catalog.roots = {native};
+    ScanOptions linux_options; linux_options.full = true; linux_options.now = 3000;
+    const auto linux_scan = scan(linux_catalog, linux_options);
+    const auto chose = [&](const fs::path& folder, const fs::path& exe) {
+        const auto* entry = byFolder(linux_scan, folder);
+        if (!entry) { std::wcerr << L"missing " << folder.wstring() << L'\n'; return false; }
+        if (entry->executable != exe) { std::wcerr << folder.wstring() << L" chose " << entry->executable.wstring() << L'\n'; return false; }
+        return true;
+    };
+    if (!chose(native / L"Celeste", native / L"Celeste" / L"Celeste.x86_64") ||
+        !chose(native / L"Factorio", native / L"Factorio" / L"bin" / L"x64" / L"factorio") ||
+        !chose(native / L"GOG Linux", native / L"GOG Linux" / L"start.sh")) return 70;
+    if (linux_scan.games.size() != 3 || byFolder(linux_scan, native / L"Notes") || byFolder(linux_scan, native / L"GOG Linux")->title != L"Linux Fixture" ||
+        !byFolder(linux_scan, native / L"Celeste")->product.empty()) return 71;
+    // A link to a folder inside a game is not followed; the root's own links are.
+    fs::create_directory_symlink(native / L"Factorio", native / L"Factorio Link");
+    if (!byFolder(scan(linux_catalog, linux_options), native / L"Factorio Link")) return 72;
+#endif
     std::cout << "DRM-free titles, executable detection, scans, merge and RAWG matching passed\n";
     return 0;
 }

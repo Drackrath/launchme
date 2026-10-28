@@ -1,4 +1,6 @@
 #include "screenscraper.hpp"
+#include "../platform/hashing.hpp"
+#include "../platform/unicode_text.hpp"
 #include "esde_gamelist.hpp"
 #include "../net/json.hpp"
 #include "../net/url_encoding.hpp"
@@ -6,8 +8,10 @@
 #include "../platform/text_encoding.hpp"
 #include "../platform/user_config.hpp"
 
+#ifdef _WIN32
 #include <Windows.h>
 #include <bcrypt.h>
+#endif
 
 #include <algorithm>
 #include <array>
@@ -517,38 +521,17 @@ std::vector<uint32_t> systemIds(const std::wstring& platform, const std::filesys
 }
 
 std::wstring md5File(const std::filesystem::path& file) {
-    std::ifstream input(file, std::ios::binary);
-    if (!input) return {};
-    BCRYPT_ALG_HANDLE algorithm = nullptr;
-    BCRYPT_HASH_HANDLE hash = nullptr;
-    struct Cleanup {
-        BCRYPT_ALG_HANDLE& a; BCRYPT_HASH_HANDLE& h;
-        ~Cleanup() { if (h) BCryptDestroyHash(h); if (a) BCryptCloseAlgorithmProvider(a, 0); }
-    } cleanup{algorithm, hash};
-    if (BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_MD5_ALGORITHM, nullptr, 0) < 0 ||
-        BCryptCreateHash(algorithm, &hash, nullptr, 0, nullptr, 0, 0) < 0) return {};
-    std::vector<UCHAR> buffer(1 << 20);
-    while (input) {
-        input.read(reinterpret_cast<char*>(buffer.data()), static_cast<std::streamsize>(buffer.size()));
-        if (input.gcount() && BCryptHashData(hash, buffer.data(), static_cast<ULONG>(input.gcount()), 0) < 0) return {};
-    }
-    if (!input.eof()) return {};
-    std::array<UCHAR, 16> digest{};
-    if (BCryptFinishHash(hash, digest.data(), static_cast<ULONG>(digest.size()), 0) < 0) return {};
-    constexpr wchar_t hex[] = L"0123456789abcdef";
-    std::wstring result;
-    for (const auto byte : digest) { result += hex[byte >> 4]; result += hex[byte & 15]; }
-    return result;
+    return text_encoding::wide(hashing::fileHex(hashing::Algorithm::md5, file));
 }
 
 std::optional<RomFile> describeRom(const std::filesystem::path& rom, uint64_t limit) {
     if (rom.empty()) return {};
     // A folder game started through a file inside it (RPCS3: "Game.ps3\PS3_GAME\USRDIR\EBOOT.BIN").
     for (auto folder = rom.parent_path(); folder.has_relative_path(); folder = folder.parent_path())
-        if (_wcsicmp(folder.extension().c_str(), L".ps3") == 0) return RomFile{folder.filename().wstring(), 0, {}};
+        if (unicode_text::equalIgnoreCase(folder.extension().wstring(), L".ps3")) return RomFile{folder.filename().wstring(), 0, {}};
     std::error_code ec;
     // A multi-disc playlist names its discs; ScreenScraper knows the first disc, not the list.
-    if (_wcsicmp(rom.extension().c_str(), L".m3u") == 0 && std::filesystem::is_regular_file(rom, ec)) {
+    if (unicode_text::equalIgnoreCase(rom.extension().wstring(), L".m3u") && std::filesystem::is_regular_file(rom, ec)) {
         std::ifstream list(rom);
         std::string line;
         while (std::getline(list, line)) {
@@ -557,7 +540,7 @@ std::optional<RomFile> describeRom(const std::filesystem::path& rom, uint64_t li
             if (first == std::string::npos || line[first] == '#') continue;
             auto disc = std::filesystem::path(text_encoding::wideLegacy(line.substr(first)));
             if (disc.is_relative()) disc = rom.parent_path() / disc;
-            if (_wcsicmp(disc.extension().c_str(), L".m3u") != 0 && std::filesystem::is_regular_file(disc, ec)) return describeRom(disc, limit);
+            if (!unicode_text::equalIgnoreCase(disc.extension().wstring(), L".m3u") && std::filesystem::is_regular_file(disc, ec)) return describeRom(disc, limit);
             break;
         }
     }

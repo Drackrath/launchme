@@ -137,7 +137,7 @@ std::vector<std::filesystem::path> ownVideos(const std::filesystem::path& folder
     return entries;
 }
 bool samePath(const std::filesystem::path& a, const std::filesystem::path& b) {
-    return _wcsicmp(a.lexically_normal().native().c_str(), b.lexically_normal().native().c_str()) == 0;
+    return _wcsicmp(a.lexically_normal().wstring().c_str(), b.lexically_normal().wstring().c_str()) == 0;
 }
 }
 
@@ -195,7 +195,7 @@ void Launcher::moveVideoFolder(const std::filesystem::path& from, const std::fil
         }
         // Empty "videos" and system folders left behind go too.
         for (const auto& entry : moved)
-            for (auto folder = (from / entry).parent_path(); folder.native().size() > from.native().size(); folder = folder.parent_path()) {
+            for (auto folder = (from / entry).parent_path(); folder.wstring().size() > from.wstring().size(); folder = folder.parent_path()) {
                 std::error_code ec;
                 if (!std::filesystem::is_empty(folder, ec) || ec || !std::filesystem::remove(folder, ec)) break;
             }

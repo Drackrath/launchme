@@ -4,6 +4,7 @@
 #include "../src/net/companion_memory.hpp"
 #include "../src/net/companion_mind.hpp"
 #include <algorithm>
+#include <Windows.h>
 #include <iostream>
 #include <set>
 

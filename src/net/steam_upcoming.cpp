@@ -1,6 +1,7 @@
 // Steam's public search catalog, not featuredcategories.coming_soon (a tiny promotion strip).
 // Dates and artwork arrive with the rows, avoiding a request/deadline per title.
 #include "glance.hpp"
+#include "../platform/system.hpp"
 #include "json.hpp"
 #include "../platform/atomic_file.hpp"
 #include "../platform/text_encoding.hpp"
@@ -79,7 +80,7 @@ std::wstring entities(std::wstring_view text) {
             }
         }
         if (point<32 || point>0x10ffff || (point>=0xd800 && point<=0xdfff)) { result+=text[at++]; continue; }
-        if (point<=0xffff) result+=static_cast<wchar_t>(point);
+        if (point<=0xffff || sizeof(wchar_t)==4) result+=static_cast<wchar_t>(point); // UTF-32 on Linux.
         else { point-=0x10000; result+=static_cast<wchar_t>(0xd800+(point>>10)); result+=static_cast<wchar_t>(0xdc00+(point&1023)); }
         at=end+1;
     }
@@ -253,7 +254,7 @@ std::vector<Item> selectUpcoming(std::vector<Item> items,int today) {
 
 Feed loadUpcoming(bool english,const std::filesystem::path& cache,bool refresh,const Get& get) {
     (void)english; // Stable English source dates; the renderer localizes their structured values.
-    SYSTEMTIME now{}; GetLocalTime(&now); const int today=now.wYear*10000+now.wMonth*100+now.wDay;
+    const auto now=system_info::localTime(); const int today=now.year*10000+now.month*100+now.day;
     const int week_start=key(day(today)-std::chrono::days(6));
     struct Source { const wchar_t* key; const wchar_t* query; int pages; bool recent; };
     const Source sources[]={{L"popular",L"filter=popularcomingsoon",2,false},

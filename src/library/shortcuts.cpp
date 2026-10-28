@@ -1,9 +1,12 @@
 #include "shortcuts.hpp"
 #include "visibility.hpp"
 #include "emulation_platforms.hpp"
+#include "../platform/unicode_text.hpp"
 #include "../platform/text_encoding.hpp"
 
+#ifdef _WIN32
 #include <Windows.h>
+#endif
 
 #include <algorithm>
 #include <cctype>
@@ -53,7 +56,7 @@ public:
             shortcut.game.rom = shortcutRom(exe, options);
             if (exe.size() >= 2 && exe.front() == L'"' && exe.back() == L'"') exe = exe.substr(1, exe.size() - 2);
             const std::filesystem::path executable(exe);
-            if (executable.is_absolute() && CompareStringOrdinal(executable.extension().c_str(), -1, L".exe", -1, TRUE) == CSTR_EQUAL) shortcut.game.executable = executable;
+            if (executable.is_absolute() && unicode_text::equalIgnoreCase(executable.extension().wstring(), L".exe")) shortcut.game.executable = executable;
             if (shortcut.game.app_id && !shortcut.game.name.empty()) {
                 shortcut.game.kind = GameKind::nonsteam;
                 shortcut.game.shortcut_id = (uint64_t(shortcut.game.app_id) << 32) | 0x02000000ULL;
@@ -193,7 +196,7 @@ std::filesystem::path shortcutRom(const std::wstring& executable, const std::wst
             const auto extension = std::filesystem::path(token).extension().wstring();
             if (extension.size() < 2) continue;
             if (std::any_of(std::begin(tools), std::end(tools), [&](std::wstring_view tool) {
-                    return CompareStringOrdinal(extension.c_str(), -1, tool.data(), static_cast<int>(tool.size()), TRUE) == CSTR_EQUAL; })) continue;
+                    return unicode_text::equalIgnoreCase(extension, tool); })) continue;
             found = std::move(token); // The last file argument: emulator options come first.
         }
     };

@@ -16,8 +16,12 @@
 
 namespace {
 std::filesystem::path temporaryFolder() {
+#ifdef _WIN32
     wchar_t base[MAX_PATH]{};
     GetTempPathW(MAX_PATH, base);
+#else
+    const auto base = std::filesystem::temp_directory_path();
+#endif
     auto folder = std::filesystem::path(base) / (L"launchme-background-" + std::to_wstring(GetCurrentProcessId()));
     std::error_code ec;
     std::filesystem::remove_all(folder, ec);

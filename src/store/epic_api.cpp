@@ -8,10 +8,24 @@
 #include <map>
 #include <set>
 #include <thread>
-#include <wincrypt.h>
 
 namespace epic {
 namespace {
+// Standard base64 with padding, one line (HTTP Basic credentials).
+std::string base64(std::string_view bytes) {
+    constexpr char digits[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string result;
+    result.reserve((bytes.size() + 2) / 3 * 4);
+    for (size_t at = 0; at < bytes.size(); at += 3) {
+        const auto byte = [&](size_t i) { return at + i < bytes.size() ? static_cast<uint8_t>(bytes[at + i]) : 0u; };
+        const uint32_t group = byte(0) << 16 | byte(1) << 8 | byte(2);
+        result += digits[group >> 18 & 63];
+        result += digits[group >> 12 & 63];
+        result += at + 1 < bytes.size() ? digits[group >> 6 & 63] : '=';
+        result += at + 2 < bytes.size() ? digits[group & 63] : '=';
+    }
+    return result;
+}
 using text_encoding::wide;
 using text_encoding::utf8;
 constexpr wchar_t oauth[] = L"https://account-public-service-prod03.ol.epicgames.com/account/api/oauth/";
@@ -71,12 +85,7 @@ class Api final : public Backend {
         if (!cfg.valid()) return {Failure::configuration};
         if (cancel()) return {Failure::cancelled};
         auto credentials = cfg.client + ':' + cfg.secret;
-        DWORD size = 0;
-        CryptBinaryToStringA(reinterpret_cast<const BYTE*>(credentials.data()), static_cast<DWORD>(credentials.size()), CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, nullptr, &size);
-        std::string basic(size, '\0');
-        if (!CryptBinaryToStringA(reinterpret_cast<const BYTE*>(credentials.data()), static_cast<DWORD>(credentials.size()), CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, basic.data(), &size)) return {Failure::configuration};
-        basic.resize(size);
-        if (!basic.empty() && basic.back() == '\0') basic.pop_back();
+        auto basic = base64(credentials);
         // Never retry an ambiguous one-use code or refresh grant, nor follow redirects.
         auto response = http_(std::wstring(oauth) + L"token", L"Content-Type: application/x-www-form-urlencoded\r\nAuthorization: Basic " + wide(basic) + L"\r\n", grant + "&token_type=eg1", true);
         SecureZeroMemory(credentials.data(), credentials.size()); SecureZeroMemory(basic.data(), basic.size());

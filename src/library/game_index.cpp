@@ -1,8 +1,11 @@
 #include "game_index.hpp"
 #include "../net/json.hpp"
 #include "../platform/text_encoding.hpp"
+#include "../platform/unicode_text.hpp"
 
+#ifdef _WIN32
 #include <Windows.h>
+#endif
 
 #include <algorithm>
 #include <charconv>
@@ -39,10 +42,7 @@ constexpr Order alias_order{Source::library, Source::emulation, Source::rawg, So
 std::string utf8(std::wstring_view text) { return text_encoding::utf8Lenient(text); }
 std::wstring wide(std::string_view text) { return text_encoding::wideLenient(text); }
 std::wstring lowered(std::wstring_view text) {
-    std::wstring lower(text);
-    if (!text.empty()) LCMapStringEx(LOCALE_NAME_INVARIANT, LCMAP_LOWERCASE, text.data(), static_cast<int>(text.size()),
-                                     lower.data(), static_cast<int>(lower.size()), nullptr, nullptr, 0);
-    return lower;
+    return unicode_text::lower(text);
 }
 bool contains(const std::vector<std::wstring>& list, std::wstring_view needle) {
     return std::any_of(list.begin(), list.end(), [&](const std::wstring& item) { return item.find(needle) != std::wstring::npos; });
@@ -280,15 +280,9 @@ std::wstring fold(std::wstring_view text) {
     auto lower = lowered(text);
     for (auto& ch : lower) if (ch == L'ł') ch = L'l'; else if (ch == L'đ') ch = L'd'; else if (ch == L'ø') ch = L'o';
     // Accents go: "Wiedźmin" == "Wiedzmin".
-    std::wstring decomposed(lower.size() * 3 + 8, L'\0');
-    const int length = NormalizeString(NormalizationD, lower.c_str(), static_cast<int>(lower.size()), decomposed.data(), static_cast<int>(decomposed.size()));
-    if (length > 0) decomposed.resize(static_cast<size_t>(length)); else decomposed = lower;
-    std::vector<WORD> types(decomposed.size()), marks(decomposed.size());
-    GetStringTypeW(CT_CTYPE1, decomposed.c_str(), static_cast<int>(decomposed.size()), types.data());
-    GetStringTypeW(CT_CTYPE3, decomposed.c_str(), static_cast<int>(decomposed.size()), marks.data());
     std::wstring result;
-    for (size_t i = 0; i < decomposed.size(); ++i)
-        if ((types[i] & (C1_ALPHA | C1_DIGIT)) && !(marks[i] & C3_NONSPACING)) result += decomposed[i];
+    for (const wchar_t ch : unicode_text::decompose(lower))
+        if (unicode_text::isLetterOrDigit(ch) && !unicode_text::isMark(ch)) result += ch;
     return result;
 }
 

@@ -1,10 +1,8 @@
 #pragma once
-// A RIFF/WAVE file with 16-bit PCM (ElevenLabs' wav_24000) as an AudioClip for XAudio2; nullopt for
+// A RIFF/WAVE file with 16-bit PCM (ElevenLabs' wav_24000) as an AudioClip for Audio; nullopt for
 // anything else (compressed formats, other sample sizes, truncated files).
 #include "flac.hpp"
-
-#include <Windows.h>
-#include <mmreg.h>
+#include "wave_format.hpp"
 
 #include <cstring>
 #include <optional>
@@ -29,7 +27,7 @@ inline std::optional<AudioClip> parseWav(std::span<const uint8_t> bytes) {
             if ((kind != WAVE_FORMAT_PCM && kind != WAVE_FORMAT_EXTENSIBLE) || bits != 16 || !channels || channels > 2 || !rate) return std::nullopt;
             WAVEFORMATEX wave{};
             wave.wFormatTag = WAVE_FORMAT_PCM; wave.nChannels = channels; wave.nSamplesPerSec = rate; wave.wBitsPerSample = 16;
-            wave.nBlockAlign = static_cast<WORD>(channels * 2); wave.nAvgBytesPerSec = rate * wave.nBlockAlign;
+            wave.nBlockAlign = static_cast<uint16_t>(channels * 2); wave.nAvgBytesPerSec = rate * wave.nBlockAlign;
             format = wave;
         } else if (tag(at, "data")) {
             if (!format) return std::nullopt;

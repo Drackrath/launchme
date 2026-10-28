@@ -25,7 +25,7 @@ std::wstring sizeText(uint64_t bytes) {
 }
 
 bool samePath(const std::filesystem::path& left, const std::filesystem::path& right) {
-    const auto& a = left.native(); const auto& b = right.native();
+    const auto& a = left.wstring(); const auto& b = right.wstring();
     return CompareStringOrdinal(a.c_str(), static_cast<int>(a.size()), b.c_str(), static_cast<int>(b.size()), TRUE) == CSTR_EQUAL;
 }
 
@@ -37,7 +37,7 @@ std::filesystem::path parentOf(const std::filesystem::path& folder) {
 }
 
 bool imageFile(const std::filesystem::path& path) {
-    auto extension = path.extension().native();
+    auto extension = path.extension().wstring();
     std::transform(extension.begin(), extension.end(), extension.begin(), ::towlower);
     return extension == L".png" || extension == L".jpg" || extension == L".jpeg";
 }
@@ -49,7 +49,7 @@ void Launcher::openFileBrowser(Request request, std::function<void(const std::fi
         // generic one); Tryb TV's picker stays for the pad.
         cancelEnterHold();
         const auto initial = request.initial.empty() ? settings_.file_browser_folder : request.initial;
-        const auto picked = request.native ? request.native() :
+        const auto picked = request.native ? request.wstring() :
             pickPath(hwnd_, request.mode == file_browser::Mode::folder, request.title, request.extensions, request.filter_label,
                      request.all_files_option, initial);
         mouse_transition_until_ = GetTickCount64() + GetDoubleClickTime(); // Its closing click stays in the dialog.
@@ -133,7 +133,7 @@ void Launcher::fileBrowserOpenFolder(const std::filesystem::path& folder_in, con
             Entry entry;
             entry.kind = Kind::drive;
             entry.path = drive.root;
-            const auto letter = drive.root.native().substr(0, 2);
+            const auto letter = drive.root.wstring().substr(0, 2);
             entry.name = drive.label.empty() ? letter : drive.label + L" (" + letter + L")";
             if (drive.type == DRIVE_REMOVABLE) entry.detail = tr(L"Dysk wymienny");
             else if (drive.type == DRIVE_CDROM) entry.detail = tr(L"Napęd optyczny");
@@ -148,7 +148,7 @@ void Launcher::fileBrowserOpenFolder(const std::filesystem::path& folder_in, con
         up.kind = Kind::up;
         up.name = tr(L"Folder nadrzędny");
         up.path = parent;
-        up.detail = parent.empty() ? std::wstring(tr(L"Ten komputer")) : parent.filename().empty() ? parent.native() : parent.filename().native();
+        up.detail = parent.empty() ? std::wstring(tr(L"Ten komputer")) : parent.filename().empty() ? parent.wstring() : parent.filename().wstring();
         ui.entries.push_back(std::move(up));
         const auto listing = file_listing::list(folder);
         if (!listing.ok)

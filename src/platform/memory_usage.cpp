@@ -1,9 +1,13 @@
 #include "memory_usage.hpp"
 
+#ifdef _WIN32
 #include <Windows.h>
 #include <Psapi.h>
+#endif
 #include <dxgi1_4.h>
+#ifdef _WIN32
 #include <wrl/client.h>
+#endif
 
 #include <vector>
 

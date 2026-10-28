@@ -2,9 +2,12 @@
 #include "store_adapter.hpp"
 #include "../net/json.hpp"
 #include "../platform/text_encoding.hpp"
+#ifdef _WIN32
 #include <Windows.h>
+#endif
 #include <algorithm>
 #include <charconv>
+#include <fstream>
 #include <map>
 #include <set>
 
@@ -110,6 +113,7 @@ const Product* byCode(const std::string& code) {
     return nullptr;
 }
 std::optional<std::string> read(const std::filesystem::path& path) {
+#ifdef _WIN32
     // Sharing permits atomic replacement, but not an in-place concurrent writer.
     // A sharing violation is unknown, not an empty or completed installation.
     if (path.empty()) return {};
@@ -123,6 +127,16 @@ std::optional<std::string> read(const std::filesystem::path& path) {
     DWORD count = 0;
     if (!ReadFile(handle, bytes.data(), static_cast<DWORD>(bytes.size()), &count, nullptr) || count != bytes.size()) return {};
     return bytes;
+#else
+    // Wine's Agent (in a prefix) writes the same files; no share modes: a torn write fails to parse.
+    if (path.empty()) return {};
+    std::ifstream input(path, std::ios::binary | std::ios::ate);
+    if (!input || input.tellg() <= 0 || input.tellg() > static_cast<std::streamoff>(max_bytes)) return {};
+    std::string bytes(static_cast<size_t>(input.tellg()), '\0');
+    input.seekg(0);
+    if (!input.read(bytes.data(), static_cast<std::streamsize>(bytes.size()))) return {};
+    return bytes;
+#endif
 }
 bool directory(const std::filesystem::path& path) {
     std::error_code ec;
@@ -230,6 +244,26 @@ std::optional<std::vector<Game>> parseGamesAndSubs(std::string_view bytes) {
     return result;
 }
 
+std::filesystem::path winePath(const std::filesystem::path& prefix, std::string_view windows_path) {
+    if (prefix.empty() || windows_path.size() < 3 || (windows_path[0] != 'C' && windows_path[0] != 'c') || windows_path[1] != ':' ||
+        (windows_path[2] != '\\' && windows_path[2] != '/')) return {};
+    auto result = prefix / "drive_c";
+    size_t start = 3;
+    while (start < windows_path.size()) {
+        const auto end = std::min(windows_path.find_first_of("\\/", start), windows_path.size());
+        const auto part = windows_path.substr(start, end - start);
+        if (part == "..") return {}; // Never outside the prefix.
+        if (!part.empty() && part != ".") result /= text_encoding::wide(part);
+        start = end + 1;
+    }
+    return result;
+}
+
+std::string familyOfCode(std::string_view code) {
+    const auto* product = byCode(std::string(code));
+    return product ? product->family : std::string{};
+}
+
 std::string uninstallUid(std::wstring_view command) {
     auto text = std::wstring(command);
     for (auto& c : text) if (c >= L'A' && c <= L'Z') c += L'a' - L'A';
@@ -243,10 +277,13 @@ std::string uninstallUid(std::wstring_view command) {
 }
 
 Scan scan(const std::filesystem::path& database, const std::filesystem::path& aggregate,
-          const std::wstring& client, const std::vector<RegistryHint>& hints, const std::vector<Game>& previous) {
+          const std::wstring& client, const std::vector<RegistryHint>& hints, const std::vector<Game>& previous,
+          const std::filesystem::path& wine_prefix) {
     Scan result;
     const auto bytes = read(database);
-    const auto records = bytes ? parseProductDb(*bytes) : std::nullopt;
+    auto records = bytes ? parseProductDb(*bytes) : std::nullopt;
+    if (records && !wine_prefix.empty())
+        for (auto& record : *records) record.directory = winePath(wine_prefix, text_encoding::utf8(record.directory.wstring()));
     const auto metadata_bytes = read(aggregate);
     const auto metadata = metadata_bytes ? parseAggregate(*metadata_bytes) : std::nullopt;
     result.available = records.has_value();

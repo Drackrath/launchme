@@ -2,17 +2,25 @@
 #include "../src/platform/music_themes.hpp"
 #include "../src/platform/sound_cues.hpp"
 
+#include "../src/platform/wave_format.hpp"
+#ifdef _WIN32
 #include <Windows.h>
 #include <mfapi.h>
-#include <mmreg.h>
+#endif
 
+#include <cstdio>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 
 int main() {
+#ifdef _WIN32
     if (FAILED(CoInitializeEx(nullptr, COINIT_MULTITHREADED))) return 1;
     if (FAILED(MFStartup(MF_VERSION, MFSTARTUP_LITE))) { CoUninitialize(); return 1; }
     const auto finish = [](int code) { MFShutdown(); CoUninitialize(); return code; };
+#else
+    const auto finish = [](int code) { return code; }; // FFmpeg needs no start or end.
+#endif
     // Every built-in theme ships in assets/ and decodes; "Brak" has no file.
     for (const auto& theme : music_themes) {
         if (!theme.file) continue;
@@ -36,8 +44,8 @@ int main() {
     std::filesystem::remove_all(folder, error);
     std::filesystem::create_directories(folder);
     if (!soundFolderFile(folder, L"start.wav").empty() || !soundFolderFile({}, L"start.wav").empty()) return finish(10);
-    { FILE* f = nullptr; _wfopen_s(&f, (folder / L"Start.WAV").c_str(), L"wb"); if (f) fclose(f); }
-    { FILE* f = nullptr; _wfopen_s(&f, (folder / L"notes.txt").c_str(), L"wb"); if (f) fclose(f); }
+    { std::ofstream(folder / L"Start.WAV", std::ios::binary); }
+    { std::ofstream(folder / L"notes.txt", std::ios::binary); }
     const auto files = soundFolderFiles(folder);
     if (files.size() != 1 || files.front() != L"Start.WAV" || soundFolderFile(folder, L"start.wav") != folder / L"Start.WAV" ||
         !soundFolderFile(folder, L"notes.txt").empty() || !soundFolderFile(folder, L"..\\Start.WAV").empty()) return finish(11);

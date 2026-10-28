@@ -1,18 +1,26 @@
 #include "flac.hpp"
 
+#ifdef _WIN32
 #include <Windows.h>
 #include <ShlObj.h>
 #include <mfapi.h>
 #include <mfidl.h>
 #include <mfreadwrite.h>
 #include <wrl/client.h>
+#else
+#include "system.hpp"
+#include "unicode_text.hpp"
+#include <fstream>
+#endif
 
 #include <algorithm>
 #include <cstring>
 #include <cwctype>
 #include <mutex>
 
+#ifdef _WIN32
 using Microsoft::WRL::ComPtr;
+#endif
 
 namespace {
 std::mutex& soundFolderMutex() { static std::mutex mutex; return mutex; }
@@ -43,18 +51,28 @@ std::vector<std::wstring> soundFolderFiles(const std::filesystem::path& folder) 
         if (files.size() >= 500) break; // A music library pointed at by mistake stays a usable list.
     }
     std::sort(files.begin(), files.end(), [](const std::wstring& a, const std::wstring& b) {
+#ifdef _WIN32
         return CompareStringOrdinal(a.c_str(), -1, b.c_str(), -1, TRUE) == CSTR_LESS_THAN;
+#else
+        return unicode_text::compareIgnoreCase(a, b) < 0;
+#endif
     });
     return files;
 }
 
 std::filesystem::path localSoundFile(const wchar_t* name) {
     if (!name || !*name) return {};
+#ifdef _WIN32
     wchar_t executable[32768]{};
     const auto length = GetModuleFileNameW(nullptr, executable, static_cast<DWORD>(std::size(executable)));
     if (!length || length >= std::size(executable)) return {};
-    std::error_code error;
     const auto bundled = std::filesystem::path(executable).parent_path() / L"assets" / name;
+#else
+    const auto executable = system_info::executablePath();
+    if (executable.empty()) return {};
+    const auto bundled = executable.parent_path() / L"assets" / name;
+#endif
+    std::error_code error;
     return std::filesystem::is_regular_file(bundled, error) ? bundled : std::filesystem::path{};
 }
 
@@ -63,11 +81,16 @@ std::filesystem::path soundFolderFile(const std::filesystem::path& folder, const
     const auto files = soundFolderFiles(folder);
     // Only a file the folder lists now; a name remembered from an emptied folder plays nothing.
     const auto found = std::find_if(files.begin(), files.end(), [&](const std::wstring& file) {
+#ifdef _WIN32
         return CompareStringOrdinal(file.c_str(), -1, name.c_str(), -1, TRUE) == CSTR_EQUAL;
+#else
+        return unicode_text::equalIgnoreCase(file, name);
+#endif
     });
     return found == files.end() ? std::filesystem::path{} : folder / *found;
 }
 
+#ifdef _WIN32 // Elsewhere: flac_ffmpeg.cpp.
 AudioClip decodeFlac(const std::filesystem::path& path, size_t max_bytes, const std::function<bool()>& cancelled) {
     AudioClip clip;
     if (path.empty() || !std::filesystem::exists(path)) return clip;
@@ -113,3 +136,4 @@ AudioClip decodeFlac(const std::filesystem::path& path, size_t max_bytes, const 
     }
     return clip.samples.empty() ? AudioClip{} : std::move(clip);
 }
+#endif

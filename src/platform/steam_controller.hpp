@@ -1,6 +1,8 @@
 #pragma once
 #include "game_controllers.hpp"
+#ifdef _WIN32
 #include <Windows.h>
+#endif
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -44,9 +46,15 @@ struct Pad {
 // mouse/keyboard emulation) is kept off with a 2 s heartbeat only while `window` is in the
 // foreground and Steam is not running; otherwise it is restored once. If the process dies,
 // the firmware watchdog restores it by itself. While Steam runs, pads are listed only.
+// Windows: Raw Input and overlapped HID I/O. Linux: /dev/hidraw* (needs read/write access, as
+// Valve's steam-devices udev rules grant), Steam found through /proc, focus from the SDL window.
 class Reader {
 public:
+#ifdef _WIN32
     explicit Reader(HWND window);
+#else
+    explicit Reader(void* window); // SDL_Window*; null counts as always in front.
+#endif
     ~Reader();
     Reader(const Reader&) = delete;
     Reader& operator=(const Reader&) = delete;
@@ -58,6 +66,6 @@ private:
 std::vector<Pad> pads();
 bool active();
 bool known(const std::wstring& path);
-// Boundary tap on a pad from pads(); own handle, overlapped write cancelled after 40 ms.
+// Boundary tap on a pad from pads(); own handle, overlapped (Linux: non-blocking) write cancelled after 40 ms.
 void click(const std::wstring& path);
 }

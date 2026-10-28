@@ -36,7 +36,7 @@ int main() {
     fs::create_directories(ea / "__Installer");
     std::ofstream(ea / "__Installer" / "installerdata.xml") << "<DiPManifest><contentIDs><contentID>OFB-EAST:55</contentID></contentIDs></DiPManifest>";
     input.installs.push_back({GameSource::ea, {}, L"EA Fixture", ea});
-    input.installs.push_back({GameSource::ubisoft, "456", {}, fs::path(ubi.wstring() + L"\\")});
+    input.installs.push_back({GameSource::ubisoft, "456", {}, fs::path(ubi.wstring() + static_cast<wchar_t>(fs::path::preferred_separator))});
     input.xbox.push_back({"Fixture.Game_8wekyb3d8bbwe", L"Xbox Fixture", L"Game", root / "xbox"});
     input.xbox.push_back({"Fixture.Evil_8wekyb3d8bbwe", L"Injected", L"Game\" /evil", root / "xbox"}); // Not an application ID.
     input.xbox.push_back({"Fixture.Gone_8wekyb3d8bbwe", L"Removed", L"Game", root / "xbox-removed"});  // No folder.
@@ -98,8 +98,10 @@ int main() {
         if (all.size() != 1 || all[0].group != L"Modded") return 27;
         std::ofstream(instance / "instance.cfg", std::ios::app) << "InstanceType=Legacy\n"; // Not Minecraft's current format: no game.
         if (multimc::readInstance(instance)) return 28;
+#ifdef _WIN32 // Windows paths; the Linux names: linux_stores_tests.cpp.
         if (multimc::flavorOf(L"C:\\MMC\\MultiMC.exe") != multimc::Flavor::multimc || multimc::flavorOf(L"C:\\x\\PrismLauncher.exe") != multimc::Flavor::prism ||
             multimc::flavorOf(L"C:\\x\\java.exe") || multimc::dataDirectory(L"C:\\MMC\\MultiMC.exe", multimc::Flavor::multimc) != L"C:\\MMC") return 29;
+#endif
         if (multimc::instanceId(L"C:\\A\\B") != multimc::instanceId(L"c:/a/b/") || multimc::instanceId(L"C:\\A\\B") == multimc::instanceId(L"C:\\A\\C")) return 30;
         for (const auto& found : multimc::discover({root / "MultiMC.exe"})) if (found.executable == root / "MultiMC.exe") return 31; // No such file.
         const auto chosen = multimc::discover({prism});

@@ -4,8 +4,8 @@
 #include <optional>
 #include <utility>
 
-// Latest-only volume snapshots. All Core Audio interfaces are created, used and
-// released by one MTA worker; take()/refresh() never perform a Windows audio call.
+// Latest-only volume snapshots. All Core Audio interfaces (the PulseAudio connection on Linux)
+// are created, used and released by one MTA worker; take()/refresh() never perform a system audio call.
 class VolumeMonitor {
 public:
     using Reader = std::function<std::optional<VolumeLevel>(bool refresh)>;

@@ -1,10 +1,13 @@
 #include "download_art.hpp"
+#include "../platform/hashing.hpp"
 #include "image_compact.hpp"
 #include "../platform/atomic_file.hpp"
 #include "../platform/text_encoding.hpp"
 #include "../library/emulation_platforms.hpp"
 #include "../library/rom_layout.hpp"
+#ifdef _WIN32
 #include <bcrypt.h>
+#endif
 #include <algorithm>
 #include <cwctype>
 #include <fstream>
@@ -19,11 +22,8 @@ std::wstring trimmed(std::wstring s) {
 std::string framed(std::string s) { return std::to_string(s.size()) + ':' + s; }
 std::filesystem::path cacheFile(const Target& t, const std::filesystem::path& root) {
     const auto key = t.key();
-    uint8_t digest[32]{};
-    if (BCryptHash(BCRYPT_SHA256_ALG_HANDLE, nullptr, 0, reinterpret_cast<PUCHAR>(const_cast<char*>(key.data())),
-                   static_cast<ULONG>(key.size()), digest, sizeof(digest)) < 0) return {};
-    std::string name;
-    for (const auto byte : digest) { name += "0123456789abcdef"[byte >> 4]; name += "0123456789abcdef"[byte & 15]; }
+    const auto name = hashing::bytesHex(hashing::Algorithm::sha256, std::span(reinterpret_cast<const uint8_t*>(key.data()), key.size()));
+    if (name.empty()) return {};
     return root / L"download-thumbnails" / (name + ".img");
 }
 }

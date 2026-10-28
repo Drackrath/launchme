@@ -1,8 +1,10 @@
 #include "sensors.hpp"
 
+#ifdef _WIN32
 #include <Windows.h>
 #include <pdh.h>
 #include <pdhmsg.h>
+#endif
 
 #include <algorithm>
 #include <cmath>
@@ -33,6 +35,14 @@ std::wstring format(std::optional<int> celsius) {
     return celsius ? std::to_wstring(*celsius) + L" \u00B0C" : std::wstring(L"\u2014");
 }
 
+std::optional<int> celsiusFromMilli(int64_t millidegrees, int minimum) {
+    if (millidegrees <= 0 || millidegrees > static_cast<int64_t>(plausible_max) * 1000 + 499) return std::nullopt;
+    const int celsius = static_cast<int>((millidegrees + 500) / 1000);
+    if (celsius < std::max(minimum, 1)) return std::nullopt;
+    return celsius;
+}
+
+#ifdef _WIN32
 namespace {
 // The few D3DKMT (gdi32) declarations used here, ABI-identical to d3dkmthk.h. They are
 // resolved at run time, so the launcher needs neither the DDK headers nor an import
@@ -148,5 +158,6 @@ Reading Reader::read() {
     reading.gpu = state_->gpu();
     return reading;
 }
+#endif // The Linux Reader is in sensors_linux.cpp.
 
 } // namespace sensors

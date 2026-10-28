@@ -1,12 +1,15 @@
 #pragma once
 #include <Windows.h>
+#ifdef _WIN32
 #include <wincodec.h>
 #include <wrl/client.h>
+#else
+#include "../src/artwork/image_codec.hpp"
+#endif
 #include <vector>
 #include <cstdint>
 
 inline std::vector<uint8_t> discFixture(bool optical = true) {
-    using Microsoft::WRL::ComPtr;
     constexpr UINT size = 256;
     std::vector<uint8_t> pixels(size * size * 4);
     for (UINT y = 0; y < size; ++y) for (UINT x = 0; x < size; ++x) {
@@ -16,6 +19,10 @@ inline std::vector<uint8_t> discFixture(bool optical = true) {
         p[0] = static_cast<uint8_t>(x); p[1] = static_cast<uint8_t>(y); p[2] = 210;
         p[3] = !optical || (distance > 18 * 18 && distance < 124 * 124) ? 255 : 0;
     }
+#ifndef _WIN32
+    return image_codec::encodePng({image_codec::Format::png, size, size, std::move(pixels)});
+#else
+    using Microsoft::WRL::ComPtr;
     ComPtr<IWICImagingFactory> wic; ComPtr<IWICBitmap> bitmap; ComPtr<IStream> stream;
     ComPtr<IWICBitmapEncoder> encoder; ComPtr<IWICBitmapFrameEncode> frame;
     if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(wic.GetAddressOf()))) ||
@@ -29,4 +36,5 @@ inline std::vector<uint8_t> discFixture(bool optical = true) {
     LARGE_INTEGER start{}; ULONG read = 0;
     if (FAILED(stream->Seek(start, STREAM_SEEK_SET, nullptr)) || FAILED(stream->Read(bytes.data(), static_cast<ULONG>(bytes.size()), &read)) || read != bytes.size()) return {};
     return bytes;
+#endif
 }

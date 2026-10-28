@@ -56,9 +56,8 @@ template<class Change> std::optional<Social> mutate(const std::filesystem::path&
     if (!validId(id)) return {};
     std::error_code ec;
     if (!std::filesystem::is_regular_file(folder / L"posts" / (text_encoding::wideLenient(id) + L".json"), ec)) return {};
-    const HANDLE lock = CreateFileW((folder / L"publish.lock").c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (lock == INVALID_HANDLE_VALUE) return {};
-    struct Release { HANDLE handle; ~Release() { CloseHandle(handle); } } release{lock};
+    const atomic_file::ExclusiveLock lock(folder / L"publish.lock");
+    if (!lock.locked()) return {};
     auto social = loadSocial(folder, id);
     if (!social || !change(*social)) return {};
     ++social->revision;

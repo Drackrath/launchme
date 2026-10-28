@@ -1,14 +1,19 @@
 #pragma once
 
+#ifdef _WIN32 // Kept for the callers that rely on them; Audio itself needs no platform types.
 #include <Windows.h>
 #include <xaudio2.h>
 #include <wrl/client.h>
+#endif
 
 #include <cstdint>
 #include <deque>
 #include <memory>
 #include <vector>
 #include "flac.hpp"
+
+// The platform half (audio_output.hpp): XAudio2 on Windows, SDL3 audio streams elsewhere.
+namespace audio_output { class Engine; class Voice; }
 
 enum class SoundCue { navigation, toast, boot, music };
 
@@ -61,7 +66,7 @@ public:
 
 private:
     struct Playing {
-        IXAudio2SourceVoice* voice = nullptr;
+        std::unique_ptr<audio_output::Voice> voice;
         std::vector<uint8_t> samples;
         bool startup_boot = false;
     };
@@ -73,18 +78,15 @@ private:
     // (XAudio2's critical error) is not silence for the rest of the run: update() tries again.
     bool createEngine();
     void releaseEngine();
-    struct EngineCallback;
-    std::unique_ptr<EngineCallback> callback_;
-    ULONGLONG next_engine_attempt_ = 0;
-    Microsoft::WRL::ComPtr<IXAudio2> engine_;
-    IXAudio2MasteringVoice* master_ = nullptr;
+    uint64_t next_engine_attempt_ = 0;
+    std::unique_ptr<audio_output::Engine> engine_;
     std::vector<std::unique_ptr<Playing>> playing_;
     AudioClip navigation_clip_;
     AudioClip toast_clip_;
     AudioClip boot_clip_;
     AudioClip music_clip_;
     AudioClip pending_music_;
-    IXAudio2SourceVoice* music_voice_ = nullptr;
+    std::unique_ptr<audio_output::Voice> music_voice_;
     bool music_running_ = false;
     bool music_paused_ = false;
     bool music_ducked_ = false;
@@ -93,7 +95,7 @@ private:
     void retargetMusic();
     // Her voice: the clips still queued, each with the index of its first frame in the voice's stream.
     struct Speech { std::vector<uint8_t> samples; uint64_t first = 0; int speaker = -1; };
-    IXAudio2SourceVoice* speech_voice_ = nullptr;
+    std::unique_ptr<audio_output::Voice> speech_voice_;
     std::vector<uint8_t> speech_format_;
     std::deque<Speech> speech_;
     uint64_t speech_frames_ = 0;

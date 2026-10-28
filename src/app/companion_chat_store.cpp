@@ -23,7 +23,7 @@ std::vector<companion_ui::Message> messagesOf(const chats::Conversation& convers
         std::error_code ec;
         // Only inside the photo folder.
         const auto relative = std::filesystem::relative(path, pictures, ec);
-        if (!ec && !relative.empty() && relative.native().rfind(L"..", 0) != 0)
+        if (!ec && !relative.empty() && relative.wstring().rfind(L"..", 0) != 0)
             if (auto bytes = companion::photos::read(path)) photo = std::make_shared<const std::vector<uint8_t>>(std::move(*bytes));
     }
     std::vector<companion_ui::Message> out;

@@ -4,6 +4,7 @@
 #include "../src/platform/atomic_file.hpp"
 #include "../src/platform/text_encoding.hpp"
 #include "../src/ui/companion_feed_view.hpp"
+#include <Windows.h>
 #include <iostream>
 
 namespace {

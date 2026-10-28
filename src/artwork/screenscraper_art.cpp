@@ -1,4 +1,6 @@
 #include "screenscraper_art.hpp"
+#include "../platform/unicode_text.hpp"
+#include "image_codec.hpp"
 #include "image_compact.hpp"
 #include "cover_cache.hpp"
 #include "../library/game_ratings.hpp"
@@ -14,8 +16,6 @@
 #include <cstring>
 #include <fstream>
 #include <span>
-#include <wincodec.h>
-#include <wrl/client.h>
 
 ScreenScraperGallery screenscraperGallery(const Game& game, const std::vector<std::wstring_view>& types,
                                           const std::filesystem::path& config_root, const screenscraper::Get& get) {
@@ -235,7 +235,7 @@ ScreenScraperGallery screenscraperDiscGallery(const Game& game, const std::files
         }
         if (cached->game) for (const auto& media : cached->game->media) if (media.type == L"support-2D") result.media.push_back(media);
     }
-    std::erase_if(result.media, [](const auto& media) { return media.url.empty() || _wcsicmp(media.format.c_str(), L"png") != 0; });
+    std::erase_if(result.media, [](const auto& media) { return media.url.empty() || !unicode_text::equalIgnoreCase(media.format, L"png"); });
     const auto rank = [](const auto& media) { return media.region == L"eu" ? 0 : media.region == L"wor" ? 1 : media.region == L"us" ? 2 : media.region == L"jp" ? 3 : 4; };
     std::stable_sort(result.media.begin(), result.media.end(), [&](const auto& a, const auto& b) { return rank(a) < rank(b); });
     return result;
@@ -243,22 +243,14 @@ ScreenScraperGallery screenscraperDiscGallery(const Game& game, const std::files
 
 bool discImage(const std::vector<uint8_t>& bytes) {
     if (bytes.empty() || bytes.size() > 20 * 1024 * 1024) return false;
-    const HRESULT initialized = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    struct Com { HRESULT hr; ~Com() { if (SUCCEEDED(hr)) CoUninitialize(); } } com{initialized};
-    using Microsoft::WRL::ComPtr;
-    ComPtr<IWICImagingFactory> wic; ComPtr<IWICStream> stream; ComPtr<IWICBitmapDecoder> decoder;
-    ComPtr<IWICBitmapFrameDecode> frame; ComPtr<IWICFormatConverter> pixels;
-    UINT w = 0, h = 0;
-    if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(wic.GetAddressOf()))) ||
-        FAILED(wic->CreateStream(stream.GetAddressOf())) || FAILED(stream->InitializeFromMemory(const_cast<BYTE*>(bytes.data()), static_cast<DWORD>(bytes.size()))) ||
-        FAILED(wic->CreateDecoderFromStream(stream.Get(), nullptr, WICDecodeMetadataCacheOnDemand, decoder.GetAddressOf())) ||
-        FAILED(decoder->GetFrame(0, frame.GetAddressOf())) || FAILED(frame->GetSize(&w, &h)) || w < 64 || h < 64 || w > 8192 || h > 8192 ||
-        static_cast<double>(w) / h < 0.92 || static_cast<double>(w) / h > 1.08 || FAILED(wic->CreateFormatConverter(pixels.GetAddressOf())) ||
-        FAILED(pixels->Initialize(frame.Get(), GUID_WICPixelFormat32bppBGRA, WICBitmapDitherTypeNone, nullptr, 0, WICBitmapPaletteTypeCustom))) return false;
-    const auto alpha = [&](UINT x, UINT y) {
-        BYTE pixel[4]{}; WICRect r{static_cast<INT>(x), static_cast<INT>(y), 1, 1};
-        return SUCCEEDED(pixels->CopyPixels(&r, 4, 4, pixel)) ? static_cast<int>(pixel[3]) : -1;
-    };
+    const auto image = image_codec::decode(bytes, [](const image_codec::Info& info) -> std::optional<image_codec::Size> {
+        const uint32_t w = info.width, h = info.height;
+        if (w < 64 || h < 64 || w > 8192 || h > 8192 || static_cast<double>(w) / h < 0.92 || static_cast<double>(w) / h > 1.08) return {};
+        return image_codec::Size{w, h};
+    });
+    if (!image) return false;
+    const uint32_t w = image->width, h = image->height;
+    const auto alpha = [&](uint32_t x, uint32_t y) { return static_cast<int>(image->pixels[(size_t(y) * w + x) * 4 + 3]); };
     for (const auto [x, y] : {std::pair{0u, 0u}, {w - 1, 0u}, {0u, h - 1}, {w - 1, h - 1}, {w / 2, h / 2}})
         if (const int a = alpha(x, y); a < 0 || a > 32) return false;
     for (const auto [x, y] : {std::pair{w / 4, h / 2}, {w * 3 / 4, h / 2}, {w / 2, h / 4}, {w / 2, h * 3 / 4}})

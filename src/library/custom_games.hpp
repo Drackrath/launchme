@@ -41,7 +41,7 @@ struct List {
 // Never throws; invalid entries are skipped, a damaged document yields an empty list.
 List parse(std::string_view bytes);
 std::string format(const std::vector<Entry>& games);
-// Random 64-bit ID (BCryptGenRandom) that no entry uses yet; empty if the RNG fails.
+// Random 64-bit ID (system_info::randomBytes) that no entry uses yet; empty if the RNG fails.
 std::string newId(const std::vector<Entry>& existing);
 
 std::filesystem::path workingDirectory(const Entry& entry);

@@ -6,6 +6,12 @@
 namespace plugins {
 using namespace wire;
 namespace {
+// Packages carry one native library for one system; others are refused when installed.
+#ifdef _WIN32
+constexpr std::string_view host_architecture = "windows-x64", library_extension = ".dll";
+#else
+constexpr std::string_view host_architecture = "linux-x64", library_extension = ".so";
+#endif
 void require(bool condition, const char* message) { if (!condition) throw std::runtime_error(message); }
 Text label(const json::Value& value, bool optional = false) {
     Text out;
@@ -59,14 +65,18 @@ Manifest parseManifest(std::string_view bytes) {
     const auto root = json::parse(bytes);
     require(root && root->type == json::Value::Type::object, "Invalid plugin.json");
     require(field(*root, "apiVersion").numeric == 1 && field(*root, "apiVersion").type == json::Value::Type::number, "Unsupported plugin API version");
-    require(text(*root, "architecture") == "windows-x64", "Plugin must target windows-x64");
+#ifdef _WIN32
+    require(text(*root, "architecture") == host_architecture, "Plugin must target windows-x64");
+#else
+    require(text(*root, "architecture") == host_architecture, "Plugin must target linux-x64");
+#endif
     Manifest out;
     out.library = field(*root, "library").type == json::Value::Type::boolean && field(*root, "library").flag;
     out.id = text(*root, "id"); out.version = text(*root, "version"); out.entry = text(*root, "entry");
     require(identifier(out.id), "Invalid plugin ID");
     require(!out.version.empty() && out.version.size() <= 40 && std::all_of(out.version.begin(), out.version.end(), [](char c) {
         return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || c == '.' || c == '-'; }), "Invalid version");
-    require(packagePath(out.entry) && out.entry.ends_with(".dll"), "Invalid DLL entry path");
+    require(packagePath(out.entry) && out.entry.ends_with(library_extension), "Invalid library entry path");
     if (root->get("icon")) {
         out.icon = text(*root, "icon");
         require(packagePath(out.icon) && out.icon.ends_with(".png"), "Invalid plugin icon path");

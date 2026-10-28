@@ -198,6 +198,18 @@ Close a running launcher before rebuilding. The C++ runtime is linked statically
 games, store clients, installers or change system settings; `*_live_test.exe` and `tools/` probes are
 manual (network, real accounts).
 
+### Linux (work in progress)
+
+A native Linux port is under way. The Linux build now includes a native SDL3 launcher shell;
+the full library UI, renderer and web view are still being ported.
+Status, plan and conventions: [docs/linux-port.md](docs/linux-port.md).
+
+```sh
+cmake -S . -B build/linux -G Ninja -DCMAKE_BUILD_TYPE=Debug
+cmake --build build/linux
+./build/linux/launchme
+```
+
 ## License
 
 Copyright © 2026 uxandai.

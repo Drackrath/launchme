@@ -1,6 +1,8 @@
 #include "view_options.hpp"
 #include "search.hpp"
+#ifdef _WIN32
 #include <Windows.h>
+#endif
 #include <algorithm>
 
 std::vector<Game> library_view::arrange(const std::vector<Game>& games, Options options, const std::map<std::string, uint64_t>& first_seen,

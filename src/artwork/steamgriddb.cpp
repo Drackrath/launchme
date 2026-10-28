@@ -2,9 +2,7 @@
 #include "../i18n/i18n.hpp"
 #include "../net/json.hpp"
 #include "../platform/text_encoding.hpp"
-#include <Windows.h>
-#include <wincodec.h>
-#include <wrl/client.h>
+#include "image_codec.hpp"
 #include <cmath>
 #include <unordered_set>
 
@@ -95,29 +93,11 @@ GridPage browseSteamGridDB(const Game& game, ArtworkKind kind, int page, GridSou
 bool decodableArtwork(const std::vector<uint8_t>& bytes) {
     if (bytes.size() < 128 || bytes.size() > 20 * 1024 * 1024 ||
         !((bytes[0] == 0x89 && bytes[1] == 'P') || (bytes[0] == 0xff && bytes[1] == 0xd8))) return false;
-    const HRESULT com = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    if (FAILED(com) && com != RPC_E_CHANGED_MODE) return false;
-    struct Apartment { HRESULT result; ~Apartment() { if (SUCCEEDED(result)) CoUninitialize(); } } apartment{com};
-    using Microsoft::WRL::ComPtr;
-    ComPtr<IWICImagingFactory> factory;
-    ComPtr<IWICStream> stream;
-    ComPtr<IWICBitmapDecoder> decoder;
-    ComPtr<IWICBitmapFrameDecode> frame;
-    ComPtr<IWICBitmapScaler> scaler;
-    ComPtr<IWICFormatConverter> converter;
-    UINT w = 0, h = 0;
-    if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(factory.GetAddressOf()))) ||
-        FAILED(factory->CreateStream(stream.GetAddressOf())) ||
-        FAILED(stream->InitializeFromMemory(const_cast<BYTE*>(bytes.data()), static_cast<DWORD>(bytes.size()))) ||
-        FAILED(factory->CreateDecoderFromStream(stream.Get(), nullptr, WICDecodeMetadataCacheOnLoad, decoder.GetAddressOf())) ||
-        FAILED(decoder->GetFrame(0, frame.GetAddressOf())) || FAILED(frame->GetSize(&w, &h)) ||
-        !w || !h || w > 8192 || h > 8192 || static_cast<uint64_t>(w) * h > 32 * 1024 * 1024) return false;
-    uint8_t pixels[32 * 32 * 4]{};
-    return SUCCEEDED(factory->CreateBitmapScaler(scaler.GetAddressOf())) &&
-        SUCCEEDED(scaler->Initialize(frame.Get(), 32, 32, WICBitmapInterpolationModeFant)) &&
-        SUCCEEDED(factory->CreateFormatConverter(converter.GetAddressOf())) &&
-        SUCCEEDED(converter->Initialize(scaler.Get(), GUID_WICPixelFormat32bppPBGRA, WICBitmapDitherTypeNone, nullptr, 0, WICBitmapPaletteTypeCustom)) &&
-        SUCCEEDED(converter->CopyPixels(nullptr, 32 * 4, sizeof(pixels), pixels));
+    // Fully decoded (to a 32 px thumbnail), so a truncated download is refused.
+    return image_codec::decode(bytes, [](const image_codec::Info& info) -> std::optional<image_codec::Size> {
+        if (info.width > 8192 || info.height > 8192 || static_cast<uint64_t>(info.width) * info.height > 32 * 1024 * 1024) return {};
+        return image_codec::Size{32, 32};
+    }, image_codec::Filter::fant, true).has_value();
 }
 
 std::vector<uint8_t> downloadGridImage(const GridAsset& asset, bool thumbnail, const ArtworkHttp& get) {

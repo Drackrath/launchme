@@ -1,10 +1,7 @@
 #pragma once
 
 #include "steam.hpp"
-
-#include <Windows.h>
-
-#pragma comment(lib, "normaliz.lib")
+#include "../platform/unicode_text.hpp"
 
 #include <algorithm>
 #include <string>
@@ -20,18 +17,7 @@ inline std::wstring foldGameTitle(std::wstring_view text) {
     if (text.empty()) return {};
     // Decomposed: a letter and its accents become separate code points (é → e + ◌́). Canonical
     // only: the compatibility form would turn ™ into "TM".
-    std::wstring decomposed;
-    if (const int size = NormalizeString(NormalizationD, text.data(), static_cast<int>(text.size()), nullptr, 0); size > 0) {
-        decomposed.resize(static_cast<size_t>(size));
-        const int written = NormalizeString(NormalizationD, text.data(), static_cast<int>(text.size()), decomposed.data(), size);
-        decomposed.resize(written > 0 ? static_cast<size_t>(written) : 0);
-    }
-    if (decomposed.empty()) decomposed.assign(text);
-    std::wstring lower(decomposed.size() + 8, L'\0');
-    const int count = LCMapStringEx(LOCALE_NAME_INVARIANT, LCMAP_LOWERCASE, decomposed.data(), static_cast<int>(decomposed.size()),
-                                    lower.data(), static_cast<int>(lower.size()), nullptr, nullptr, 0);
-    lower.resize(count > 0 ? static_cast<size_t>(count) : 0);
-    if (lower.empty()) lower = decomposed;
+    const auto lower = unicode_text::lower(unicode_text::decompose(text));
     std::wstring folded;
     folded.reserve(lower.size());
     bool space = true;
@@ -51,7 +37,7 @@ inline std::wstring foldGameTitle(std::wstring_view text) {
         default: break;
         }
         const bool word = (c >= L'a' && c <= L'z') || (c >= L'0' && c <= L'9') || c > 0x7F;
-        if (word && !IsCharAlphaNumericW(c) && c > 0x7F) { if (!space) { folded += L' '; space = true; } continue; }
+        if (word && !unicode_text::isLetterOrDigit(c) && c > 0x7F) { if (!space) { folded += L' '; space = true; } continue; }
         if (word) put(c);
         else if (!space) { folded += L' '; space = true; }
     }
@@ -121,11 +107,7 @@ inline int compareTitles(std::wstring_view a, std::wstring_view b) {
     };
     std::wstring left_storage, right_storage;
     a = plain(a, left_storage); b = plain(b, right_storage);
-    const int result = CompareStringEx(LOCALE_NAME_USER_DEFAULT, LINGUISTIC_IGNORECASE | SORT_DIGITSASNUMBERS,
-                                       a.data(), static_cast<int>(a.size()), b.data(), static_cast<int>(b.size()), nullptr, nullptr, 0);
-    if (result) return result - CSTR_EQUAL;
-    const int ordinal = CompareStringOrdinal(a.data(), static_cast<int>(a.size()), b.data(), static_cast<int>(b.size()), TRUE);
-    return ordinal ? ordinal - CSTR_EQUAL : 0;
+    return unicode_text::compareNatural(a, b);
 }
 
 // Titles matching the phrase (every word, any order), the best matches first, then by title.

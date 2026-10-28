@@ -81,7 +81,7 @@ struct State {
         for (int i = 0; i < static_cast<int>(places.size()); ++i) {
             const auto& path = places[i].path;
             if (path.empty()) { if (root() && best < 0) best = i; continue; }
-            const auto prefix = path.native(), current_folder = folder.native();
+            const auto prefix = path.wstring(), current_folder = folder.wstring();
             if (current_folder.size() < prefix.size() || prefix.size() <= best_length) continue;
             if (_wcsnicmp(current_folder.c_str(), prefix.c_str(), prefix.size()) != 0) continue;
             if (current_folder.size() > prefix.size() && current_folder[prefix.size()] != L'\\' && prefix.back() != L'\\') continue;
@@ -93,7 +93,7 @@ struct State {
     bool accepts(const std::filesystem::path& file) const {
         if (folderMode()) return false;
         if (request.extensions.empty() || all_files) return true;
-        auto extension = file.extension().native();
+        auto extension = file.extension().wstring();
         std::transform(extension.begin(), extension.end(), extension.begin(), ::towlower);
         return std::find(request.extensions.begin(), request.extensions.end(), extension) != request.extensions.end();
     }

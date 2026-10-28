@@ -3,7 +3,7 @@
 
 namespace {
 achievements::Service service;
-int32_t __cdecl invoke(const char* bytes, uint32_t length, LaunchmeEmitV1 emit, void* context) {
+int32_t LAUNCHME_CALL invoke(const char* bytes, uint32_t length, LaunchmeEmitV1 emit, void* context) {
     if (!bytes || !emit || length > LAUNCHME_PLUGIN_MAX_JSON) return 1;
     try {
         const auto request = json::parse(std::string_view(bytes, length)); if (!request) return 1;
@@ -16,4 +16,4 @@ int32_t __cdecl invoke(const char* bytes, uint32_t length, LaunchmeEmitV1 emit, 
 }
 const LaunchmePluginV1 api{sizeof(LaunchmePluginV1), LAUNCHME_PLUGIN_ABI, invoke};
 }
-extern "C" __declspec(dllexport) const LaunchmePluginV1* __cdecl launchme_plugin_v1(uint32_t abi) { return abi == LAUNCHME_PLUGIN_ABI ? &api : nullptr; }
+extern "C" LAUNCHME_PLUGIN_EXPORT const LaunchmePluginV1* LAUNCHME_CALL launchme_plugin_v1(uint32_t abi) { return abi == LAUNCHME_PLUGIN_ABI ? &api : nullptr; }

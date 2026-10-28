@@ -1,7 +1,9 @@
 #include "discord.hpp"
 
+#ifdef _WIN32
 #include <Windows.h>
 #include <TlHelp32.h>
+#endif
 
 #include <algorithm>
 #include <array>

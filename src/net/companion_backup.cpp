@@ -1,12 +1,22 @@
 #include "companion_backup.hpp"
+#include "../platform/hashing.hpp"
 #include "companion_characters.hpp"
 #include "companion_feed.hpp"
+#include "../platform/unicode_text.hpp"
+#include "../platform/system.hpp"
 #include "../platform/atomic_file.hpp"
 #include "../platform/protected_file.hpp"
 #include "../platform/text_encoding.hpp"
+#ifdef _WIN32
 #include <bcrypt.h>
 #include <sddl.h>
 #include <objbase.h>
+#else
+#include <fcntl.h>
+#include <stdio.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 #include <array>
 #include <fstream>
 #include <set>
@@ -24,28 +34,41 @@ std::string read(const std::filesystem::path& path, size_t limit = 128 * 1024 * 
     return text;
 }
 bool present(const std::filesystem::path& path) { std::error_code ec; const bool found = std::filesystem::exists(path, ec); require(!ec, "Cannot inspect a source path."); return found; }
+#ifdef _WIN32
+constexpr const wchar_t* executable_name = L"launchme.exe";
 void regular(const std::filesystem::path& path) {
     const auto attrs = GetFileAttributesW(path.c_str());
     require(attrs != INVALID_FILE_ATTRIBUTES && !(attrs & FILE_ATTRIBUTE_REPARSE_POINT), "Links and reparse points are not admitted in a backup.");
 }
+#else
+constexpr const wchar_t* executable_name = L"launchme";
+void regular(const std::filesystem::path& path) {
+    std::error_code ec;
+    const auto status = std::filesystem::symlink_status(path, ec);
+    require(!ec && std::filesystem::exists(status) && !std::filesystem::is_symlink(status), "Links are not admitted in a backup.");
+}
+// Private folders (conversations, memories in readable JSON): this user only, like the Windows profile's ACL.
+void privateFolder(const std::filesystem::path& folder) {
+    std::error_code ec;
+    std::filesystem::permissions(folder, std::filesystem::perms::owner_all, std::filesystem::perm_options::replace, ec);
+    require(!ec, "Cannot restrict the backup folder to this user.");
+}
+#endif
+// Renames a finished folder into place; never over an existing one.
+bool publish(const std::filesystem::path& from, const std::filesystem::path& to) {
+#ifdef _WIN32
+    return MoveFileExW(from.c_str(), to.c_str(), MOVEFILE_WRITE_THROUGH);
+#else
+    if (renameat2(AT_FDCWD, from.c_str(), AT_FDCWD, to.c_str(), RENAME_NOREPLACE) != 0) return false;
+    if (const int folder = ::open(to.parent_path().c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC); folder >= 0) { ::fsync(folder); ::close(folder); }
+    return true;
+#endif
+}
 std::string sha(const std::filesystem::path& file) {
-    BCRYPT_ALG_HANDLE alg = nullptr; BCRYPT_HASH_HANDLE hash = nullptr;
-    require(BCryptOpenAlgorithmProvider(&alg, BCRYPT_SHA256_ALGORITHM, nullptr, 0) >= 0, "SHA-256 unavailable.");
-    struct Release { BCRYPT_ALG_HANDLE& a; BCRYPT_HASH_HANDLE& h; ~Release() { if (h) BCryptDestroyHash(h); if (a) BCryptCloseAlgorithmProvider(a, 0); } } release{alg, hash};
-    require(BCryptCreateHash(alg, &hash, nullptr, 0, nullptr, 0, 0) >= 0, "Cannot create SHA-256 hash.");
-    std::ifstream input(file, std::ios::binary); require(bool(input), "Cannot open a backup file.");
-    std::array<uint8_t, 65536> block{};
-    while (input) {
-        input.read(reinterpret_cast<char*>(block.data()), block.size());
-        const auto count = input.gcount();
-        if (count) require(BCryptHashData(hash, block.data(), static_cast<ULONG>(count), 0) >= 0, "SHA-256 read failed.");
-    }
-    require(input.eof(), "Incomplete backup hashing.");
-    std::array<uint8_t, 32> digest{};
-    require(BCryptFinishHash(hash, digest.data(), static_cast<ULONG>(digest.size()), 0) >= 0, "SHA-256 finalization failed.");
-    std::string out; constexpr char digits[] = "0123456789abcdef";
-    for (auto b : digest) { out += digits[b >> 4]; out += digits[b & 15]; }
-    return out;
+    { std::ifstream input(file, std::ios::binary); require(bool(input), "Cannot open a backup file."); }
+    auto digest = hashing::fileHex(hashing::Algorithm::sha256, file);
+    require(!digest.empty(), "SHA-256 read failed.");
+    return digest;
 }
 bool safeRelative(const std::filesystem::path& path) {
     if (path.empty() || path.is_absolute() || path.has_root_name() || path.has_root_directory()) return false;
@@ -58,13 +81,26 @@ bool safeRelative(const std::filesystem::path& path) {
 bool within(const std::filesystem::path& child, const std::filesystem::path& parent) {
     if (parent.empty()) return false;
     const auto a = std::filesystem::weakly_canonical(child).wstring(), b = std::filesystem::weakly_canonical(parent).wstring();
-    return a.size() >= b.size() && CompareStringOrdinal(a.data(), static_cast<int>(b.size()), b.data(), static_cast<int>(b.size()), TRUE) == CSTR_EQUAL &&
+    return unicode_text::startsWithIgnoreCase(a, b) &&
         (a.size() == b.size() || a[b.size()] == L'\\' || a[b.size()] == L'/');
 }
 std::wstring unique() {
+#ifdef _WIN32
     GUID id{}; require(SUCCEEDED(CoCreateGuid(&id)), "Cannot create a backup identity.");
     wchar_t text[40]{}; StringFromGUID2(id, text, 40);
     return std::wstring(text + 1, 36);
+#else
+    // A random (version 4) GUID, written like StringFromGUID2.
+    uint8_t id[16]{}; require(system_info::randomBytes(id, sizeof(id)), "Cannot create a backup identity.");
+    id[6] = static_cast<uint8_t>((id[6] & 0x0F) | 0x40); id[8] = static_cast<uint8_t>((id[8] & 0x3F) | 0x80);
+    std::wstring text;
+    constexpr wchar_t hex[] = L"0123456789ABCDEF";
+    for (size_t i = 0; i < 16; ++i) {
+        if (i == 4 || i == 6 || i == 8 || i == 10) text += L'-';
+        text += hex[id[i] >> 4]; text += hex[id[i] & 15];
+    }
+    return text;
+#endif
 }
 struct Staging {
     std::filesystem::path path;
@@ -159,6 +195,9 @@ Result create(const Input& input) {
         const auto id = unique();
         Staging staging{input.destination / (L".companion-backup-" + id)};
         require(std::filesystem::create_directory(staging.path), "Cannot create backup folder.");
+#ifndef _WIN32
+        privateFolder(staging.path);
+#endif
         Writer writer{staging.path};
         auto memory = protectedState(input.config, L"companion_memory.dat", input.memory);
         auto mind_state = protectedState(input.config, L"companion_mind.dat", input.mind);
@@ -218,12 +257,20 @@ Result create(const Input& input) {
         const auto wide_key = text_encoding::wide(key);
         // A short exclusive lock gives the feed a coherent snapshot, including mutable likes/comments.
         const auto feed_folder = feed::folderOf(input.config, key);
+#ifdef _WIN32
         HANDLE feed_lock = INVALID_HANDLE_VALUE;
         if (present(feed_folder)) {
             feed_lock = CreateFileW((feed_folder / L"publish.lock").c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
             require(feed_lock != INVALID_HANDLE_VALUE, "Launchfeed is writing; try the backup again shortly.");
         }
         struct FeedLock { HANDLE value; ~FeedLock() { if (value != INVALID_HANDLE_VALUE) CloseHandle(value); } } lock{feed_lock};
+#else
+        std::optional<atomic_file::ExclusiveLock> lock;
+        if (present(feed_folder)) {
+            lock.emplace(feed_folder / L"publish.lock");
+            require(lock->locked(), "Launchfeed is writing; try the backup again shortly.");
+        }
+#endif
         writer.tree(feed_folder, std::filesystem::path(L"portable/feed") / wide_key);
         if (!input.settings.companion_photo_folder.empty()) writer.tree(std::filesystem::path(input.settings.companion_photo_folder) / wide_key, std::filesystem::path(L"content/photos") / wide_key);
         if (!input.settings.companion_feed_folder.empty()) writer.tree(std::filesystem::path(input.settings.companion_feed_folder) / wide_key, std::filesystem::path(L"content/feed-source") / wide_key);
@@ -231,19 +278,29 @@ Result create(const Input& input) {
             if (present(input.config / file)) writer.copy(input.config / file, std::filesystem::path(L"portable/aux") / file);
         const auto photo_state = input.config / L"companion/photos/state.json";
         if (present(photo_state)) writer.copy(photo_state, L"portable/photos-state.json");
-        writer.copy(input.executable, L"launchme.exe");
+        writer.copy(input.executable, executable_name);
         writer.tree(input.executable.parent_path() / L"assets", L"assets");
         writer.tree(input.executable.parent_path() / L"plugin-packages/licenses", L"licenses");
+#ifdef _WIN32
         writer.text(L"Open-copy.cmd", "@echo off\r\nsetlocal DisableDelayedExpansion\r\nstart \"\" \"%~dp0launchme.exe\" --companion-copy \"%~dp0.\"\r\n");
         writer.text(L"README.txt", "Launchme companion backup\r\n\r\nRun Open-copy.cmd to create and open an INDEPENDENT profile in this folder.\r\nYour normal launcher profile is never overwritten. Copy the WHOLE folder to another PC.\r\nThe exact executable contains the character's authored personality, costumes and sprites.\r\nPortable JSON contains private conversations and memories in readable form. Keep this folder private.\r\nAPI credentials and store accounts are not included; configure your connection in the copy.\r\nDo not delete backup.json or portable/. A profile under profiles/ is created for each Windows user/machine.\r\nThe portable snapshot stays immutable; export a new backup to preserve later progress in the copy.\r\n");
+#else
+        writer.text(L"Open-copy.sh", "#!/bin/sh\nhere=\"$(cd \"$(dirname \"$0\")\" && pwd)\"\nexec \"$here/launchme\" --companion-copy \"$here\"\n");
+        {
+            std::error_code ec; // Runnable from a file manager; the copied launchme keeps its own mode.
+            std::filesystem::permissions(staging.path / L"Open-copy.sh", std::filesystem::perms::owner_all, std::filesystem::perm_options::replace, ec);
+            require(!ec, "Cannot write backup data.");
+        }
+        writer.text(L"README.txt", "Launchme companion backup\n\nRun Open-copy.sh to create and open an INDEPENDENT profile in this folder.\nYour normal launcher profile is never overwritten. Copy the WHOLE folder to another PC.\nThe exact executable contains the character's authored personality, costumes and sprites.\nPortable JSON contains private conversations and memories in readable form. Keep this folder private.\nAPI credentials and store accounts are not included; configure your connection in the copy.\nDo not delete backup.json or portable/. A profile under profiles/ is created for each user and machine.\nThe portable snapshot stays immutable; export a new backup to preserve later progress in the copy.\n");
+#endif
         auto root = json::object(); root.properties["version"] = json::number(1); root.properties["character"] = json::string(key);
         root.properties["files"] = writer.files; root.properties["conversations"] = json::number(static_cast<double>(result.conversations));
         root.properties["photo_source"] = json::boolean(!input.settings.companion_photo_folder.empty());
         root.properties["feed_source"] = json::boolean(!input.settings.companion_feed_folder.empty());
         require(atomic_file::write(staging.path / L"backup.json", json::serialize(root)), "Cannot finalize backup manifest.");
-        SYSTEMTIME t{}; GetLocalTime(&t); wchar_t date[32]{}; swprintf_s(date, L"%04u%02u%02u-%02u%02u%02u", t.wYear,t.wMonth,t.wDay,t.wHour,t.wMinute,t.wSecond);
+        const auto t = system_info::localTime(); wchar_t date[32]{}; swprintf_s(date, L"%04d%02d%02d-%02d%02d%02d", t.year,t.month,t.day,t.hour,t.minute,t.second);
         result.path = input.destination / (wide_key + L"-backup-" + date + L"-" + id.substr(0,8));
-        require(MoveFileExW(staging.path.c_str(), result.path.c_str(), MOVEFILE_WRITE_THROUGH), "Cannot publish the completed backup.");
+        require(publish(staging.path, result.path), "Cannot publish the completed backup.");
         staging.path.clear(); result.files = writer.files.elements.size(); result.bytes = writer.bytes; result.ok = true;
     } catch (const std::exception& e) { result.error = text_encoding::wideLenient(e.what()); }
     return result;
@@ -265,7 +322,7 @@ Result verify(const std::filesystem::path& bundle) {
             require(item.get("bytes")->type == json::Value::Type::number && item.get("bytes")->numeric == static_cast<double>(size) && sha(walk) == item.get("sha256")->stringOr(), "Backup integrity mismatch.");
             result.bytes += size;
         }
-        for (const auto* required : {L"launchme.exe", L"personality.txt", L"portable/settings.ini", L"portable/memory.json", L"portable/mind.json", L"portable/cognition.json", L"portable/affinity.txt", L"portable/mood.txt"})
+        for (const auto* required : {executable_name, L"personality.txt", L"portable/settings.ini", L"portable/memory.json", L"portable/mind.json", L"portable/cognition.json", L"portable/affinity.txt", L"portable/mood.txt"})
             require(paths.contains(required), "Missing required backup member.");
         for (std::filesystem::recursive_directory_iterator it(bundle), end; it != end; ++it) {
             const auto relative = std::filesystem::relative(it->path(), bundle);
@@ -283,6 +340,7 @@ Result openCopy(const std::filesystem::path& bundle) {
     try {
         const auto root = manifest(bundle);
         const auto identity = sha(bundle / L"backup.json");
+#ifdef _WIN32
         wchar_t machine[256]{}; DWORD machine_size = 256;
         require(GetComputerNameW(machine, &machine_size), "Cannot identify this Windows machine.");
         HANDLE token = nullptr;
@@ -295,6 +353,13 @@ Result openCopy(const std::filesystem::path& bundle) {
         LPWSTR sid = nullptr;
         require(ConvertSidToStringSidW(reinterpret_cast<TOKEN_USER*>(token_data.data())->User.Sid, &sid), "Cannot identify this Windows SID.");
         const auto owner = text_encoding::utf8(std::wstring(machine) + L"/" + sid); LocalFree(sid);
+#else
+        // This machine (systemd's machine-id, else the host name) and this user's uid.
+        std::string machine;
+        { std::ifstream id("/etc/machine-id"); std::getline(id, machine); }
+        if (machine.empty()) { char host[256]{}; require(gethostname(host, sizeof(host) - 1) == 0 && host[0], "Cannot identify this machine."); machine = host; }
+        const auto owner = machine + "/" + std::to_string(getuid());
+#endif
         const auto owner_hash = feed::fingerprint(std::span(reinterpret_cast<const uint8_t*>(owner.data()), owner.size()));
         require(!owner_hash.empty(), "Cannot identify this Windows profile.");
         const auto profiles = bundle / L"profiles";
@@ -312,6 +377,9 @@ Result openCopy(const std::filesystem::path& bundle) {
         const auto look = lookFromKey(key); require(look.has_value(), "This executable does not contain the backed-up companion.");
         std::filesystem::create_directories(profiles);
         Staging staging{profiles / (L".pending-" + unique())}; require(std::filesystem::create_directory(staging.path), "Cannot create the copy's profile.");
+#ifndef _WIN32
+        privateFolder(staging.path);
+#endif
         const auto memory = Memory::load(read(bundle / L"portable/memory.json"));
         const auto mind_state = mind::State::load(read(bundle / L"portable/mind.json"));
         const auto cog = cognition::State::load(read(bundle / L"portable/cognition.json"));
@@ -336,7 +404,7 @@ Result openCopy(const std::filesystem::path& bundle) {
         if (const auto* source = root.get("photo_source"); source && source->flag) settings.companion_photo_folder = (profile / L"content/photos").wstring();
         if (const auto* source = root.get("feed_source"); source && source->flag) settings.companion_feed_folder = (profile / L"content/feed-source").wstring();
         require(saveAppSettings(settings, staging.path / L"settings.ini") && atomic_file::write(staging.path / L"backup-origin.txt", identity), "Cannot finalize restored profile.");
-        require(MoveFileExW(staging.path.c_str(), profile.c_str(), MOVEFILE_WRITE_THROUGH), "Cannot activate the copy's profile.");
+        require(publish(staging.path, profile), "Cannot activate the copy's profile.");
         staging.path.clear(); result.ok = true; result.path = profile;
     } catch (const std::exception& e) { result.error = text_encoding::wideLenient(e.what()); }
     return result;
