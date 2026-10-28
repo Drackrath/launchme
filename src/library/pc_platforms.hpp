@@ -32,6 +32,9 @@ struct PcDiscovery {
     // Ubisoft Connect cache roots (ownership/, settings/) and Launchme's title cache (names.tsv).
     std::vector<std::filesystem::path> ubisoft_caches;
     std::filesystem::path ubisoft_names;
+    // Linux: Heroic's config folders (library/heroic.hpp), Lutris' databases and program (library/lutris.hpp).
+    std::vector<std::filesystem::path> heroic_configs, lutris_databases;
+    std::filesystem::path lutris;
 };
 
 // multimc_chosen: launcher EXEs or folders the user pointed at (portable MultiMC).

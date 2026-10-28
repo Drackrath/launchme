@@ -15,7 +15,8 @@
 // instance with "<launcher> --launch <instance folder name>" and, launched that way, keeps
 // running until the game (javaw.exe, its child) closes.
 // Prism: %APPDATA%\PrismLauncher (portable: UserData\ or portable.txt beside the EXE),
-// prismlauncher.cfg; MultiMC: a portable folder, multimc.cfg beside MultiMC.exe.
+// prismlauncher.cfg; MultiMC: a portable folder, multimc.cfg beside MultiMC.exe. Linux: prismlauncher
+// on PATH (~/.local/share/PrismLauncher), Flatpak's wrapper (~/.var/app/<app ID>/data/PrismLauncher), AppImages.
 // instance.cfg: name, iconKey, lastLaunchTime (epoch ms), totalTimePlayed (seconds).
 namespace multimc {
 enum class Flavor { multimc, prism, polymc };
