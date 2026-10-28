@@ -7,6 +7,10 @@
 #include <mfidl.h>
 #include <mfreadwrite.h>
 #include <wrl/client.h>
+#else
+#include "system.hpp"
+#include "unicode_text.hpp"
+#include <fstream>
 #endif
 
 #include <algorithm>
@@ -14,9 +18,12 @@
 #include <cwctype>
 #include <mutex>
 
+#ifdef _WIN32
 using Microsoft::WRL::ComPtr;
+#endif
 
 namespace {
+#ifdef _WIN32
 std::filesystem::path knownDesktop() {
     PWSTR desktop = nullptr;
     if (FAILED(SHGetKnownFolderPath(FOLDERID_Desktop, 0, nullptr, &desktop))) return {};
@@ -24,6 +31,24 @@ std::filesystem::path knownDesktop() {
     CoTaskMemFree(desktop);
     return directory;
 }
+#else
+// XDG_DESKTOP_DIR from user-dirs.dirs (what xdg-user-dir reads), else ~/Desktop.
+std::filesystem::path knownDesktop() {
+    const auto home = system_info::environment(L"HOME");
+    if (!home || home->empty()) return {};
+    const std::filesystem::path home_path(*home);
+    const auto config = system_info::environment(L"XDG_CONFIG_HOME");
+    std::ifstream dirs((config && !config->empty() ? std::filesystem::path(*config) : home_path / L".config") / L"user-dirs.dirs");
+    for (std::string line; std::getline(dirs, line);) {
+        constexpr std::string_view key = "XDG_DESKTOP_DIR=\"";
+        if (!line.starts_with(key) || line.size() < key.size() + 1 || line.back() != '"') continue;
+        auto value = line.substr(key.size(), line.size() - key.size() - 1);
+        if (value.starts_with("$HOME")) return home_path / text_encoding::wideLenient(value.substr(std::min<size_t>(value.size(), 6)));
+        if (value.starts_with('/')) return std::filesystem::path(text_encoding::wideLenient(value));
+    }
+    return home_path / L"Desktop";
+}
+#endif
 }
 
 std::filesystem::path localSoundtrackDirectory() {
@@ -60,19 +85,30 @@ std::vector<std::wstring> soundFolderFiles(const std::filesystem::path& folder) 
         if (files.size() >= 500) break; // A music library pointed at by mistake stays a usable list.
     }
     std::sort(files.begin(), files.end(), [](const std::wstring& a, const std::wstring& b) {
+#ifdef _WIN32
         return CompareStringOrdinal(a.c_str(), -1, b.c_str(), -1, TRUE) == CSTR_LESS_THAN;
+#else
+        return unicode_text::compareIgnoreCase(a, b) < 0;
+#endif
     });
     return files;
 }
 
 std::filesystem::path localSoundFile(const wchar_t* name) {
     if (!name || !*name) return {};
+#ifdef _WIN32
     wchar_t executable[32768]{};
     const auto length = GetModuleFileNameW(nullptr, executable, static_cast<DWORD>(std::size(executable)));
     if (length && length < std::size(executable)) {
         const auto bundled = std::filesystem::path(executable).parent_path() / L"assets" / name;
         if (std::filesystem::exists(bundled)) return bundled;
     }
+#else
+    if (const auto executable = system_info::executablePath(); !executable.empty()) {
+        const auto bundled = executable.parent_path() / L"assets" / name;
+        if (std::filesystem::exists(bundled)) return bundled;
+    }
+#endif
     if (const auto folder = userSoundFolder(); !folder.empty()) {
         std::error_code error;
         const auto chosen = folder / name;
@@ -100,6 +136,7 @@ std::filesystem::path localSoundFile(const wchar_t* name) {
     return {};
 }
 
+#ifdef _WIN32 // Elsewhere: flac_ffmpeg.cpp.
 AudioClip decodeFlac(const std::filesystem::path& path, size_t max_bytes, const std::function<bool()>& cancelled) {
     AudioClip clip;
     if (path.empty() || !std::filesystem::exists(path)) return clip;
@@ -145,3 +182,4 @@ AudioClip decodeFlac(const std::filesystem::path& path, size_t max_bytes, const 
     }
     return clip.samples.empty() ? AudioClip{} : std::move(clip);
 }
+#endif

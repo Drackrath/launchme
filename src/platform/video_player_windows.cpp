@@ -29,14 +29,25 @@ private:
 };
 }
 
-VideoPlayer::VideoPlayer() = default;
+struct VideoPlayer::Impl {
+    ComPtr<IMFMediaEngine> engine_;
+    ComPtr<IWICImagingFactory> wic_;
+    ComPtr<IWICBitmap> bitmap_;
+    uint32_t bitmap_width_ = 0, bitmap_height_ = 0;
+    bool started_ = false; // MFStartup succeeded.
+};
+
+VideoPlayer::VideoPlayer() : impl_(std::make_unique<Impl>()) {}
 
 VideoPlayer::~VideoPlayer() {
     stop();
-    if (started_) MFShutdown();
+    if (impl_->started_) MFShutdown();
 }
 
+bool VideoPlayer::active() const { return impl_->engine_ != nullptr; }
+
 bool VideoPlayer::open(const std::filesystem::path& file, double volume) {
+    auto& engine_ = impl_->engine_; auto& wic_ = impl_->wic_; auto& started_ = impl_->started_;
     stop();
     error_ = std::make_shared<std::atomic_bool>(false);
     if (!started_) {
@@ -72,6 +83,8 @@ bool VideoPlayer::open(const std::filesystem::path& file, double volume) {
 }
 
 void VideoPlayer::stop() {
+    auto& engine_ = impl_->engine_; auto& bitmap_ = impl_->bitmap_;
+    auto& bitmap_width_ = impl_->bitmap_width_; auto& bitmap_height_ = impl_->bitmap_height_;
     if (!engine_) return;
     engine_->Pause();
     engine_->Shutdown();
@@ -81,12 +94,15 @@ void VideoPlayer::stop() {
 }
 
 void VideoPlayer::setVolume(double volume) {
+    auto& engine_ = impl_->engine_;
     if (!engine_) return;
     engine_->SetVolume(std::clamp(volume, 0.0, 1.0));
     engine_->SetMuted(volume <= 0.0);
 }
 
 bool VideoPlayer::frame(std::vector<uint8_t>& pixels, uint32_t& width, uint32_t& height, uint32_t max_width) {
+    auto& engine_ = impl_->engine_; auto& wic_ = impl_->wic_; auto& bitmap_ = impl_->bitmap_;
+    auto& bitmap_width_ = impl_->bitmap_width_; auto& bitmap_height_ = impl_->bitmap_height_;
     if (!engine_ || !wic_ || error_->load()) return false;
     LONGLONG time = 0;
     if (engine_->OnVideoStreamTick(&time) != S_OK) return false; // S_FALSE: no new frame.
