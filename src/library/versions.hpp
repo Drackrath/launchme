@@ -13,6 +13,7 @@ struct Index {
     std::map<std::string, std::string> by_game;
     explicit Index(const std::vector<Game>& games = {});
     const std::vector<Game>* find(const Game& game) const;
-    std::vector<Game> collapse(const std::vector<Game>& games, const std::map<std::string, std::string>& preferred) const;
+    std::vector<Game> collapse(const std::vector<Game>& games, const std::map<std::string, std::string>& preferred,
+                               const std::map<std::string, uint64_t>& first_seen = {}) const;
 };
 }

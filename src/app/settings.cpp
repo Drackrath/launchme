@@ -162,15 +162,23 @@ void Launcher::saveSettings() {
 void Launcher::settingsReorder(int amount) {
     if (!settingsOpen() || !settings_state_.options || settings_state_.editing ||
         !settings_state_.at(Page::collections)) return;
-    const int current = settings_state_.row(), next = current + amount;
-    if (current >= static_cast<int>(settings_collections_.size()) || next < 0 || next >= static_cast<int>(settings_collections_.size())) return;
+    // The page starts with "Zarządzaj kolekcjami": a collection is found by its row's key.
+    const int row = settings_state_.row(), next_row = row + amount;
+    if (row < 0 || row >= static_cast<int>(settings_rows_.size()) || settings_rows_[row].id != Id::collection ||
+        next_row < 0 || next_row >= static_cast<int>(settings_rows_.size()) || settings_rows_[next_row].id != Id::collection) return;
+    const auto found = std::find_if(settings_collections_.begin(), settings_collections_.end(), [&](const auto& collection) {
+        return collectionKey(account_, collection) == settings_rows_[row].key;
+    });
+    if (found == settings_collections_.end()) return;
+    const int current = static_cast<int>(found - settings_collections_.begin()), next = current + amount;
+    if (next < 0 || next >= static_cast<int>(settings_collections_.size())) return;
     std::swap(settings_collections_[current], settings_collections_[next]);
     // The rows follow at once: the rebuild below keeps the focus on the moved collection's row.
-    if (next < static_cast<int>(settings_rows_.size())) std::swap(settings_rows_[current], settings_rows_[next]);
+    std::swap(settings_rows_[row], settings_rows_[next_row]);
     for (const auto& collection : settings_collections_) std::erase(settings_.collection_order, collectionKey(account_, collection));
     for (const auto& collection : settings_collections_)
         settings_.collection_order.push_back(collectionKey(account_, collection));
-    settings_state_.selected[settings_state_.category] = next;
+    settings_state_.selected[settings_state_.category] = next_row;
     settingsChanged(true);
     audio_.navigate();
 }
@@ -295,6 +303,15 @@ void Launcher::settingsActivate() {
     const auto row = settings_rows_[settings_state_.row()];
     if (row.id == Id::aurelia) { toggleAurelia(); return; }
     if (row.id == Id::aurelia_open) { openAurelia(); return; }
+    if (row.id == Id::aurelia_cloud || row.id == Id::aurelia_default) { // Steam's page: what Aurelia does.
+        if (row.locked) { navigationBoundary(); return; }
+        auto& value = row.id == Id::aurelia_cloud ? settings_.aurelia_cloud : settings_.aurelia_default;
+        value = !value;
+        if (row.id == Id::aurelia_cloud && !value) aurelia_cloud_.clear();
+        settingsChanged(true); buildSettingsRows();
+        if (aurelia_ui_.open) aureliaRows();
+        audio_.context(); return;
+    }
     if (row.control == Control::page) { openSettingsPage(row.page); return; } // Its settings on a page of their own.
     if (row.id == Id::bulk_covers) { openBulkCovers(); return; }
     if (row.id == Id::steam_sync) { requestSteamSync(true); audio_.context(); return; }
@@ -689,10 +706,10 @@ void Launcher::settingsToggle(const Row& row) {
         applyLowMemory();
         settingsChanged(); audio_.context(); return;
     }
-    else if (row.id == Id::collection && settings_state_.row() < static_cast<int>(settings_collections_.size())) {
+    else if (row.id == Id::collection && !row.key.empty()) {
         if (row.locked) { navigationBoundary(); return; } // SRM collection covered by Emulacja.
-        const auto key = collectionKey(account_, settings_collections_[settings_state_.row()]);
-        if (!settings_.hidden_collections.erase(key)) settings_.hidden_collections.insert(key);
+        // The row's key is the collection's (the page starts with "Zarządzaj kolekcjami").
+        if (!settings_.hidden_collections.erase(row.key)) settings_.hidden_collections.insert(row.key);
     }
     else return;
     settingsChanged(true);

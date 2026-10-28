@@ -3,6 +3,7 @@
 #include "../src/library/pc_platforms.hpp"
 #include "../src/library/recent_games.hpp"
 #include "../src/platform/atomic_file.hpp"
+#include "../src/platform/protected_file.hpp"
 #include "../src/platform/text_encoding.hpp"
 #include <atomic>
 #include <chrono>
@@ -48,7 +49,7 @@ epic::Http fixture(ApiState& state) {
             if (state.rate) return {429, {}, 123};
             if (state.malformed && state.pages > 1) return response(R"({"records":false})");
             if (url.find(L"cursor=") == url.npos || state.cycle)
-                return response(R"({"records":[{"appName":"AppOne","namespace":"sandbox","catalogItemId":"catalog"},{"appName":"UE_5.0","namespace":"ue"}],"responseMetadata":{"nextCursor":"next/one"}})");
+                return response(R"({"records":[{"appName":"AppOne","namespace":"sandbox","catalogItemId":"catalog","acquisitionDate":"2023-11-14T22:13:20.123Z"},{"appName":"UE_5.0","namespace":"ue"}],"responseMetadata":{"nextCursor":"next/one"}})");
             return response(R"({"records":[{"appName":"AppOne","namespace":"sandbox","catalogItemId":"catalog"},{"appName":"DLC","namespace":"sandbox","catalogItemId":"dlc"}],"responseMetadata":{}})");
         }
         if (url.find(L"id=dlc") != url.npos) return response(R"({"dlc":{"id":"dlc","title":"DLC","mainGameItem":{"id":"catalog"},"categories":[]}})");
@@ -98,13 +99,16 @@ int main() {
     state.games.clear(); state.synced_at = 0;
     CHECK(api->library(config, state, never)); CHECK(state.games.size() == 1 && state.games[0].source_id == "AppOne" && api_state.pages == 2);
     CHECK(state.games[0].name == L"Owned Game");
+    CHECK(state.games[0].added_at == 1700000000); // Duplicate records without a date cannot erase it.
     CHECK(state.games[0].store_playtime_minutes == 121); // Epic's own play time (library service), 7260 s.
     // Epic's own art (keyImages): the tall box art before the thumbnail, https only.
     CHECK(state.games[0].store_tall_art == "https://cdn1.epicgames.com/tall.jpg" && state.games[0].store_wide_art == "https://cdn1.epicgames.com/wide.jpg" &&
           state.games[0].store_logo_art == "https://cdn1.epicgames.com/logo.png");
     {   // A known game is not asked again; one saved before the art was read (0.2.4) is, once.
         const int before = api_state.catalogs; api_state.pages = 0;
+        state.games[0].added_at = 0; // A pre-acquisition cache is enriched without refetching the catalog.
         CHECK(api->library(config, state, never) && api_state.catalogs == before);
+        CHECK(state.games[0].added_at == 1700000000);
         state.games[0].store_tall_art.clear(); api_state.pages = 0;
         CHECK(api->library(config, state, never) && api_state.catalogs == before + 1 && state.games[0].store_tall_art == "https://cdn1.epicgames.com/tall.jpg");
     }
@@ -138,18 +142,27 @@ int main() {
     auto vault = makeVault(root / L"epic.session"); CHECK(vault->save(state));
     std::optional<Session> restored; CHECK(vault->load(restored)); CHECK(restored && restored->games[0].source_id == "AppOne");
     CHECK(restored->games[0].store_playtime_minutes == 121);
+    CHECK(restored->games[0].added_at == 1700000000);
     CHECK(restored->games[0].store_tall_art == state.games[0].store_tall_art && restored->games[0].store_logo_art == state.games[0].store_logo_art);
     std::ifstream encrypted(root / L"epic.session", std::ios::binary); const std::string ciphertext{std::istreambuf_iterator<char>{encrypted}, {}}; encrypted.close();
     CHECK(ciphertext.find(state.tokens.refresh) == ciphertext.npos && ciphertext.find("Owned Game") == ciphertext.npos);
     CHECK(vault->clear()); CHECK(vault->load(restored) && !restored);
+    for (const int version : {1, 2, 3}) {
+        const std::string legacy = "launchme-epic-v" + std::to_string(version) + "\n\"access-fixture\" \"refresh-fixture\" \"account-A\" \"Player\" 1800000000 1 1\n"
+            "\"AppOne\" \"Old cached game\" \"sandbox\" \"catalog\" \"\" 0" + std::string(version >= 2 ? " 42" : "") +
+            (version >= 3 ? " \"-\" \"\" \"\"" : "") + "\n";
+        CHECK(protected_file::write(root / L"epic.session", legacy, L"Fixture"));
+        CHECK(vault->load(restored) && restored && !restored->games[0].added_at && restored->games[0].name == L"Old cached game");
+    }
     CHECK(atomic_file::write(root / L"epic.session", "corrupt")); CHECK(vault->load(restored).failure == Failure::storage);
     CHECK(vault->clear());
     CHECK(sessionJson(state.tokens, false).find(state.tokens.refresh) == std::string::npos);
     // Local installs survive logout; membership, hiding and history stay account-scoped.
     auto installed = game(); installed.installed = true; installed.epic_managed = true; installed.play_action = {L"fixture.exe"};
     auto online = game("AppTwo");
-    auto merged = mergeEpicLibrary({}, {game(), online}, "account-A", {installed});
+    auto merged = mergeEpicLibrary({}, {state.games[0], online}, "account-A", {installed});
     CHECK(merged.visible.size() == 2 && merged.visible[0].account_id.empty() && merged.visible[1].account_id == "account-A");
+    CHECK(merged.visible[0].added_at == 1700000000);
     CHECK(mergeEpicLibrary({}, {}, {}, {installed}).visible.size() == 1);
     CHECK(recent_games::historyKey(online, 0, {}, "A") != recent_games::historyKey(online, 0, {}, "B"));
     CHECK(atomic_file::write(root / L"libraries" / L"epic.json", "broken"));

@@ -30,7 +30,7 @@ Launcher::Modal Launcher::topModal() const {
 
 Launcher::Modal Launcher::topDialog() const {
     if (whats_new_.open) return Modal::whats_new; // Shown alone, right after an update's restart.
-    if (aurelia_ui_.open) return Modal::aurelia;
+    if (aurelia_ui_.open) return fileBrowserOpen() ? Modal::file_browser : Modal::aurelia; // Its library picker opens over it.
     if (companion_.picker.open) return Modal::companion_picker;
     if (fileBrowserOpen()) return Modal::file_browser; // Opened from the panels below it.
     if (libraryDialogOpen()) return Modal::library_dialog;
@@ -466,6 +466,22 @@ void Launcher::controllerInput(const PadReading& state) {
         else if (pressed(XINPUT_GAMEPAD_RIGHT_SHOULDER)) glanceStepSection(1);
         else if (pressed(XINPUT_GAMEPAD_A)) glanceAccept();
         else if (pressed(XINPUT_GAMEPAD_B)) back();
+        controller_direction_ = direction; controller_buttons_ = buttons; return;
+    }
+    if (friendChatOpen()) {
+        // A friend's conversation in the drawer: up/down scroll it (up from its top reaches Back),
+        // A types (or takes Back), B returns to the list, X the keyboard, Y reconnects, LB/RB a page.
+        const int direction = vertical();
+        if (direction && (direction != controller_direction_ || now >= controller_repeat_)) {
+            noteUserInput(); friendChatKey(direction < 0 ? VK_UP : VK_DOWN, false);
+            controller_repeat_ = now + (direction != controller_direction_ ? 280 : 120);
+        }
+        if (pressed(XINPUT_GAMEPAD_A)) { noteUserInput(); friendsAccept(); }
+        else if (pressed(XINPUT_GAMEPAD_B)) { noteUserInput(); closeFriendChat(); audio_.navigate(); }
+        else if (pressed(XINPUT_GAMEPAD_X)) { noteUserInput(); friend_chat_.back_focus = false; openKeyboard(); }
+        else if (pressed(XINPUT_GAMEPAD_Y)) { noteUserInput(); friendChatReconnect(); }
+        else if (pressed(XINPUT_GAMEPAD_LEFT_SHOULDER)) friendChatScroll(-320);
+        else if (pressed(XINPUT_GAMEPAD_RIGHT_SHOULDER)) friendChatScroll(320);
         controller_direction_ = direction; controller_buttons_ = buttons; return;
     }
     // Y: the focused game's menu on every screen (as a held A); the library bar is above the first row.

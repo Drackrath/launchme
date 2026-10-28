@@ -108,6 +108,12 @@ inline const wchar_t* label(View view) {
     default: return tr(L"Siatka");
     }
 }
+// Prefer the store's acquisition date, otherwise the durable first detection in Launchme.
+inline uint64_t addedTime(const Game& game, const std::map<std::string, uint64_t>& first_seen) {
+    if (game.added_at) return game.added_at;
+    const auto found = first_seen.find(gameKey(game));
+    return found == first_seen.end() ? 0 : found->second;
+}
 // Hidden and private games are dropped unless `include_private` (Ctrl+H for this session).
 // `released`: yyyymmdd by gameKey for Order::release (game_index::Date::sortKey; missing = undated).
 std::vector<Game> arrange(const std::vector<Game>& games, Options options, const std::map<std::string, uint64_t>& first_seen,

@@ -451,6 +451,7 @@ StoreLibrary mergeGogLibrary(StoreLibrary native, const std::vector<Game>& owned
         if (game.source != GameSource::gog || game.source_id.empty()) continue;
         if (const auto found = local.find(gameKey(game)); found != local.end()) {
             auto& installed = native.visible[found->second];
+            installed.added_at = game.added_at;
             if (game.visibility != GameVisibility::public_game) installed.visibility = game.visibility;
             continue;
         }
@@ -485,6 +486,7 @@ StoreLibrary mergeEpicLibrary(StoreLibrary native, const std::vector<Game>& owne
             found->epic_namespace = game.epic_namespace; found->epic_catalog = game.epic_catalog; found->epic_partner = game.epic_partner;
             found->store_tall_art = game.store_tall_art; found->store_wide_art = game.store_wide_art; found->store_logo_art = game.store_logo_art;
             found->store_playtime_minutes = std::max(found->store_playtime_minutes, game.store_playtime_minutes); // Epic's own count.
+            found->added_at = game.added_at;
             if (game.visibility != GameVisibility::public_game) found->visibility = game.visibility;
         } else {
             auto entry = game; entry.account_id = account; entry.installed = false; entry.play_action = {};
@@ -523,10 +525,19 @@ StoreLibrary mergeImportedLibrary(StoreLibrary native, const std::vector<Game>& 
     }
     return native;
 }
+StoreLibrary mergeAmazonLibrary(StoreLibrary native, const std::vector<Game>& games) {
+    std::set<std::string> present;
+    for (const auto& game : native.visible) present.insert(gameKey(game));
+    for (const auto& game : games)
+        if (game.source == GameSource::amazon && validStoreGameId(GameSource::amazon, game.source_id) && !game.name.empty() &&
+            present.insert(gameKey(game)).second) native.visible.push_back(game);
+    return native;
+}
 StoreLibrary scanPcLibraries(const std::filesystem::path& catalogs, const std::vector<Game>& gog_owned, const std::string& gog_account,
                              const std::vector<Game>& previous_battlenet, const std::vector<Game>& epic_owned,
                              const std::string& epic_account, const std::vector<Game>& epic_installed,
-                             const std::vector<Game>& imported, const std::vector<std::filesystem::path>& multimc_chosen) {
+                             const std::vector<Game>& imported, const std::vector<std::filesystem::path>& multimc_chosen,
+                             const std::vector<Game>& amazon) {
     auto discovery = discoverPcInstallations(multimc_chosen);
     discovery.ubisoft_names = catalogs.parent_path() / L"ubisoft" / L"names.tsv";
     // Offline GOG installers are also tracked independently of account state,
@@ -541,8 +552,8 @@ StoreLibrary scanPcLibraries(const std::filesystem::path& catalogs, const std::v
         if (directory(folder) && file(folder / (L"goggame-" + wide(id) + L".info")))
             discovery.installs.push_back({GameSource::gog, id, {}, folder});
     }
-    return mergePcLibraries(mergeImportedLibrary(mergeEpicLibrary(mergeGogLibrary(scanNativePcLibraries(discovery, previous_battlenet), gog_owned, gog_account),
-        epic_owned, epic_account, epic_installed), imported), catalogs);
+    return mergePcLibraries(mergeAmazonLibrary(mergeImportedLibrary(mergeEpicLibrary(mergeGogLibrary(scanNativePcLibraries(discovery, previous_battlenet), gog_owned, gog_account),
+        epic_owned, epic_account, epic_installed), imported), amazon), catalogs);
 }
 
 GameAction connectPcClient(GameSource source, const std::vector<StoreClient>& clients) {

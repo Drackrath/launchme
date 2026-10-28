@@ -127,6 +127,7 @@ public:
     static int tarotReading(HWND window);
     static int profilePage(HWND window);
     static int aureliaIntegration(HWND window);
+    static int amazonGames(HWND window);
     static int studioLibraries(HWND window);
     static int updates(HWND window);
     static int gameLengths(HWND window);
@@ -521,26 +522,27 @@ public:
         {
             const auto open = std::find_if(app.settings_rows_.begin(), app.settings_rows_.end(),
                                            [](const auto& row) { return row.id == settings_ui::Id::collections_open; });
-            if (open == app.settings_rows_.end()) return 7;
+            if (open == app.settings_rows_.end()) return 7001;
             app.settingsActivate();
             app.settings_state_.selected[app.settings_state_.category] = static_cast<int>(open - app.settings_rows_.begin());
             app.settingsActivate();
+            // "Zarządzaj kolekcjami" leads the page; the collections follow it.
             if (!app.settings_state_.at(settings_ui::Page::collections) || app.settings_state_.row() != 0 ||
-                app.settings_rows_.front().id != settings_ui::Id::collection) return 7;
+                app.settings_rows_.front().id != settings_ui::Id::collection_manage || app.settings_rows_[1].id != settings_ui::Id::collection) return 7002;
         }
-        app.settingsMove(23);
-        const auto selected_collection_key = collectionKey(app.account_, app.settings_collections_[app.settings_state_.row()]);
+        app.settingsMove(24);
+        const auto selected_collection_key = collectionKey(app.account_, app.settings_collections_[app.settings_state_.row() - 1]);
         if (!capture(L"settings-native-collections.png")) return 92;
-        if (app.settings_state_.offset() <= 0) return 7;
+        if (app.settings_state_.offset() <= 0) return 7003;
         app.settingsAdjust(1);
-        if (app.settings_state_.subcontrol != 1 || app.settings_state_.row() != 23) return 47;
+        if (app.settings_state_.subcontrol != 1 || app.settings_state_.row() != 24) return 47;
         app.settingsActivate();
-        if (app.settings_state_.row() != 22 ||
+        if (app.settings_state_.row() != 23 ||
             std::find(app.settings_.collection_order.begin(), app.settings_.collection_order.end(), "2:other-account") == app.settings_.collection_order.end()) return 8;
         app.settingsAdjust(1);
         if (app.settings_state_.subcontrol != 2) return 48;
         app.settingsActivate();
-        if (app.settings_state_.row() != 23) return 49;
+        if (app.settings_state_.row() != 24) return 49;
         app.settingsAdjust(-1); app.settingsActivate();
         app.settingsAdjust(-1); app.settingsActivate();
         if (!app.settings_.hidden_collections.contains(selected_collection_key)) return 9;
@@ -748,8 +750,11 @@ public:
         app.settings_state_.selectCategory(static_cast<int>(settings_ui::Category::library));
         app.settings_state_.selected[app.settings_state_.category] = 0; // Biblioteka remembered its Kolekcje row.
         app.buildSettingsRows();
-        app.settingsActivate(); app.settingsMove(1); app.settingsActivate(); // Enable GOG (below DRM-free folders).
-        app.settingsMove(4); app.settingsActivate(); // Enable Epic.
+        // Platforms: Steam, DRM-free, then the stores by name (Launcher::platformOrder).
+        const auto order = app.platformOrder();
+        const auto at = [&](GameSource source) { return static_cast<int>(std::find(order.begin(), order.end(), source) - order.begin()); };
+        app.settingsActivate(); app.settingsMove(at(GameSource::gog)); app.settingsActivate(); // Enable GOG.
+        app.settingsMove(at(GameSource::epic) - at(GameSource::gog)); app.settingsActivate(); // Enable Epic.
         if (app.categories_[1].title != L"Platformy PC" || app.categories_[2].title != L"Emulacja" || app.categories_[1].games.size() != 3) return 41;
         if (std::count_if(app.public_library_.begin(), app.public_library_.end(), [](const auto& game) { return game.source != GameSource::steam; }) != 2 || app.private_category_.games.size() != 1) return 42;
         const auto launches = dispatched.size();
@@ -919,8 +924,14 @@ public:
         }
         app.settingsActivate();
         if (!capture(L"settings-native-music.png")) return 104;
-        app.settingsMove(9); app.settingsActivate(); app.saveSettings();
-        if (loadAppSettings().music_theme != 9 || app.music_jobs_->pending != std::wstring(music_themes[9].file)) return 68;
+        // Only the shipped themes and "Brak", Horizons by default; no folder, so no file names.
+        {
+            const auto theme = std::find_if(app.settings_rows_.begin(), app.settings_rows_.end(),
+                                            [](const auto& row) { return row.id == settings_ui::Id::music_theme; });
+            if (theme == app.settings_rows_.end() || theme->choices.size() != music_themes.size() || theme->choice != 1) return 68;
+        }
+        app.settingsMove(1); app.settingsActivate(); app.saveSettings();
+        if (loadAppSettings().music_theme != 2 || app.music_jobs_->pending != std::wstring(music_themes[2].file)) return 68;
         app.audio_.resumeMusic();
         app.audio_.setMusicLevel(0); app.audio_.setMusicLevel(0.15f);
         if (app.audio_.music_target_ != 0.15f) return 69;
@@ -934,8 +945,8 @@ public:
         if (app.music_status_ != L"Wczytywanie…") return 72;
         // "Brak" is a real saved theme, cancels pending decodes, and cannot be undone by a late result.
         const auto old_generation = app.music_jobs_->generation.load();
-        app.settingsActivate(); app.settingsMove(1); app.settingsActivate(); app.saveSettings();
-        if (app.settings_.music_theme != 10 || loadAppSettings().music_theme != 10 || app.music_jobs_->pending ||
+        app.settingsActivate(); app.settingsMove(-2); app.settingsActivate(); app.saveSettings();
+        if (app.settings_.music_theme != 0 || loadAppSettings().music_theme != 0 || app.music_jobs_->pending ||
             !app.music_status_.empty() || app.audio_.music_voice_ || !app.audio_.pending_music_.samples.empty()) return 156;
         auto cancelled_music = std::make_unique<AudioMessage>();
         cancelled_music->cue = SoundCue::music; cancelled_music->generation = old_generation;
@@ -1320,6 +1331,7 @@ public:
 #include "low_memory_ui_cases.hpp"
 #include "profile_ui_cases.hpp"
 #include "aurelia_ui_cases.hpp"
+#include "amazon_ui_cases.hpp"
 #include "studios_ui_cases.hpp"
 #include "update_ui_cases.hpp"
 #include "companion_ui_cases.hpp"
@@ -2089,6 +2101,15 @@ int main(int argc, char** argv) {
         CoUninitialize();
         if (code) std::cerr << "Profile regression failed at checkpoint " << code << '\n';
         else std::cout << "Profile: drawer widget, week, achievements, history, platforms, keys, pad, mouse, desktop widgets, Czas gry and MultiMC passed\n";
+        return code;
+    }
+    if (argc == 2 && std::string_view(argv[1]) == "--amazon") {
+        std::filesystem::create_directories(root);
+        const auto code = window ? LauncherUiTest::amazonGames(window) : 99;
+        if (window) DestroyWindow(window);
+        CoUninitialize();
+        if (code) std::cerr << "Amazon Games UI failed at checkpoint " << code << '\n';
+        else std::cout << "Amazon Games: Nile offer, sign-in address, library, install dialog, uninstall and launch passed\n";
         return code;
     }
     if (argc == 2 && std::string_view(argv[1]) == "--aurelia") {

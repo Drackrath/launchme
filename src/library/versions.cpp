@@ -1,5 +1,6 @@
 #include "versions.hpp"
 #include "search.hpp"
+#include "view_options.hpp"
 #include "../platform/text_encoding.hpp"
 #include <algorithm>
 #include <cwctype>
@@ -63,7 +64,8 @@ const std::vector<Game>* Index::find(const Game& game) const {
     const auto group = groups.find(id->second);
     return group == groups.end() ? nullptr : &group->second;
 }
-std::vector<Game> Index::collapse(const std::vector<Game>& games, const std::map<std::string, std::string>& preferred) const {
+std::vector<Game> Index::collapse(const std::vector<Game>& games, const std::map<std::string, std::string>& preferred,
+                                 const std::map<std::string, uint64_t>& first_seen) const {
     std::vector<Game> result; result.reserve(games.size());
     std::map<std::string, size_t> slots;
     const auto rank = [&](const Game& game, const std::string& group) {
@@ -78,8 +80,10 @@ std::vector<Game> Index::collapse(const std::vector<Game>& games, const std::map
         else {
             auto& existing = result[slot->second];
             const auto played = std::max(existing.last_played, game.last_played);
+            const auto added = std::max(library_view::addedTime(existing, first_seen), library_view::addedTime(game, first_seen));
             if (rank(game, id->second) > rank(existing, id->second)) { existing = game; existing.version_group = id->second; }
             existing.last_played = played;
+            existing.added_at = added;
         }
     }
     return result;

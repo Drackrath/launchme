@@ -101,6 +101,7 @@ context_menu::Rows Launcher::menuRows() const {
         rows.uninstall = canUninstall(game) && sessionState(game) == SessionState::none; // Never while it runs.
         rows.launch = launchEditable(game);
         rows.aurelia = aurelia_active_ && aurelia::validGame(game);
+        rows.steam_account = steamAccountChoices(game).size() > 1;
         rows.metadata = isGame(game) && game.kind != GameKind::catalog && !gameKey(game).empty(); // Not a store's offer.
         return rows;
     }
@@ -191,20 +192,19 @@ void Launcher::resumeGame(const Game& game) {
 
 // "Zamknij grę": ends the game's processes at once, like quitting on a console.
 // A suspended game cannot answer a close request, so there is no graceful path.
+// A game launched through Aurelia is closed the same way: its processes, found under its folder,
+// end here and Aurelia's `play` returns with them. Only when none is found yet does Aurelia stop
+// the process it recorded (aureliaStop), and the game counts as closed when `play` returns.
 void Launcher::closeGame(const Game& game) {
-    if (aurelia_active_ && aurelia::validGame(game) && aurelia_playing_.contains(game.app_id) && sessionState(game) != SessionState::frozen) {
-        aureliaRequest({aurelia::Command::stop, game.app_id}, [name = game.name](Launcher& app, aurelia::Reply reply) {
-            if (!reply.ok) app.showNotification(NotificationKind::error, tr(L"Nie można zamknąć gry"), name + L" · " + reply.error);
-        });
-        return;
-    }
+    const bool aurelia = aurelia_active_ && aurelia::validGame(game) && aurelia_playing_.contains(game.app_id);
     const auto key = gameKey(game);
     const auto session = game_sessions_.find(key);
-    if (session == game_sessions_.end()) return;
+    if (session == game_sessions_.end()) { if (aurelia) aureliaStop(game); return; }
     const bool frozen = session->second.frozen();
     auto tracked = trackedGame(key);
     if (!observable(tracked)) tracked = game;
     const auto processes = frozen ? session->second.frozenProcesses() : quick_resume_.find(tracked);
+    if (processes.empty() && aurelia && !frozen) { aureliaStop(game); return; }
     if (processes.empty()) {
         showNotification(NotificationKind::error, tr(L"Nie można zamknąć gry"), tr(L"Nie znaleziono procesu gry"));
         return;

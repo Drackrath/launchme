@@ -1,6 +1,7 @@
 #include "../src/store/gog_account.hpp"
 #include "../src/library/pc_platforms.hpp"
 #include "../src/platform/atomic_file.hpp"
+#include "../src/platform/protected_file.hpp"
 #include <Windows.h>
 #include <atomic>
 #include <chrono>
@@ -59,15 +60,16 @@ void apiTests() {
     int pages = 0, metadata = 0;
     api = gog::makeBackend([&](const auto& address, const auto&, size_t) {
         if (address.find(L"/releases") != std::wstring::npos) {
-            if (++pages == 1) return reply(R"({"items":[{"platform_id":"gog","external_id":"123","owned":true},{"platform_id":"steam","external_id":"42","owned":true}],"next_page_token":"a+b"})");
+            if (++pages == 1) return reply(R"({"items":[{"platform_id":"gog","external_id":"123","owned":true,"owned_since":1600000000,"date_created":1700000000},{"platform_id":"steam","external_id":"42","owned":true}],"next_page_token":"a+b"})");
             check(address.find(L"page_token=a%2Bb") != std::wstring::npos, "encoded pagination token");
-            return reply(R"({"items":[{"platform_id":"gog","external_id":"123","owned":true},{"platform_id":"gog","external_id":"9999999999999","owned":true},{"platform_id":"gog","external_id":"456","owned":false}],"next_page_token":null})");
+            return reply(R"({"items":[{"platform_id":"gog","external_id":"123","owned":true,"owned_since":1650000000},{"platform_id":"gog","external_id":"9999999999999","owned":true,"owned_since":1700000000},{"platform_id":"gog","external_id":"456","owned":false}],"next_page_token":null})");
         }
         ++metadata;
         return reply(R"({"id":9999999999999,"title":"Other game","game_type":"game","is_secret":true})");
     });
     check(static_cast<bool>(api->library(owned, config, running)) && pages == 2 && metadata == 1 && owned.games.size() == 2, "paged deduplicated library and cached metadata");
     check(owned.games[1].source_id == "9999999999999" && !owned.games[1].app_id && !owned.games[1].installed && owned.games[1].visibility == GameVisibility::private_game, "GOG identity and privacy");
+    check(owned.games[0].added_at == 1600000000 && owned.games[1].added_at == 1700000000, "ownership dates enrich cached and fresh titles, earliest duplicate wins");
     const auto saved_time = owned.synced_at;
     pages = 0;
     api = gog::makeBackend([&](const auto&, const auto&, size_t) {
@@ -82,9 +84,16 @@ void apiTests() {
     api = gog::makeBackend([&](const auto&, const auto&, size_t) { ++requests; return reply(R"({"items":[],"next_page_token":null})"); });
     check(api->library(owned, config, [&] { return requests != 0; }).failure == gog::Failure::cancelled && owned.games.size() == 2, "cancel page result");
     check(static_cast<bool>(api->library(owned, config, running)) && owned.games.empty(), "genuine empty library replaces snapshot");
+    api = gog::makeBackend([](const auto& address, const auto&, size_t) {
+        if (address.find(L"/releases") != address.npos) return reply(R"({"items":[{"platform_id":"gog","external_id":"123","owned":true,"owned_since":null,"date_created":1700000000},{"platform_id":"gog","external_id":"124","owned":true,"owned_since":9999999999999}]})");
+        return reply(address.ends_with(L"/123") ? R"({"id":"123","title":"No date","game_type":"game","is_secret":false})" :
+            R"({"id":"124","title":"Invalid date","game_type":"game","is_secret":false})");
+    });
+    check(static_cast<bool>(api->library(owned, config, running)) && owned.games.size() == 2 && !owned.games[0].added_at && !owned.games[1].added_at,
+          "missing or invalid ownership dates never use Galaxy record creation");
     int fallbacks = 0;
     api = gog::makeBackend([&](const auto& address, const auto& headers, size_t) {
-        if (address.find(L"/releases") != address.npos) return reply(R"({"items":[{"platform_id":"gog","external_id":"456","owned":true,"certificate":"synthetic-cert"}]})");
+        if (address.find(L"/releases") != address.npos) return reply(R"({"items":[{"platform_id":"gog","external_id":"456","owned":true,"owned_since":1500000000,"certificate":"synthetic-cert"}]})");
         if (address.starts_with(L"https://api.gog.com/products/")) return reply("", 404);
         check(address == L"https://gamesdb.gog.com/platforms/gog/external_releases/456", "delisted release metadata fallback");
         check(headers.find(L"X-GOG-Library-Cert: synthetic-cert") != headers.npos, "account library certificate");
@@ -92,6 +101,7 @@ void apiTests() {
         return reply(R"({"external_id":"456","platform_id":"gog","type":"game","title":{"*":"Legacy fixture"},"game":{"visible_in_library":true}})");
     });
     check(static_cast<bool>(api->library(owned, config, running)) && owned.games.size() == 1 && fallbacks == 1, "one product 404 no longer rejects entire library");
+    check(owned.games[0].added_at == 1500000000, "delisted game retains acquisition date");
     owned.games.clear();
     api = gog::makeBackend([](const auto& address, const auto&, size_t) {
         if (address.find(L"/releases") != address.npos) return reply(R"({"items":[{"platform_id":"gog","external_id":"456","owned":true}]})");
@@ -294,22 +304,27 @@ void persistenceAndMerge(const std::filesystem::path& root) {
     check(!gog::callbackCode(L"https://embed.gog.com/on_login_success?origin=client&code=fixture&state=wrong", profile, "active-attempt"), "present state must always match");
     check(!gog::parsePublicClientProfile(R"({"stores":{"gog":{"client_id":"123","client_secret":"abc","redirect_uri":"https://evil.test/","auth_url":"https://auth.gog.com/auth","token_url":"https://auth.gog.com/token"}}})").valid(), "public profile cannot redirect credentials to foreign origin");
     const auto file = root / L"gog.session";
-    auto vault = gog::makeVault(file); const auto original = session();
+    auto vault = gog::makeVault(file); auto original = session(); original.games[0].added_at = 1600000000;
     check(vault->save(original), "DPAPI atomic save");
     std::ifstream input(file, std::ios::binary); const std::string bytes((std::istreambuf_iterator<char>(input)), {}); input.close();
     check(bytes.find("fixture-access") == std::string::npos && bytes.find("9007199254740993") == std::string::npos, "no plaintext credentials or membership");
     std::optional<gog::Session> restored;
     check(static_cast<bool>(vault->load(restored)) && restored && restored->tokens.user == original.tokens.user && restored->games.size() == 1, "DPAPI roundtrip");
+    check(restored->games[0].added_at == 1600000000, "acquisition survives restart");
     auto bad = original; bad.tokens.user = "../bad";
     check(!vault->save(bad) && static_cast<bool>(vault->load(restored)), "failed save retains previous session");
     check(atomic_file::write(file, "corrupt"), "corrupt fixture");
     check(vault->load(restored).failure == gog::Failure::storage && !restored, "corrupt cache fails closed");
     check(vault->clear() && static_cast<bool>(vault->load(restored)) && !restored, "logout clears vault");
+    check(protected_file::write(file, "launchme-gog-v1\n\"fixture-client\" \"1\" \"fixture-access\" \"fixture-refresh\" 1800000000 1 1\n\"123\" \"Legacy\" 0\n", L"Fixture"), "legacy vault fixture");
+    check(static_cast<bool>(vault->load(restored)) && restored && restored->games.size() == 1 && !restored->games[0].added_at, "old sessions load without invented dates");
+    check(vault->clear(), "legacy fixture cleanup");
     StoreLibrary local; auto installed = game("123"); installed.installed = true;
     installed.play_action = {L"C:\\fixture\\game.exe"}; local.visible.push_back(installed);
-    auto merged = mergePcLibraries(mergeGogLibrary(local, {game("123"), game("456")}, "1"), root / L"libraries");
+    auto merged = mergePcLibraries(mergeGogLibrary(local, {original.games[0], game("456")}, "1"), root / L"libraries");
     check(merged.visible.size() == 2 && merged.visible[0].installed && !merged.visible[1].installed &&
         merged.visible[0].account_id.empty() && merged.visible[1].account_id == "1" && merged.visible[0].play_action.target == installed.play_action.target, "local offline merge and online-only membership");
+    check(merged.visible[0].added_at == 1600000000, "installed GOG copy inherits the account acquisition date");
     check(atomic_file::write(root / L"libraries" / L"gog.json", R"({"version":1,"games":[{"id":"456","name":"Private","installed":false,"visibility":"private"}]})"), "privacy fixture");
     merged = mergePcLibraries(mergeGogLibrary(local, {game("123"), game("456")}, "1"), root / L"libraries");
     check(merged.visible.size() == 1 && merged.private_games.size() == 1, "catalog privacy after online merge");

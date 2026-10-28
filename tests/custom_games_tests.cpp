@@ -88,7 +88,7 @@ int main() {
     const auto original = makeGame(games[0], true), moved = makeGame(renamed, true);
     if (gameKey(original) != "custom:0123456789abcdef" || gameKey(moved) != gameKey(original) ||
         gameCacheKey(moved) != gameCacheKey(original) || original.source != GameSource::custom || !isGame(original) ||
-        std::string(sourceSlug(GameSource::custom)) != "custom" || std::wstring(sourceName(GameSource::custom)) != L"Moje gry") return 11;
+        std::string(sourceSlug(GameSource::custom)) != "custom" || std::wstring(sourceName(GameSource::custom)) != L"Gry dodane ręcznie") return 11;
 
     // (5) Launch action: file + arguments, working directory defaults to the file's folder.
     const auto play = primaryGameAction(original);

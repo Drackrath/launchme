@@ -68,7 +68,7 @@ std::vector<std::wstring> arguments(const Request& r) {
     case C::play: add({L"play", app, L"--windows", L"--no-update"}); if (r.steam) add({L"--steam"}); else add({L"--steam-mode", L"none", L"--platform", L"windows"}); break;
     case C::launch_targets: add({L"launch-targets", app}); break;
     case C::running: add({L"running"}); break;
-    case C::stop: add({L"stop", app}); break;
+    case C::stop: add({L"stop", app}); if (r.force) add({L"--force"}); break;
     case C::available: add({L"available", app}); break;
     case C::cloud_list: add({L"cloud", L"list", app}); break;
     case C::cloud_sync:
@@ -204,6 +204,19 @@ const wchar_t* cloudLabel(CloudState state) {
     case CloudState::incomplete: return tr(L"Chmura: niepełna synchronizacja");
     case CloudState::failed: return tr(L"Chmura: błąd połączenia lub synchronizacji");
     default: return tr(L"Chmura: nie sprawdzono");
+    }
+}
+const wchar_t* cloudShort(CloudState state) {
+    switch (state) {
+    case CloudState::checking: return tr(L"Sprawdzanie…");
+    case CloudState::files: return tr(L"Zapisy dostępne");
+    case CloudState::empty: return tr(L"Brak zapisów");
+    case CloudState::syncing: return tr(L"Synchronizacja…");
+    case CloudState::synced: return tr(L"Zsynchronizowano");
+    case CloudState::conflicts: return tr(L"Konflikt zapisów");
+    case CloudState::incomplete: return tr(L"Niepełna synchronizacja");
+    case CloudState::failed: return tr(L"Błąd synchronizacji");
+    default: return tr(L"Nie sprawdzono");
     }
 }
 std::optional<std::vector<Dlc>> dlcs(const json::Value& value) {

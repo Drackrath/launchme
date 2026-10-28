@@ -104,11 +104,54 @@ void Launcher::steamInstallFinished(uint32_t generation, bool ok) {
 
 // ---- Przełączanie kont Steam --------------------------------------------------------------------
 
+// Szczegóły → "…" → Konto Steam: the default (the account that installed it, when switching is on),
+// then every account Steam remembers. The list is read at most every few seconds (the menu repaints).
+const std::vector<steam_accounts::Account>& Launcher::rememberedSteamAccounts() const {
+    const auto now = GetTickCount64();
+    if (!steam_accounts_cache_at_ || now - steam_accounts_cache_at_ > 5000) {
+        steam_accounts_cache_.clear();
+        for (auto& account : steam_accounts_()) if (account.remember && !account.account_name.empty() && account.steam_id) steam_accounts_cache_.push_back(std::move(account));
+        steam_accounts_cache_at_ = now;
+    }
+    return steam_accounts_cache_;
+}
+std::vector<uint64_t> Launcher::steamAccountChoices(const Game& game) const {
+    if (!steamGame(game) || !game.installed) return {};
+    const auto& accounts = rememberedSteamAccounts();
+    if (accounts.size() < 2) return {};
+    std::vector<uint64_t> choices{0};
+    for (const auto& account : accounts) choices.push_back(account.steam_id);
+    return choices;
+}
+std::wstring Launcher::steamAccountLabel(const Game& game) const {
+    const auto found = settings_.steam_launch_accounts.find(std::to_string(game.app_id));
+    if (found == settings_.steam_launch_accounts.end()) return tr(L"domyślne");
+    for (const auto& account : rememberedSteamAccounts())
+        if (account.steam_id == found->second) return account.persona.empty() ? text_encoding::wideLenient(account.account_name) : account.persona;
+    return tr(L"domyślne");
+}
+void Launcher::cycleSteamAccount(const Game& game) {
+    const auto choices = steamAccountChoices(game);
+    if (choices.size() < 2) return;
+    const auto id = std::to_string(game.app_id);
+    const auto found = settings_.steam_launch_accounts.find(id);
+    const uint64_t current = found == settings_.steam_launch_accounts.end() ? 0 : found->second;
+    auto at = std::find(choices.begin(), choices.end(), current);
+    const uint64_t next = at == choices.end() || at + 1 == choices.end() ? choices.front() : *(at + 1);
+    if (next) settings_.steam_launch_accounts[id] = next; else settings_.steam_launch_accounts.erase(id);
+    settings_dirty_ = true; saveSettings();
+    audio_.navigate(); InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
 std::optional<steam_accounts::Account> Launcher::steamSwitchTarget(const Game& game, bool& unremembered) const {
     unremembered = false;
-    if (!settings_.steam_account_switch || !steamGame(game) || !game.installed || !game.steam_owner || !account_ || game.steam_owner == account_) return {};
+    if (!steamGame(game) || !game.installed || !account_) return {};
+    // A chosen account (Szczegóły → "…" → Konto Steam) always; otherwise the installing one, when switching is on.
+    const auto chosen = settings_.steam_launch_accounts.find(std::to_string(game.app_id));
+    const uint64_t wanted = chosen != settings_.steam_launch_accounts.end() ? chosen->second : settings_.steam_account_switch ? game.steam_owner : 0;
+    if (!wanted || wanted == account_) return {};
     for (auto& account : steam_accounts_()) {
-        if (account.steam_id != game.steam_owner) continue;
+        if (account.steam_id != wanted) continue;
         if (account.remember && !account.account_name.empty()) return account;
         unremembered = true; // Steam would ask for its password: Launchme leaves it to Steam.
         return {};

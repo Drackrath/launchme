@@ -58,10 +58,10 @@ void Launcher::gogInstallKey(WPARAM key, bool repeated) {
         gog_install_ui_.open = false; mouse_transition_until_ = GetTickCount64() + GetDoubleClickTime();
     } else if (key == VK_UP) {
         gog_install_ui_.row = std::max(0, gog_install_ui_.row - 1);
-        if ((gog_install_ui_.game.source == GameSource::epic || gog_install_ui_.steam) && gog_install_ui_.row == 2) gog_install_ui_.row = 1;
+        if ((gog_install_ui::helperInstall(gog_install_ui_.game.source) || gog_install_ui_.steam) && gog_install_ui_.row == 2) gog_install_ui_.row = 1;
     } else if (key == VK_DOWN || key == VK_TAB) {
         gog_install_ui_.row = std::min(4, gog_install_ui_.row + 1);
-        if ((gog_install_ui_.game.source == GameSource::epic || gog_install_ui_.steam) && gog_install_ui_.row == 2) gog_install_ui_.row = 3;
+        if ((gog_install_ui::helperInstall(gog_install_ui_.game.source) || gog_install_ui_.steam) && gog_install_ui_.row == 2) gog_install_ui_.row = 3;
     }
     else if ((key == VK_LEFT || key == VK_RIGHT) && gog_install_ui_.row == 0 && gog_install_ui_.steam) {
         // Steam: the next library folder.
@@ -78,10 +78,12 @@ void Launcher::gogInstallAccept() {
     auto& ui = gog_install_ui_;
     if (!ui.open) return;
     if (ui.steam) { steamInstallAccept(); InvalidateRect(hwnd_, nullptr, FALSE); return; } // src/app/steam_install.cpp
-    const bool epic = ui.game.source == GameSource::epic;
-    if (epic ? !epic_service_ : !gog_service_) return;
+    const bool amazon = ui.game.source == GameSource::amazon;
+    const bool epic = ui.game.source == GameSource::epic || amazon; // Both: one game folder, the helper downloads.
+    if (amazon ? !amazon_service_ : ui.game.source == GameSource::epic ? !epic_service_ : !gog_service_) return;
     if (ui.row == 4) { gogInstallKey(VK_ESCAPE, false); return; }
     if (ui.row == 3) {
+        if (amazon) { amazonInstallAccept(); InvalidateRect(hwnd_, nullptr, FALSE); return; }
         if (epic) { epicInstallAccept(); InvalidateRect(hwnd_, nullptr, FALSE); return; }
         if (ui.snapshot.state == gog::InstallState::installing) return;
         if (ui.snapshot.busy()) { gog_service_->cancelInstall(); return; }
@@ -95,7 +97,8 @@ void Launcher::gogInstallAccept() {
         if (epic && (ui.row == 0 || ui.row == 2)) return;
         if (ui.row == 0) { gogInstallKey(VK_RIGHT, false); return; }
         const bool game = ui.row == 1;
-        const std::wstring title = epic ? tr(L"Wybierz folder nadrzędny gry — Launchme doda podfolder Epic") :
+        const std::wstring title = amazon ? tr(L"Wybierz folder nadrzędny gry — Launchme doda podfolder Amazon") :
+                                   epic ? tr(L"Wybierz folder nadrzędny gry — Launchme doda podfolder Epic") :
                                    game ? tr(L"Wybierz folder nadrzędny gry — Launchme doda podfolder GOG") :
                                           tr(L"Wybierz folder na pobierane części instalatora");
         const auto initial = game ? ui.request.install_directory.parent_path() : ui.request.download_root;
@@ -105,10 +108,12 @@ void Launcher::gogInstallAccept() {
         request.initial = initial;
         request.native = [this, title, initial] { return pickFolder(hwnd_, title.c_str(), initial); };
         const auto product = ui.request.product;
-        openFileBrowser(std::move(request), [this, game, epic, product](const std::filesystem::path& folder) {
+        const auto subfolder = amazon ? L"Amazon-" + amazon::folderName(ui.game.name, product) :
+                               (epic ? L"Epic-" : L"GOG-") + text_encoding::wide(product);
+        openFileBrowser(std::move(request), [this, game, product, subfolder](const std::filesystem::path& folder) {
             auto& install = gog_install_ui_;
             if (!install.open || install.request.product != product || install.snapshot.busy()) return;
-            if (game) install.request.install_directory = folder / ((epic ? L"Epic-" : L"GOG-") + text_encoding::wide(product));
+            if (game) install.request.install_directory = folder / subfolder;
             else install.request.download_root = folder;
             InvalidateRect(hwnd_, nullptr, FALSE);
         });
@@ -133,7 +138,7 @@ void Launcher::pollGogInstall() {
     if (!gog_service_) return;
     auto next = gog_service_->takeInstall();
     if (!next) return;
-    if (gog_install_ui_.game.source == GameSource::epic || gog_install_ui_.steam) return;
+    if (gog_install_ui::helperInstall(gog_install_ui_.game.source) || gog_install_ui_.steam) return;
     const bool was_active = gog_install_ui_.snapshot.progress().active();
     if (next->product.empty()) {
         gog_install_ui_.snapshot.state = gog::InstallState::none;

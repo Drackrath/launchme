@@ -438,7 +438,8 @@ void Renderer::drawLibraryListPlus() {
     }
     const auto description = info && !info->description.empty() ? info->description : std::wstring(tr(L"Opis gry nie jest dostępny."));
     const int lines = static_cast<int>((layout.bottom() - y) / typeMetrics(details_body_font_.Get()).line);
-    paragraph(description, left, y, width, details_body_font_.Get(), gray(0.72f, fade), lines);
+    if (!info && context_->preview_waiting) drawSkeleton(D2D1::RectF(left, y, left + width, layout.bottom()), std::min(lines, 5), typeMetrics(details_body_font_.Get()).line, fade);
+    else paragraph(description, left, y, width, details_body_font_.Get(), gray(0.72f, fade), lines);
     drawListPlusPoster(); // Launch zoom and dimming stay anchored to the large poster.
 }
 
@@ -486,7 +487,7 @@ void Renderer::drawLibraryPreview() {
         };
         if (details) {
             fact(details->genres); fact(details->developer); fact(details->release_date);
-        }
+        } else if (context_->preview_waiting) { drawSkeleton(D2D1::RectF(info_left, y, info_left + std::min(info_width, 360.0f), y + 84), 3, 28, fade); y += 84; }
         y += drawRating(info_left, y + 4, info_width, fade);
         facts_bottom = y;
     }
@@ -505,7 +506,9 @@ void Renderer::drawLibraryDescription(settings_ui::Rect rect, float alpha) {
     const auto* info = context_->preview;
     const auto description = info && !info->description.empty() ? info->description : std::wstring(tr(L"Opis gry nie jest dostępny."));
     const int lines = static_cast<int>((rect.bottom - rect.top - 76) / typeMetrics(details_body_font_.Get()).line);
-    paragraph(description, rect.left + 24, rect.top + 54, rect.right - rect.left - 48, details_body_font_.Get(), gray(0.82f, alpha), lines);
+    if (!info && context_->preview_waiting)
+        drawSkeleton(D2D1::RectF(rect.left + 24, rect.top + 54, rect.right - 24, rect.bottom - 22), std::min(lines, 4), typeMetrics(details_body_font_.Get()).line, alpha);
+    else paragraph(description, rect.left + 24, rect.top + 54, rect.right - rect.left - 48, details_body_font_.Get(), gray(0.82f, alpha), lines);
 }
 
 void Renderer::drawLibraryFacts(settings_ui::Rect rect, float alpha, bool metadata) {

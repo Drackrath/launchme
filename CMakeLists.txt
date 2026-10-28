@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(launchme VERSION 0.3.1 LANGUAGES C CXX)
+project(launchme VERSION 0.3.2 LANGUAGES C CXX)
 
 if(NOT WIN32)
     message(FATAL_ERROR "This native Direct2D prototype currently targets Windows.")
@@ -115,6 +115,7 @@ set(LAUNCHME_APP_SOURCES
     src/app/navigation.cpp
     src/app/pointer.cpp
     src/app/friends.cpp
+    src/app/friend_chat.cpp
     src/app/dashboard.cpp
     src/app/paint.cpp
     src/app/input.cpp
@@ -221,11 +222,13 @@ set(LAUNCHME_APP_SOURCES
     src/app/pc_platforms.cpp
     src/app/gog.cpp
     src/app/epic.cpp
+    src/app/amazon.cpp
     src/app/web_imports.cpp
     src/app/steam_install.cpp
     src/store/web_import.cpp
     src/store/ea_account.cpp
     ${LAUNCHME_EPIC_SOURCES}
+    src/store/amazon.cpp
     src/app/gog_install.cpp
     src/app/my_games.cpp
     src/app/file_browser.cpp
@@ -363,6 +366,7 @@ set(LAUNCHME_APP_SOURCES
     src/platform/user_config.cpp
     src/platform/library_state.cpp
     src/platform/launch.cpp
+    src/platform/helper_process.cpp
     src/platform/file_dialog.cpp
     src/platform/file_listing.cpp
     src/platform/performance.cpp
@@ -588,10 +592,10 @@ target_sources(launchme PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/companion.rc")
 install(TARGETS launchme RUNTIME DESTINATION . COMPONENT Runtime)
 add_custom_target(launchme_audio ALL
     COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/assets"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${LAUNCHME_RES_DIR}/HorizonsTheme.mp3" "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/assets/HorizonsTheme.mp3"
-    DEPENDS "${LAUNCHME_RES_DIR}/HorizonsTheme.mp3" VERBATIM)
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${LAUNCHME_RES_DIR}/HorizonsTheme.mp3" "${LAUNCHME_RES_DIR}/ExploratorySilenceTheme.mp3" "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/assets/"
+    DEPENDS "${LAUNCHME_RES_DIR}/HorizonsTheme.mp3" "${LAUNCHME_RES_DIR}/ExploratorySilenceTheme.mp3" VERBATIM)
 add_dependencies(launchme launchme_audio)
-install(FILES res/HorizonsTheme.mp3 DESTINATION assets COMPONENT Runtime)
+install(FILES res/HorizonsTheme.mp3 res/ExploratorySilenceTheme.mp3 DESTINATION assets COMPONENT Runtime)
 # Publisher and developer logos (src/library/studios.cpp; HVR88's Monochrome Gaming Logos, see README).
 file(GLOB LAUNCHME_STUDIO_LOGOS CONFIGURE_DEPENDS "${LAUNCHME_RES_DIR}/studios/*.png")
 add_custom_target(launchme_studios ALL
@@ -689,7 +693,9 @@ if(BUILD_TESTING)
     launchme_executable(tarot_tests TEST tarot_deck_wish_and_picks SOURCES tests/tarot_tests.cpp)
     launchme_executable(updater_tests TEST updater_release_package_and_swap SOURCES tests/updater_tests.cpp)
     launchme_executable(aurelia_tests TEST aurelia_protocol_install_and_process SOURCES tests/aurelia_tests.cpp)
+    launchme_executable(amazon_tests TEST amazon_nile_contracts SOURCES tests/amazon_tests.cpp)
     add_test(NAME aurelia_desktop_tv_integration COMMAND launcher_ui_tests --aurelia)
+    add_test(NAME amazon_games_nile_flow COMMAND launcher_ui_tests --amazon)
     launchme_executable(companion_tests TEST companion_replies_prompts_and_rig SOURCES tests/companion_tests.cpp)
     launchme_executable(companion_social_tests TEST companion_social_rules_history_and_plans SOURCES tests/companion_social_tests.cpp)
     launchme_executable(companion_memory_tests TEST companion_weighted_memory_and_capacity SOURCES tests/companion_memory_tests.cpp)

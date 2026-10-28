@@ -32,7 +32,8 @@ bool Launcher::desktopSheet() const {
 
 // As launchGame() decides: a GOG or Epic game with its account signed in installs through the launcher.
 bool Launcher::desktopOwnInstall(const Game& game) const {
-    return (game.source == GameSource::gog && !gog_state_.account.empty()) || (game.source == GameSource::epic && !epic_state_.account.empty());
+    return (game.source == GameSource::gog && !gog_state_.account.empty()) || (game.source == GameSource::epic && !epic_state_.account.empty()) ||
+           (game.source == GameSource::amazon && amazonConnected());
 }
 
 // Sklep from the keyboard: the field keeps the typing (WM_CHAR, Backspace); arrows walk the results by
@@ -142,7 +143,9 @@ void Launcher::desktopPageActivate(const SheetHit& hit, bool double_click) {
         if (hit.kind == K::tile_action && hit.index >= 0 && static_cast<size_t>(hit.index) < downloads_games_.size()) {
             const auto game = downloads_games_[static_cast<size_t>(hit.index)];
             if (desktopOwnInstall(game)) { // Its install dialog: "Przerwij" stops it.
-                if (game.source == GameSource::epic) openEpicInstall(game); else openGogInstall(game);
+                if (game.source == GameSource::epic) openEpicInstall(game);
+                else if (game.source == GameSource::amazon) openAmazonInstall(game);
+                else openGogInstall(game);
                 return;
             }
             downloads_state_.back = false;

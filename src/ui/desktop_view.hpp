@@ -96,7 +96,7 @@ enum class Action {
     none, play, suspend, close_game, details, favorite, collections, collection_toggle, collection_new, collection_manage,
     versions, artwork, retry_art, missing_art, identify, folder, hide, exclude, plugin, sort, section_rename, section_games,
     section_options, section_delete, section_up, section_down, section_tv, section_hide, clear_marks, select_all, store_page, downloads, metadata, companion_change, companion_mind,
-    companion_settings, uninstall, launch_options, aurelia
+    companion_settings, uninstall, launch_options, aurelia, steam_account
 };
 struct MenuItem {
     Action action = Action::none;
@@ -176,7 +176,7 @@ enum class Target {
     companion_bubble, card, card_play, card_check, popover_clear, popover_action, scrollbar, sort, installed, size_slider, pane_primary, pane_favorite,
     pane_more, pane_quick, pane_chip, pane_chip_add, pane_rating, pane_studio, bulk, menu_item, submenu_item, popover_row, popover_all,
     empty_primary, empty_secondary, grid, widget_friend, widget_item, widget_all, widget_panel, library_add, library_refresh, companion_more,
-    sidebar_toggle, pane_resize, pane_achievements
+    sidebar_toggle, pane_resize, pane_achievements, pane_cloud
 };
 struct Hit {
     Target target = Target::none;

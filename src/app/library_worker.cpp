@@ -20,7 +20,13 @@
 #include <thread>
 
 void Launcher::startLibraryWorker() {
-    if (aurelia_active_) { startAureliaLibraryWorker(); startArtworkWorkers(); return; }
+    // Aurelia supplements Steam: the Steam client's own library (every account's installations,
+    // collections, hidden games) stays the source while Steam is installed here; Aurelia's list
+    // is the library only without a Steam client.
+    if (aurelia_active_) {
+        startAureliaLibraryWorker();
+        if (aurelia_library_source_) { startArtworkWorkers(); return; }
+    }
     const auto hwnd = hwnd_;
     const auto alive = alive_;
     // Scanning and network traffic never run on the UI thread. The worker shares
@@ -115,6 +121,7 @@ void Launcher::startLibraryWorker() {
             const auto text = [&](std::wstring_view value) { for (const wchar_t c : value) mix(c); mix(0); };
             const auto game = [&](const Game& item) {
                 mix(item.app_id); mix(item.shortcut_id); text(item.name); mix(item.installed); mix(item.last_played); mix(item.last_updated);
+                mix(item.added_at);
                 mix(static_cast<uint64_t>(item.visibility)); mix(static_cast<uint64_t>(item.installation.phase));
                 text(item.executable.native()); text(item.rom.native()); text(item.platform); text(item.install_directory.native());
             };

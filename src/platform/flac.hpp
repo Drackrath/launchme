@@ -13,11 +13,12 @@ struct AudioClip {
 
 // Called on a COM-initialized background thread after MFStartup.
 AudioClip decodeFlac(const std::filesystem::path& path, size_t max_bytes, const std::function<bool()>& cancelled = {});
-std::filesystem::path localSoundtrackDirectory();
-// Settings → Dźwięk → "Folder dźwięków" (AppSettings::sound_folder); thread-safe, read by the
-// audio worker. Searched after the bundled assets and before the old desktop locations.
+// Settings → Dźwięk → "Folder dźwięków" (AppSettings::sound_folder); thread-safe.
 void setUserSoundFolder(const std::filesystem::path& folder);
 std::filesystem::path userSoundFolder();
 // The playable audio files directly in `folder` (.mp3, .flac, .wav, .m4a, .wma), by name.
 std::vector<std::wstring> soundFolderFiles(const std::filesystem::path& folder);
+// A built-in sound: assets/ beside the executable only.
 std::filesystem::path localSoundFile(const wchar_t* name);
+// `name` as the folder lists it now (soundFolderFiles), else empty.
+std::filesystem::path soundFolderFile(const std::filesystem::path& folder, const std::wstring& name);

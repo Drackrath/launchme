@@ -66,7 +66,7 @@ bool Launcher::refreshStudios() {
         for (const auto& entry : studio_groups_[static_cast<size_t>(role)]) {
             auto& games = studio_games_[wideKey(static_cast<studios::Role>(role), entry.studio->id)];
             for (const auto& key : entry.games) if (const auto found = by_key.find(key); found != by_key.end()) games.push_back(*found->second);
-            games = versions_.collapse(games, library_state_.preferred_versions);
+            games = versions_.collapse(games, library_state_.preferred_versions, library_state_.first_seen);
         }
     requestStudioBadges();
     return true;

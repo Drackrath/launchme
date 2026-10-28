@@ -1,6 +1,7 @@
 #include "launcher.hpp"
 #include "../ui/grid_layout.hpp"
 #include "../store/epic_legendary.hpp"
+#include "../store/amazon.hpp"
 #include "../library/ubisoft_catalog.hpp"
 #include "../platform/text_encoding.hpp"
 #include <algorithm>
@@ -13,7 +14,7 @@ bool sameAction(const GameAction& a, const GameAction& b) {
 bool sameStructure(const Game& a, const Game& b) {
     return gameKey(a) == gameKey(b) && a.name == b.name && a.installed == b.installed &&
         a.installation.active() == b.installation.active() && a.visibility == b.visibility &&
-        a.last_played == b.last_played && a.last_updated == b.last_updated && a.account_id == b.account_id &&
+        a.last_played == b.last_played && a.last_updated == b.last_updated && a.added_at == b.added_at && a.account_id == b.account_id &&
         a.install_directory == b.install_directory && a.executable == b.executable &&
         sameAction(a.play_action, b.play_action) && sameAction(a.install_action, b.install_action);
 }
@@ -26,7 +27,8 @@ PcLibraryMessage readPcLibrary(const PcLibraryRequest& request, const std::funct
     for (const auto* snapshot : {&message.ea_import, &message.battlenet_import})
         if (*snapshot) imported.insert(imported.end(), (*snapshot)->games.begin(), (*snapshot)->games.end());
     const auto scan = [&] { return scanPcLibraries(root / L"libraries", request.gog_owned, request.gog_account,
-        request.previous_battlenet, request.epic_owned, request.epic_account, epic::installedGames(root), imported, request.multimc); };
+        request.previous_battlenet, request.epic_owned, request.epic_account, epic::installedGames(root), imported, request.multimc,
+        amazon::readProfile(root).games); };
     if (cancel()) return message;
     message.library = scan();
     // Owned Ubisoft products are listed by title only; new titles come from the public catalogue.
@@ -134,6 +136,7 @@ void Launcher::startPcWatcher() {
             watch.directory(config / L"installed" / L"gog");
             watch.directory(config / L"installed" / L"epic");
             watch.directory(config / L"epic" / L"legendary");
+            watch.directory(amazon::nileDirectory(config)); // Nile's library and installs.
         };
         build();
         size_t watched = watch.size();
@@ -173,7 +176,8 @@ bool Launcher::canUninstall(const Game& game) const {
 
 void Launcher::uninstallGame(const Game& game) {
     if (!canUninstall(game) || sessionState(game) != SessionState::none) return; // Never a running or suspended game.
-    if (aurelia_active_ && aurelia::validGame(game)) { openAurelia(&game); return; }
+    // A game Aurelia manages is removed by it; every other Steam game by the Steam client below.
+    if (aureliaManaged(game)) { aureliaUninstall(game); return; }
     dismissMenu();
     const auto ask = [&](GameAction silent) {
         // Legendary and a silent GOG uninstaller delete without asking: the launcher asks first
@@ -185,7 +189,7 @@ void Launcher::uninstallGame(const Game& game) {
         audio_.context();
         InvalidateRect(hwnd_, nullptr, FALSE);
     };
-    if (game.epic_managed) { ask({}); return; }
+    if (game.epic_managed || game.source == GameSource::amazon) { ask({}); return; } // Nile deletes it too.
     if (game.source == GameSource::gog)
         if (auto silent = silentUninstallAction(uninstallAction(game, installed_programs_()))) { ask(std::move(silent)); return; }
     if (game.source == GameSource::xbox) { // Packaged games: Windows' own Apps list removes them.
@@ -210,12 +214,13 @@ void Launcher::uninstallGame(const Game& game) {
 }
 
 void Launcher::uninstallManagedGame(const Game& game, const GameAction& silent) {
-    if (!game.epic_managed && !silent) return;
+    if (!game.epic_managed && game.source != GameSource::amazon && !silent) return;
     work_.start([window = hwnd_, alive = alive_, game, silent, run = silent_uninstall_, root = userConfigDirectory()] {
         auto message = std::make_unique<StoreChangeMessage>();
         message->uninstalled = game.name;
         const auto cancel = [&] { return !alive->load(); };
         if (game.epic_managed) message->failed = !epic::uninstallManaged(root, game, cancel);
+        else if (game.source == GameSource::amazon) message->failed = !amazon::uninstall(root, game, cancel);
         else {
             const auto result = run(silent, window, cancel);
             if (result == UninstallResult::refused) message->uninstalled.clear(); // UAC declined: nothing to report.

@@ -105,7 +105,6 @@ void Renderer::drawDesktopDetails() {
         desktopHot(hit, {x - 4, y - 12, x + w + 4, y + 12});
     }
     y += 26;
-    if (!context_->aurelia_cloud.empty()) { textLine(context_->aurelia_cloud, left, y, right - left, desktop_font_.Get(), uiAccent(0.9f)); y += 26; }
     // The actions in one row (wrapping when narrow).
     {
         float x = left, row_top = y;
@@ -147,6 +146,8 @@ void Renderer::drawDesktopDetails() {
             desktopButton(r, 1, hover(hit), pressed(hit), true, icon, label);
             desktopHot(hit, r);
         };
+        // While the game runs: Zamknij grę right after Wróć (the same close as its menu's).
+        outline(context_->detail_close_action, desktop_ui::glyph::stop, tr(L"Zamknij grę"));
         outline(context_->detail_collections_action, desktop_ui::glyph::folder, tr(L"Kolekcje"));
         outline(context_->detail_versions_action, desktop_ui::glyph::sync, tr(L"Wersje"));
         outline(context_->detail_identify, desktop_ui::glyph::tag, tr(L"Zidentyfikuj"));
@@ -159,6 +160,8 @@ void Renderer::drawDesktopDetails() {
         extra(DetailsExtra::artwork, desktop_ui::glyph::picture, tr(L"Grafika"), true);
         extra(DetailsExtra::folder, desktop_ui::glyph::folder_open, tr(L"Folder"), view.folder);
         if (view.hideable) extra(DetailsExtra::hide, view.hidden ? desktop_ui::glyph::view : desktop_ui::glyph::hide, view.hidden ? tr(L"Pokaż") : tr(L"Ukryj"), true);
+        // Cloud saves of a game Aurelia manages: its state, a click opens its page.
+        outline(context_->detail_cloud_action, 0xE753, context_->aurelia_cloud.empty() ? std::wstring(tr(L"Zapisy w chmurze")) : context_->aurelia_cloud);
         y = row_top + bh + 28;
     }
     // Two columns: the description and facts; the numbers and cards.
@@ -169,9 +172,11 @@ void Renderer::drawDesktopDetails() {
     if (details && !details->description.empty())
         main_y += paragraph(details->description, left, main_y, main_right - left, desktop_font_.Get(), gray(0.82f), 200) + 24;
     else {
-        textLine(context_->details_loading ? tr(L"Wczytywanie opisu…") : tr(L"Opis gry nie jest dostępny."), left, main_y + 9, main_right - left,
-                 desktop_font_.Get(), palette::muted());
-        main_y += 40;
+        if (context_->details_loading) { drawSkeleton(D2D1::RectF(left, main_y, main_right, main_y + 88), 4, 22); main_y += 100; }
+        else {
+            textLine(tr(L"Opis gry nie jest dostępny."), left, main_y + 9, main_right - left, desktop_font_.Get(), palette::muted());
+            main_y += 40;
+        }
     }
     if (details) {
         const std::pair<const wchar_t*, const std::wstring*> facts[] = {

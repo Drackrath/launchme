@@ -26,8 +26,8 @@ const Game* Launcher::metroInstallGame() const {
         if (!isGame(game) || game.visibility != GameVisibility::public_game) continue;
         if (game.installation.active()) return &game;
         if (!game.installed) continue;
-        const auto seen = library_state_.first_seen.find(gameKey(game));
-        if (seen != library_state_.first_seen.end() && seen->second > newest_seen) { newest_seen = seen->second; newest = &game; }
+        const auto added = library_view::addedTime(game, library_state_.first_seen);
+        if (added > newest_seen) { newest_seen = added; newest = &game; }
     }
     return newest;
 }

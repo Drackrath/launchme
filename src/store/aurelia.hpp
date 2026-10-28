@@ -32,6 +32,7 @@ struct Request {
     std::wstring language = L"english";
     enum class Direction { both, down, up } direction = Direction::both;
     bool auto_cloud = false;
+    bool force = false; // stop: end the recorded process tree at once (taskkill /F), as Zamknij grę does.
 };
 struct Reply {
     bool ok = false, cancelled = false;
@@ -78,6 +79,7 @@ struct Cloud {
 };
 Cloud cloud(const Reply& reply, bool sync);
 const wchar_t* cloudLabel(CloudState state);
+const wchar_t* cloudShort(CloudState state); // The state alone (a row's value, the icon's tooltip).
 struct Dlc { uint32_t app = 0; std::wstring name; std::optional<bool> owned, installed, disabled; };
 std::optional<std::vector<Dlc>> dlcs(const json::Value& value);
 struct ChatMessage { uint64_t timestamp = 0; bool self = false; std::wstring text; };

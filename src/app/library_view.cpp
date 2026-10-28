@@ -111,7 +111,7 @@ void Launcher::switchLibraryTab(int amount) {
         // Another store or console: its own library, in the same view.
         if (pc_source_) {
             for (const auto source : {GameSource::steam, GameSource::gog, GameSource::epic, GameSource::ea, GameSource::ubisoft, GameSource::battlenet,
-                                      GameSource::xbox, GameSource::multimc, GameSource::drmfree, GameSource::custom})
+                                      GameSource::amazon, GameSource::xbox, GameSource::multimc, GameSource::drmfree, GameSource::custom})
                 if (sourceSlug(source) == tab.id) { openPcLibrary(source); break; }
         } else openPlatform(text_encoding::wide(tab.id));
         auto options = libraryOptions();
@@ -127,7 +127,7 @@ void Launcher::switchLibraryTab(int amount) {
     }
     if (tab.id.empty()) {
         versions_ = versions::Index(public_library_);
-        grouped_library_ = versions_.collapse(public_library_, library_state_.preferred_versions);
+        grouped_library_ = versions_.collapse(public_library_, library_state_.preferred_versions, library_state_.first_seen);
         library_category_.clear(); category_library_.clear();
     } else {
         const auto category = std::find_if(categories_.begin(), categories_.end(), [&](const Category& item) { return item.id == tab.id; });
@@ -339,16 +339,22 @@ void Launcher::recordLibraryGames() {
     const auto now = nowSeconds();
     // The very first library is no news to her; later first sightings are new games.
     const bool first_library = library_state_.first_seen.empty();
-    std::vector<std::string> added;
+    std::unordered_set<std::string> detected;
     // try_emplace: no map node is built for the (usual) key that is already there.
     // Games shown by Ctrl+H leave no trace in the saved library state.
-    for (const auto& game : public_library_) {
-        if (!isGame(game) || game.visibility != GameVisibility::public_game) continue;
-        auto key = gameKey(game);
-        if (!library_state_.first_seen.try_emplace(key, now).second) continue;
-        library_state_dirty_ = true;
-        if (!first_library) added.push_back(std::move(key));
-    }
+    // Record the scanned inventory, including uninstalled games currently filtered out of the UI.
+    // Showing them later is not a new addition. Disabled sources and hidden games stay unrecorded.
+    for (const auto* list : {&installed_library_, &store_library_, &custom_library_, &drm_library_, &shortcut_library_, &uninstalled_library_, &public_library_})
+        for (const auto& game : *list) {
+            if (!isGame(game) || game.visibility != GameVisibility::public_game || locallyHidden(game) || excludedGame(game)) continue;
+            if (game.source != GameSource::steam && game.source != GameSource::custom && !settings_.enabled_pc_sources.contains(sourceSlug(game.source))) continue;
+            auto key = gameKey(game);
+            if (key.empty() || !library_state_.first_seen.try_emplace(key, now).second) continue;
+            library_state_dirty_ = true;
+            if (!first_library) detected.insert(std::move(key));
+        }
+    std::vector<std::string> added;
+    for (const auto& game : public_library_) if (auto key = gameKey(game); detected.erase(key)) added.push_back(std::move(key));
     companionLibraryChanged(std::move(added));
 }
 void Launcher::refreshRecentGames() {
@@ -414,8 +420,8 @@ void Launcher::restorePlace() {
     std::optional<GameSource> source;
     const bool category_library = saved.source == "category"; // A shelf category's own library.
     if (!saved.source.empty() && !category_library) {
-        for (const auto candidate : {GameSource::steam, GameSource::gog, GameSource::battlenet, GameSource::ea, GameSource::ubisoft, GameSource::epic, GameSource::xbox,
-                                     GameSource::multimc, GameSource::drmfree, GameSource::custom})
+        for (const auto candidate : {GameSource::steam, GameSource::gog, GameSource::battlenet, GameSource::ea, GameSource::ubisoft, GameSource::epic, GameSource::amazon,
+                                     GameSource::xbox, GameSource::multimc, GameSource::drmfree, GameSource::custom})
             if (saved.source == sourceSlug(candidate)) source = candidate;
         // User-added and DRM-free games are loaded before the first shelves; stores wait for their scan.
         const bool user_games = source == GameSource::custom || source == GameSource::drmfree;

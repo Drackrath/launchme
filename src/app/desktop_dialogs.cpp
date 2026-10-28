@@ -15,7 +15,8 @@ bool matches(DialogKind drawn, Launcher::Modal modal) {
            (drawn == DialogKind::identify && modal == Launcher::Modal::identify) ||
            (drawn == DialogKind::power_menu && modal == Launcher::Modal::power_menu) ||
            (drawn == DialogKind::exit_prompt && modal == Launcher::Modal::exit_prompt) ||
-           (drawn == DialogKind::gog_install && modal == Launcher::Modal::gog_install);
+           (drawn == DialogKind::gog_install && modal == Launcher::Modal::gog_install) ||
+           (drawn == DialogKind::aurelia && modal == Launcher::Modal::aurelia);
 }
 }
 
@@ -42,6 +43,7 @@ bool Launcher::desktopModalClick(float mouse_x, float mouse_y, bool double_click
         if (hit.kind == K::row && hit.index >= 0) { exit_prompt_ = hit.index; exitPromptAccept(); }
         else if (hit.kind != K::dialog) { exit_prompt_.reset(); prompt_kind_ = PromptKind::exit; InvalidateRect(hwnd_, nullptr, FALSE); }
         return true;
+    case Modal::aurelia: aureliaDesktopClick(hit); return true;
     case Modal::gog_install:
         if (hit.kind == K::row && hit.index >= 0) { gog_install_ui_.row = hit.index; gogInstallAccept(); }
         else if (hit.kind == K::close) gogInstallKey(VK_ESCAPE, false);
@@ -131,7 +133,8 @@ bool Launcher::tickDesktopDialog() {
     if (!desktopModalShown()) return false;
     const bool typing = (topModal() == Modal::library_dialog && library_dialog_.focus == -2 && library_dialog_.textField()) ||
                         (topModal() == Modal::custom_editor && custom_game_ui::field(custom_editor_.focus) >= 0) ||
-                        (topModal() == Modal::identify && identify_state_.query_focus);
+                        (topModal() == Modal::identify && identify_state_.query_focus) ||
+                        (topModal() == Modal::aurelia && aureliaTyping());
     if (!typing) return false;
     const auto phase = GetTickCount64() / 530;
     if (phase == desktop_dialog_caret_) return false;

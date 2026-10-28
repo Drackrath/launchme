@@ -27,6 +27,9 @@ constexpr Icon icons[] = {
     // Drawn here: the four panes; a ring around an X; the two Joy-Con.
     {"windows", "M1 1h10.4v10.4H1zM12.6 1H23v10.4H12.6zM1 12.6h10.4V23H1zM12.6 12.6H23V23H12.6z"},
     {"xbox", "M12 1a11 11 0 1 0 0 22a11 11 0 1 0 0-22zm0 2.2a8.8 8.8 0 1 1 0 17.6a8.8 8.8 0 1 1 0-17.6zM6.4 8 8 6.4l4 4 4-4L17.6 8l-4 4 4 4-1.6 1.6-4-4-4 4L6.4 16l4-4z", true},
+    // Amazon Games, drawn here (Simple Icons does not carry Amazon): a smile ending in an arrowhead,
+    // under a rounded controller-like bar.
+    {"amazon", "M5 4.5h14a3.5 3.5 0 0 1 0 7H5a3.5 3.5 0 0 1 0-7zm0 2a1.5 1.5 0 0 0 0 3h14a1.5 1.5 0 0 0 0-3zM1.6 13.9c6.3 4.7 14.4 5.1 20 1l1.1 1.6c-6.4 4.7-15.6 4.2-22.3-.9zM18.7 12.3l5 .8-.9 5-1.9-.3.5-3-3-.5z"}, // Non-zero: the bar's inner outline runs the other way.
     // A grass block in three faces, the top with its drip edge: Minecraft (MultiMC / Prism).
     {"minecraft", "M12 1.6 22.4 6.8 12 12 1.6 6.8zM1.4 8.6 11.1 13.5V22.4L1.4 17.5zM22.6 8.6V17.5L12.9 22.4V13.5zM1.4 8.6l9.7 4.9v2.6l-2.4-1.2v1.4L6.3 15.1v-1.4L3.8 12.5v1.6L1.4 12.9z", true},
     {"switch", "M10.6 1H6.8A5.3 5.3 0 0 0 1.5 6.3v11.4A5.3 5.3 0 0 0 6.8 23h3.8zM8.6 3v18H6.8a3.3 3.3 0 0 1-3.3-3.3V6.3A3.3 3.3 0 0 1 6.8 3zM6.4 5.6a1.9 1.9 0 1 0 0 3.8a1.9 1.9 0 1 0 0-3.8zM13.4 1h3.8a5.3 5.3 0 0 1 5.3 5.3v11.4a5.3 5.3 0 0 1-5.3 5.3h-3.8zM17.6 12a2.1 2.1 0 1 0 0 4.2a2.1 2.1 0 1 0 0-4.2z", true},
@@ -101,6 +104,7 @@ std::string_view sourceKey(GameSource source) {
     case GameSource::xbox: return "xbox";
     case GameSource::drmfree: return "windows"; // Plain Windows games.
     case GameSource::multimc: return "minecraft";
+    case GameSource::amazon: return "amazon";
     default: return {};
     }
 }

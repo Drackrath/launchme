@@ -86,7 +86,11 @@ Reply invoke(const Runtime& runtime, const Request& request, const Cancel& cance
     const auto endpoint = daemonEndpoint(runtime.profile);
     if (endpoint.empty()) { result.error = tr(L"Nie można utworzyć profilu Aurelii"); return result; }
     env[L"AURELIA_DAEMON_SOCKET"] = endpoint;
-    if (request.command != Command::login && !daemonIdentified(endpoint)) {
+    // `stop` and `running` only read Aurelia's launch records and end the recorded process: run in
+    // this child, not forwarded to the daemon, which (v0.1.40) answers nothing while it waits for a game.
+    const bool local = request.command == Command::stop || request.command == Command::running;
+    if (local) env[L"AURELIA_NO_DAEMON"] = L"1";
+    else if (request.command != Command::login && !daemonIdentified(endpoint)) {
         result.error = tr(L"Nie można potwierdzić tożsamości daemona Aurelii. Spróbuj ponownie po zakończeniu jego uruchamiania."); return result;
     }
     env[L"NO_COLOR"] = L"1";

@@ -15,21 +15,6 @@
 using Microsoft::WRL::ComPtr;
 
 namespace {
-std::filesystem::path knownDesktop() {
-    PWSTR desktop = nullptr;
-    if (FAILED(SHGetKnownFolderPath(FOLDERID_Desktop, 0, nullptr, &desktop))) return {};
-    std::filesystem::path directory(desktop);
-    CoTaskMemFree(desktop);
-    return directory;
-}
-}
-
-std::filesystem::path localSoundtrackDirectory() {
-    const auto desktop = knownDesktop();
-    return desktop.empty() ? std::filesystem::path{} : desktop / L"nintendo-3ds-original-soundtrack";
-}
-
-namespace {
 std::mutex& soundFolderMutex() { static std::mutex mutex; return mutex; }
 std::filesystem::path& soundFolderPath() { static std::filesystem::path path; return path; }
 }
@@ -67,35 +52,20 @@ std::filesystem::path localSoundFile(const wchar_t* name) {
     if (!name || !*name) return {};
     wchar_t executable[32768]{};
     const auto length = GetModuleFileNameW(nullptr, executable, static_cast<DWORD>(std::size(executable)));
-    if (length && length < std::size(executable)) {
-        const auto bundled = std::filesystem::path(executable).parent_path() / L"assets" / name;
-        if (std::filesystem::exists(bundled)) return bundled;
-    }
-    if (const auto folder = userSoundFolder(); !folder.empty()) {
-        std::error_code error;
-        const auto chosen = folder / name;
-        if (std::filesystem::exists(chosen, error)) return chosen;
-        // Also one level down: a soundtrack folder kept inside the chosen one.
-        int checked = 0;
-        for (std::filesystem::directory_iterator item(folder, std::filesystem::directory_options::skip_permission_denied, error), end;
-             !error && item != end && checked < 64; item.increment(error)) {
-            if (!item->is_directory(error)) continue;
-            ++checked;
-            const auto nested = item->path() / name;
-            if (std::filesystem::exists(nested, error)) return nested;
-        }
-    }
-    const auto soundtrack = localSoundtrackDirectory();
-    if (!soundtrack.empty()) {
-        const auto bundled = soundtrack / name;
-        if (std::filesystem::exists(bundled)) return bundled;
-    }
-    const auto desktop = knownDesktop();
-    if (!desktop.empty()) {
-        const auto loose = desktop / name;
-        if (std::filesystem::exists(loose)) return loose;
-    }
-    return {};
+    if (!length || length >= std::size(executable)) return {};
+    std::error_code error;
+    const auto bundled = std::filesystem::path(executable).parent_path() / L"assets" / name;
+    return std::filesystem::is_regular_file(bundled, error) ? bundled : std::filesystem::path{};
+}
+
+std::filesystem::path soundFolderFile(const std::filesystem::path& folder, const std::wstring& name) {
+    if (folder.empty() || name.empty() || name.find_first_of(L"\\/:") != std::wstring::npos) return {};
+    const auto files = soundFolderFiles(folder);
+    // Only a file the folder lists now; a name remembered from an emptied folder plays nothing.
+    const auto found = std::find_if(files.begin(), files.end(), [&](const std::wstring& file) {
+        return CompareStringOrdinal(file.c_str(), -1, name.c_str(), -1, TRUE) == CSTR_EQUAL;
+    });
+    return found == files.end() ? std::filesystem::path{} : folder / *found;
 }
 
 AudioClip decodeFlac(const std::filesystem::path& path, size_t max_bytes, const std::function<bool()>& cancelled) {

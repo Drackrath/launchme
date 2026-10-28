@@ -252,7 +252,8 @@ void Renderer::drawDesktopSettings() {
             if (item.control == Control::collection) {
                 for (const bool down : {false, true}) {
                     const auto b = L.reorder(i, s, down);
-                    const bool enabled = down ? i + 1 < static_cast<int>(rows.size()) : i > 0;
+                    const bool enabled = down ? i + 1 < static_cast<int>(rows.size()) && rows[static_cast<size_t>(i) + 1].control == Control::collection :
+                                                i > 0 && rows[static_cast<size_t>(i) - 1].control == Control::collection;
                     const float h = hovered(down ? Kind::down : Kind::up);
                     if (h > 0 && enabled) desktopFill(b, 7, gray(1, 0.08f));
                     desktopGlyph(down ? glyph::chevron_down : 0xE70E, (b.left + b.right) * 0.5f, middle(b), 10, gray(enabled ? 0.82f : 0.35f));

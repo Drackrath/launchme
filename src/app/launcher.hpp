@@ -46,6 +46,7 @@
 #include "../store/add_requests.hpp"
 #include "../store/gog_account.hpp"
 #include "../store/epic_account.hpp"
+#include "../store/amazon.hpp"
 #include "../store/ea_account.hpp"
 #include "../store/web_import.hpp"
 #include "../library/recent_games.hpp"
@@ -230,6 +231,18 @@ public:
     void aureliaScroll(int rows);
     void aureliaCharacter(wchar_t character);
     bool aureliaTyping() const { return aurelia_ui_.open && aurelia_ui_.input_focus && !aurelia_ui_.confirmation; }
+    void aureliaDesktopClick(desktop_ui::SheetHit hit); // The desktop dialog's recorded controls.
+    // A Steam friend's conversation in the drawer (src/app/friend_chat.cpp, ui/friend_chat_view.hpp).
+    bool friendChatOpen() const { return friends_open_ && friends_list_ && friend_chat_.open; }
+    bool friendChatTyping() const { return friendChatOpen() && !friend_chat_.back_focus; }
+    void openFriendChat(uint64_t id, const std::wstring& name, const std::wstring& presence);
+    void closeFriendChat(); // Back to the list (its draft kept for this account).
+    void friendChatKey(WPARAM key, bool repeated);
+    void friendChatCharacter(wchar_t character);
+    void friendChatClick(float x, float y); // Drawer-relative.
+    void friendChatScroll(float amount);
+    void friendChatSend();
+    void friendChatReconnect();
     bool tickProfile(float dt);
     // The home (any layout) with no menu, panel or dialog over it: Glance's and the companion's tiles.
     bool homeOverlayAvailable(bool allow_closing = false) const;
@@ -887,9 +900,19 @@ private:
     aurelia::InstallationInfo aurelia_installation_;
     std::function<aurelia::Reply(const aurelia::Release&, const aurelia::Cancel&, const std::function<void(uint64_t, uint64_t)>&)> aurelia_installer_;
     SteamHttp aurelia_get_;
-    std::shared_ptr<std::atomic_bool> aurelia_chat_cancel_ = std::make_shared<std::atomic_bool>(false);
     std::shared_ptr<std::atomic_uint32_t> aurelia_epoch_ = std::make_shared<std::atomic_uint32_t>(0);
+    // The drawer's conversation: its listener's cancel flag, its generation (a late reply of a
+    // closed or other conversation is dropped) and the drafts of this account's session.
+    friend_chat::State friend_chat_;
+    std::shared_ptr<std::atomic_bool> friend_chat_cancel_ = std::make_shared<std::atomic_bool>(false);
+    uint32_t friend_chat_generation_ = 0;
+    std::map<uint64_t, std::wstring> friend_chat_drafts_;
     bool aurelia_active_ = false, aurelia_authenticated_ = false, aurelia_helper_busy_ = false, aurelia_download_poll_ = false;
+    // Aurelia's list is the Steam library only without a local Steam client (initializeAurelia);
+    // otherwise its worker only follows the session, woken by its own signal.
+    bool aurelia_library_source_ = false;
+    std::shared_ptr<WakeSignal> aurelia_rescan_ = std::make_shared<WakeSignal>();
+    void aureliaRescan() { steam_rescan_->wake(); aurelia_rescan_->wake(); }
     uint64_t aurelia_account_ = 0, aurelia_poll_at_ = 0, aurelia_cloud_at_ = 0;
     uint32_t aurelia_page_generation_ = 0;
     std::wstring aurelia_account_name_, aurelia_version_, aurelia_setup_status_;
@@ -897,7 +920,7 @@ private:
     std::map<uint32_t, aurelia::Download> aurelia_downloads_;
     std::set<uint32_t> aurelia_operations_;
     std::set<uint32_t> aurelia_playing_;
-    std::map<uint64_t, std::wstring> aurelia_chat_drafts_; // Session/account scoped; retained across reconnects.
+    std::map<uint32_t, uint64_t> aurelia_stopping_; // Zamknij grę through Aurelia: the deadline (0 while asked).
     json::Value aurelia_page_data_;
     aurelia_ui::Action aurelia_library_action_ = aurelia_ui::Action::install;
     void initializeAurelia();
@@ -912,7 +935,14 @@ private:
                        std::function<void(Launcher&, json::Value)> progress = {}, std::shared_ptr<std::atomic_bool> cancel = {});
     void aureliaOperation(aurelia::Request request, const Game& game);
     void aureliaLaunch(const Game& game);
-    void aureliaOpenChat(uint64_t id, const std::wstring& name);
+    void aureliaStop(const Game& game);
+    void aureliaUninstall(const Game& game);
+    void aureliaAnswer(bool yes);
+    void aureliaBrowseLibrary();
+    bool aureliaManaged(const Game& game) const;      // Installed, launched and removed through Aurelia.
+    bool aureliaCloudEnabled() const;
+    bool aureliaCloudFor(const Game& game) const;     // Its cloud state is checked and shown.
+    int aureliaVisibleRows() const;
     void aureliaPoll(uint64_t now);
     void aureliaApplyDownloads(const json::Value& data);
     void aureliaSyncInstallations();
@@ -1115,7 +1145,8 @@ private:
     int versionsDetailAction() const;
     void openVersions(const Game& game, bool launch);
     void chooseVersion();
-    void launchGame(const Game& game);
+    // via_steam: the Steam client even where Aurelia would launch it (its standalone path refused).
+    void launchGame(const Game& game, bool via_steam = false);
     void beginClose();
     void tickClose(std::chrono::steady_clock::time_point now);
     void configureGameOverlay();
@@ -1415,6 +1446,13 @@ private:
     void openEpicInstall(const Game& game);
     void epicInstallAccept();
     void startEpicGame(const Game& game);
+    // Amazon Games through the optional Nile helper (src/app/amazon.cpp, src/store/amazon.hpp).
+    void initializeAmazon();
+    void amazonCommand(amazon::Command command);
+    void pollAmazon();
+    void openAmazonInstall(const Game& game);
+    void amazonInstallAccept();
+    bool amazonConnected() const { return !amazon_state_.account.empty(); }
     void updateSteamInstallations(const LibraryMessage& library);
     void pollGog();
     void openGogInstall(const Game& game);
@@ -1519,6 +1557,7 @@ private:
     void submitPlugin(plugins::Job job);
     void pluginSettingsRows();
     void pcSettingsRows();
+    std::vector<GameSource> platformOrder() const; // Settings → Biblioteka: Steam, DRM-free, then by name.
     bool pcSettingsActivate(const settings_ui::Row& row);
     void openPlatformSettings(GameSource source);
     void cancelPlatformSignIn(GameSource source);
@@ -1606,6 +1645,8 @@ private:
     // "Otwórz folder" in details: install directory of an installed game (no disk access).
     std::filesystem::path gameFolder(const Game& game) const;
     int lastDetailAction() const;
+    int closeDetailAction() const; // ✕ Zamknij grę beside Wróć; -2 while the game does not run.
+    int cloudDetailAction() const; // The cloud icon after "…" (games Aurelia manages); -2 without.
     details_layout::Actions detailsActions() const; // What the details screen shows (ui/game_details_layout.hpp).
     void updateSearch();
     void buildShelves();
@@ -1848,6 +1889,12 @@ private:
     std::filesystem::path (*steam_executable_)() = installedSteamExecutable;
     // Steam accounts and installs (src/library/steam_accounts.hpp); tests replace each backend.
     std::function<std::vector<steam_accounts::Account>()> steam_accounts_ = [] { return steam_accounts::loginUsers(findSteamRoot()); };
+    mutable std::vector<steam_accounts::Account> steam_accounts_cache_; // Remembered ones, refreshed every few seconds.
+    mutable uint64_t steam_accounts_cache_at_ = 0;
+    const std::vector<steam_accounts::Account>& rememberedSteamAccounts() const;
+    std::vector<uint64_t> steamAccountChoices(const Game& game) const; // 0 (default), then the remembered accounts.
+    std::wstring steamAccountLabel(const Game& game) const;
+    void cycleSteamAccount(const Game& game);
     std::function<std::vector<steam_accounts::Folder>()> steam_libraries_ = [] { return steam_accounts::libraryFolders(findSteamRoot()); };
     // Closes Steam and makes it sign in to `account` when it next starts (a worker thread).
     std::function<bool(const steam_accounts::Account&)> steam_switcher_ = [](const steam_accounts::Account& account) {
@@ -2047,6 +2094,9 @@ private:
     std::unique_ptr<epic::Service> epic_service_;
     epic::Snapshot epic_state_;
     bool epic_initial_ready_ = false, epic_enable_on_connect_ = false, epic_launch_pending_ = false;
+    std::unique_ptr<amazon::Service> amazon_service_;
+    amazon::Snapshot amazon_state_;
+    bool amazon_enable_on_connect_ = false;
     gog::Snapshot gog_state_;
     gog_install_ui::State gog_install_ui_;
     std::unordered_set<std::string> completed_pc_installs_;

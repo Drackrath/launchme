@@ -579,25 +579,15 @@ void Launcher::artworkMove(int horizontal, int vertical) {
         state.search_focus = state.query_selected = true;
         audio_.navigate(); InvalidateRect(hwnd_, nullptr, FALSE); return;
     }
-    // The rail's buttons under the types, top to bottom: "Z dysku…", Back. Up from the first returns to
-    // the last type.
-    if (state.railButton() && !state.gallery && !state.search_focus) {
-        enum Entry { local, back };
-        const std::vector<Entry> entries{local, back};
-        const Entry at = state.local_focus ? local : back;
-        const int position = static_cast<int>(std::find(entries.begin(), entries.end(), at) - entries.begin());
-        const auto focusEntry = [&](int index) {
-            state.local_focus = state.provider_focus = state.crop_focus = state.back_focus = false;
-            if (index < 0) return; // The last type.
-            const auto entry = entries[static_cast<size_t>(index)];
-            (entry == local ? state.local_focus : state.back_focus) = true;
-        };
-        if (vertical) {
-            const int next = position + (vertical > 0 ? 1 : -1);
-            if (next >= static_cast<int>(entries.size())) { navigationBoundary(); return; }
-            focusEntry(next);
-        } else { navigationBoundary(); return; }
-        audio_.navigate();
+    // Back sits at the top left, above the types; "Z dysku…" under the last type.
+    if (state.back_focus && !state.gallery && !state.search_focus) {
+        if (vertical > 0) { state.back_focus = false; audio_.navigate(); } // The selected type.
+        else { navigationBoundary(); return; }
+        InvalidateRect(hwnd_, nullptr, FALSE); return;
+    }
+    if (state.local_focus && !state.gallery && !state.search_focus) {
+        if (vertical < 0) { state.local_focus = false; audio_.navigate(); } // Back to the last type.
+        else { navigationBoundary(); return; }
         InvalidateRect(hwnd_, nullptr, FALSE); return;
     }
     if (state.search_focus) {
@@ -630,7 +620,7 @@ void Launcher::artworkMove(int horizontal, int vertical) {
     if (!state.gallery) {
         if (vertical) {
             const int next = std::clamp(state.category + vertical, 0, static_cast<int>(artwork_ui::kinds.size()) - 1);
-            if (vertical < 0 && state.category == 0) { state.search_focus = true; state.query_selected = true; }
+            if (vertical < 0 && state.category == 0) state.back_focus = true; // Up from the first type: Back, above it.
             else if (next != state.category) { state.category = next; state.page = 0; state.source = state.override_source; loadArtworkPage(); }
             else if (vertical > 0) state.local_focus = true; // Below the last type: "Z dysku…".
             else navigationBoundary();

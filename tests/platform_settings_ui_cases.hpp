@@ -23,12 +23,17 @@ int LauncherUiTest::pcSettings(HWND window) {
     app.pc_scanning_ = false; app.buildSettingsRows();
     // Biblioteka opens with its "Platformy" section: DRM-free folders first, then the stores, then
     // the library's other rows.
+    // Steam, the DRM-free folders, then the stores by their names (Launcher::platformOrder).
+    const auto order = app.platformOrder();
+    const auto position = [&](GameSource source) { return static_cast<int>(std::find(order.begin(), order.end(), source) - order.begin()); };
     const auto overview = [&] {
-        if (app.settings_state_.platform() || app.settings_rows_.size() <= pc_sources.size() + 1 ||
-            app.settings_rows_[0].id != Id::pc_platform || app.settings_rows_[0].source != GameSource::drmfree ||
-            app.settings_rows_[0].section.empty() || app.settings_rows_[pc_sources.size() + 1].id == Id::pc_platform) return false;
-        for (size_t i = 0; i < pc_sources.size(); ++i)
-            if (app.settings_rows_[i + 1].id != Id::pc_platform || app.settings_rows_[i + 1].source != pc_sources[i]) return false;
+        if (app.settings_state_.platform() || app.settings_rows_.size() <= order.size() || order.size() != pc_sources.size() + 2 ||
+            order[0] != GameSource::steam || order[1] != GameSource::drmfree ||
+            app.settings_rows_[0].section.empty() || app.settings_rows_[order.size()].id == Id::pc_platform) return false;
+        for (size_t i = 0; i < order.size(); ++i)
+            if (app.settings_rows_[i].id != Id::pc_platform || app.settings_rows_[i].source != order[i]) return false;
+        for (size_t i = 3; i < order.size(); ++i)
+            if (CompareStringEx(LOCALE_NAME_USER_DEFAULT, LINGUISTIC_IGNORECASE, sourceName(order[i - 1]), -1, sourceName(order[i]), -1, nullptr, nullptr, 0) == CSTR_GREATER_THAN) return false;
         return true;
     };
     const auto select = [&](Id id) {
@@ -44,11 +49,16 @@ int LauncherUiTest::pcSettings(HWND window) {
         return app.renderer_.captureForTest(std::filesystem::path(folder) / name, [&] { app.paint(); });
     };
     if (!overview() || !capture(L"pc-settings-overview.png")) return 2001;
+    // GOG sits below the fold once Steam leads the list: bring it into view before clicking its cog.
+    app.settings_state_.selected[app.settings_state_.category] = position(GameSource::gog); app.ensureSettingVisible();
+    app.settings_motion_.valid = false; app.paint();
     const auto view = app.renderer_.viewport(); const auto layout = Layout::of(view.width, view.height, app.settings_state_, app.settings_rows_);
-    const auto cog = layout.pluginCog(1, 0);
+    const auto cog = layout.pluginCog(position(GameSource::gog), app.settings_state_.offset());
     const auto dispatched_before = dispatched.size();
     app.settingsClick((cog.left + cog.right) * 0.5f, (cog.top + cog.bottom) * 0.5f);
-    if (app.settings_state_.platform() != GameSource::gog || app.settings_rows_.size() != 4 || !gog->commands.empty() || dispatched.size() != dispatched_before) return 2002;
+    if (app.settings_state_.platform() != GameSource::gog) return 2002;
+    if (app.settings_rows_.size() != 4) return 2025;
+    if (!gog->commands.empty() || dispatched.size() != dispatched_before) return 2026;
     for (const auto& row : app.settings_rows_) if (row.source != GameSource::gog || row.title.find(L"GOG") != row.title.npos) return 2003;
     if (!capture(L"pc-settings-gog.png") || !select(Id::gog_refresh)) return 2004;
     app.settingsActivate();
@@ -58,15 +68,15 @@ int LauncherUiTest::pcSettings(HWND window) {
     if (!select(Id::gog_logout)) return 2007;
     app.settingsActivate();
     if (!app.gog_state_.account.empty() || app.settings_rows_.size() != 3 || app.settings_state_.platform() != GameSource::gog) return 2008;
-    app.back(); if (!overview() || app.settings_state_.row() != 1) return 2009;
+    app.back(); if (!overview() || app.settings_state_.row() != position(GameSource::gog)) return 2009;
     // Pad/keyboard uses Right -> cog -> Enter, and Back restores a scrolled list.
-    app.settingsMove(5); const auto parent_scroll = app.settings_state_.offset();
+    app.settingsMove(position(GameSource::xbox) - position(GameSource::gog)); const auto parent_scroll = app.settings_state_.offset();
     app.settingsAdjust(1); app.settingsActivate();
     if (app.settings_state_.platform() != GameSource::xbox || app.settings_rows_.size() != 2 || !select(Id::pc_client)) return 2010;
     if (!capture(L"pc-settings-xbox.png")) return 2011;
     const auto client_actions = dispatched.size(); app.settingsActivate();
     if (dispatched.size() != client_actions + 1 || dispatched.back() != L"ms-windows-store://pdp/?ProductId=9MV0B5HZVK9Z") return 2024;
-    app.back(); if (!overview() || app.settings_state_.row() != 6 || app.settings_state_.offset() != parent_scroll) return 2012;
+    app.back(); if (!overview() || app.settings_state_.row() != position(GameSource::xbox) || app.settings_state_.offset() != parent_scroll) return 2012;
     // Each remaining page contains only its own actions, not all connected accounts.
     for (const auto source : {GameSource::epic, GameSource::ea, GameSource::battlenet, GameSource::ubisoft}) {
         app.openPlatformSettings(source);

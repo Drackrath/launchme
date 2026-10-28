@@ -85,6 +85,7 @@ public:
     // The pane's Developer and Wydawca values: a click shows that studio's games.
     const std::array<settings_ui::Rect, 2>& desktopStudios() const { return desktop_studios_; }
     settings_ui::Rect desktopAchievements() const { return desktop_achievements_; }
+    settings_ui::Rect desktopCloud() const { return desktop_cloud_; } // The pane's cloud saves (Aurelia), as last drawn.
     // Desktop dialogs measured while drawn: their controls (topmost last) and content height.
     const std::vector<desktop_ui::SheetHotspot>& desktopHotspots() const { return desktop_hotspots_; }
     // Tryb TV's dialogs drawn as desktop dialogs in the last frame (Kolekcje, Dodaj grę, Zidentyfikuj
@@ -253,6 +254,9 @@ public:
     }
     // Images are still decoding or fading in; the frame loop should keep painting.
     bool animating() const;
+    // Text still on its way (a game's description or facts): faint bars, a soft light sweeping
+    // them left to right while they wait (keeps animating() true while drawn).
+    void drawSkeleton(D2D1_RECT_F area, int lines, float step, float alpha = 1);
     // Uploaded card artwork (covers, logos, heroes, XMB thumbnails): bitmaps and their pixel bytes.
     struct TextureStats { size_t bitmaps = 0, bytes = 0; };
     TextureStats textureStats() const;
@@ -502,6 +506,7 @@ private:
     const ControllerArt* controllerArt(devices::Picture picture);
     void drawFriends();
     void drawFriendsList(float x);
+    void drawFriendChat(float x); // A friend's conversation in the drawer (friend_chat_view.hpp).
     // Drawer dashboard (src/ui/dashboard_renderer.cpp): clock header and tiles.
     void drawDashboard(float x);
     // focus_frame: draw the focused tile's own highlight (false while the gliding frame is drawn).
@@ -606,7 +611,10 @@ private:
     bool createTarotFonts();
     // Profil (src/ui/profile_renderer.cpp): the page, its cards and charts.
     void drawProfile();
-    void drawAurelia();
+    void drawAurelia();        // src/ui/aurelia_renderer.cpp: Tryb TV's dialog, or the desktop one below.
+    void drawDesktopAurelia();
+    // The cloud saves icon (Szczegoly, after the dots): a cloud, and a badge for synced or a problem.
+    void drawCloudGlyph(float cx, float cy, D2D1_COLOR_F ink, std::optional<aurelia::CloudState> state);
     bool createProfileFonts();
     void drawProfileImage(size_t index, D2D1_RECT_F box, float radius, float alpha, const std::wstring& fallback);
     void drawProfileCard(D2D1_RECT_F box, float alpha, float focus, float hover);
@@ -1139,7 +1147,8 @@ private:
     bool desktop_viewport_ = false;
     float desktop_pane_height_ = 0;
     std::vector<settings_ui::Rect> desktop_chips_;
-    settings_ui::Rect desktop_chip_add_{}, desktop_rating_{}, desktop_achievements_{};
+    settings_ui::Rect desktop_chip_add_{}, desktop_rating_{}, desktop_achievements_{}, desktop_cloud_{};
+    std::chrono::steady_clock::time_point skeleton_at_{}; // The last frame that drew a skeleton.
     std::array<settings_ui::Rect, 2> desktop_studios_{};
     std::vector<desktop_ui::SheetHotspot> desktop_hotspots_;
     desktop_ui::DialogKind desktop_modal_ = desktop_ui::DialogKind::none;

@@ -1,4 +1,5 @@
 #include "renderer.hpp"
+#include "brand_icons.hpp"
 
 #include <algorithm>
 #include <array>
@@ -165,7 +166,12 @@ void Renderer::drawSettings() {
         const bool selected = state.options && state.row() == i;
         const bool hovered = context_->settings_hover_row == i;
         const bool control_focus = selected && (state.editing || item.control == Control::action);
-        const float text_left = r.left + 24;
+        float text_left = r.left + 24;
+        // Platforms: the store's mark in a fixed-width column, so every name starts at one line.
+        if (item.control == Control::platform && item.id == Id::pc_platform) {
+            desktopBrand(brand_icons::sourceKey(item.source), text_left + 18, y, 34, gray(item.locked ? 0.5f : 0.9f));
+            text_left += 60;
+        }
         const int size_steps = sizeSteps(item.id);
         const bool stepped_size = size_steps > 1;
         if (item.control == Control::avatar) {
@@ -274,8 +280,10 @@ void Renderer::drawSettings() {
             toggle(toggle_right, y, toggle_on, item.locked);
             if (collection) {
                 const auto up = layout.reorder(i, scroll, false), down = layout.reorder(i, scroll, true);
-                arrow(up, false, button(up, selected && state.subcontrol == 1, hovered, i > 0));
-                arrow(down, true, button(down, selected && state.subcontrol == 2, hovered, i + 1 < static_cast<int>(rows.size())));
+                const bool earlier = i > 0 && rows[i - 1].control == Control::collection;
+                const bool later = i + 1 < static_cast<int>(rows.size()) && rows[i + 1].control == Control::collection;
+                arrow(up, false, button(up, selected && state.subcontrol == 1, hovered, earlier));
+                arrow(down, true, button(down, selected && state.subcontrol == 2, hovered, later));
                 if (selected && state.subcontrol == 0) {
                     const auto control = layout.collectionControl(i, scroll, 0);
                     outline(control, accent, 1.5f, (control.bottom - control.top) * 0.5f);
@@ -390,7 +398,7 @@ void Renderer::drawSettings() {
         if (item.id == Id::epic_callback)
             hint = context_->secret_length ? tr(L"Wklejono znaków: ") + std::to_wstring(context_->secret_length) :
                 std::wstring(tr(L"Wklej authorizationCode lub całą odpowiedź JSON po logowaniu."));
-        if (item.id == Id::ea_callback || item.id == Id::battlenet_callback)
+        if (item.id == Id::ea_callback || item.id == Id::battlenet_callback || item.id == Id::amazon_callback)
             hint = context_->secret_length ? tr(L"Wklejono znaków: ") + std::to_wstring(context_->secret_length) : item.description;
         textGroup(item.title, hint, panel.left + 28, panel.top + 28, panel.right - panel.left - 56,
                   category_font_.Get(), gray(0.96f), body, gray(0.62f), 1, true);

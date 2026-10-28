@@ -14,7 +14,7 @@ namespace context_menu {
 // The crop editor opens from "Zmień grafikę" (the artwork browser's "Kadruj").
 // "launch": Details' "…" → Opcje uruchamiania (a game's file, options and folder; Steam: its options).
 // "metadata": Details' "…" → Edytuj metadane (the player's own title, studios, dates and play time).
-enum class Item { primary, suspend, plugin, details, artwork, retry, close, folder, hide, exclude, uninstall, launch, metadata, aurelia };
+enum class Item { primary, suspend, plugin, details, artwork, retry, close, folder, hide, exclude, uninstall, launch, metadata, aurelia, steam_account };
 struct Rows {
     bool suspend = false;
     int plugins = 0;
@@ -25,14 +25,16 @@ struct Rows {
     bool launch = false;         // Details' "…": Launcher::launchEditable.
     bool metadata = false;       // Details' "…": a game with its own key.
     bool aurelia = false;
+    bool steam_account = false;  // Details' "…": a Steam game and more than one remembered account to launch it from.
 };
 constexpr auto order(Rows options) {
     return options.secondary_only ?
-        std::array{Item::details, Item::primary, Item::suspend, Item::aurelia, Item::plugin, Item::artwork, Item::retry, Item::close, Item::folder, Item::launch, Item::metadata, Item::hide, Item::exclude, Item::uninstall} :
-        std::array{Item::primary, Item::suspend, Item::aurelia, Item::plugin, Item::details, Item::artwork, Item::retry, Item::close, Item::folder, Item::launch, Item::metadata, Item::hide, Item::exclude, Item::uninstall};
+        std::array{Item::details, Item::primary, Item::suspend, Item::aurelia, Item::plugin, Item::artwork, Item::retry, Item::close, Item::folder, Item::launch, Item::steam_account, Item::metadata, Item::hide, Item::exclude, Item::uninstall} :
+        std::array{Item::primary, Item::suspend, Item::aurelia, Item::plugin, Item::details, Item::artwork, Item::retry, Item::close, Item::folder, Item::launch, Item::steam_account, Item::metadata, Item::hide, Item::exclude, Item::uninstall};
 }
 constexpr bool visible(Item entry, Rows options) {
     if (entry == Item::aurelia) return options.aurelia;
+    if (entry == Item::steam_account) return options.detail_options && options.steam_account;
     if (options.detail_options) return entry == Item::artwork || (entry == Item::launch && options.launch) || (entry == Item::metadata && options.metadata) || (entry == Item::folder && options.folder) ||
         (entry == Item::hide && options.hide) || (entry == Item::exclude && options.exclude) || (entry == Item::uninstall && options.uninstall);
     switch (entry) {

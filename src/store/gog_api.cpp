@@ -1,6 +1,7 @@
 #include "gog_account.hpp"
 #include "../net/json.hpp"
 #include "../net/url_encoding.hpp"
+#include "../model/library_time.hpp"
 #include "../platform/text_encoding.hpp"
 #include <algorithm>
 #include <chrono>
@@ -171,6 +172,7 @@ public:
         for (const auto& game : session.games) old.emplace(game.source_id, game);
         std::vector<std::string> ids;
         std::map<std::string, std::string> certificates;
+        std::map<std::string, uint64_t> acquired;
         std::set<std::string> seen, pages;
         std::string page;
         for (size_t index = 0;; ++index) {
@@ -189,6 +191,12 @@ public:
                 const auto product = decimal(item.get("external_id"));
                 if (product.empty()) return {Failure::invalid};
                 if (seen.insert(product).second) ids.push_back(product);
+                // owned_since is account ownership; date_created is only Galaxy's record creation.
+                if (const auto value = item.get("owned_since"); value &&
+                    (value->type == json::Value::Type::number || value->type == json::Value::Type::string)) {
+                    const auto date = library_time::seconds(value->text);
+                    if (date && (!acquired.contains(product) || date < acquired[product])) acquired[product] = date;
+                }
                 const auto certificate = field(item, "certificate");
                 if (printable(certificate)) certificates[product] = certificate;
                 if (ids.size() > 10000) return {Failure::invalid};
@@ -246,6 +254,8 @@ public:
             games.push_back(std::move(game));
         }
         if (cancel()) return {Failure::cancelled};
+        // Also enrich cached metadata; a known title must not keep its old import timestamp.
+        for (auto& game : games) if (const auto found = acquired.find(game.source_id); found != acquired.end()) game.added_at = found->second;
         session.games = std::move(games); session.synced_at = nowSeconds(); return {};
     }
 };

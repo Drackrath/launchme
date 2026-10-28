@@ -25,7 +25,8 @@ void Launcher::updateSteamInstallations(const LibraryMessage& library) {
         if (old.installation.active() && !old.installation.update && game->installed && game->visibility == GameVisibility::public_game)
             completed_installs_.insert(id);
         if (game->installed != old.installed || game->installation.active() != old.installation.active() ||
-            game->visibility != old.visibility || game->name != old.name || game->last_played != old.last_played || game->last_updated != old.last_updated)
+            game->visibility != old.visibility || game->name != old.name || game->last_played != old.last_played || game->last_updated != old.last_updated ||
+            game->added_at != old.added_at)
             structure = changed = true;
         if (game->installation != old.installation) changed = true;
     }
@@ -38,8 +39,10 @@ void Launcher::updateSteamInstallations(const LibraryMessage& library) {
             const bool catalog = game.kind == GameKind::catalog;
             const auto available = game.catalog_available;
             const auto group = game.version_group;
+            const auto added = game.added_at;
             game = *found->second;
             game.version_group = group;
+            if (!structure && !group.empty()) game.added_at = added; // Progress alone must not discard the group's other copies.
             // Edytuj metadane: the player's title survives a progress or ownership update.
             if (const auto* value = metadataOverride(game); value && !value->title.empty()) game.name = value->title;
             if (game.visibility == GameVisibility::public_game && locallyHidden(game)) game.visibility = GameVisibility::hidden;

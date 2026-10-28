@@ -233,6 +233,7 @@ bool Launcher::initialize(HWND hwnd) {
     initializeArtworkBrowser();
     initializeGog();
     initializeEpic();
+    initializeAmazon();
     loadCustomGames(); // Before the first shelves; file checks run on a worker.
     loadDrmFree();     // Likewise; folder scans start after the first library scans.
     startLibraryWorker();
@@ -760,6 +761,7 @@ void Launcher::tick() {
     pollSettingsDevices();
     pollGog();
     pollEpic();
+    pollAmazon();
     pollGogInstall();
     pollPcInstallations();
     pollDrmFree();

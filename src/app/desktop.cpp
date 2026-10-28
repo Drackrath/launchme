@@ -113,7 +113,7 @@ void Launcher::buildDesktopSidebar() {
     std::map<GameSource, size_t> per_source;
     for (const auto& game : public_library_) if (shown(game) && game.kind != GameKind::nonsteam) ++per_source[game.source];
     for (const auto source : {GameSource::steam, GameSource::gog, GameSource::epic, GameSource::battlenet, GameSource::ea, GameSource::ubisoft,
-                              GameSource::xbox, GameSource::multimc, GameSource::drmfree, GameSource::custom}) {
+                              GameSource::amazon, GameSource::xbox, GameSource::multimc, GameSource::drmfree, GameSource::custom}) {
         const auto found = per_source.find(source);
         if (found == per_source.end() || !found->second) continue;
         auto& entry = add(EntryKind::source, Group::platforms, std::string("source:") + sourceSlug(source), sourceName(source), found->second,
@@ -138,7 +138,7 @@ void Launcher::buildDesktopSidebar() {
     }
     std::unordered_map<std::string, size_t> counts;
     for (const auto& shelf : managedShelves(account_, collections, library_state_.collections, public_library_, private_shelf_))
-        counts[shelf.id] = versions_.collapse(shelf.games, library_state_.preferred_versions).size();
+        counts[shelf.id] = versions_.collapse(shelf.games, library_state_.preferred_versions, library_state_.first_seen).size();
     for (const auto& c : collections) {
         auto& entry = add(EntryKind::collection, Group::collections, "collection:" + c.id, c.name, counts[c.id], glyph::folder);
         entry.collection = c.id;
@@ -184,7 +184,7 @@ std::vector<Game> Launcher::desktopFavoriteGames() const {
     std::vector<Game> games;
     std::unordered_set<std::string> keys;
     for (auto& shelf : managedShelves(account_, {desktopFavorites()}, library_state_.collections, public_library_, private_shelf_))
-        for (auto& game : versions_.collapse(shelf.games, library_state_.preferred_versions))
+        for (auto& game : versions_.collapse(shelf.games, library_state_.preferred_versions, library_state_.first_seen))
             if (isGame(game) && keys.insert(library_view::selectionKey(game)).second) games.push_back(std::move(game));
     for (const auto& game : grouped_library_)
         if (isGame(game) && (private_shelf_ || game.visibility == GameVisibility::public_game) && isFavorite(game) &&
@@ -223,7 +223,7 @@ std::vector<Game> Launcher::desktopSource() const {
     case EntryKind::collection:
         if (const auto* collection = desktopCollection(entry->collection))
             for (auto& shelf : managedShelves(account_, {*collection}, library_state_.collections, public_library_, private_shelf_))
-                return versions_.collapse(shelf.games, library_state_.preferred_versions);
+                return versions_.collapse(shelf.games, library_state_.preferred_versions, library_state_.first_seen);
         return games;
     }
     return games;

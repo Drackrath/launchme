@@ -30,6 +30,10 @@ Reply launchStandalone(const Transport& invoke, Request request, const Cancel& c
         if (saves.type != json::Value::Type::null_value) data.properties["cloud_result"] = saves;
         reply.data = std::move(data); return reply;
     };
+    // The game cannot run without the Steam client here (preflight): the caller may use the client.
+    const auto refuse = [&](const wchar_t* message) {
+        auto reply = result({false, false, {}, message}); reply.data.properties["steam_required"] = json::boolean(true); return reply;
+    };
     const auto send = [&](Request r) {
         if (stopped()) return Reply{false, true, {}, tr(L"Anulowano")};
         return checked(r, invoke(r, cancel, event));
@@ -42,14 +46,14 @@ Reply launchStandalone(const Transport& invoke, Request request, const Cancel& c
     if (owned.data.type == json::Value::Type::array) for (const auto& item : owned.data.elements)
         if (integer(item.get("app_id")) == request.app) { if (game) return result({false, false, {}, tr(L"Nieprawidłowa odpowiedź Aurelii")}); game = &item; }
     if (!game || !flag(*game, "is_owned") || flag(*game, "is_family_shared") || flag(*game, "from_windows_steam"))
-        return result({false, false, {}, tr(L"Ta gra wymaga klienta Steam lub potwierdzenia własności. Wyłącz „Uruchamiaj bez Steam”.")});
+        return refuse(tr(L"Ta gra wymaga klienta Steam lub potwierdzenia własności."));
     auto targets = send({Command::launch_targets, request.app});
     if (!targets.ok) return result(std::move(targets));
     bool standalone = false;
     if (const auto* choices = targets.data.get("targets"); choices && choices->type == json::Value::Type::array)
         for (const auto& target : choices->elements)
             if (text(target, "platform") == "windows" && text(target, "steam_mode") == "none" && flag(target, "available")) standalone = true;
-    if (!standalone) return result({false, false, {}, tr(L"Aurelia nie udostępnia zainstalowanej wersji Windows bez Steam dla tej gry.")});
+    if (!standalone) return refuse(tr(L"Aurelia nie udostępnia zainstalowanej wersji Windows bez Steam dla tej gry."));
     const auto sync = [&](Request::Direction direction) {
         Request r{Command::cloud_sync, request.app}; r.direction = direction;
         auto reply = send(r); saves = reply.ok ? reply.data : json::object();

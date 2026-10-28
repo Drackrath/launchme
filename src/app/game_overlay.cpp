@@ -266,6 +266,7 @@ void Launcher::overlayKey(WPARAM key, bool repeated) {
         return;
     }
     if (power_menu_) { powerMenuKey(key, repeated); invalidateGameOverlay(); return; }
+    if (friendChatOpen()) { friendChatKey(key, repeated); invalidateGameOverlay(); return; } // Typing a message over the game.
     if (key == VK_ESCAPE || key == VK_BACK) {
         if (friends_open_) friendsBack();
         else { dismissGameOverlay(); return; }
@@ -304,7 +305,8 @@ void Launcher::overlayClick(float x, float y) {
         else if (!friends_list_) {
             const int tile = dashboardLayout().hit(left, x, y, dashboard_scroll_, view.height);
             if (tile != friends_layout::dashboard::no_hit) dashboardActivate(tile);
-        } else if (friends_layout::listBack(left).contains(x, y)) friendsBack();
+        } else if (friend_chat_.open) friendChatClick(x - left, y);
+        else if (friends_layout::listBack(left).contains(x, y)) friendsBack();
         else if (y >= 104) {
             if (const auto friend_index = friends_layout::hit(friends_.friends, y + friends_scroll_)) {
                 friends_cursor_ = *friend_index; friendsChat();
@@ -338,6 +340,9 @@ LRESULT Launcher::overlayMessage(HWND window, UINT message, WPARAM wparam, LPARA
         }
         overlayKeyboard(wparam, (lparam & (1LL << 30)) != 0,
             (GetKeyState(VK_SHIFT) & 0x8000) && !(GetKeyState(VK_CONTROL) & 0x8000) && !(GetKeyState(VK_MENU) & 0x8000));
+        return 0;
+    case WM_CHAR:
+        if (friendChatOpen()) friendChatCharacter(static_cast<wchar_t>(wparam));
         return 0;
     case WM_KEYUP:
         if (wparam == VK_RETURN) dashboardPress(1, false, GetTickCount64());

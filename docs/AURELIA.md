@@ -1,7 +1,9 @@
 # Aurelia integration (Windows)
 
 An optional, out-of-process integration with [Drackrath/Aurelia](https://github.com/Drackrath/Aurelia).
-It is off by default and offered during first-run setup and in **Settings → System**.
+It is off by default and offered during first-run setup and in **Settings → Library → Steam** (its cog), in the
+**Aurelia** section: *Extended Aurelia integration*, *Manage games through Aurelia by default*, *Cloud saves* and
+**Manage Aurelia**.
 
 **Primarily for single-player / offline games. Some games, especially multiplayer titles and those
 using DRM or Steamworks, may require the Steam client to be running.** Availability of a standalone
@@ -9,7 +11,7 @@ launch depends on the game. The integration does not promise offline authenticat
 
 ## Setup
 
-1. Open **Settings → System → Manage Aurelia**.
+1. Open **Settings → Library → Steam → Manage Aurelia**.
 2. Choose **Install Aurelia**. Launchme selects `aurelia_windows_x86_64.exe` from the latest stable
    GitHub release, verifies its advertised SHA-256 and Windows x64 PE header, and publishes it atomically.
 3. **Sign in using Aurelia's window**. Enter the password and any Steam Guard challenge in that console.
@@ -30,10 +32,21 @@ marker is refused, avoiding the upstream fallback that stops all Aurelia daemons
 
 ## Games and downloads
 
-When enabled, Steam's owned library, game metadata, achievements, install operations and friends
-use Aurelia's JSON CLI. Other stores continue using their own adapters. Artwork, news, ratings and
-other independent services keep their existing providers. Matching-account local Steam visibility,
-collections and non-Steam shortcuts can supplement the library; no other account's local rules are imported.
+When enabled, Aurelia supplies the account (owned games, metadata, achievements) and friends. When the
+Steam client is installed on this PC, its own library scan keeps running as before (installations from every
+remembered account, preloads, collections, shortcuts) and Aurelia only adds what it knows; without a local
+Steam client Aurelia's library is used. Other stores continue using their own adapters. Artwork, news,
+ratings and other independent services keep their existing providers.
+
+**Managed games.** Aurelia installs, updates, uninstalls and launches only the games it manages: those with
+**Manage through Aurelia** switched on in **Manage · Aurelia**, or every game when **Manage games through
+Aurelia by default** is on (a game can then be excluded the same way). Every other Steam game keeps the Steam
+client for all of that. When Aurelia reports that a game from the default set needs the Steam client, it is
+launched through the client instead.
+
+**Close game** (✕ next to Play in the details while a game runs, desktop and TV) ends the game's processes like
+for any other game; a game Aurelia started is stopped through `aurelia stop --force`, run locally (`AURELIA_NO_DAEMON=1`)
+because v0.1.40's daemon does not answer while a game is playing.
 
 Open a game's context menu → **Manage · Aurelia** in desktop or TV mode:
 
@@ -41,8 +54,8 @@ Open a game's context menu → **Manage · Aurelia** in desktop or TV mode:
 - Update, verify, uninstall after confirmation, or move the installation to another library.
 - Follow transfers in Launchme's existing **Downloads** page, with bytes/progress and, when emitted by
   Aurelia, speed and ETA. Open a transfer to cancel it. Closing its panel leaves the transfer running.
-- **Launch without Steam** is off by default per game. Off uses the normal Steam client launch path.
-  On launches through Aurelia without `--steam`, for a compatible standalone game. The Aurelia path
+- **Manage through Aurelia** is off by default per game (unless the default above is on). Off uses the
+  normal Steam client paths. On launches through Aurelia without `--steam`, for a compatible standalone game. The Aurelia path
   uses `--no-update` so launching cannot silently replace a deliberately selected build; updates are
   explicit actions. The global integration alone never reroutes an installed game's launch.
   Before standalone play, Launchme checks ownership/Family Sharing and `launch-targets`, and explicitly
@@ -60,7 +73,8 @@ Pause/resume is not exposed because this CLI currently exposes cancellation, not
 
 ## Cloud saves
 
-The desktop details pane and TV game-details page show the cloud status. **Saves available** means files
+Shown for managed games while **Cloud saves** (Settings → Library → Steam, on by default) is on: a cloud
+button after **…** in the details (desktop and TV) and a chip in the desktop details pane show the status. **Saves available** means files
 were enumerated, not that local and remote saves match. **Synchronized** is shown only after a complete
 successful sync. Conflicts, skipped paths, transfer failures and unknown state stay distinct.
 
@@ -90,15 +104,18 @@ and a delayed file-list reply cannot erase a newer sync outcome.
 
 ## Friends and chat
 
-The existing friends drawer uses Aurelia's roster. Selecting a friend opens a native conversation with
-recent history, incoming messages, echoes from other clients and typing notifications. Messages are sent
+The friends drawer (and the desktop widgets' friends) use Aurelia's roster. Selecting a friend opens the
+conversation inside the drawer, which keeps its width; Back returns to the list. The Steam client is never
+started for it. The conversation has recent history, incoming messages, echoes from other clients and typing notifications. Messages are sent
 as a separate bounded command; a failed send retains the draft. **F5** reconnects a dropped conversation.
 Closing a conversation cancels its listener; late responses cannot change another conversation.
 Drafts survive closing/reconnecting within the current account's session and are cleared on account
 change/logout. History is reconciled again after the listener is armed to cover the connection gap.
 
-Keyboard: arrows, Enter, Esc, Tab for the text field, Ctrl+V, PgUp/PgDn. Gamepad: D-pad, A/B, X for the
-on-screen keyboard, Y to refresh, LB/RB to scroll. Long messages scroll within the conversation.
+Keyboard: arrows (Up from the top of the log reaches Back), Enter sends, Esc returns to the list, Ctrl+V,
+PgUp/PgDn, F5 reconnects. Gamepad: D-pad, A types (or takes Back), B returns, X the on-screen keyboard, Y
+reconnects, LB/RB scroll. In the in-game Guide overlay the conversation takes the keyboard; the on-screen
+keyboard is not available there.
 
 ## Implementation and verification
 

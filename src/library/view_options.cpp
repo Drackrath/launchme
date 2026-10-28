@@ -13,8 +13,7 @@ std::vector<Game> library_view::arrange(const std::vector<Game>& games, Options 
     for (const auto& game : games) {
         if ((!include_private && game.visibility != GameVisibility::public_game) || (options.installed_only && isGame(game) && !game.installed)) continue;
         uint64_t added = 0;
-        if (options.order == Order::added)
-            if (const auto found = first_seen.find(gameKey(game)); found != first_seen.end()) added = found->second;
+        if (options.order == Order::added) added = addedTime(game, first_seen);
         if (options.order == Order::release && released)
             if (const auto found = released->find(gameKey(game)); found != released->end() && found->second > 0) added = static_cast<uint64_t>(found->second);
         entries.push_back({&game, added});

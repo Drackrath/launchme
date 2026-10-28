@@ -133,6 +133,7 @@ void Renderer::drawContextMenu() {
     rows.launch = context_->menu_launch;
     rows.metadata = context_->menu_metadata;
     rows.aurelia = context_->menu_aurelia;
+    rows.steam_account = !context_->menu_steam_account.empty();
     const auto bounds = context_menu::bounds(active, rows, beside, viewport_.width, viewport_.height, context_->menu_anchor);
     const float x = bounds.left, width = bounds.right - bounds.left;
     const float y = bounds.top + (1.0f - alpha) * (context_->menu_anchor && bounds.top > context_->menu_anchor->top ? -19.0f : 19.0f);
@@ -153,6 +154,7 @@ void Renderer::drawContextMenu() {
         target_->DrawRoundedRectangle(D2D1::RoundedRect(
             D2D1::RectF(x, y, x + width, y + height), 23, 23), solid_.Get(), 1.4f);
     }
+    const std::wstring account_label = tr(L"Konto Steam: ") + context_->menu_steam_account;
     const auto label = [&](context_menu::Item item) -> const wchar_t* {
         switch (item) {
         case context_menu::Item::primary: return context_->primary_action.c_str();
@@ -169,6 +171,7 @@ void Renderer::drawContextMenu() {
         case context_menu::Item::launch: return tr(L"Opcje uruchamiania");
         case context_menu::Item::metadata: return tr(L"Edytuj metadane");
         case context_menu::Item::aurelia: return tr(L"Zarządzaj · Aurelia");
+        case context_menu::Item::steam_account: return account_label.c_str();
         }
         return L"";
     };

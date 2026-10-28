@@ -37,18 +37,29 @@ void Launcher::pcSettingsRows() {
             return gog_state_.state == gog::State::disconnected && gog_state_.failure == gog::Failure::none ? std::wstring(tr(L"Konto niepołączone")) : gog::statusText(gog_state_);
         if (source == GameSource::epic)
             return epic_state_.state == epic::State::disconnected && epic_state_.failure == epic::Failure::none ? std::wstring(tr(L"Konto niepołączone")) : epic::statusText(epic_state_);
+        if (source == GameSource::amazon) return amazon::statusText(amazon_state_);
         if (source == GameSource::ea) return ea_import_.busy ? std::wstring(tr(L"Importowanie…")) : ea_import_.awaiting ?
             std::wstring(tr(L"Oczekiwanie na dane logowania")) : ea_import_.snapshot ? library(source) : std::wstring(tr(L"Konto niepołączone"));
         return library(source);
     };
     if (!settings_state_.platform()) {
-        // DRM-free folders first: the user's own library, not a store account.
-        Row drm{Id::pc_platform, Control::platform, tr(L"Katalog gier DRM-free"), drmSummary(), tr(L"Opcje"),
+        // Steam first, the DRM-free folders (the user's own library) next, then the stores by name.
+        {
+            const auto steam_installed = std::count_if(installed_library_.begin(), installed_library_.end(), [](const auto& game) {
+                return game.source == GameSource::steam && game.kind == GameKind::steam && game.installed;
+            });
+            std::wstring summary = tr(L"Zainstalowane: ") + std::to_wstring(steam_installed);
+            if (aurelia_active_) summary += L" · Aurelia";
+            Row steam{Id::pc_platform, Control::platform, L"Steam", std::move(summary), tr(L"Opcje"), settings_.steam_enabled};
+            steam.source = GameSource::steam; settings_rows_.push_back(std::move(steam));
+        }
+        Row drm{Id::pc_platform, Control::platform, tr(L"Katalog DRM-free"), drmSummary(), tr(L"Opcje"),
                 settings_.enabled_pc_sources.contains(sourceSlug(GameSource::drmfree))};
         drm.source = GameSource::drmfree; settings_rows_.push_back(std::move(drm));
-        for (const auto source : pc_sources) {
+        for (const auto source : platformOrder()) {
+            if (source == GameSource::steam || source == GameSource::drmfree) continue;
             auto summary = account(source);
-            if (source == GameSource::gog || source == GameSource::epic ||
+            if (source == GameSource::gog || source == GameSource::epic || source == GameSource::amazon ||
                 (source == GameSource::ea && (!ea_import_.snapshot || ea_import_.busy || ea_import_.awaiting))) summary += L" · " + library(source);
             if (source == GameSource::battlenet && battlenet_import_.snapshot)
                 summary += L" · " + std::wstring(tr(L"Gry konta: ")) + std::to_wstring(battlenet_import_.snapshot->games.size());
@@ -61,6 +72,32 @@ void Launcher::pcSettingsRows() {
     const auto source = *settings_state_.platform();
     if (source == GameSource::drmfree) { drmSettingsRows(); return; }
     const auto add = [&](Row row) { row.source = source; settings_rows_.push_back(std::move(row)); };
+    if (source == GameSource::steam) {
+        // The Steam client's library and launch options, then Aurelia: optional, and only for the
+        // games it is chosen for (or every game, with its default), the client keeps the rest.
+        add({Id::steam_sync, Control::action, tr(L"Biblioteka"), steamSyncStatus(), tr(L"Odśwież")});
+        add({Id::steam_silent_launch, Control::toggle, tr(L"Ciche uruchamianie Steam"),
+            tr(L"Steam zostaje w zasobniku i nie przejmuje fokusu, launcher przekazuje go oknu gry. Okna Steam mogą zostać w tle."),
+            {}, settings_.steam_silent_launch});
+        add({Id::steam_account_switch, Control::toggle, tr(L"Przełączanie kont Steam"),
+            tr(L"Gra zainstalowana z innego konta zapamiętanego w Steam: Steam uruchamia się ponownie na tym koncie, potem gra."),
+            {}, settings_.steam_account_switch});
+        add({Id::steam_install_dialog, Control::toggle, tr(L"Instalacja Steam w launcherze"),
+            tr(L"Biblioteka gry wybierana w launcherze, z wolnym miejscem; Steam pobiera ją po ponownym uruchomieniu w tle."),
+            {}, settings_.steam_install_dialog});
+        Row integration{Id::aurelia, Control::toggle, tr(L"Rozszerzona integracja Aurelia"), aurelia_ui::notice(), {}, settings_.aurelia};
+        integration.section = L"Aurelia"; add(std::move(integration));
+        Row managed{Id::aurelia_default, Control::toggle, tr(L"Domyślnie zarządzaj grami przez Aurelię"),
+            tr(L"Instalacja, aktualizacje i uruchamianie bez klienta Steam. Wyjątki ustawisz przy grze."), {}, settings_.aurelia_default};
+        managed.locked = !settings_.aurelia; add(std::move(managed));
+        Row cloud{Id::aurelia_cloud, Control::toggle, tr(L"Zapisy w chmurze"),
+            tr(L"Stan i synchronizacja zapisów gier zarządzanych przez Aurelię."), {}, settings_.aurelia_cloud};
+        cloud.locked = !settings_.aurelia; add(std::move(cloud));
+        add({Id::aurelia_open, Control::action, tr(L"Zarządzaj Aurelią"),
+            aurelia_version_.empty() ? std::wstring(tr(L"Instalacja i konto.")) : aurelia_version_ + (aurelia_account_name_.empty() ? L"" : L" · " + aurelia_account_name_),
+            tr(L"Otwórz")});
+        return;
+    }
     if (source == GameSource::gog || source == GameSource::epic) {
         const bool is_gog = source == GameSource::gog;
         const bool busy = is_gog ? working(gog_state_.state) : working(epic_state_.state);
@@ -81,6 +118,29 @@ void Launcher::pcSettingsRows() {
             tr(L"Niewidoczne także w wyszukiwaniu i pod Ctrl+H.") + std::wstring(L" · ") + std::to_wstring(excluded), tr(L"Zarządzaj")});
         if (connected) add({is_gog ? Id::gog_logout : Id::epic_logout, Control::action, tr(L"Połączenie konta"),
             tr(L"Usuń lokalną sesję i bibliotekę kontową."), tr(L"Wyloguj")});
+        return;
+    }
+    if (source == GameSource::amazon) {
+        // Nile first: downloaded only when asked, needed for the account, downloads and updates.
+        const auto& state = amazon_state_;
+        const bool busy = working(state.state), connected = !state.account.empty();
+        Row helper{Id::amazon_helper, Control::action, L"Nile",
+            state.downloading ? amazon::statusText(state) : state.helper ?
+                tr(L"Pomocnik Amazon Games, wersja ") + std::wstring(amazon::helper_version) :
+                std::wstring(tr(L"Pomocnik do logowania i pobierania gier Amazon (open source, około 12 MB).")),
+            state.helper ? std::wstring(tr(L"Usuń")) : std::wstring(tr(L"Pobierz"))};
+        helper.locked = state.downloading || (state.helper && amazon_service_ && amazon_service_->busy()); add(std::move(helper));
+        add({Id::pc_connect, Control::action, tr(L"Konto"), account(source), busy ? tr(L"Anuluj") : connected ? tr(L"Zmień konto") : tr(L"Połącz")});
+        if (state.state == amazon::State::signing_in) add({Id::amazon_callback, Control::secret, tr(L"Adres po logowaniu"),
+            tr(L"Zaloguj się na stronie Amazon, potem wklej tutaj cały adres z paska przeglądarki."), tr(L"Wklej adres")});
+        const auto sync = syncedAt(state.synced_at);
+        add({connected ? Id::amazon_refresh : Id::pc_refresh, Control::action, tr(L"Biblioteka"), library(source) + (sync.empty() ? L"" : L" · " + sync), tr(L"Odśwież")});
+        const auto prefix = std::string(sourceSlug(source)) + ':';
+        const auto excluded = std::count_if(library_state_.excluded_games.begin(), library_state_.excluded_games.end(),
+            [&](const auto& entry) { return entry.first.starts_with(prefix); });
+        add({Id::pc_excluded, Control::action, tr(L"Wykluczone gry"),
+            tr(L"Niewidoczne także w wyszukiwaniu i pod Ctrl+H.") + std::wstring(L" · ") + std::to_wstring(excluded), tr(L"Zarządzaj")});
+        if (connected) add({Id::amazon_logout, Control::action, tr(L"Połączenie konta"), tr(L"Usuń lokalną sesję i bibliotekę kontową."), tr(L"Wyloguj")});
         return;
     }
     if (source == GameSource::ea) {
@@ -117,10 +177,20 @@ void Launcher::pcSettingsRows() {
     add({Id::pc_client, Control::action, tr(L"Klient"), {}, client ? tr(L"Otwórz klienta") : tr(L"Pobierz klienta")});
 }
 
+// The overview's order: Steam, the DRM-free folders, then the stores by their (translated) names.
+std::vector<GameSource> Launcher::platformOrder() const {
+    std::vector<GameSource> stores(pc_sources.begin(), pc_sources.end());
+    std::sort(stores.begin(), stores.end(), [](GameSource a, GameSource b) {
+        return CompareStringEx(LOCALE_NAME_USER_DEFAULT, LINGUISTIC_IGNORECASE, sourceName(a), -1, sourceName(b), -1, nullptr, nullptr, 0) == CSTR_LESS_THAN;
+    });
+    stores.insert(stores.begin(), {GameSource::steam, GameSource::drmfree});
+    return stores;
+}
+
 void Launcher::openPlatformSettings(GameSource source) {
-    const auto found = std::find(pc_sources.begin(), pc_sources.end(), source);
-    const bool drm = source == GameSource::drmfree;
-    if (!drm && found == pc_sources.end()) return;
+    const auto order = platformOrder();
+    const auto found = std::find(order.begin(), order.end(), source);
+    if (found == order.end()) return;
     if (settings_state_.category != static_cast<int>(settings_ui::Category::library))
         settings_state_.selectCategory(static_cast<int>(settings_ui::Category::library));
     settings_state_.closeAll(); // Another platform's page replaces this one; Back leads to the overview.
@@ -128,8 +198,8 @@ void Launcher::openPlatformSettings(GameSource source) {
     settings_ui::Row opener{Id::pc_platform, Control::platform};
     opener.source = source;
     settings_state_.open(Page::platform, {}, static_cast<int>(source), RowRef::of(opener));
-    // Overview rows: DRM-free first, then the stores in pc_sources order (if the row is not found again).
-    settings_state_.pages.back().parent_row = drm ? 0 : 1 + static_cast<int>(found - pc_sources.begin());
+    // Overview rows in platformOrder (if the row is not found again).
+    settings_state_.pages.back().parent_row = static_cast<int>(found - order.begin());
     clearSecretInput(); settings_motion_.valid = false; settingsPreviewFocus(); buildSettingsRows(); audio_.context();
 }
 
@@ -137,14 +207,26 @@ bool Launcher::pcSettingsActivate(const Row& row) {
     if (drmSettingsActivate(row)) return true;
     if (row.id == Id::pc_platform) {
         if (settings_state_.editing) openPlatformSettings(row.source);
-        else {
+        else if (row.source == GameSource::steam) {
+            // Steam can be switched off like any store: its games, collections and friends leave the launcher.
+            settings_.steam_enabled = !settings_.steam_enabled;
+            settingsChanged(true); rebuildCards(true); audio_.context();
+        } else {
             const auto key = sourceSlug(row.source);
-            if (!settings_.enabled_pc_sources.erase(key)) settings_.enabled_pc_sources.insert(key);
+            const bool enabled = !settings_.enabled_pc_sources.erase(key);
+            if (enabled) settings_.enabled_pc_sources.insert(key);
             settingsChanged(true); audio_.context();
+            // Amazon Games needs Nile: switching it on offers the download (its page, the button first);
+            // going back is a normal answer, the button stays there.
+            if (enabled && row.source == GameSource::amazon && !amazon_state_.helper && amazon_state_.account.empty()) {
+                openPlatformSettings(GameSource::amazon);
+                settings_state_.selected[settings_state_.category] = 0; settings_state_.options = true; ensureSettingVisible();
+            }
         }
     } else if (row.id == Id::pc_connect) {
         if (row.source == GameSource::gog) gogCommand(working(gog_state_.state) ? gog::Command::cancel : gog::Command::connect);
         else if (row.source == GameSource::epic) epicCommand(working(epic_state_.state) ? epic::Command::cancel : epic::Command::connect);
+        else if (row.source == GameSource::amazon) amazonCommand(working(amazon_state_.state) ? amazon::Command::cancel : amazon::Command::connect);
         else if (row.source == GameSource::ea) { if (ea_import_.awaiting) cancelWebImport(row.source); else startWebImport(row.source); }
     } else if (row.id == Id::pc_excluded) openExcludedGames(row.source);
     else if (row.id == Id::pc_refresh) refreshPcLibraries();
@@ -167,6 +249,18 @@ bool Launcher::pcSettingsActivate(const Row& row) {
     else if (row.id == Id::gog_logout) gogCommand(gog::Command::logout);
     else if (row.id == Id::epic_refresh) epicCommand(epic::Command::sync);
     else if (row.id == Id::epic_logout) epicCommand(epic::Command::logout);
+    else if (row.id == Id::amazon_helper) {
+        // Nile on request only: "Pobierz" fetches it, "Usuń" removes the file again (the account stays signed in).
+        if (amazon_state_.downloading) return true;
+        if (!amazon_state_.helper) amazonCommand(amazon::Command::download);
+        else if (!amazon_service_ || !amazon_service_->busy()) {
+            std::error_code ec; std::filesystem::remove(amazon::helperPath(userConfigDirectory()), ec);
+            amazon_state_.helper = amazon::helperInstalled(userConfigDirectory());
+            buildSettingsRows(); audio_.context();
+        }
+    }
+    else if (row.id == Id::amazon_refresh) amazonCommand(amazon::Command::sync);
+    else if (row.id == Id::amazon_logout) amazonCommand(amazon::Command::logout);
     else if (row.id == Id::ea_refresh) startWebImport(GameSource::ea);
     else if (row.id == Id::ea_remove) clearWebImport(GameSource::ea);
     else if (row.id == Id::battlenet_import) {
@@ -174,10 +268,12 @@ bool Launcher::pcSettingsActivate(const Row& row) {
     }
     else if (row.id == Id::battlenet_remove) clearWebImport(GameSource::battlenet);
     // Sign-in codes and pasted store pages: an empty field opens, the second Enter submits it.
-    else if (row.id == Id::gog_callback || row.id == Id::epic_callback || row.id == Id::ea_callback || row.id == Id::battlenet_callback) {
+    else if (row.id == Id::gog_callback || row.id == Id::epic_callback || row.id == Id::ea_callback || row.id == Id::battlenet_callback ||
+             row.id == Id::amazon_callback) {
         if (settings_state_.editing) {
             if (row.id == Id::gog_callback) gogCommand(gog::Command::complete);
             else if (row.id == Id::epic_callback) epicCommand(epic::Command::complete);
+            else if (row.id == Id::amazon_callback) amazonCommand(amazon::Command::complete);
             else submitWebImport(row.id == Id::ea_callback ? GameSource::ea : GameSource::battlenet);
             return true;
         }
@@ -208,5 +304,6 @@ void Launcher::setMultimcPath(const std::filesystem::path& picked) {
 void Launcher::cancelPlatformSignIn(GameSource source) {
     if (source == GameSource::gog && signing(gog_state_.state)) gogCommand(gog::Command::cancel);
     else if (source == GameSource::epic && signing(epic_state_.state)) epicCommand(epic::Command::cancel);
+    else if (source == GameSource::amazon && signing(amazon_state_.state)) amazonCommand(amazon::Command::cancel);
     else if ((source == GameSource::ea || source == GameSource::battlenet) && webImport(source).awaiting) cancelWebImport(source);
 }

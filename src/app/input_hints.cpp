@@ -29,6 +29,15 @@ void Launcher::inputHints(ViewContext& context) const {
     auto& hints = context.hints;
     const auto add = [&](HintButton button, std::wstring label) { hints.push_back({button, std::move(label)}); };
     const auto selectAndClose = [&] { add(HintButton::accept, tr(L"Wybierz")); add(HintButton::back, tr(L"Zamknij")); };
+    if (friendChatOpen()) { // A friend's conversation: Enter sends, Back returns to the list.
+        const auto& chat = friend_chat_;
+        if (chat.back_focus) add(HintButton::accept, tr(L"Wstecz"));
+        else if (!chat.input.empty()) add(HintButton::accept, tr(L"Wyślij"));
+        else if (pad) add(HintButton::accept, tr(L"Pisz"));
+        if (pad) add(HintButton::shoulders, tr(L"Przewiń"));
+        add(HintButton::back, tr(L"Wstecz"));
+        return;
+    }
     if (friends_open_ || menu_open_ || category_menu_open_) { selectAndClose(); return; }
     if (libraryControls() && library_controls_.open()) {
         const bool views = library_controls_.panel == library_ui::Panel::views;

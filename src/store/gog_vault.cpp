@@ -2,6 +2,7 @@
 #include "../platform/atomic_file.hpp"
 #include "../platform/protected_file.hpp"
 #include "../platform/text_encoding.hpp"
+#include "../model/library_time.hpp"
 #include <iomanip>
 #include <set>
 #include <sstream>
@@ -42,12 +43,14 @@ public:
         std::istringstream data(*text); SecureZeroMemory(text->data(), text->size());
         data.imbue(std::locale::classic());
         Session session; std::string header; size_t count = 0;
-        if (!(data >> header) || header != "launchme-gog-v1" ||
+        if (!(data >> header) || (header != "launchme-gog-v1" && header != "launchme-gog-v2") ||
             !(data >> std::quoted(session.tokens.client) >> std::quoted(session.tokens.user) >> std::quoted(session.tokens.access) >>
                 std::quoted(session.tokens.refresh) >> session.tokens.expires >> session.synced_at >> count) || count > 10000) return {Failure::storage};
         for (size_t i = 0; i < count; ++i) {
             Game game; std::string name; int visibility = 0;
             if (!(data >> std::quoted(game.source_id) >> std::quoted(name) >> visibility) || visibility < 0 || visibility > 2) return {Failure::storage};
+            if (header == "launchme-gog-v2" && !(data >> game.added_at)) return {Failure::storage};
+            game.added_at = library_time::seconds(game.added_at);
             game.source = GameSource::gog; game.kind = GameKind::store; game.installed = false;
             game.name = text_encoding::wide(name); game.visibility = static_cast<GameVisibility>(visibility);
             session.games.push_back(std::move(game));
@@ -59,10 +62,10 @@ public:
     bool save(const Session& session) override {
         if (!valid(session)) return false;
         std::ostringstream data; data.imbue(std::locale::classic());
-        data << "launchme-gog-v1\n" << std::quoted(session.tokens.client) << ' ' << std::quoted(session.tokens.user) << ' ' <<
+        data << "launchme-gog-v2\n" << std::quoted(session.tokens.client) << ' ' << std::quoted(session.tokens.user) << ' ' <<
             std::quoted(session.tokens.access) << ' ' << std::quoted(session.tokens.refresh) << ' ' << session.tokens.expires << ' ' <<
             session.synced_at << ' ' << session.games.size() << '\n';
-        for (const auto& game : session.games) data << std::quoted(game.source_id) << ' ' << std::quoted(text_encoding::utf8(game.name)) << ' ' << static_cast<int>(game.visibility) << '\n';
+        for (const auto& game : session.games) data << std::quoted(game.source_id) << ' ' << std::quoted(text_encoding::utf8(game.name)) << ' ' << static_cast<int>(game.visibility) << ' ' << game.added_at << '\n';
         auto text = data.str();
         const bool saved = protected_file::write(file_, text, L"Launchme GOG account");
         SecureZeroMemory(text.data(), text.size());

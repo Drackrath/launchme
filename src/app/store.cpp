@@ -110,10 +110,12 @@ void Launcher::retryStore() {
         refreshPcLibraries();
         if ((!settings_state_.platform() || settings_state_.platform() == GameSource::gog) && !gog_state_.account.empty()) gogCommand(gog::Command::sync);
         if ((!settings_state_.platform() || settings_state_.platform() == GameSource::epic) && !epic_state_.account.empty()) epicCommand(epic::Command::sync);
+        if ((!settings_state_.platform() || settings_state_.platform() == GameSource::amazon) && amazonConnected()) amazonCommand(amazon::Command::sync);
     }
     else if (screen_ == ScreenMode::library && pc_source_) {
         refreshPcLibraries(); if (pc_source_ == GameSource::gog && !gog_state_.account.empty()) gogCommand(gog::Command::sync);
         if (pc_source_ == GameSource::epic && !epic_state_.account.empty()) epicCommand(epic::Command::sync);
+        if (pc_source_ == GameSource::amazon && amazonConnected()) amazonCommand(amazon::Command::sync);
     }
     else if (screen_ == ScreenMode::store && !store_loading_) searchStore();
     else if (screen_ == ScreenMode::details && !details_loading_) {
@@ -167,7 +169,8 @@ bool Launcher::actionEnabled(const Game& game) const {
     // launcher itself (launch(): openGogInstall, openEpicInstall, startEpicGame), not through a
     // URI action — those have none, yet the action works.
     if (effective.kind != GameKind::catalog && !effective.installed && (!effective.account_id.empty() || effective.installation.active()) &&
-        ((effective.source == GameSource::gog && !gog_state_.account.empty()) || (effective.source == GameSource::epic && !epic_state_.account.empty())))
+        ((effective.source == GameSource::gog && !gog_state_.account.empty()) || (effective.source == GameSource::epic && !epic_state_.account.empty()) ||
+         (effective.source == GameSource::amazon && amazonConnected())))
         return true;
     if (effective.source == GameSource::epic && effective.epic_managed) return true;
     const auto* owner = plugins_.find(game.catalog_plugin);
@@ -186,11 +189,27 @@ std::filesystem::path Launcher::gameFolder(const Game& game) const {
 
 // Details actions: -1 back, 0 primary, 1 options (artwork, folder, hide/show, Epic/GOG exclusion).
 int Launcher::lastDetailAction() const {
-    return std::max({1, identifyDetailAction(), collectionsDetailAction(), versionsDetailAction()});
+    return std::max({1, identifyDetailAction(), collectionsDetailAction(), versionsDetailAction(), closeDetailAction(), cloudDetailAction()});
+}
+// ✕ beside Wróć while the game runs (or is suspended): Zamknij grę, through closeGame().
+int Launcher::closeDetailAction() const {
+    if (screen_ != ScreenMode::details || cards_.empty() || !isGame(cards_[0].game)) return -2;
+    const auto& game = cards_[0].game;
+    const auto state = sessionState(game);
+    const bool aurelia = aurelia_active_ && aurelia::validGame(game) && aurelia_playing_.contains(game.app_id);
+    if (state != SessionState::running && state != SessionState::frozen && !aurelia) return -2;
+    return std::max({1, identifyDetailAction(), collectionsDetailAction(), versionsDetailAction()}) + 1;
+}
+// The cloud saves of a game Aurelia manages: an icon after "…" that opens its Zapisy w chmurze.
+int Launcher::cloudDetailAction() const {
+    if (screen_ != ScreenMode::details || cards_.empty() || !aureliaCloudFor(cards_[0].game)) return -2;
+    return std::max({1, identifyDetailAction(), collectionsDetailAction(), versionsDetailAction(), closeDetailAction()}) + 1;
 }
 
 details_layout::Actions Launcher::detailsActions() const {
     details_layout::Actions actions;
+    actions.close = closeDetailAction();
+    actions.cloud = cloudDetailAction();
     actions.identify = identifyDetailAction();
     actions.favorite = favoriteDetailAction();
     actions.collections = collectionsDetailAction();

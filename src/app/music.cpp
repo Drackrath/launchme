@@ -24,10 +24,11 @@ void Launcher::requestMusic() {
     audio_.cancelPendingMusic();
     std::lock_guard lock(music_jobs_->mutex);
     music_jobs_->generation.fetch_add(1);
-    // A file of the sound folder, else the chosen built-in theme (looked up in assets, the sound
-    // folder and the old desktop locations).
+    // A file the sound folder still holds (its full path), else the chosen built-in theme (a name
+    // in assets/).
     const wchar_t* theme = music_themes[std::clamp(settings_.music_theme, 0, static_cast<int>(music_themes.size()) - 1)].file;
-    const std::wstring file = !settings_.music_file.empty() ? settings_.music_file : theme ? std::wstring(theme) : std::wstring{};
+    const auto chosen = soundFolderFile(settings_.sound_folder, settings_.music_file);
+    const std::wstring file = !chosen.empty() ? chosen.wstring() : theme ? std::wstring(theme) : std::wstring{};
     if (file.empty()) {
         music_jobs_->pending.reset();
         music_status_ = L"";
@@ -44,8 +45,8 @@ void Launcher::requestSound(SoundCue cue, int index, bool preview) {
     if (slot < 0) return;
     const uint32_t generation = ++sound_generation_[slot];
     const auto* option = soundOption(cue, index);
-    // The start sound can be any file of the sound folder.
-    const std::wstring file = cue == SoundCue::boot ? settings_.boot_file : std::wstring{};
+    // The start sound can be any file the sound folder holds (its full path).
+    const std::wstring file = cue == SoundCue::boot ? soundFolderFile(settings_.sound_folder, settings_.boot_file).wstring() : std::wstring{};
     if (file.empty() && (!option || !option->file)) {
         audio_.setCue(cue, {});
         if (cue == SoundCue::boot) { audio_.boot(); boot_played_ = true; }
@@ -95,14 +96,16 @@ void Launcher::initializeMusic() {
                 for (const auto& cue : cues) {
                     if (!alive->load()) break;
                     const auto* option = soundOption(cue.cue, cue.index);
-                    const auto path = !cue.file.empty() ? localSoundFile(cue.file.c_str()) :
+                    // A sound-folder file comes as its full path; a built-in one as a name in assets/.
+                    const auto path = !cue.file.empty() ? std::filesystem::path(cue.file) :
                                       option && option->file ? localSoundFile(option->file) : std::filesystem::path{};
                     const size_t limit = cue.cue == SoundCue::boot ? 16 * 1024 * 1024 : 8 * 1024 * 1024;
                     send(decodeFlac(path, limit), cue.cue, cue.generation, cue.preview);
                 }
                 if (!theme || theme->empty()) continue;
                 auto cancelled = [&] { return !alive->load() || jobs->generation.load() != generation; };
-                auto clip = decodeFlac(localSoundFile(theme->c_str()), music_pcm_limit, cancelled);
+                const std::filesystem::path source(*theme);
+                auto clip = decodeFlac(source.is_absolute() ? source : localSoundFile(theme->c_str()), music_pcm_limit, cancelled);
                 if (!cancelled()) send(std::move(clip), SoundCue::music, generation, false);
             }
             MFShutdown();

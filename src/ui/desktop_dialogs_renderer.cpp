@@ -6,6 +6,7 @@
 #include "renderer_internal.hpp"
 #include "exit_prompt.hpp"
 #include "../store/epic_account.hpp"
+#include "../store/amazon.hpp"
 
 #include <algorithm>
 #include <array>
@@ -386,7 +387,8 @@ void Renderer::drawDesktopGogInstall() {
     const auto& ui = *context_->gog_install;
     const auto& state = ui.snapshot;
     const auto& hover = context_->desktop_dialog_hover;
-    const bool epic = ui.game.source == GameSource::epic, steam = ui.steam;
+    const bool epic = gog_install_ui::helperInstall(ui.game.source), steam = ui.steam;
+    const bool amazon = ui.game.source == GameSource::amazon; // Nile reports bytes, Legendary percent.
     const auto view = desktopViewport();
     D2D1_MATRIX_3X2_F saved{};
     target_->GetTransform(&saved);
@@ -399,7 +401,7 @@ void Renderer::drawDesktopGogInstall() {
     float y = p.top + sheet_header + 14;
     // Its state, with a turning disc while the store works.
     const bool busy = state.busy() || (steam && ui.steam_busy);
-    const auto status = steam ? gog_install_ui::steamInstallStatus(ui) : epic ? epic::installStatusText(state) : gog::installStatusText(state);
+    const auto status = steam ? gog_install_ui::steamInstallStatus(ui) : epic && !amazon ? epic::installStatusText(state) : gog::installStatusText(state);
     if (busy) desktopArc(p.left + 30, y + 14, 8, elapsed_ * 5.0f, 4.2f, uiAccent(), 2);
     paragraph(status, p.left + (busy ? 48.0f : 22.0f), y + 2, p.right - p.left - 70, desktop_font_.Get(), palette::muted(), 2);
     y += 56;
@@ -412,10 +414,10 @@ void Renderer::drawDesktopGogInstall() {
     }
     const std::array<std::wstring, 3> labels = steam ?
         std::array<std::wstring, 3>{tr(L"Biblioteka Steam"), tr(L"Okno instalacji Steam"), {}} :
-        std::array<std::wstring, 3>{epic ? std::wstring(L"Epic Games · Windows") : std::wstring(tr(L"Język / wersja")), tr(L"Folder gry"), tr(L"Folder pobierania (tymczasowo)")};
+        std::array<std::wstring, 3>{amazon ? std::wstring(L"Amazon Games · Windows") : epic ? std::wstring(L"Epic Games · Windows") : std::wstring(tr(L"Język / wersja")), tr(L"Folder gry"), tr(L"Folder pobierania (tymczasowo)")};
     const std::array<std::wstring, 3> values = steam ?
         std::array<std::wstring, 3>{gog_install_ui::steamLibraryText(ui), tr(L"Wybór biblioteki i instalacja w samym Steamie"), {}} :
-        std::array<std::wstring, 3>{epic ? std::wstring(L"Legendary 0.21.1") : variant, ui.request.install_directory.wstring(), ui.request.download_root.wstring()};
+        std::array<std::wstring, 3>{amazon ? L"Nile " + std::wstring(amazon::helper_version) : epic ? std::wstring(L"Legendary 0.21.1") : variant, ui.request.install_directory.wstring(), ui.request.download_root.wstring()};
     for (int i = 0; i < 3; ++i) {
         if ((epic || steam) && i == 2) continue;
         const Rect r{p.left + 16, y, p.right - 16, y + item_h - 8};
@@ -431,8 +433,8 @@ void Renderer::drawDesktopGogInstall() {
         const float ratio = state.total ? static_cast<float>(static_cast<double>(state.done) / static_cast<double>(state.total)) : 0.0f;
         desktopFill({p.left + 22, y + 8, p.right - 22, y + 12}, 2, gray(1, 0.1f));
         if (state.total) desktopFill({p.left + 22, y + 8, p.left + 22 + (p.right - p.left - 44) * std::clamp(ratio, 0.0f, 1.0f), y + 12}, 2, uiAccent());
-        if (!epic || state.total)
-            textLine(epic ? std::to_wstring(state.done / 100) + L"%" : std::to_wstring(state.done / (1024 * 1024)) + L" / " + std::to_wstring(state.total / (1024 * 1024)) + L" MiB",
+        if (!epic || amazon || state.total)
+            textLine(epic && !amazon ? std::to_wstring(state.done / 100) + L"%" : std::to_wstring(state.done / (1024 * 1024)) + L" / " + std::to_wstring(state.total / (1024 * 1024)) + L" MiB",
                      p.left + 22, y + 28, p.right - p.left - 44, desktop_small_font_.Get(), palette::muted());
         y += 44;
     }

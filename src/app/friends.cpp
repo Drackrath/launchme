@@ -128,6 +128,7 @@ void Launcher::onDashboard(std::unique_ptr<DashboardMessage> message) {
 }
 
 void Launcher::closeFriends() {
+    closeFriendChat();
     dashboardEdit(false);
     if (plugin_command_pending_) { ++plugin_command_generation_; plugin_command_pending_ = false; }
     friends_open_ = false;
@@ -149,6 +150,7 @@ void Launcher::friendsBack() {
         drawer_glide_.valid = false; audio_.navigate(); InvalidateRect(hwnd_, nullptr, FALSE); return;
     }
     if (!friends_list_) { closeFriends(); return; }
+    if (friend_chat_.open) { closeFriendChat(); audio_.navigate(); return; } // The conversation: the list again.
     friends_list_ = false;
     friends_back_ = false;
     clock_check_at_ = 0; // The clock may have changed while the list covered it.
@@ -158,6 +160,7 @@ void Launcher::friendsBack() {
 
 void Launcher::scrollFriends(int amount) {
     if (plugin_drawer_active_) { pluginPageMove(amount); return; }
+    if (friendChatOpen()) { friendChatScroll(amount * 70.0f); return; }
     if (!friends_list_) {
         dashboard_scroll_ = std::clamp(dashboard_scroll_ + amount * 70.0f, 0.0f, dashboardLayout().maxScroll(drawerViewport().height));
         drawer_glide_.valid = false;
@@ -173,6 +176,7 @@ void Launcher::friendsMove(int amount) {
     if (!friends_open_) return;
     if (plugin_drawer_active_) { pluginPageMove(amount); return; }
     if (!friends_list_) { dashboardMove(0, amount); return; }
+    if (friend_chat_.open) { friendChatKey(amount < 0 ? VK_UP : VK_DOWN, false); return; }
     // Back (top left) is the last stop above the first friend, also in an empty list.
     if (friends_back_) {
         if (amount < 0 || friends_.friends.empty()) { navigationBoundary(); return; }
@@ -205,6 +209,13 @@ void Launcher::friendsMove(int amount) {
 void Launcher::friendsAccept() {
     if (!friends_open_) return;
     if (plugin_drawer_active_) { pluginPageAccept(); return; }
+    if (friendChatOpen()) {
+        // A: Back when it has the focus; on the field the keyboard (Tryb TV), else it sends.
+        if (friend_chat_.back_focus) { closeFriendChat(); audio_.navigate(); }
+        else if (!desktop_mode_ && pad_input_ && !gameOverlayOpen() && !keyboard_.open) openKeyboard();
+        else friendChatSend();
+        return;
+    }
     if (friends_list_ && (friends_back_ || friends_.friends.empty())) friendsBack(); // Enter/A on Back: the tiles again.
     else if (friends_list_) friendsChat();
     else dashboardActivate(dashboard_tile_);
@@ -213,11 +224,13 @@ void Launcher::friendsAccept() {
 void Launcher::friendsChat() {
     if (!friends_open_ || !friends_list_ || friends_cursor_ >= friends_.friends.size()) return;
     friends_back_ = false; // A click on a row moves the focus there.
-    const auto id = friends_.friends[friends_cursor_].id;
+    const auto& person = friends_.friends[friends_cursor_];
+    const auto id = person.id;
     if (!id) return;
+    // With Aurelia the conversation opens here, in the drawer; the Steam client is never started.
     if (aurelia_active_) {
-        const auto name = friends_.friends[friends_cursor_].name;
-        closeFriends(); openAurelia(); aureliaOpenChat(id, name); return;
+        openFriendChat(id, person.name, person.game.empty() ? std::wstring(person.status ? tr(L"Dostępny") : tr(L"Niedostępny")) : person.game);
+        return;
     }
     if (execute_(hwnd_, GameAction{L"steam://friends/message/" + std::to_wstring(id)}) <= 32)
         showNotification(NotificationKind::error, tr(L"Nie można otworzyć czatu"), tr(L"Uruchom klienta Steam"));

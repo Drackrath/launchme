@@ -39,6 +39,8 @@ bool validId(GameSource source, const std::string& id) {
         if ((source == GameSource::ea || source == GameSource::epic) && (ch == ':' || ch == '-' || ch == '_' || ch == '.')) continue;
         // Xbox: the package family name, e.g. Publisher.Game_8wekyb3d8bbwe.
         if (source == GameSource::xbox && (ch == '-' || ch == '_' || ch == '.')) continue;
+        // Amazon Games: amzn1.adg.product.<uuid>.
+        if (source == GameSource::amazon && (ch == '-' || ch == '.')) continue;
         return false;
     }
     // Keep numeric IDs canonical, while retaining their full precision as strings.
@@ -189,6 +191,7 @@ std::unique_ptr<StoreAdapter> makeStoreAdapter(GameSource source) {
     case GameSource::epic: return std::make_unique<CatalogAdapter<GameSource::epic>>();
     case GameSource::xbox: return std::make_unique<CatalogAdapter<GameSource::xbox>>();
     case GameSource::multimc: return std::make_unique<CatalogAdapter<GameSource::multimc>>(); // Play: src/library/multimc.cpp.
+    case GameSource::amazon: return std::make_unique<CatalogAdapter<GameSource::amazon>>(); // Play: src/store/amazon.cpp.
     default: return {};
     }
 }

@@ -33,6 +33,7 @@
 #include "profile_view.hpp"
 #include "update_view.hpp"
 #include "aurelia_view.hpp"
+#include "friend_chat_view.hpp"
 #include "companion_view.hpp"
 #include "home_widgets.hpp"
 #include "desktop_sheet.hpp"
@@ -283,7 +284,7 @@ struct ViewContext {
     const gog_install_ui::State* gog_install = nullptr;
     const tarot_ui::State* tarot = nullptr; // Tarot's reading, while open or fading out.
     const profile_ui::State* profile = nullptr; // Profil, while open or fading out.
-    aurelia_ui::State* aurelia = nullptr; // Chat text height is measured while drawing.
+    aurelia_ui::State* aurelia = nullptr; // The renderer records its measured note and visible rows.
     update_ui::WhatsNew* whats_new = nullptr; // Co nowego after an update; the renderer records the text's height.
     const desktop_ui::MetaView* tv_meta = nullptr; // Tryb TV: Edytuj metadane (the desktop dialog, on the TV canvas).
     const custom_game_ui::State* custom_editor = nullptr; // Settings → Library add/edit panel.
@@ -325,7 +326,12 @@ struct ViewContext {
     bool menu_uninstall = false, menu_launch = false; // "Odinstaluj" (red, last) / Details' "Opcje uruchamiania".
     bool menu_metadata = false; // Details' "Edytuj metadane".
     bool menu_aurelia = false;
+    std::wstring menu_steam_account; // Details' "…": the account a Steam game starts from; empty: no choice.
     std::wstring aurelia_cloud;
+    // Szczegóły: the cloud icon after "…" (Aurelia-managed games), its state and its action's index.
+    std::optional<aurelia::CloudState> detail_cloud;
+    int detail_cloud_action = -2;
+    int detail_close_action = -2; // "Zamknij grę" beside Wróć while the game runs; -2 = none.
     bool menu_beside = false;  // The game menu opens beside the card (XMB, Flix, list view).
     std::optional<settings_ui::Rect> menu_anchor;
     // With Quick Resume off, failed recoveries still show their frozen state.
@@ -430,6 +436,7 @@ struct ViewContext {
     int friends_scroll = 0;
     size_t friends_cursor = 0;
     bool friends_loading = false;
+    friend_chat::State* friend_chat = nullptr; // The drawer's conversation; the renderer measures its log.
     DrawerDashboard dashboard;
     const std::vector<std::wstring>* categories = nullptr;
     bool category_rail = false, category_rail_focus = false;

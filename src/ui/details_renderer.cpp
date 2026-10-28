@@ -74,6 +74,8 @@ void Renderer::drawDetails() {
     actions.achievements = context_->detail_achievements;
     actions.rating = context_->rating_label.empty() ? -2 : context_->detail_rating;
     actions.plugin = context_->detail_comparison ? context_->detail_comparison_action : -2;
+    actions.close = context_->detail_close_action;
+    actions.cloud = context_->detail_cloud_action;
     // One line of facts: the platform's logo, the year, the genres, the playtime, then the rating
     // as a pill that opens its source (its rectangle goes to the hit tests: ratingLink).
     const float facts_y = layout.factsCenter(actions);
@@ -120,8 +122,11 @@ void Renderer::drawDetails() {
     }
 
     if (facts_width > 0) textLine(facts, facts_x, facts_y, facts_width + 4, menu_font_.Get(), gray(0.86f));
-    if (!context_->aurelia_cloud.empty()) textLine(context_->aurelia_cloud, layout.left(), layout.cardsTop() - 19,
-        layout.right() - layout.left(), settings_body_font_.Get(), uiAccent(0.9f));
+    // The focused ✕ or cloud says what it is (Tryb TV has no tooltips), above the cards.
+    if (focus && focus->kind == details_layout::Kind::close)
+        textLine(tr(L"Zamknij grę"), layout.left(), layout.cardsTop() - 19, layout.right() - layout.left(), settings_body_font_.Get(), gray(0.86f));
+    else if (focus && focus->kind == details_layout::Kind::cloud && !context_->aurelia_cloud.empty())
+        textLine(context_->aurelia_cloud, layout.left(), layout.cardsTop() - 19, layout.right() - layout.left(), settings_body_font_.Get(), gray(0.86f));
 
     // Drawn after the cards: their glass copies the scene without the buttons.
     const auto controls = [&] {
@@ -161,6 +166,13 @@ void Renderer::drawDetails() {
         const auto& r = item.rect;
         const float inset = std::min(22.0f, (r.bottom - r.top) * 0.5f - 4);
         const bool enabled = item.kind != Kind::primary || context_->primary_enabled;
+        if (item.kind == Kind::close) { // ✕: two strokes on the button's centre.
+            const auto ink = buttonInk(focused(item.action), enabled);
+            const float cx = (r.left + r.right) * 0.5f, cy = (r.top + r.bottom) * 0.5f, d = 7.5f;
+            line(cx - d, cy - d, cx + d, cy + d, ink, 2.4f); line(cx - d, cy + d, cx + d, cy - d, ink, 2.4f);
+            continue;
+        }
+        if (item.kind == Kind::cloud) { drawCloudGlyph((r.left + r.right) * 0.5f, (r.top + r.bottom) * 0.5f, buttonInk(focused(item.action), enabled), context_->detail_cloud); continue; }
         if (item.kind == Kind::more) {
             // Three drawn dots on the button's exact centre (the "…" glyph sat on the baseline, low).
             brush(buttonInk(focused(item.action), enabled));
@@ -246,7 +258,8 @@ void Renderer::drawDetails() {
             info && !info->error.empty() ? info->error : std::wstring(tr(L"Opis gry nie jest dostępny."));
         const auto metrics = typeMetrics(details_body_font_.Get());
         const int lines = std::max(1, static_cast<int>((r.bottom - r.top - 56 - 20) / std::max(1.0f, metrics.line)));
-        paragraph(description, r.left + 24, r.top + 52, r.right - r.left - 48, details_body_font_.Get(), D2D1::ColorF(0.80f, 0.82f, 0.85f), lines);
+        if (context_->details_loading) drawSkeleton(D2D1::RectF(r.left + 24, r.top + 52, r.right - 24, r.bottom - 20), std::min(lines, 5), metrics.line);
+        else paragraph(description, r.left + 24, r.top + 52, r.right - r.left - 48, details_body_font_.Get(), D2D1::ColorF(0.80f, 0.82f, 0.85f), lines);
     }
     // Facts table: label and value on one line each.
     {

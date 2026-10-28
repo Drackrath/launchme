@@ -7,6 +7,7 @@ using settings_ui::Control;
 
 bool Launcher::textFieldActive() const {
     if (aurelia_ui_.open) return aureliaTyping();
+    if (friendChatTyping() && topDialog() == Modal::none) return true; // The drawer's conversation.
     return (libraryDialogOpen() && library_dialog_.textField() && library_dialog_.focus == -2) ||
            (identifyOpen() && identify_state_.query_focus) ||
            (customEditorOpen() && custom_game_ui::field(custom_editor_.focus) >= 0) ||
@@ -19,7 +20,7 @@ bool Launcher::textFieldActive() const {
 void Launcher::openKeyboard() {
     if (keyboard_.open) { closeKeyboard(); return; }
     if (desktop_mode_) return; // The desktop window types with the keyboard; no on-screen one.
-    if (pending_launch_ || menu_open_ || quick_open_ || friends_open_ || category_menu_open_) return;
+    if (pending_launch_ || menu_open_ || quick_open_ || (friends_open_ && !friendChatTyping()) || category_menu_open_) return;
     if (!textFieldActive()) {
         if (libraryDialogOpen()) {
             if (!library_dialog_.textField()) return;
@@ -82,6 +83,7 @@ void Launcher::keyboardPress(const osk::Key& key) {
 // Backspace as on a physical keyboard, per field.
 void Launcher::keyboardBackspace() {
     if (aureliaTyping()) { aureliaKey(VK_BACK, false); return; }
+    if (friendChatTyping()) { if (!friend_chat_.input.empty()) friendChatKey(VK_BACK, false); return; }
     if (libraryDialogOpen()) libraryDialogKey(VK_BACK, false);
     else if (identifyOpen()) identifyKey(VK_BACK, false);
     else if (customEditorOpen()) customEditorKey(VK_BACK, false);
@@ -96,6 +98,7 @@ void Launcher::keyboardBackspace() {
 void Launcher::keyboardDone() {
     closeKeyboard();
     if (aureliaTyping()) { aureliaSubmit(); return; }
+    if (friendChatTyping()) { friendChatSend(); return; }
     if (metadataOpen()) return; // The field keeps its text; Zapisz saves them all.
     if ((screen_ == ScreenMode::search || screen_ == ScreenMode::store) && !libraryDialogOpen() && !identifyOpen() && !customEditorOpen()) return;
     enterDown(false);
@@ -121,6 +124,7 @@ void Launcher::keyboardCaret(int amount) {
 
 size_t Launcher::keyboardPreviewCaret() const {
     if (aureliaTyping()) return aurelia_ui_.input.size();
+    if (friendChatTyping()) return friend_chat_.input.size();
     if (customEditorOpen() && custom_game_ui::field(custom_editor_.focus) >= 0) return custom_editor_.caret;
     if (metadataOpen() && desktop_meta_.focus < desktop_ui::meta_fields) return desktop_meta_.caret;
     if (!libraryDialogOpen() && !identifyOpen() && !customEditorOpen() && !metadataOpen() && !artworkOpen() && !editingSecret() && !pluginPageTyping() && !companionTyping()) {
@@ -148,6 +152,7 @@ void Launcher::autoKeyboard() {
 
 std::wstring Launcher::keyboardPreview() const {
     if (aureliaTyping()) return aurelia_ui_.input;
+    if (friendChatTyping()) return friend_chat_.input;
     if (libraryDialogOpen()) return library_dialog_.input;
     if (identifyOpen()) return identify_state_.query;
     if (customEditorOpen()) {

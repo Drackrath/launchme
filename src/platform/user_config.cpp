@@ -156,6 +156,7 @@ AppSettings parseAppSettings(std::string_view text) {
     if (text.starts_with("\xef\xbb\xbf")) text.remove_prefix(3);
     AppSettings settings;
     settings.drawer = parseDrawerStyle(text);
+    bool music_track = false;
     // A companion's key: her folder under res/companion/ (lowercase letters, digits, _ or -).
     const auto companionKey = [](std::string_view value) {
         return !value.empty() && value.size() <= 32 && std::all_of(value.begin(), value.end(), [](char ch) {
@@ -177,9 +178,21 @@ AppSettings parseAppSettings(std::string_view text) {
         if (parseLookSetting(settings, key, value)) continue; // Kept apart: MSVC caps one if/else chain's depth.
         if (key == "aurelia") { if (value == "0" || value == "1") settings.aurelia = value == "1"; continue; }
         if (key == "aurelia_intro_done") { if (value == "0" || value == "1") settings.aurelia_intro_done = value == "1"; continue; }
-        if (key == "aurelia_standalone" || key == "aurelia_auto_cloud") {
+        if (key == "steam_account") { // <app id>:<SteamID64>
+            const auto colon = value.find(':');
+            const auto app = value.substr(0, colon == std::string_view::npos ? 0 : colon), id = colon == std::string_view::npos ? std::string_view{} : value.substr(colon + 1);
+            uint64_t steam_id = 0;
+            const auto [parsed, error] = std::from_chars(id.data(), id.data() + id.size(), steam_id);
+            if (!app.empty() && app.size() <= 10 && std::all_of(app.begin(), app.end(), [](char c) { return c >= '0' && c <= '9'; }) &&
+                error == std::errc{} && parsed == id.data() + id.size() && steam_id) settings.steam_launch_accounts[std::string(app)] = steam_id;
+            continue;
+        }
+        if (key == "steam_enabled") { if (value == "0" || value == "1") settings.steam_enabled = value == "1"; continue; }
+        if (key == "aurelia_default") { if (value == "0" || value == "1") settings.aurelia_default = value == "1"; continue; }
+        if (key == "aurelia_cloud") { if (value == "0" || value == "1") settings.aurelia_cloud = value == "1"; continue; }
+        if (key == "aurelia_standalone" || key == "aurelia_auto_cloud" || key == "aurelia_steam") {
             if (!value.empty() && value.size() <= 10 && std::all_of(value.begin(), value.end(), [](char c) { return c >= '0' && c <= '9'; }))
-                (key == "aurelia_standalone" ? settings.aurelia_standalone : settings.aurelia_auto_cloud).insert(std::string(value));
+                (key == "aurelia_standalone" ? settings.aurelia_standalone : key == "aurelia_steam" ? settings.aurelia_steam : settings.aurelia_auto_cloud).insert(std::string(value));
             continue;
         }
         if (key == "show_uninstalled" && (value == "0" || value == "1")) settings.show_uninstalled = value == "1";
@@ -415,8 +428,14 @@ AppSettings parseAppSettings(std::string_view text) {
             else if (key == "file_browser_folder") { if (std::filesystem::path(decoded).is_absolute()) settings.file_browser_folder = decoded; }
             else if (!decoded.empty() && decoded.find_first_of(L"\\/:\r\n") == std::wstring::npos) (key == "music_file" ? settings.music_file : settings.boot_file) = decoded;
         }
-        else if (key == "music_theme") {
-            try { size_t used = 0; const int theme = std::stoi(std::string(value), &used); if (used == value.size() && theme >= 0 && theme < static_cast<int>(music_themes.size())) settings.music_theme = theme; } catch (...) {}
+        else if (key == "music_track") {
+            if (const int theme = musicThemeIndex(value); theme >= 0) { settings.music_theme = theme; music_track = true; }
+        }
+        else if (key == "music_theme") { // The old numbered list; music_track wins wherever it stands.
+            try {
+                size_t used = 0; const int theme = std::stoi(std::string(value), &used);
+                if (used == value.size() && theme >= 0 && theme <= 11 && !music_track) settings.music_theme = legacyMusicTheme(theme);
+            } catch (...) {}
         }
         else if (key == "ui_sound" || key == "toast_sound" || key == "boot_sound") {
             try {
@@ -605,7 +624,7 @@ bool saveAppSettings(const AppSettings& settings, const std::filesystem::path& f
            << "screensaver_minutes=" << (settings.screensaver_minutes == 3 || settings.screensaver_minutes == 5 ||
                                          settings.screensaver_minutes == 10 ? settings.screensaver_minutes : 1) << '\n'
            << "music_volume=" << settings.music_volume << '\n'
-           << "music_theme=" << std::clamp(settings.music_theme, 0, static_cast<int>(music_themes.size()) - 1) << '\n'
+           << "music_track=" << music_themes[static_cast<size_t>(std::clamp(settings.music_theme, 0, static_cast<int>(music_themes.size()) - 1))].id << '\n'
            << "ui_sound=" << std::clamp(settings.ui_sound, 0, static_cast<int>(ui_sounds.size()) - 1) << '\n'
            << "toast_sound=" << std::clamp(settings.toast_sound, 0, static_cast<int>(toast_sounds.size()) - 1) << '\n'
            << "boot_sound=" << std::clamp(settings.boot_sound, 0, static_cast<int>(boot_sounds.size()) - 1) << '\n'
@@ -712,6 +731,10 @@ bool saveAppSettings(const AppSettings& settings, const std::filesystem::path& f
     output << "aurelia=" << settings.aurelia << '\n' << "aurelia_intro_done=" << settings.aurelia_intro_done << '\n';
     for (const auto& id : settings.aurelia_standalone) output << "aurelia_standalone=" << id << '\n';
     for (const auto& id : settings.aurelia_auto_cloud) output << "aurelia_auto_cloud=" << id << '\n';
+    output << "steam_enabled=" << settings.steam_enabled << '\n';
+    for (const auto& [app, steam_id] : settings.steam_launch_accounts) output << "steam_account=" << app << ':' << steam_id << '\n';
+    output << "aurelia_default=" << settings.aurelia_default << '\n' << "aurelia_cloud=" << settings.aurelia_cloud << '\n';
+    for (const auto& id : settings.aurelia_steam) output << "aurelia_steam=" << id << '\n';
     output << "game_videos=" << settings.game_videos << '\n';
     output << "video_delay=" << settings.video_delay << '\n';
     output << "video_volume=" << settings.video_volume << '\n';

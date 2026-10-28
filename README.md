@@ -4,7 +4,7 @@
 
 A full-screen, console-style game launcher for Windows 10/11, built for a gamepad.
 It merges Steam (collections and non-Steam shortcuts), GOG, Battle.net, EA app, Ubisoft Connect,
-Epic Games, Xbox (PC) and your own programs into one library, with artwork from SteamGridDB (and Epic's
+Epic Games, Amazon Games, Xbox (PC) and your own programs into one library, with artwork from SteamGridDB (and Epic's
 own store art for an Epic account's games).
 
 Native C++20: Win32, Direct2D/DirectWrite/WIC, WinHTTP, XAudio2 and Media Foundation — no HTML UI.
@@ -41,6 +41,7 @@ never next to the EXE:
 | API keys | `*_api_key.txt` (plain text) or `*.dat` (encrypted with Windows DPAPI for your account) |
 | Store accounts (GOG, Epic, EA) | `accounts\` (DPAPI) |
 | Optional Aurelia binary / isolated session | `helpers\aurelia\` / `aurelia\` |
+| Optional Nile binary / Amazon Games session | `tools\nile-1.2.0.exe` / `amazon\` |
 | Artwork cache | `covers`, `heroes`, `logos`, `posters`, `landscapes`, `stores`, `artwork` |
 | Metadata and ratings cache | `metadata`, `ratings`, `knowledge`, `glance` |
 | Downloaded game videos | `media\` (folder can be changed in Settings → Media & data) |
@@ -73,11 +74,13 @@ Settings → System → Help → **Open folder** (the version row) opens it.
   Steam to that account first; Install picks the Steam library (with its free space) in Launchme's own
   dialog. Both can be turned off in Settings → Library → Launching.
 - **Stores**: local installs of every store above, Steam collections synced with the running client,
-  GOG and Epic account libraries (Epic installs through Legendary, no Epic launcher needed),
+  GOG and Epic account libraries (Epic installs through Legendary, no Epic launcher needed), Amazon Games
+  through the optional, separately downloaded Nile helper ([guide](docs/AMAZON_GAMES.md)),
   EA and Battle.net libraries imported from their store pages (no EA app needed: sign in on ea.com,
   paste the token page), Ubisoft from the signed-in client, and MultiMC / Prism Launcher instances as games.
 - **Extended Aurelia integration** (Windows, optional, off by default): install/update the latest x64 helper
-  from Settings → System → *Manage Aurelia*. Adds managed Steam downloads, cloud-save status and conflict
+  from Settings → Library → Steam → *Manage Aurelia*. It manages only the games you choose (or all, by default)
+  and adds managed Steam downloads, cloud-save status and conflict
   resolution, DLC, manifest pinning/downgrades, beta branches, Workshop and native live friends chat in both
   desktop and TV modes. Primarily for single-player/offline games; some games, especially multiplayer,
   DRM and Steamworks titles, may require the Steam client. See the [Aurelia guide](docs/AURELIA.md).

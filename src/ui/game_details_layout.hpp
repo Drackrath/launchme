@@ -12,13 +12,14 @@
 // Drawing, clicks and the keys share this geometry.
 //
 // Action indices (Launcher::detail_action_): -1 Back, 0 the primary action, 1 "…",
-// then the ones a game may have (identify, favourite,
-// collections, versions), then the achievements card, the rating and the plugin card.
+// then the ones a game may have (identify, favourite, collections, versions, Zamknij grę beside
+// Wróć while it runs, the cloud after "…"), then the achievements card, the rating and the plugin card.
 namespace details_layout {
-enum class Kind { back, rating, primary, more, collections, favorite, versions, identify, achievements, plugin };
+enum class Kind { back, rating, primary, close, more, cloud, collections, favorite, versions, identify, achievements, plugin };
 // The actions shown for this game (-2 or false: none).
 struct Actions {
     int identify = -2, favorite = -2, collections = -2, versions = -2;
+    int close = -2, cloud = -2; // ✕ "Zamknij grę" beside Wróć; the cloud saves after "…" (Aurelia).
     int achievements = -2, rating = -2, plugin = -2;
     // The rating pill ends the line of facts, after text only the renderer measures: its
     // rectangle as last drawn (Renderer::ratingLink); empty before the first frame.
@@ -35,6 +36,8 @@ inline float buttonWidth(Kind kind) {
     switch (kind) {
     case Kind::primary: return 250;
     case Kind::more: return 64;
+    case Kind::close: return 54;
+    case Kind::cloud: return 54;
     case Kind::collections: return 180;
     case Kind::favorite: return 54;
     case Kind::versions: return 240;
@@ -58,11 +61,13 @@ struct Layout {
     // The buttons in their order on screen, wrapped onto a second line when they do not fit.
     std::vector<Item> buttons(const Actions& a) const {
         std::vector<std::pair<int, Kind>> list{{0, Kind::primary}};
+        if (a.close >= 0) list.push_back({a.close, Kind::close});
         if (a.collections >= 0) list.push_back({a.collections, Kind::collections});
         if (a.favorite >= 0) list.push_back({a.favorite, Kind::favorite});
         if (a.versions >= 0) list.push_back({a.versions, Kind::versions});
         if (a.identify >= 0) list.push_back({a.identify, Kind::identify});
         list.push_back({1, Kind::more});
+        if (a.cloud >= 0) list.push_back({a.cloud, Kind::cloud});
         std::vector<Item> items;
         int line = 0;
         float x = left();

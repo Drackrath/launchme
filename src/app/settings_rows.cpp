@@ -32,11 +32,11 @@ std::wstring Launcher::settingsPageTitle() const {
     case Page::plugin: if (const auto* plugin = plugins_.find(frame->key)) return plugin->manifest.name.localized(); return {};
     case Page::platform: {
         const auto source = static_cast<GameSource>(frame->value);
-        return source != GameSource::drmfree ? std::wstring(sourceName(source)) : std::wstring(tr(L"Katalog gier DRM-free"));
+        return source != GameSource::drmfree ? std::wstring(sourceName(source)) : std::wstring(tr(L"Katalog DRM-free"));
     }
     case Page::drm_games: return tr(L"Znalezione gry");
     case Page::screenscraper: return L"ScreenScraper";
-    case Page::custom_games: return tr(L"Moje gry");
+    case Page::custom_games: return tr(L"Gry dodane ręcznie");
     case Page::collections: return tr(L"Kolekcje");
     case Page::layout_options: return tr(L"Opcje układu: ") + std::wstring(tr(home_layouts[std::clamp(static_cast<int>(settings_.home_layout), 0, home_layout_count - 1)]));
     case Page::cover_focus: return tr(L"Zaznaczona okładka");
@@ -265,7 +265,7 @@ void Launcher::buildSettingsRows() {
     case settings_ui::Category::library:
         if (settings_state_.platform()) { pcSettingsRows(); break; } // A platform's page (DRM-free: its folders and games).
         if (settings_state_.at(Page::custom_games)) {
-            // "Moje gry" page: adding first, then each game with its editor (which also removes it).
+            // "Gry dodane ręcznie" page: adding first, then each game with its editor (which also removes it).
             add({Id::custom_add, Control::action, tr(L"Dodaj grę"),
                 tr(L"Program, skrót lub skrypt spoza sklepów."), tr(L"Dodaj")});
             for (const auto& entry : custom_games_) {
@@ -280,7 +280,8 @@ void Launcher::buildSettingsRows() {
             break;
         }
         if (settings_state_.at(Page::collections)) {
-            // "Kolekcje" page: one row per collection (shown on the home screen, its order), then the manager.
+            // "Kolekcje" page: the manager first, then one row per collection (shown on the home screen, its order).
+            add({Id::collection_manage, Control::action, tr(L"Zarządzaj kolekcjami"), tr(L"Nowe kolekcje, nazwy i gry w nich."), tr(L"Otwórz")});
             for (size_t i = 0; i < settings_collections_.size(); ++i) {
                 const auto& collection = settings_collections_[i];
                 // Steam ROM Manager collections stay off while Emulacja shows their games by platform.
@@ -293,23 +294,17 @@ void Launcher::buildSettingsRows() {
                 row.key = collectionKey(account_, collection);
                 add(std::move(row));
             }
-            add({Id::collection_manage, Control::action, tr(L"Zarządzaj kolekcjami"), tr(L"Nowe kolekcje, nazwy i gry w nich."), tr(L"Otwórz")});
             break;
         }
         {
-            // Overview: the platforms first (DRM-free and the six stores, each with its page behind the cog).
+            // Overview: the platforms first (Steam, the DRM-free catalogue, then the others by name,
+            // each with its page behind the cog), and the games added by hand.
             section(tr(L"Platformy"));
             const size_t first_platform = settings_rows_.size();
             pcSettingsRows();
             if (settings_rows_.size() > first_platform && !next_section.empty()) {
                 settings_rows_[first_platform].section = std::move(next_section); next_section.clear();
             }
-            add({Id::emulation, Control::toggle, tr(L"Emulacja"),
-                tr(L"Osobny rząd konsol ze skrótami aktywnego konta Steam, zamiast kolekcji Steam ROM Manager."), {}, settings_.show_emulation});
-            add({Id::studio_libraries, Control::toggle, tr(L"Wydawcy i developerzy"),
-                tr(L"Gry wydawców i twórców z logo: rzędy na ekranie głównym i sekcje okna desktopowego."), {}, settings_.studio_libraries});
-            if (settings_.studio_libraries && !settings_.hidden_studios.empty())
-                add({Id::studio_hidden, Control::action, tr(L"Ukryci wydawcy i developerzy"), std::to_wstring(settings_.hidden_studios.size()), tr(L"Pokaż wszystkich")});
             // User-added games as one total, like "Znalezione gry" of DRM-free: the list is its own page.
             const auto missing = std::count_if(custom_games_.begin(), custom_games_.end(), [&](const auto& entry) {
                 const auto found = custom_installed_.find(entry.id);
@@ -317,14 +312,9 @@ void Launcher::buildSettingsRows() {
             });
             std::wstring description = tr(L"Program, skrót lub skrypt spoza sklepów.");
             if (missing) description += L" · " + (tr(L"Brak pliku: ") + std::to_wstring(missing));
-            add({Id::custom_games, Control::count, tr(L"Moje gry"), std::move(description), std::to_wstring(custom_games_.size())});
+            add({Id::custom_games, Control::count, tr(L"Gry dodane ręcznie"), std::move(description), std::to_wstring(custom_games_.size())});
         }
-        section(tr(L"Widoczność"));
-        add({Id::steam_sync, Control::action, tr(L"Synchronizacja ze Steam"), steamSyncStatus(), tr(L"Odśwież")});
-        add({Id::uninstalled, Control::toggle, tr(L"Niezainstalowane gry"),
-            tr(L"Pokazuj je w kolekcjach i bibliotekach sklepów."), {}, settings_.show_uninstalled});
-        add({Id::show_private, Control::toggle, tr(L"Pokaż ukryte/prywatne gry"),
-            tr(L"Gry oznaczone w Steam jako ukryte lub prywatne pojawią się w kolekcjach i bibliotece."), {}, settings_.show_private});
+        section(tr(L"Kolekcje"));
         {
             const auto shown = std::count_if(settings_collections_.begin(), settings_collections_.end(), [&](const auto& collection) {
                 return !(settings_.show_emulation && srmCollection(collection)) && !settings_.hidden_collections.contains(collectionKey(account_, collection));
@@ -334,6 +324,18 @@ void Launcher::buildSettingsRows() {
                     (settings_collections_.empty() ? std::wstring{} : L" · " + (tr(L"Widoczne: ") + std::to_wstring(shown))),
                 std::to_wstring(settings_collections_.size())});
         }
+        section(tr(L"Dodatkowe sekcje"));
+        add({Id::emulation, Control::toggle, tr(L"Emulacja"),
+            tr(L"Osobny rząd konsol ze skrótami aktywnego konta Steam, zamiast kolekcji Steam ROM Manager."), {}, settings_.show_emulation});
+        add({Id::studio_libraries, Control::toggle, tr(L"Wydawcy i developerzy"),
+            tr(L"Gry wydawców i twórców z logo: rzędy na ekranie głównym i sekcje okna desktopowego."), {}, settings_.studio_libraries});
+        if (settings_.studio_libraries && !settings_.hidden_studios.empty())
+            add({Id::studio_hidden, Control::action, tr(L"Ukryci wydawcy i developerzy"), std::to_wstring(settings_.hidden_studios.size()), tr(L"Pokaż wszystkich")});
+        section(tr(L"Widoczność"));
+        add({Id::uninstalled, Control::toggle, tr(L"Niezainstalowane gry"),
+            tr(L"Pokazuj je w kolekcjach i bibliotekach sklepów."), {}, settings_.show_uninstalled});
+        add({Id::show_private, Control::toggle, tr(L"Pokaż ukryte/prywatne gry"),
+            tr(L"Gry oznaczone w Steam jako ukryte lub prywatne pojawią się w kolekcjach i bibliotece."), {}, settings_.show_private});
         section(tr(L"Uruchamianie"));
         choiceRow(Id::accept_action, tr(L"Domyślna akcja gry"),
                   tr(L"Wybranie gry w każdym widoku. Menu gry i ekran szczegółów zawsze uruchamiają."),
@@ -341,15 +343,6 @@ void Launcher::buildSettingsRows() {
         add({Id::hide_while_playing, Control::toggle, tr(L"Chowaj do zasobnika podczas gry"),
             tr(L"Gdy gra działa, launcher znika z paska zadań i Alt+Tab, a jego ikona czeka w zasobniku. Wraca po zamknięciu gry."),
             {}, settings_.hide_while_playing});
-        add({Id::steam_silent_launch, Control::toggle, tr(L"Ciche uruchamianie Steam"),
-            tr(L"Steam zostaje w zasobniku i nie przejmuje fokusu, launcher przekazuje go oknu gry. Okna Steam mogą zostać w tle."),
-            {}, settings_.steam_silent_launch});
-        add({Id::steam_account_switch, Control::toggle, tr(L"Przełączanie kont Steam"),
-            tr(L"Gra zainstalowana z innego konta zapamiętanego w Steam: Steam uruchamia się ponownie na tym koncie, potem gra."),
-            {}, settings_.steam_account_switch});
-        add({Id::steam_install_dialog, Control::toggle, tr(L"Instalacja Steam w launcherze"),
-            tr(L"Biblioteka gry wybierana w launcherze, z wolnym miejscem; Steam pobiera ją po ponownym uruchomieniu w tle."),
-            {}, settings_.steam_install_dialog});
         break;
     case settings_ui::Category::media: {
         if (settings_state_.at(Page::screenscraper)) {
@@ -405,7 +398,20 @@ void Launcher::buildSettingsRows() {
             add({Id::rawg_key, Control::secret, tr(L"Klucz RAWG"),
                 tr(L"Oceny przy starcie i identyfikacja metadanych gier spoza Steam."),
                 storedUserSecret(L"rawg_api_key.txt") ? tr(L"Klucz zapisany") : tr(L"Wpisz klucz")});
+            // ScreenScraper: several fields of its own, one level further.
+            const bool ready = screenscraper::load().ready();
+            Row scraper{Id::screenscraper_open, Control::page, L"ScreenScraper",
+                tr(L"Identyfikacja ROM-ów, opisy, grafiki i filmy gier z emulatorów."), ready ? tr(L"Gotowe") : tr(L"Wpisz dane")};
+            scraper.page = Page::screenscraper;
+            add(std::move(scraper));
             break;
+        }
+        section(tr(L"Usługi"));
+        {
+            const int stored = static_cast<int>(storedUserSecret(L"steam_web_api_key.txt")) + static_cast<int>(storedUserSecret(L"steamgriddb_api_key.txt")) +
+                               static_cast<int>(storedUserSecret(L"rawg_api_key.txt")) + static_cast<int>(screenscraper::load().ready());
+            pageRow(Page::service_keys, tr(L"Klucze usług"), tr(L"Steam Web API, SteamGridDB, RAWG i ScreenScraper: znajomi, grafiki, oceny i gry z emulatorów."),
+                    tr(L"Zapisane: ") + std::to_wstring(stored) + L"/4");
         }
         section(tr(L"Okładki"));
         add({Id::bulk_covers, Control::action, tr(L"Pobierz brakujące okładki"),
@@ -418,26 +424,11 @@ void Launcher::buildSettingsRows() {
         pageRow(Page::videos, tr(L"Opcje filmów"),
                 settings_.steam_trailers ? std::wstring(tr(L"Opóźnienie, miejsce na zwiastuny i folder filmów.")) : std::wstring(tr(L"Opóźnienie i folder filmów.")),
                 std::to_wstring(video_delays[delay_index]) + L" s");
-        section(tr(L"Emulacja i usługi"));
+        section(tr(L"Emulacja"));
         add({Id::emulation_names, Control::toggle, tr(L"Nazwy gier z ES-DE / ScreenScraper"),
             tr(L"Gry z emulatorów pod nazwą dopasowaną do pliku ROM zamiast nazwy skrótu Steam."), {}, settings_.emulation_names});
         add({Id::emulation_rom_art, Control::toggle, tr(L"Grafiki emulacji dopasowane po ROM-ie"),
             tr(L"Okładki i logo z ES-DE i ScreenScraper przed SteamGridDB (szukającym po tytule)."), {}, settings_.emulation_rom_art});
-        {
-            const bool ready = screenscraper::load().ready();
-            Row scraper{Id::screenscraper_open, Control::page, L"ScreenScraper",
-                ready ? tr(L"Identyfikacja ROM-ów, opisy, grafiki i filmy gier z emulatorów.") :
-                        tr(L"Identyfikacja ROM-ów, opisy, grafiki i filmy gier z emulatorów. Wpisz dane dewelopera."),
-                ready ? tr(L"Gotowe") : tr(L"Wpisz dane")};
-            scraper.page = Page::screenscraper;
-            add(std::move(scraper));
-        }
-        {
-            const int stored = static_cast<int>(storedUserSecret(L"steam_web_api_key.txt")) + static_cast<int>(storedUserSecret(L"steamgriddb_api_key.txt")) +
-                               static_cast<int>(storedUserSecret(L"rawg_api_key.txt"));
-            pageRow(Page::service_keys, tr(L"Klucze usług"), tr(L"Steam Web API, SteamGridDB i RAWG: znajomi, grafiki i oceny gier."),
-                    tr(L"Zapisane: ") + std::to_wstring(stored) + L"/3");
-        }
         break;
     }
     case settings_ui::Category::audio: {
@@ -448,10 +439,11 @@ void Launcher::buildSettingsRows() {
         const auto withFiles = [&](Row& row, const std::wstring& file) {
             const int builtin = static_cast<int>(row.choices.size());
             for (const auto& name : sound_files_) row.choices.push_back({name});
-            if (file.empty()) return;
+            // A file chosen earlier counts only while the folder holds it; otherwise the built-in
+            // choice shows (and plays), with no stale name in the list.
             const auto found = std::find(sound_files_.begin(), sound_files_.end(), file);
+            if (file.empty() || found == sound_files_.end()) return;
             row.choice = builtin + static_cast<int>(found - sound_files_.begin());
-            if (found == sound_files_.end()) row.choices.push_back({file}); // Chosen earlier, no longer in the folder.
             row.value = file;
         };
         const auto soundRow = [&](Id id, const wchar_t* title, const wchar_t* description, int selected, const auto& options, const std::wstring* file) {
@@ -507,9 +499,8 @@ void Launcher::buildSettingsRows() {
         for (const auto& music : music_themes) theme.choices.push_back({tr(music.name)});
         withFiles(theme, settings_.music_file);
         add(std::move(theme));
-        pageRow(Page::sounds, tr(L"Dźwięki interfejsu"), tr(L"Zmiana elementu, powiadomienie i dźwięk startu."),
-                settings_.boot_file.empty() ? std::wstring(tr(boot_sounds[std::clamp(settings_.boot_sound, 0, static_cast<int>(boot_sounds.size()) - 1)].name)) :
-                                              settings_.boot_file);
+        // No value: one of its three sounds would read as the state of all of them.
+        pageRow(Page::sounds, tr(L"Dźwięki interfejsu"), tr(L"Zmiana elementu, powiadomienie i dźwięk startu."), L"");
         add({Id::sound_folder, Control::action, tr(L"Folder dźwięków"),
             settings_.sound_folder.empty() ? std::wstring(tr(L"Pliki .mp3, .flac, .wav do motywu muzycznego i dźwięku startu.")) :
                                              settings_.sound_folder.wstring() + L" · " + std::to_wstring(sound_files_.size()) + tr(L" plików"),
@@ -606,15 +597,6 @@ void Launcher::buildSettingsRows() {
         }
         add({Id::update_check, Control::toggle, tr(L"Sprawdzaj aktualizacje"),
             tr(L"Co kilka godzin pyta GitHub o nowe wydanie i powiadamia o nim."), {}, settings_.update_check});
-        section(L"AURELIA · STEAM");
-        {
-            Row row{Id::aurelia, Control::toggle, tr(L"Rozszerzona integracja Aurelia"), aurelia_ui::notice(), {}, settings_.aurelia};
-            row.tags = {L"Single player / offline", tr(L"Chmura"), L"DLC", tr(L"Wersje"), tr(L"Czat")};
-            row.lines = 3; add(std::move(row));
-            add({Id::aurelia_open, Control::action, tr(L"Zarządzaj Aurelią"),
-                 tr(L"Instalacja i aktualizacje najnowszej wersji Windows x64, konto oraz stan integracji. Zmiana integracji wymaga ponownego uruchomienia Launchme."),
-                 tr(L"Otwórz")});
-        }
         section(tr(L"Okno i język"));
         add({Id::windowed, Control::toggle, tr(L"Tryb TV w oknie"), tr(L"Zamiast pełnego ekranu. Także F11."), {}, settings_.windowed});
         {
@@ -635,15 +617,7 @@ void Launcher::buildSettingsRows() {
         pageRow(Page::screensaver, tr(L"Wygaszacz ekranu"), tr(L"Grafiki gier, gdy launcher jest bezczynny: styl, czas i podgląd."),
                 settings_.screensaver ? tr(L"Po ") + std::to_wstring(screensaver::normalizedMinutes(settings_.screensaver_minutes)) + tr(L" min") :
                                         std::wstring(tr(L"Wyłączony")));
-        section(tr(L"Wydajność"));
-        add({Id::low_memory, Control::toggle, tr(L"Tryb niskiego zużycia RAM"),
-            tr(L"Grafiki w rozmiarze z ekranu i mniej trzymanych w pamięci; gdy gra działa, launcher oddaje pamięć."),
-            {}, settings_.low_memory});
-        if (settings_.low_memory)
-            add({Id::low_memory_bc1, Control::toggle, tr(L"Kompresja grafik (BC1)"),
-                tr(L"Grafiki w pamięci karty graficznej 8 razy mniejsze, kosztem dłuższego wczytywania i odrobiny jakości."),
-                {}, settings_.low_memory_bc1});
-        section(tr(L"Eksperymentalne"));
+        // Experimental features are features too: the same list, their descriptions say what is new.
         add({Id::quick_resume, Control::toggle, tr(L"Szybkie wznawianie"),
             tr(L"Wstrzymaj grę w jej menu i wróć do niej później. Gry online mogą się rozłączyć."), {}, settings_.quick_resume});
         {
@@ -652,6 +626,14 @@ void Launcher::buildSettingsRows() {
                       tr(L"Eksperymentalny pomiar PresentMon / ETW. Wymaga uprawnień do śledzenia wydajności. 1% low: najwolniejsze klatki z ostatnich 60 sekund."),
                       fps, !settings_.game_fps ? 0 : settings_.game_fps_low ? 2 : 1);
         }
+        section(tr(L"Wydajność"));
+        add({Id::low_memory, Control::toggle, tr(L"Tryb niskiego zużycia RAM"),
+            tr(L"Grafiki w rozmiarze z ekranu i mniej trzymanych w pamięci; gdy gra działa, launcher oddaje pamięć."),
+            {}, settings_.low_memory});
+        if (settings_.low_memory)
+            add({Id::low_memory_bc1, Control::toggle, tr(L"Kompresja grafik (BC1)"),
+                tr(L"Grafiki w pamięci karty graficznej 8 razy mniejsze, kosztem dłuższego wczytywania i odrobiny jakości."),
+                {}, settings_.low_memory_bc1});
         section(tr(L"Pomoc"));
         // The version, and the folder with launchme.log and crash reports a user can send.
         add({Id::about, Control::action, L"Launchme " + diagnostics::version(),

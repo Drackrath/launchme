@@ -1158,6 +1158,63 @@ int LauncherUiTest::libraryViews(HWND window) {
     frame();
     if (app.library_views_progress_ <= 0 || app.library_views_progress_ >= 1) return 2881;
     if (!capture(L"library-view-drawer-closing.png")) return 2882;
+    {
+        // Late acquisition metadata must reorder an open library, not wait for another launch.
+        Launcher dates; dates.hwnd_ = window; dates.execute_ = fakeExecute;
+        dates.settings_.enabled_pc_sources = {"gog"}; dates.settings_.show_uninstalled = true;
+        dates.settings_.glance = dates.settings_.companion = false;
+        if (!dates.renderer_.initialize(window)) return 8600;
+        Game older{7901, L"Zulu"}, newer{7902, L"Alpha"};
+        older.added_at = 100; newer.added_at = 200;
+        dates.library_state_.first_seen = {{gameKey(older), 900}, {gameKey(newer), 900}, {"gog:74123", 400}};
+        auto snapshot = std::make_unique<LibraryMessage>(); snapshot->account = 1; snapshot->games = {older, newer};
+        dates.onLibrary(std::move(snapshot)); dates.openLibrary();
+        dates.library_controls_.options.order = library_view::Order::added; dates.applyLibraryOptions();
+        if (dates.cards_.size() != 2 || dates.cards_[0].game.app_id != newer.app_id) return 8601;
+        older.added_at = 300;
+        LibraryMessage update; update.account = 1; update.games = {older, newer}; update.installation_update = true;
+        dates.updateSteamInstallations(update);
+        if (dates.cards_[0].game.app_id != older.app_id || dates.library_state_.first_seen.at(gameKey(older)) != 900) return 8602;
+        Game gog; gog.kind = GameKind::store; gog.source = GameSource::gog; gog.source_id = "74123"; gog.name = L"GOG fixture";
+        const auto pc = [&](const Game& game) {
+            auto message = std::make_unique<PcLibraryMessage>(); message->generation = dates.pc_token_->load();
+            message->library.visible = {game}; dates.onPcLibrary(std::move(message));
+        };
+        pc(gog);
+        if (dates.cards_[0].game.source != GameSource::gog) return 8603; // Undated: first detection = 400.
+        gog.added_at = 50; pc(gog);
+        if (dates.cards_.back().game.source != GameSource::gog) return 8604; // Actual old acquisition arrives.
+        const auto history = dates.library_state_.first_seen;
+        pc(gog); dates.buildShelves(); dates.rebuildCards();
+        if (dates.library_state_.first_seen != history || dates.cards_.back().game.source != GameSource::gog) return 8605;
+        const auto indexed = dates.gameIndexGames();
+        const auto entry = std::find_if(indexed.begin(), indexed.end(), [](const auto& game) { return game.key == "gog:74123"; });
+        if (entry == indexed.end() || entry->first_seen != 50) return 8606;
+        {
+            // First detection is tied to the scan, not to enabling the uninstalled-games filter.
+            Game undated{7903, L"Undated uninstalled"}; undated.installed = false;
+            dates.settings_.show_uninstalled = false;
+            update.games.push_back(undated); dates.updateSteamInstallations(update);
+            if (!dates.library_state_.first_seen.contains(gameKey(undated)) || dates.findCard(gameKey(undated), false)) return 8610;
+            dates.library_state_.first_seen[gameKey(undated)] = 25; // A previous scan, before the user changes the filter.
+            dates.settings_.show_uninstalled = true; dates.buildShelves(); dates.rebuildCards();
+            if (dates.library_state_.first_seen.at(gameKey(undated)) != 25 || dates.cards_.back().game.app_id != undated.app_id) return 8611;
+            update.games.pop_back(); dates.updateSteamInstallations(update);
+        }
+        // Group order is independent of the representative version, including on a progress-only update.
+        gog.name = older.name; gog.added_at = 600; pc(gog);
+        if (dates.cards_.size() != 2 || dates.cards_[0].game.added_at != 600 || dates.cards_[0].game.version_group.empty()) return 8607;
+        update.games[0].installation.done = 1; // Same idle phase: a non-structural progress snapshot.
+        dates.updateSteamInstallations(update);
+        if (dates.cards_[0].game.added_at != 600) return 8608;
+        // Capture the straightforward mixed-store ordering, newest acquisition first.
+        gog.name = L"GOG fixture"; gog.added_at = 50; pc(gog);
+        dates.library_controls_.options.view = library_view::View::list; dates.applyLibraryOptions();
+        for (int i = 0; i < 40; ++i) { dates.last_frame_ -= std::chrono::milliseconds(50); dates.tick(); }
+        wchar_t folder[4096]{};
+        const auto length = GetEnvironmentVariableW(L"LAUNCHME_UI_CAPTURE_DIR", folder, 4096);
+        if (length && length < 4096 && !dates.renderer_.captureForTest(std::filesystem::path(folder) / L"library-acquisition-order.png", [&] { dates.paint(); })) return 8609;
+    }
     return 0;
 }
 

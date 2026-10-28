@@ -120,6 +120,7 @@ desktop_ui::Hit Launcher::desktopHit(float x, float y) const {
         if (renderer_.desktopRating().contains(x, y)) return {Target::pane_rating, 0};
         for (int i = 0; i < 2; ++i) if (renderer_.desktopStudios()[static_cast<size_t>(i)].contains(x, y)) return {Target::pane_studio, i};
         if (renderer_.desktopAchievements().contains(x, y)) return {Target::pane_achievements, 0};
+        if (renderer_.desktopCloud().contains(x, y)) return {Target::pane_cloud, 0};
         return {};
     }
     if (L.sortButton().contains(x, y)) return {Target::sort, 0};
@@ -401,7 +402,7 @@ void Launcher::desktopContextClick(float mouse_x, float mouse_y) {
         return;
     }
     case Target::pane_primary: case Target::pane_favorite: case Target::pane_more: case Target::pane_quick: case Target::pane_chip:
-    case Target::pane_chip_add: case Target::pane_rating: case Target::pane_studio: case Target::pane_achievements:
+    case Target::pane_chip_add: case Target::pane_rating: case Target::pane_studio: case Target::pane_achievements: case Target::pane_cloud:
         desktopOpenGameMenu(x, y, false);
         return;
     default: return;
@@ -580,6 +581,10 @@ void Launcher::desktopActivate(const desktop_ui::Hit& hit) {
         openDetails(cards_[selected_].game);
         openAchievements();
         return;
+    case Target::pane_cloud: // Zarządzaj · Aurelia on its Zapisy w chmurze page.
+        if (cards_.empty() || !aureliaCloudFor(cards_[selected_].game)) return;
+        { const auto game = cards_[selected_].game; openAurelia(&game); aureliaPage(aurelia_ui::Page::cloud); }
+        return;
     case Target::bulk: {
         const auto games = desktopTargets();
         const auto r = desktopLayout().paneBulk(hit.index);
@@ -626,11 +631,26 @@ void Launcher::desktopActivate(const desktop_ui::Hit& hit) {
         desktop_downloads_open_ = false;
         openDownloadSource(desktop_download_games_[static_cast<size_t>(hit.index)], desktop_download_rows_[static_cast<size_t>(hit.index)]);
         return;
-    case Target::widget_friend:
-        if (hit.index >= 0 && static_cast<size_t>(hit.index) < desktop_widget_friend_ids_.size() &&
-            execute_(hwnd_, GameAction{L"steam://friends/message/" + std::to_wstring(desktop_widget_friend_ids_[static_cast<size_t>(hit.index)])}) <= 32)
+    case Target::widget_friend: {
+        if (hit.index < 0 || static_cast<size_t>(hit.index) >= desktop_widget_friend_ids_.size()) return;
+        const auto id = desktop_widget_friend_ids_[static_cast<size_t>(hit.index)];
+        // With Aurelia the conversation opens in the drawer, as from its friends list; the Steam client stays closed.
+        if (aurelia_active_) {
+            const auto found = std::find_if(friends_.friends.begin(), friends_.friends.end(), [&](const auto& f) { return f.id == id; });
+            if (found == friends_.friends.end()) return;
+            const auto cursor = static_cast<size_t>(found - friends_.friends.begin());
+            desktop_widgets_open_ = false;
+            if (!friends_open_) toggleFriendsDrawer();
+            if (!friends_open_) return;
+            friends_list_ = true; friends_back_ = false; friends_cursor_ = cursor;
+            friendsChat();
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            return;
+        }
+        if (execute_(hwnd_, GameAction{L"steam://friends/message/" + std::to_wstring(id)}) <= 32)
             showNotification(NotificationKind::error, tr(L"Nie można otworzyć czatu"), tr(L"Uruchom klienta Steam"));
         return;
+    }
     case Target::widget_item: return;
     case Target::widget_all: desktop_widgets_open_ = false; toggleFriendsDrawer(); return; // The full drawer.
     case Target::empty_primary: case Target::empty_secondary: {
@@ -1141,6 +1161,7 @@ void Launcher::desktopOpenGameMenu(float x, float y, bool keyboard) {
         if (!gameKey(game).empty()) items.push_back({Action::metadata, tr(L"Edytuj metadane…"), {}, glyph::edit}); // Own title and details.
         if (aurelia_active_ && aurelia::validGame(game)) items.push_back({Action::aurelia, tr(L"Zarządzaj · Aurelia"), {}, glyph::edit});
         // The file, options and folder it starts with (Steam: its launch options).
+        if (steamAccountChoices(game).size() > 1) items.push_back({Action::steam_account, tr(L"Konto Steam: ") + steamAccountLabel(game), {}, glyph::people});
         if (launchEditable(game)) items.push_back({Action::launch_options, tr(L"Opcje uruchamiania…"), {}, glyph::settings});
         if (!gameFolder(game).empty()) items.push_back({Action::folder, tr(L"Otwórz folder gry"), {}, glyph::folder_open});
         const auto plugins = pluginContext(game);
@@ -1378,6 +1399,7 @@ void Launcher::desktopMenuPick(const desktop_ui::MenuItem& item, bool /*from_sub
     case Action::identify: if (game) openIdentifyFor(*game); return;
     case Action::metadata: if (game) desktopMetaOpen(*game); return;
     case Action::aurelia: if (game) openAurelia(game); return;
+    case Action::steam_account: if (game) cycleSteamAccount(*game); return;
     case Action::launch_options: if (game) openLaunchEditor(*game); return;
     case Action::folder:
         if (game) if (const auto folder = gameFolder(*game); !folder.empty())
@@ -1599,6 +1621,7 @@ std::wstring Launcher::desktopTooltip(const desktop_ui::Hit& hit) const {
         return {};
     case Target::pane_chip_add: return tr(L"Dodaj do kolekcji");
     case Target::pane_achievements: return tr(L"Pokaż osiągnięcia");
+    case Target::pane_cloud: return tr(L"Zapisy w chmurze");
     default: return {};
     }
 }
@@ -1643,6 +1666,7 @@ desktop_ui::Rect Launcher::desktopTooltipAnchor(const desktop_ui::Hit& hit) cons
     case Target::pane_quick: return L.paneQuick(hit.index, desktop_pane_scroll_);
     case Target::pane_chip_add: return renderer_.desktopChipAdd();
     case Target::pane_achievements: return renderer_.desktopAchievements();
+    case Target::pane_cloud: return renderer_.desktopCloud();
     default: return {};
     }
 }

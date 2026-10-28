@@ -17,6 +17,7 @@ void Launcher::initializeAurelia() {
     aurelia_installation_ = aurelia::installed(helperRoot());
     aurelia_version_ = aurelia_installation_.version;
 #ifndef LAUNCHME_UI_TEST
+    aurelia_library_source_ = aurelia_active_ && findSteamRoot().empty();
     if (!aurelia_installation_.executable.empty()) aurelia_transport_ = aurelia::transport({aurelia_installation_.executable, userConfigDirectory() / L"aurelia"});
     aurelia_get_ = httpGet;
     aurelia_installer_ = [](const auto& release, const auto& cancel, const auto& progress) { return aurelia::installRelease(helperRoot(), release, cancel, progress); };
@@ -27,7 +28,7 @@ void Launcher::toggleAurelia() {
     settings_.aurelia = !settings_.aurelia;
     settings_dirty_ = true; settings_save_failed_ = false; settings_edited_ = std::chrono::steady_clock::now();
     saveSettings();
-    aurelia_setup_status_ = settings_.aurelia == aurelia_active_ ? L"" : tr(L"Zmiana integracji będzie aktywna po ponownym uruchomieniu Launchme.");
+    aurelia_setup_status_ = settings_.aurelia == aurelia_active_ ? L"" : tr(L"Wymaga ponownego uruchomienia Launchme");
     if (settingsOpen()) buildSettingsRows();
     if (aurelia_ui_.open) aureliaRows();
     audio_.context(); InvalidateRect(hwnd_, nullptr, FALSE);
@@ -105,10 +106,12 @@ void Launcher::installAurelia() {
 }
 
 void Launcher::startAureliaLibraryWorker() {
-    const auto invoke = aurelia_transport_; const auto hwnd = hwnd_; const auto alive = alive_; const auto wake = steam_rescan_;
+    const auto invoke = aurelia_transport_; const auto hwnd = hwnd_; const auto alive = alive_;
+    const bool source = aurelia_library_source_; const auto wake = source ? steam_rescan_ : aurelia_rescan_;
     const auto epoch = aurelia_epoch_;
     work_.start([=] {
         ChangeWatch watch; watch.wake(wake->event);
+        // Not the library source: only the session (account, sign-in) is followed here.
         bool first = true;
         while (alive->load()) {
             const auto generation = epoch->load();
@@ -125,7 +128,7 @@ void Launcher::startAureliaLibraryWorker() {
                 const bool authenticated = health.ok && aurelia::flag(health.data, "logged_in");
                 auto message = std::make_unique<LibraryMessage>(); message->account = account; message->refresh = !first;
                 bool valid = health.ok || !invoke;
-                if (account) {
+                if (account && source) {
                     const auto cache = userConfigDirectory() / L"aurelia-library";
                     auto reply = authenticated ? invoke({C::library}, cancel, {}) : aurelia::Reply{};
                     bool cached = false;
@@ -153,26 +156,27 @@ void Launcher::startAureliaLibraryWorker() {
                 if (cancel()) continue;
                 auto snapshot = std::shared_ptr<LibraryMessage>(message.release());
                 auto state = std::make_unique<RemoteMessage>();
-                state->run = [account, health, authenticated, epoch, generation, snapshot, valid](Launcher& app) {
+                state->run = [account, health, authenticated, epoch, generation, snapshot, valid, source](Launcher& app) {
                     if (epoch->load() != generation) return;
                     const bool changed = health.ok && app.aurelia_account_ != account;
                     if (changed) {
                         ++*epoch; // Reject every reply captured under the previous account.
-                        app.aurelia_chat_cancel_->store(true); ++app.aurelia_page_generation_;
-                        app.aurelia_cloud_.clear(); app.aurelia_downloads_.clear(); app.aurelia_ui_.messages.clear();
+                        ++app.aurelia_page_generation_;
+                        app.aurelia_cloud_.clear(); app.aurelia_downloads_.clear();
                         app.aurelia_operations_.clear(); app.aurelia_playing_.clear(); app.aurelia_download_poll_ = false;
-                        app.aurelia_ui_.busy = app.aurelia_ui_.sending = false;
+                        app.aurelia_ui_.busy = false;
                         app.closeAchievements();
                         if (app.aurelia_ui_.open && app.aurelia_ui_.page != P::setup) app.closeAurelia();
-                        app.aurelia_chat_drafts_.clear(); // closeAurelia may have just saved the old conversation's draft.
+                        app.closeFriendChat();
+                        app.friend_chat_drafts_.clear(); // closeFriendChat has just saved the old conversation's draft.
                     }
                     if (health.ok) {
                         app.aurelia_account_ = account; app.aurelia_authenticated_ = account != 0 && authenticated;
                         app.aurelia_account_name_ = text_encoding::wideLenient(aurelia::text(health.data, "account"));
                     }
                     app.aurelia_setup_status_ = health.error;
-                    if (valid || changed) app.onLibrary(std::make_unique<LibraryMessage>(*snapshot));
-                    else if (app.scanning_) { app.scanning_ = false; InvalidateRect(app.hwnd_, nullptr, FALSE); }
+                    if (source && (valid || changed)) app.onLibrary(std::make_unique<LibraryMessage>(*snapshot));
+                    else if (source && app.scanning_) { app.scanning_ = false; InvalidateRect(app.hwnd_, nullptr, FALSE); }
                     if (app.aurelia_ui_.open && app.aurelia_ui_.page == P::setup) app.aureliaRows();
                 };
                 if (PostMessageW(hwnd, remote_message, 0, reinterpret_cast<LPARAM>(state.get()))) state.release();
@@ -201,11 +205,18 @@ void Launcher::aureliaApplyDownloads(const json::Value& data) {
     aurelia_downloads_ = std::move(next);
     aureliaSyncInstallations();
     refreshDownloads();
-    if (completed) steam_rescan_->wake();
+    if (completed) aureliaRescan();
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
 void Launcher::aureliaPoll(uint64_t now) {
+    // Zamknij grę through Aurelia: `play` has not returned by the deadline, so the game still runs.
+    for (auto it = aurelia_stopping_.begin(); it != aurelia_stopping_.end();) {
+        if (!it->second || now < it->second) { ++it; continue; }
+        const auto game = std::find_if(installed_library_.begin(), installed_library_.end(), [&](const Game& g) { return g.app_id == it->first; });
+        showNotification(NotificationKind::error, tr(L"Nie można zamknąć gry"), game == installed_library_.end() ? std::wstring{} : game->name);
+        it = aurelia_stopping_.erase(it);
+    }
     if (!aurelia_active_ || !aurelia_transport_ || !aurelia_authenticated_) return;
     if (!aurelia_download_poll_ && now >= aurelia_poll_at_) {
         aurelia_poll_at_ = now + (aurelia_downloads_.empty() && aurelia_operations_.empty() && !downloadsOpen() ? 15000 : 1200);
@@ -215,7 +226,7 @@ void Launcher::aureliaPoll(uint64_t now) {
             if (reply.ok) app.aureliaApplyDownloads(reply.data);
         });
     }
-    if (now >= aurelia_cloud_at_) {
+    if (settings_.aurelia_cloud && now >= aurelia_cloud_at_) {
         aurelia_cloud_at_ = now + 2000;
         const Game* game = screen_ == ScreenMode::details && !detail_games_.empty() ? &detail_games_[0] :
                            selected_ < cards_.size() ? &cards_[selected_].game : nullptr;
@@ -237,7 +248,7 @@ void Launcher::aureliaSyncInstallations() {
 }
 
 void Launcher::aureliaCheckCloud(const Game& game, bool force) {
-    if (!aurelia_active_ || !aurelia_authenticated_ || !aurelia::validGame(game)) return;
+    if (!aureliaCloudFor(game) || !aurelia_authenticated_) return;
     auto& known = aurelia_cloud_[game.app_id];
     if (known.state == aurelia::CloudState::checking || known.state == aurelia::CloudState::syncing ||
         (!force && known.checked && GetTickCount64() - known.checked < 5 * 60 * 1000)) return;
@@ -248,11 +259,13 @@ void Launcher::aureliaCheckCloud(const Game& game, bool force) {
         auto& c = app.aurelia_cloud_[id];
         if (c.state != aurelia::CloudState::checking) return; // A sync started while this listing was in flight.
         c = aurelia::cloud(reply, false); c.checked = GetTickCount64();
+        if (app.aurelia_ui_.open && app.aurelia_ui_.game.app_id == id) app.aureliaRows();
         InvalidateRect(app.hwnd_, nullptr, FALSE);
     });
+    if (aurelia_ui_.open && aurelia_ui_.game.app_id == game.app_id) aureliaRows();
 }
 std::wstring Launcher::aureliaCloudText(const Game& game) const {
-    if (!aurelia_active_ || !aurelia::validGame(game)) return {};
+    if (!aureliaCloudFor(game)) return {};
     const auto found = aurelia_cloud_.find(game.app_id);
     return aurelia::cloudLabel(found == aurelia_cloud_.end() ? aurelia::CloudState::unknown : found->second.state);
 }
@@ -282,7 +295,7 @@ void Launcher::aureliaOperation(aurelia::Request request, const Game& game) {
         if (reply.ok && transfer) app.downloadFinished(game.name, &game);
         else if (!reply.ok && !reply.cancelled) app.showNotification(NotificationKind::error, L"Aurelia · " + game.name, reply.error);
         if (aurelia::flag(reply.data, "steam_restart_required")) app.showNotification(NotificationKind::launch, L"Aurelia", tr(L"Uruchom ponownie klienta Steam, aby zobaczył zmianę DLC."));
-        app.steam_rescan_->wake();
+        app.aureliaRescan();
         if (app.aurelia_ui_.open && page_generation == app.aurelia_page_generation_) {
             app.aurelia_ui_.busy = false;
             if (reply.ok) app.aureliaPage(app.aurelia_ui_.page);
@@ -302,6 +315,24 @@ void Launcher::aureliaOperation(aurelia::Request request, const Game& game) {
     });
 }
 
+// Zamknij grę when Launchme found none of its processes yet: Aurelia ends the process it recorded
+// for its `play`, at once (`stop --force`, run outside the daemon). Its reply is not the end of the
+// game: `play` returning is. Still playing after the deadline: aureliaPoll says it failed.
+void Launcher::aureliaStop(const Game& game) {
+    if (!aurelia_transport_ || !aurelia_playing_.contains(game.app_id) || aurelia_stopping_.contains(game.app_id)) return;
+    aurelia_stopping_[game.app_id] = 0;
+    aurelia::Request request{C::stop, game.app_id}; request.force = true;
+    aureliaRequest(request, [id = game.app_id, name = game.name](Launcher& app, aurelia::Reply reply) {
+        if (!app.aurelia_stopping_.contains(id)) return; // `play` has already returned.
+        if (!reply.ok) {
+            app.aurelia_stopping_.erase(id);
+            app.showNotification(NotificationKind::error, tr(L"Nie można zamknąć gry"), name + L" · " + reply.error);
+            return;
+        }
+        app.aurelia_stopping_[id] = GetTickCount64() + 15000;
+    });
+}
+
 void Launcher::aureliaLaunch(const Game& game) {
     if (!aurelia_authenticated_ || !aurelia_transport_) { openAurelia(); return; }
     if (aurelia_playing_.contains(game.app_id)) return;
@@ -310,17 +341,22 @@ void Launcher::aureliaLaunch(const Game& game) {
     if (aurelia_downloads_.contains(game.app_id)) { openAurelia(&game); return; }
     aurelia_playing_.insert(game.app_id);
     aurelia::Request request{C::standalone, game.app_id}; request.steam = false;
-    request.auto_cloud = settings_.aurelia_auto_cloud.contains(std::to_string(game.app_id));
+    request.auto_cloud = aureliaCloudEnabled() && settings_.aurelia_auto_cloud.contains(std::to_string(game.app_id));
+    // Managed only through "Domyślnie zarządzaj przez Aurelię": a game that cannot run without the
+    // Steam client here goes to the client instead (said so); one chosen for Aurelia reports it.
+    const bool by_default = settings_.aurelia_default;
     dismissMenu(); closeAurelia();
     showNotification(NotificationKind::launch, game.name, tr(L"Sprawdzanie uruchomienia przez Aurelię…"));
     // play waits for the game to exit. Closing Launchme only detaches its CLI; it never kills the game.
-    aureliaRequest(request, [game](Launcher& app, aurelia::Reply reply) {
+    aureliaRequest(request, [game, by_default](Launcher& app, aurelia::Reply reply) {
         app.aurelia_playing_.erase(game.app_id);
+        app.aurelia_stopping_.erase(game.app_id);
         if (app.launch_artwork_key_ == gameKey(game)) app.stopLaunchAnimation();
         if (const auto* outcome = reply.data.get("cloud_result")) {
             auto& state = app.aurelia_cloud_[game.app_id]; state = aurelia::cloud({true, false, *outcome}, true); state.checked = GetTickCount64();
         } else app.aurelia_cloud_.erase(game.app_id);
-        if (!reply.ok && !reply.cancelled) {
+        const bool to_steam = !reply.ok && !reply.cancelled && by_default && aurelia::flag(reply.data, "steam_required");
+        if (!reply.ok && !reply.cancelled && !to_steam) {
             app.showNotification(NotificationKind::error, aurelia::flag(reply.data, "launch_finished") ? tr(L"Synchronizacja zapisów nie powiodła się") : tr(L"Nie udało się uruchomić gry"), reply.error);
             if (reply.data.get("cloud_result") && app.topModal() == Modal::none) { app.openAurelia(&game); app.aureliaPage(P::cloud); }
         }
@@ -333,7 +369,11 @@ void Launcher::aureliaLaunch(const Game& game) {
             std::lock_guard lock(app.game_activity_jobs_->mutex); app.game_activity_jobs_->active.erase(key);
         }
         if (!app.anyActiveSession()) app.audio_.resumeMusic();
-        app.steam_rescan_->wake();
+        app.aureliaRescan();
+        if (to_steam) {
+            app.showNotification(NotificationKind::launch, game.name, tr(L"Uruchamianie przez klienta Steam"));
+            app.launchGame(game, true);
+        }
     }, [game](Launcher& app, json::Value event) {
         const auto kind = aurelia::text(event, "event");
         if (kind == "launchme-cloud-down" || kind == "launchme-cloud-up") {

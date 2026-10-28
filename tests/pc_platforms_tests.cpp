@@ -66,8 +66,11 @@ int main() {
     std::ofstream(prism_data / "instances" / "instgroups.json") << R"({"formatVersion":"1","groups":{"Modded":{"hidden":false,"instances":["Fabric 1.20"]}}})";
     input.multimc.push_back({multimc::Flavor::prism, prism, prism_data});
     auto result = scanNativePcLibraries(input);
-    if (result.visible.size() != pc_sources.size()) { std::cerr << "Expected one game per native source, got " << result.visible.size() << '\n'; return 1; }
+    // Every store but Amazon Games, whose library comes from Nile's files (tests/amazon_tests.cpp).
+    const auto native_sources = pc_sources.size() - 1;
+    if (result.visible.size() != native_sources) { std::cerr << "Expected one game per native source, got " << result.visible.size() << '\n'; return 1; }
     for (const auto source : pc_sources) {
+        if (source == GameSource::amazon) continue;
         const auto game = std::find_if(result.visible.begin(), result.visible.end(), [&](const Game& g) { return g.source == source; });
         if (game == result.visible.end() || game->app_id || !primaryGameAction(*game)) return 2;
         const auto connection = connectPcClient(source, input.clients);
@@ -109,10 +112,10 @@ int main() {
     std::ofstream(catalogs / "gog.json") << R"({"version":1,"games":[{"id":"123","name":"Private fixture","installed":false,"visibility":"private"}]})";
     std::ofstream(catalogs / "battlenet.json") << R"({"version":1,"games":[{"id":"fen","name":"Hidden fixture","installed":true,"visibility":"hidden"}]})";
     const auto merged = mergePcLibraries(result, catalogs);
-    if (merged.visible.size() != pc_sources.size() - 2 || merged.private_games.size() != 2 || !merged.private_games[0].installed) return 7;
+    if (merged.visible.size() != native_sources - 2 || merged.private_games.size() != 2 || !merged.private_games[0].installed) return 7;
     std::ofstream(catalogs / "gog.json", std::ios::trunc) << "{";
     const auto broken = mergePcLibraries(result, catalogs);
-    if (broken.visible.size() != pc_sources.size() - 2 || broken.private_games.size() != 1 || broken.errors.empty()) return 8;
+    if (broken.visible.size() != native_sources - 2 || broken.private_games.size() != 1 || broken.errors.empty()) return 8;
     input.clients.clear();
     fs::create_directories(gog / "bin");
     std::ofstream(gog / "bin" / "game.exe") << "fixture";

@@ -10,7 +10,7 @@ bool sameCollections(const std::vector<SteamCollection>& a, const std::vector<St
 }
 }
 void Launcher::startSteamSync() {
-    if (aurelia_active_) return;
+    if (aurelia_active_ && aurelia_library_source_) return; // No Steam client here to write to.
     const auto queue = steam_sync_queue_; const auto alive = alive_; const auto hwnd = hwnd_;
     work_.start([queue, alive, hwnd] {
         const auto root = findSteamRoot();
@@ -38,7 +38,7 @@ void Launcher::startSteamSync() {
     requestSteamSync(true);
 }
 void Launcher::requestSteamSync(bool force) {
-    if (aurelia_active_) { if (force) steam_rescan_->wake(); return; }
+    if (aurelia_active_ && aurelia_library_source_) { if (force) steam_rescan_->wake(); return; }
     if (!library_state_readable_) return;
     auto pending = steam_sync::pending(library_state_, account_);
     std::lock_guard lock(steam_sync_queue_->mutex);

@@ -1,3 +1,6 @@
+// Aurelia's management pages (src/ui/aurelia_view.hpp): setup, a game's management and its cloud,
+// DLC, versions, Workshop and library pages. One modal for Tryb TV and the desktop window; the
+// friends list and chat live in the drawer instead (src/app/friend_chat.cpp).
 #include "launcher.hpp"
 #include "../platform/text_encoding.hpp"
 #include <algorithm>
@@ -15,8 +18,45 @@ const std::vector<json::Value>& array(const json::Value& value, const char* key 
     return v && v->type == json::Value::Type::array ? v->elements : empty;
 }
 std::wstring sizeText(uint64_t bytes) {
-    wchar_t buffer[48]{}; swprintf_s(buffer, L"%.1f GB", static_cast<double>(bytes) / (1024.0 * 1024 * 1024)); return buffer;
+    wchar_t buffer[48]{};
+    const double gb = static_cast<double>(bytes) / (1024.0 * 1024 * 1024);
+    if (gb >= 1000) swprintf_s(buffer, L"%.1f TB", gb / 1024); else swprintf_s(buffer, L"%.0f GB", gb);
+    return buffer;
 }
+// Aurelia reports canonical paths (\\?\C:\…); shown and passed on as the plain path.
+std::wstring plainPath(std::wstring path) {
+    if (path.starts_with(L"\\\\?\\UNC\\")) path = L"\\\\" + path.substr(8);
+    else if (path.starts_with(L"\\\\?\\")) path.erase(0, 4);
+    return path;
+}
+// A Steam library holds games or was made by Steam: a stray steamapps folder with only a copied
+// libraryfolders.vdf (an old install's parent folder) is not one.
+bool steamLibrary(const std::filesystem::path& root) {
+    std::error_code error;
+    if (std::filesystem::exists(root / L"libraryfolder.vdf", error) || std::filesystem::is_directory(root / L"steamapps" / L"common", error)) return true;
+    for (std::filesystem::directory_iterator item(root / L"steamapps", std::filesystem::directory_options::skip_permission_denied, error), end;
+         !error && item != end; item.increment(error))
+        if (item->path().filename().wstring().starts_with(L"appmanifest_")) return true;
+    return false;
+}
+}
+
+// A game Aurelia manages: installed, updated, uninstalled and launched through it (without the
+// Steam client). Every other Steam game keeps the Steam client for all of that. Per game: chosen
+// (aurelia_standalone), or with "Domyślnie zarządzaj przez Aurelię" every game but the ones chosen
+// for Steam (aurelia_steam).
+bool Launcher::aureliaManaged(const Game& game) const {
+    if (!aurelia_active_ || !aurelia::validGame(game)) return false;
+    const auto id = std::to_string(game.app_id);
+    return settings_.aurelia_default ? !settings_.aurelia_steam.contains(id) : settings_.aurelia_standalone.contains(id);
+}
+bool Launcher::aureliaCloudEnabled() const { return aurelia_active_ && settings_.aurelia_cloud; }
+bool Launcher::aureliaCloudFor(const Game& game) const { return aureliaCloudEnabled() && aureliaManaged(game); }
+
+int Launcher::aureliaVisibleRows() const {
+    if (aurelia_ui_.visible > 0) return aurelia_ui_.visible;
+    const auto v = renderer_.viewport();
+    return aurelia_ui::Layout{v.width, v.height}.visible(aurelia_ui_);
 }
 
 void Launcher::openAurelia(const Game* game, bool intro) {
@@ -24,17 +64,31 @@ void Launcher::openAurelia(const Game* game, bool intro) {
     const auto copy = game ? *game : Game{};
     dismissMenu(); closeQuick(); closeFriends(); closeKeyboard(); closeCategoryMenu(); cancelEnterHold(); cancelTabHold();
     desktop_menu_.reset();
-    aurelia_chat_cancel_->store(true);
     aurelia_ui_ = {}; aurelia_ui_.open = true; aurelia_ui_.intro = intro; aurelia_ui_.game = copy;
     aureliaPage(game ? P::game : P::setup);
     audio_.context();
 }
+// Odinstaluj of a game Aurelia manages (the game's menu): its question alone, then closed.
+void Launcher::aureliaUninstall(const Game& game) {
+    openAurelia(&game);
+    if (!aurelia_ui_.open) return;
+    aurelia_ui_.confirmation = Row{tr(L"Odinstalować grę?"), tr(L"Zapisy w chmurze pozostają."), {}, A::uninstall};
+    aurelia_ui_.confirm_only = true; aurelia_ui_.confirm_focus = false;
+    InvalidateRect(hwnd_, nullptr, FALSE);
+}
+void Launcher::aureliaAnswer(bool yes) {
+    auto& s = aurelia_ui_; if (!s.open || !s.confirmation) return;
+    const auto row = *s.confirmation; const bool only = s.confirm_only;
+    s.confirmation.reset(); s.confirm_only = false;
+    if (yes) aureliaActivate(row, true);
+    if (only) closeAurelia();
+    InvalidateRect(hwnd_, nullptr, FALSE);
+}
 void Launcher::closeAurelia() {
     if (!aurelia_ui_.open) return;
-    if (aurelia_ui_.confirmation) { aurelia_ui_.confirmation.reset(); InvalidateRect(hwnd_, nullptr, FALSE); return; }
+    if (aurelia_ui_.confirmation) { aureliaAnswer(false); return; }
     const bool intro = aurelia_ui_.intro;
-    if (aurelia_ui_.page == P::chat && aurelia_ui_.friend_id) aurelia_chat_drafts_[aurelia_ui_.friend_id] = aurelia_ui_.input;
-    aurelia_chat_cancel_->store(true); ++aurelia_page_generation_; closeKeyboard();
+    ++aurelia_page_generation_; closeKeyboard();
     aurelia_ui_ = {};
     if (intro) { settings_.aurelia_intro_done = true; settings_dirty_ = true; saveSettings(); if (!desktop_mode_ && !settings_.tour_done) startTour(); }
     InvalidateRect(hwnd_, nullptr, FALSE);
@@ -43,149 +97,140 @@ void Launcher::closeAurelia() {
 void Launcher::aureliaRows() {
     auto& s = aurelia_ui_; if (!s.open) return;
     s.enabled = settings_.aurelia; s.active = aurelia_active_; s.installed = !aurelia_version_.empty(); s.authenticated = aurelia_authenticated_;
-    s.rows.clear(); s.input_hint.clear(); s.title = L"Aurelia";
-    const auto add = [&](A action, std::wstring title, std::wstring description = {}, std::wstring value = {}, uint64_t id = 0, std::wstring payload = {}) -> Row& {
-        s.rows.push_back({std::move(title), std::move(description), std::move(value), action, id, std::move(payload)}); return s.rows.back();
+    s.rows.clear(); s.input_hint.clear(); s.submit.clear(); s.title = L"Aurelia"; s.subtitle = s.game.name;
+    const auto add = [&](A action, std::wstring title, std::wstring value = {}, uint64_t id = 0, std::wstring payload = {}) -> Row& {
+        Row row{std::move(title), {}, std::move(value), action, id, std::move(payload)};
+        row.page = aurelia_ui::opensPage(action);
+        s.rows.push_back(std::move(row)); return s.rows.back();
+    };
+    const auto toggle = [&](A action, std::wstring title, bool on) -> Row& {
+        auto& row = add(action, std::move(title)); row.toggle = true; row.checked = on; return row;
     };
     const auto& data = aurelia_page_data_;
-    if (s.page == P::setup) {
-        s.subtitle = s.intro ? tr(L"Więcej możliwości dla Twojej biblioteki Steam") : tr(L"Rozszerzona integracja Steam");
+    const auto cloud = aurelia_cloud_.find(s.game.app_id);
+    const auto cloud_state = cloud == aurelia_cloud_.end() ? aurelia::CloudState::unknown : cloud->second.state;
+    switch (s.page) {
+    case P::setup: {
+        s.subtitle.clear();
         s.status = aurelia_setup_status_;
-        auto& toggle = add(A::toggle, tr(L"Rozszerzona integracja Aurelia"), tr(L"Pobierania, zapisy w chmurze, DLC, wersje gier i czat ze znajomymi."));
-        toggle.toggle = true; toggle.checked = settings_.aurelia;
-        auto& helper = add(A::helper, s.installed ? tr(L"Sprawdź i zainstaluj aktualizację") : tr(L"Zainstaluj Aurelię"),
-                          s.installed ? aurelia_version_ : tr(L"Najnowsze aurelia_windows_x86_64.exe z GitHub · weryfikacja SHA-256"),
-                          aurelia_helper_busy_ ? tr(L"Pobieranie…") : s.installed ? tr(L"Zainstalowano") : tr(L"Brak instalacji"));
-        helper.locked = aurelia_helper_busy_;
-        add(A::repository, tr(L"Repozytorium Aurelii"), L"github.com/Drackrath/Aurelia", tr(L"Otwórz"));
-        auto& login = add(A::login, tr(L"Zaloguj w oknie Aurelii"), tr(L"Hasło i Steam Guard wpisujesz bezpośrednio w oknie Aurelii."), aurelia_account_name_);
-        login.locked = !aurelia_transport_ || s.busy;
-        add(A::refresh, tr(L"Sprawdź połączenie"), {}, aurelia_authenticated_ ? tr(L"Połączono") : tr(L"Nie zalogowano")).locked = !aurelia_transport_ || s.busy;
+        toggle(A::toggle, tr(L"Rozszerzona integracja Aurelia"), settings_.aurelia);
+        toggle(A::cloud_toggle, tr(L"Zapisy w chmurze"), settings_.aurelia_cloud).locked = !settings_.aurelia;
+        toggle(A::default_launch, tr(L"Domyślnie zarządzaj grami przez Aurelię"), settings_.aurelia_default).locked = !settings_.aurelia;
+        add(A::helper, s.installed ? tr(L"Sprawdź aktualizację") : tr(L"Zainstaluj Aurelię"),
+            aurelia_helper_busy_ ? tr(L"Pobieranie…") : aurelia_version_).locked = aurelia_helper_busy_;
         if (aurelia_authenticated_) {
-            add(A::friends, tr(L"Znajomi i czat")).locked = !aurelia_active_;
-            add(A::reconnect, tr(L"Połącz ponownie")).locked = s.busy;
-            add(A::logout, tr(L"Wyloguj z Aurelii")).danger = true;
-        }
-        add(A::close, s.intro ? tr(L"Dalej") : tr(L"Gotowe"));
-    } else {
-        s.subtitle = s.page == P::friends || s.page == P::chat ? tr(L"Znajomi Steam · Aurelia") : s.game.name;
-        switch (s.page) {
-        case P::game: {
-            s.title = tr(L"Zarządzaj grą · Aurelia");
-            add(A::cloud, tr(L"Zapisy w chmurze"), aureliaCloudText(s.game), tr(L"Otwórz"));
-            add(A::dlc, tr(L"Edytuj DLC"), tr(L"Instaluj, włączaj i wyłączaj posiadane dodatki."));
-            add(A::versions, tr(L"Wersje i przypinanie"), tr(L"Przypnij obecną wersję albo zainstaluj starszy manifest."));
-            add(A::workshop, L"Steam Workshop", tr(L"Przeglądaj i instaluj mody oraz zarządzaj subskrypcjami."));
-            auto& steam = add(A::steam, tr(L"Uruchamiaj bez Steam"), tr(L"Włączone: uruchamia przez Aurelię. Wyłączone: przez klienta Steam. Dla zgodnych gier single player / offline."));
-            steam.toggle = true; steam.checked = settings_.aurelia_standalone.contains(std::to_string(s.game.app_id));
-            add(A::play, tr(L"Graj"), {}, steam.checked ? L"Aurelia" : L"Steam").locked = !s.game.installed;
-            add(A::install, tr(L"Zainstaluj grę"), tr(L"Wybierz bibliotekę i pobieraj w tle.")).locked = s.game.installed;
-            add(A::update, tr(L"Aktualizuj grę")).locked = !s.game.installed;
-            add(A::verify, tr(L"Sprawdź pliki gry")).locked = !s.game.installed;
-            add(A::move, tr(L"Przenieś do innej biblioteki")).locked = !s.game.installed;
-            if (aurelia_downloads_.contains(s.game.app_id)) add(A::cancel, tr(L"Anuluj pobieranie"));
-            auto& remove = add(A::uninstall, tr(L"Odinstaluj"), tr(L"Usuwa pliki gry. Zapisy w chmurze pozostają.")); remove.danger = true; remove.locked = !s.game.installed;
-            break;
-        }
-        case P::cloud: {
-            s.title = tr(L"Zapisy w chmurze");
-            auto& automatic = add(A::auto_cloud, tr(L"Synchronizuj przed grą i po niej"), tr(L"Tylko przy uruchamianiu bez Steam. Konflikt lub niepełne zapisy zatrzymują start gry."));
-            automatic.toggle = true; automatic.checked = settings_.aurelia_auto_cloud.contains(std::to_string(s.game.app_id));
-            add(A::sync, tr(L"Synchronizuj zapisy"), tr(L"Aurelia wykrywa konflikty bez wybierania zwycięskiej kopii."));
-            const auto found = aurelia_cloud_.find(s.game.app_id);
-            if (found != aurelia_cloud_.end() && found->second.state == aurelia::CloudState::conflicts) {
-                add(A::resolve_cloud, tr(L"Użyj zapisów z chmury"), tr(L"Zastępuje konfliktujące zapisy lokalne.")).danger = true;
-                add(A::resolve_local, tr(L"Użyj zapisów lokalnych"), tr(L"Zastępuje konfliktujące zapisy w chmurze.")).danger = true;
-            }
-            if (found != aurelia_cloud_.end()) for (const auto& issue : found->second.issues) add(A::none, issue);
-            add(A::refresh, tr(L"Odśwież listę plików"), aureliaCloudText(s.game));
-            for (const auto& f : array(data, "files")) add(A::none, wideLenient(aurelia::text(f, "filename")),
-                std::to_wstring(aurelia::integer(f.get("size")).value_or(0)) + L" B");
-            break;
-        }
-        case P::dlc:
-            s.title = tr(L"Edytuj DLC");
-            add(A::refresh, tr(L"Odśwież dodatki"));
-            if (const auto list = aurelia::dlcs(data)) for (const auto& d : *list) {
-                const auto action = d.owned != true ? A::none : d.installed != true ? A::install : d.disabled == true ? A::enable_dlc : A::disable_dlc;
-                auto& row = add(action, d.name, d.owned == true ? tr(L"Posiadasz") : d.owned == false ? tr(L"Nie posiadasz") : tr(L"Stan nieznany"),
-                    action == A::install ? tr(L"Instaluj") : action == A::enable_dlc ? tr(L"Włącz") : action == A::disable_dlc ? tr(L"Wyłącz") : L"", d.app);
-                row.locked = !d.owned.has_value() || !d.installed.has_value() || !d.disabled.has_value();
-            }
-            break;
-        case P::versions:
-            s.title = tr(L"Wersje i przypinanie");
-            add(A::pin, tr(L"Przypnij obecną wersję"), tr(L"Blokuje aktualizacje w Aurelii. Klient Steam ma własne ustawienia aktualizacji."));
-            add(A::unpin, tr(L"Odblokuj aktualizacje"));
-            add(A::branches, tr(L"Gałęzie beta"));
-            add(A::refresh, tr(L"Odśwież manifesty"), tr(L"Steam udostępnia tylko aktualne manifesty. Starszych ID szukaj na SteamDB."));
-            for (const auto& m : array(data)) {
-                const auto depot = aurelia::integer(m.get("depot_id")).value_or(0), manifest = aurelia::integer(m.get("manifest_id")).value_or(0);
-                add(A::none, wideLenient(aurelia::text(m, "depot_name")) + L" · " + wideLenient(aurelia::text(m, "branch")),
-                    std::to_wstring(depot) + L" : " + std::to_wstring(manifest));
-            }
-            s.input_hint = tr(L"Downgrade: depot_id manifest_id"); break;
-        case P::branches:
-            s.title = tr(L"Gałęzie beta");
-            for (const auto& b : array(data, "branches")) if (b.type == json::Value::Type::string)
-                add(A::set_branch, wideLenient(b.text), tr(L"Zmień gałąź; następnie wybierz Aktualizuj grę."), tr(L"Wybierz"), 0, wideLenient(b.text));
-            add(A::refresh, tr(L"Odśwież")); break;
-        case P::libraries:
-            s.title = aurelia_library_action_ == A::move ? tr(L"Przenieś do innej biblioteki") : tr(L"Wybierz bibliotekę Steam");
-            for (const auto& l : array(data, "libraries")) {
-                const auto path = wideLenient(aurelia::text(l, "path"));
-                const auto free = aurelia::integer(l.get("free_bytes"));
-                add(A::choose_library, path, free ? tr(L"Wolne miejsce: ") + sizeText(*free) : tr(L"Wolne miejsce nieznane"), tr(L"Wybierz"), 0, path);
-            }
-            s.input_hint = tr(L"Albo wpisz pełną ścieżkę biblioteki, np. D:\\SteamLibrary"); break;
-        case P::workshop:
-            s.title = L"Steam Workshop";
-            add(A::refresh, tr(L"Odśwież Workshop"));
-            for (const auto& item : array(data, "items")) {
-                const auto id = aurelia::integer(item.get("id")).value_or(0);
-                if (!id) continue;
-                const auto title = wideLenient(aurelia::text(item, "title"));
-                add(A::workshop_subscribe, title, std::to_wstring(id), tr(L"Subskrybuj i instaluj"), id);
-            }
-            s.input_hint = tr(L"ID Workshop: +ID subskrybuje, -ID anuluje, ID instaluje"); break;
-        case P::friends:
-            s.title = tr(L"Znajomi i czat");
-            add(A::refresh, tr(L"Odśwież znajomych"));
-            add(A::presence, tr(L"Status: online"), {}, {}, 0, L"online");
-            add(A::presence, tr(L"Status: niewidoczny"), {}, {}, 0, L"invisible");
-            for (const auto& f : aurelia::friends(data).friends)
-                add(A::chat, f.name, f.game.empty() ? f.status ? tr(L"Online") : tr(L"Offline") : f.game, tr(L"Czat"), f.id, f.name);
-            break;
-        case P::chat: s.title = s.friend_name; s.input_hint = tr(L"Napisz wiadomość…"); break;
-        default: break;
-        }
+            add(A::reconnect, tr(L"Połączenie"), tr(L"Połączono")).locked = s.busy;
+            add(A::logout, tr(L"Wyloguj"), aurelia_account_name_).danger = true;
+        } else add(A::login, tr(L"Zaloguj w oknie Aurelii")).locked = !aurelia_transport_ || s.busy;
+        add(A::repository, tr(L"Repozytorium Aurelii"), L"GitHub");
+        if (s.intro) add(A::close, tr(L"Dalej"));
+        break;
     }
-    const auto v = renderer_.viewport(); const aurelia_ui::Layout layout{v.width, v.height};
+    case P::game: {
+        s.title = tr(L"Zarządzaj · Aurelia");
+        // The choice first; a game the Steam client manages has nothing else here.
+        if (settings_.aurelia_default)
+            toggle(A::steam, tr(L"Zarządzaj przez Steam"), settings_.aurelia_steam.contains(std::to_string(s.game.app_id)));
+        else toggle(A::steam, tr(L"Zarządzaj przez Aurelię"), settings_.aurelia_standalone.contains(std::to_string(s.game.app_id)));
+        const bool downloading = aurelia_downloads_.contains(s.game.app_id);
+        if (!aureliaManaged(s.game)) { if (downloading) add(A::cancel, tr(L"Anuluj pobieranie")); break; }
+        if (settings_.aurelia_cloud) add(A::cloud, tr(L"Zapisy w chmurze"), aurelia::cloudShort(cloud_state));
+        if (s.game.installed) {
+            add(A::dlc, L"DLC");
+            add(A::versions, tr(L"Wersje"), s.pinned == true ? tr(L"Przypięta") : L"");
+            add(A::workshop, L"Steam Workshop");
+            if (downloading) add(A::cancel, tr(L"Anuluj pobieranie"));
+            else {
+                add(A::update, tr(L"Aktualizuj"));
+                add(A::verify, tr(L"Sprawdź pliki"));
+                add(A::move, tr(L"Przenieś do innej biblioteki"));
+            }
+            add(A::uninstall, tr(L"Odinstaluj")).danger = true;
+        } else if (downloading) add(A::cancel, tr(L"Anuluj pobieranie"));
+        else add(A::install, tr(L"Zainstaluj"));
+        break;
+    }
+    case P::cloud: {
+        s.title = tr(L"Zapisy w chmurze");
+        add(A::sync, tr(L"Synchronizuj teraz"), aurelia::cloudShort(cloud_state)).locked = cloud_state == aurelia::CloudState::syncing;
+        if (cloud_state == aurelia::CloudState::conflicts) {
+            auto& from_cloud = add(A::resolve_cloud, tr(L"Użyj zapisów z chmury")); from_cloud.danger = true;
+            from_cloud.description = tr(L"Zastępuje konfliktujące zapisy lokalne.");
+            auto& from_local = add(A::resolve_local, tr(L"Użyj zapisów lokalnych")); from_local.danger = true;
+            from_local.description = tr(L"Zastępuje konfliktujące zapisy w chmurze.");
+        }
+        toggle(A::auto_cloud, tr(L"Synchronizuj przed grą i po niej"), settings_.aurelia_auto_cloud.contains(std::to_string(s.game.app_id)));
+        break;
+    }
+    case P::dlc:
+        s.title = L"DLC";
+        if (const auto list = aurelia::dlcs(data)) for (const auto& d : *list) {
+            const auto action = d.owned != true ? A::none : d.installed != true ? A::install : d.disabled == true ? A::enable_dlc : A::disable_dlc;
+            auto& row = add(action, d.name, action == A::install ? tr(L"Zainstaluj") : action == A::enable_dlc ? tr(L"Wyłączony") :
+                            action == A::disable_dlc ? tr(L"Włączony") : d.owned == false ? tr(L"Nie posiadasz") : L"", d.app);
+            row.locked = !d.owned.has_value() || !d.installed.has_value() || !d.disabled.has_value() || d.owned == false;
+        }
+        break;
+    case P::versions:
+        s.title = tr(L"Wersje");
+        if (s.pinned != true) add(A::pin, tr(L"Przypnij obecną wersję"));
+        if (s.pinned != false) add(A::unpin, tr(L"Odblokuj aktualizacje"));
+        add(A::branches, tr(L"Gałęzie beta"));
+        for (const auto& m : array(data)) {
+            const auto depot = aurelia::integer(m.get("depot_id")).value_or(0), manifest = aurelia::integer(m.get("manifest_id")).value_or(0);
+            auto name = wideLenient(aurelia::text(m, "depot_name"));
+            if (const auto branch = wideLenient(aurelia::text(m, "branch")); !branch.empty()) name += L" · " + branch;
+            add(A::none, name, std::to_wstring(depot) + L" : " + std::to_wstring(manifest));
+        }
+        s.input_hint = L"depot_id manifest_id"; s.submit = tr(L"Zainstaluj"); break;
+    case P::branches:
+        s.title = tr(L"Gałęzie beta");
+        for (const auto& b : array(data, "branches")) if (b.type == json::Value::Type::string)
+            add(A::set_branch, wideLenient(b.text), {}, 0, wideLenient(b.text));
+        break;
+    case P::libraries: {
+        s.title = aurelia_library_action_ == A::move ? tr(L"Przenieś do innej biblioteki") : tr(L"Wybierz bibliotekę Steam");
+        for (const auto& l : array(data, "libraries")) {
+            const auto path = wideLenient(aurelia::text(l, "path"));
+            const auto free = aurelia::integer(l.get("free_bytes"));
+            add(A::choose_library, path, free ? sizeText(*free) + tr(L" wolne") : L"", 0, path);
+        }
+        add(A::browse_library, tr(L"Inny folder…"));
+        break;
+    }
+    case P::workshop:
+        s.title = L"Steam Workshop";
+        for (const auto& item : array(data, "items")) {
+            const auto id = aurelia::integer(item.get("id")).value_or(0);
+            if (!id) continue;
+            add(A::workshop_subscribe, wideLenient(aurelia::text(item, "title")), tr(L"Subskrybuj"), id);
+        }
+        s.input_hint = tr(L"ID przedmiotu Workshop"); s.submit = tr(L"Zainstaluj"); break;
+    }
+    if (s.input_hint.empty()) s.input_focus = false;
+    const int visible = aureliaVisibleRows();
     s.focus = std::clamp(s.focus, 0, std::max(0, static_cast<int>(s.rows.size()) - 1));
-    if (s.page != P::chat) s.first = std::clamp(s.first, 0, std::max(0, static_cast<int>(s.rows.size()) - layout.visible(s)));
+    s.first = std::clamp(s.first, 0, std::max(0, static_cast<int>(s.rows.size()) - visible));
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
 void Launcher::aureliaPage(P page) {
-    aurelia_chat_cancel_->store(true); closeKeyboard();
+    closeKeyboard();
     auto& s = aurelia_ui_; const auto generation = ++aurelia_page_generation_;
-    if (s.page == P::chat && s.friend_id) aurelia_chat_drafts_[s.friend_id] = s.input;
-    s.sending = s.live = false;
     s.page = page; s.focus = s.first = 0; s.input_focus = false; s.input.clear(); s.confirmation.reset(); s.status.clear(); s.busy = false;
+    s.hover = -9; s.visible = 0;
     aurelia_page_data_ = {}; aureliaRows();
     if (!aurelia_transport_ || (page != P::setup && !aurelia_authenticated_)) return;
     aurelia::Request request; request.app = s.game.app_id;
     switch (page) {
     case P::setup: request.command = C::health; break;
     case P::game: request.command = C::available; break;
-    case P::cloud: request.command = C::cloud_list; break;
+    case P::cloud: aureliaCheckCloud(s.game, true); return; // Its state comes from the shared cloud map.
     case P::dlc: request.command = C::dlc; break;
     case P::versions: request.command = C::manifests; break;
     case P::branches: request.command = C::branches; break;
     case P::workshop: request.command = C::workshop_browse; break;
     case P::libraries: request.command = C::libraries; break;
-    case P::friends: request.command = C::friends; break;
-    default: return;
     }
     s.busy = true; s.status = tr(L"Wczytywanie…");
     aureliaRequest(request, [generation, page](Launcher& app, aurelia::Reply reply) {
@@ -196,19 +241,44 @@ void Launcher::aureliaPage(P page) {
             if (page == P::setup) {
                 app.aurelia_authenticated_ = aurelia::flag(reply.data, "logged_in");
                 app.aurelia_account_name_ = wideLenient(aurelia::text(reply.data, "account"));
-                app.aurelia_setup_status_ = app.settings_.aurelia != app.aurelia_active_ ? tr(L"Zmiana integracji będzie aktywna po ponownym uruchomieniu Launchme.") : L"";
+                app.aurelia_setup_status_ = app.settings_.aurelia != app.aurelia_active_ ? tr(L"Wymaga ponownego uruchomienia Launchme") : L"";
             } else if (page == P::game) {
                 s.game.installed = aurelia::flag(reply.data, "available");
-                s.status = aurelia::flag(reply.data, "pinned") ? tr(L"Wersja przypięta · aktualizacje Aurelii zablokowane") : tr(L"Aktualizacje Aurelii odblokowane");
-            } else if (page == P::cloud) {
-                auto& cloud = app.aurelia_cloud_[s.game.app_id];
-                // Listing files is not a sync and cannot erase a reported conflict.
-                if (cloud.state != aurelia::CloudState::conflicts && cloud.state != aurelia::CloudState::incomplete && cloud.state != aurelia::CloudState::failed && cloud.state != aurelia::CloudState::synced)
-                    cloud = aurelia::cloud(reply, false);
-                cloud.checked = GetTickCount64();
+                if (const auto* pinned = reply.data.get("pinned"); pinned && pinned->type == json::Value::Type::boolean) s.pinned = pinned->flag;
+            } else if (page == P::libraries) {
+                // Plain paths, Steam's own libraries only, and the free space Aurelia could not tell.
+                const auto entry = app.aurelia_page_data_.properties.find("libraries");
+                auto* list = entry == app.aurelia_page_data_.properties.end() ? nullptr : &entry->second;
+                if (list && list->type == json::Value::Type::array) {
+                    std::vector<json::Value> kept;
+                    for (auto item : list->elements) {
+                        const auto path = plainPath(wideLenient(aurelia::text(item, "path")));
+                        if (path.empty()) continue;
+                        item.properties["path"] = json::string(text_encoding::utf8(path));
+                        ULARGE_INTEGER free{};
+                        if (!aurelia::integer(item.get("free_bytes")) && GetDiskFreeSpaceExW(path.c_str(), &free, nullptr, nullptr))
+                            item.properties["free_bytes"] = json::string(std::to_string(free.QuadPart));
+                        if (steamLibrary(path)) kept.push_back(std::move(item));
+                    }
+                    if (!kept.empty()) list->elements = std::move(kept);
+                    else for (auto& item : list->elements) item.properties["path"] = json::string(text_encoding::utf8(plainPath(wideLenient(aurelia::text(item, "path")))));
+                }
             }
         } else if (page == P::setup) app.aurelia_setup_status_ = reply.error;
         app.aureliaRows();
+    });
+}
+
+void Launcher::aureliaBrowseLibrary() {
+    file_browser::Request request;
+    request.mode = file_browser::Mode::folder;
+    request.title = aurelia_library_action_ == A::move ? tr(L"Przenieś do innej biblioteki") : tr(L"Wybierz bibliotekę Steam");
+    request.native = [this, title = request.title] { return pickPath(hwnd_, true, title, {}, {}, false, {}); };
+    const auto app_id = aurelia_ui_.game.app_id, generation = aurelia_page_generation_;
+    openFileBrowser(std::move(request), [this, app_id, generation](const std::filesystem::path& folder) {
+        auto& s = aurelia_ui_;
+        if (!s.open || s.page != P::libraries || s.game.app_id != app_id || aurelia_page_generation_ != generation || !folder.is_absolute()) return;
+        aureliaActivate({{}, {}, {}, A::choose_library, 0, folder.wstring()});
     });
 }
 
@@ -216,24 +286,30 @@ void Launcher::aureliaActivate(const Row& row, bool confirmed) {
     auto& s = aurelia_ui_; if (!s.open || row.locked || row.action == A::none) return;
     if (row.action == A::close) { closeAurelia(); return; }
     if (row.action == A::toggle) { toggleAurelia(); return; }
+    if (row.action == A::cloud_toggle || row.action == A::default_launch) {
+        auto& value = row.action == A::cloud_toggle ? settings_.aurelia_cloud : settings_.aurelia_default;
+        value = !value; settings_dirty_ = true; saveSettings();
+        if (row.action == A::cloud_toggle && !value) aurelia_cloud_.clear(); // No status is shown or checked while off.
+        if (settingsOpen()) buildSettingsRows();
+        aureliaRows(); audio_.context(); return;
+    }
     if (row.action == A::helper) { installAurelia(); return; }
     if (row.action == A::repository) {
         execute_(hwnd_, GameAction{L"https://github.com/Drackrath/Aurelia", {}, {}, ActionKind::open_client}); return;
     }
-    if (s.busy && row.action != A::cancel) return;
+    if (s.busy && row.action != A::cancel && !confirmed) return;
     switch (row.action) {
-    case A::game: aureliaPage(P::game); return;
     case A::cloud: aureliaPage(P::cloud); return;
     case A::dlc: aureliaPage(P::dlc); return;
     case A::versions: aureliaPage(P::versions); return;
     case A::branches: aureliaPage(P::branches); return;
     case A::workshop: aureliaPage(P::workshop); return;
-    case A::friends: if (aurelia_active_) aureliaPage(P::friends); return;
-    case A::refresh: aureliaPage(s.page); steam_rescan_->wake(); return;
-    case A::chat: aureliaOpenChat(row.id, row.payload); return;
+    case A::refresh: aureliaPage(s.page); aureliaRescan(); return;
+    case A::browse_library: aureliaBrowseLibrary(); return;
     case A::steam: {
         const auto id = std::to_string(s.game.app_id);
-        if (settings_.aurelia_standalone.contains(id)) settings_.aurelia_standalone.erase(id); else settings_.aurelia_standalone.insert(id);
+        auto& games = settings_.aurelia_default ? settings_.aurelia_steam : settings_.aurelia_standalone;
+        if (!games.erase(id)) games.insert(id);
         settings_dirty_ = true; saveSettings(); aureliaRows(); return;
     }
     case A::auto_cloud: {
@@ -241,13 +317,18 @@ void Launcher::aureliaActivate(const Row& row, bool confirmed) {
         if (!settings_.aurelia_auto_cloud.erase(id)) settings_.aurelia_auto_cloud.insert(id);
         settings_dirty_ = true; saveSettings(); aureliaRows(); return;
     }
-    case A::play: { const auto game = s.game; closeAurelia(); launchGame(game); return; }
     case A::install: if (s.page != P::dlc) { aurelia_library_action_ = A::install; aureliaPage(P::libraries); return; } break;
     case A::move: aurelia_library_action_ = A::move; aureliaPage(P::libraries); return;
     default: break;
     }
     const bool destructive = row.action == A::uninstall || row.action == A::downgrade || row.action == A::resolve_cloud || row.action == A::resolve_local || row.action == A::logout;
-    if (destructive && !confirmed) { s.confirmation = row; s.input_focus = false; s.hover = -4; InvalidateRect(hwnd_, nullptr, FALSE); return; }
+    if (destructive && !confirmed) {
+        auto question = row;
+        if (row.action == A::uninstall) { question.title = tr(L"Odinstalować grę?"); question.description = tr(L"Zapisy w chmurze pozostają."); }
+        else if (row.action == A::logout) { question.title = tr(L"Wylogować z Aurelii?"); question.description.clear(); }
+        s.confirmation = question; s.input_focus = false; s.confirm_focus = false; s.hover = -9;
+        closeKeyboard(); InvalidateRect(hwnd_, nullptr, FALSE); return;
+    }
     aurelia::Request request; request.app = s.game.app_id;
     switch (row.action) {
     case A::login: request.command = C::login; break;
@@ -256,7 +337,7 @@ void Launcher::aureliaActivate(const Row& row, bool confirmed) {
     case A::sync: case A::resolve_cloud: case A::resolve_local:
         request.command = C::cloud_sync; request.text = row.action == A::resolve_cloud ? L"cloud" : row.action == A::resolve_local ? L"local" : L""; break;
     case A::install: request.command = C::install; request.app = static_cast<uint32_t>(row.id); break;
-    case A::choose_library: request.command = aurelia_library_action_ == A::move ? C::move : C::install; request.folder = row.payload; break;
+    case A::choose_library: request.command = aurelia_library_action_ == A::move ? C::move : C::install; request.folder = plainPath(row.payload); break;
     case A::update: request.command = C::update; break;
     case A::verify: request.command = C::verify; break;
     case A::cancel: request.command = C::cancel_install; break;
@@ -276,21 +357,19 @@ void Launcher::aureliaActivate(const Row& row, bool confirmed) {
     case A::workshop_install: request.command = C::workshop_install; request.id = row.id; break;
     case A::workshop_subscribe: request.command = C::workshop_subscribe; request.id = row.id; break;
     case A::workshop_unsubscribe: request.command = C::workshop_unsubscribe; request.id = row.id; break;
-    case A::presence: request.command = C::presence; request.text = row.payload; break;
     default: return;
     }
     s.confirmation.reset();
-    if (row.action == A::login || row.action == A::logout || row.action == A::reconnect || row.action == A::presence) {
-        if (row.action != A::presence && (!aurelia_operations_.empty() || !aurelia_playing_.empty() || !aurelia_downloads_.empty())) { s.status = tr(L"Najpierw zakończ gry i pobierania Aurelii"); InvalidateRect(hwnd_, nullptr, FALSE); return; }
-        s.busy = true; s.status = tr(L"Wykonywanie polecenia…");
+    if (row.action == A::login || row.action == A::logout || row.action == A::reconnect) {
+        if (!aurelia_operations_.empty() || !aurelia_playing_.empty() || !aurelia_downloads_.empty()) { s.status = tr(L"Najpierw zakończ gry i pobierania Aurelii"); InvalidateRect(hwnd_, nullptr, FALSE); return; }
+        s.busy = true; s.status.clear();
         const auto gen = aurelia_page_generation_;
         aureliaRequest(request, [gen, logout = row.action == A::logout](Launcher& app, aurelia::Reply reply) {
             if (reply.ok && logout) {
                 ++*app.aurelia_epoch_; app.aurelia_authenticated_ = false; app.aurelia_account_ = 0;
-                app.aurelia_cloud_.clear(); app.aurelia_chat_cancel_->store(true);
-                app.aurelia_chat_drafts_.clear();
+                app.aurelia_cloud_.clear(); app.closeFriendChat(); app.friend_chat_drafts_.clear();
             }
-            app.steam_rescan_->wake();
+            app.aureliaRescan();
             if (!app.aurelia_ui_.open || app.aurelia_page_generation_ != gen) return;
             app.aurelia_ui_.busy = false;
             if (reply.ok) app.aureliaPage(app.aurelia_ui_.page);
@@ -310,85 +389,10 @@ void Launcher::aureliaActivate(const Row& row, bool confirmed) {
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
-void Launcher::aureliaOpenChat(uint64_t id, const std::wstring& name) {
-    if (!id || !aurelia_active_ || !aurelia_authenticated_) return;
-    const std::wstring friend_name = name; // The source may be a row which aureliaPage destroys.
-    if (!aurelia_ui_.open) openAurelia();
-    aureliaPage(P::chat); auto& s = aurelia_ui_; s.friend_id = id; s.friend_name = friend_name; s.messages.clear(); s.input_focus = true; s.chat_follow = true; s.chat_scroll = 0;
-    s.input = aurelia_chat_drafts_[id];
-    s.busy = true; s.status = tr(L"Wczytywanie rozmowy…"); aureliaRows();
-    const auto gen = aurelia_page_generation_;
-    aurelia_chat_cancel_ = std::make_shared<std::atomic_bool>(false);
-    aurelia::Request request{C::chat_history}; request.id = id;
-    aureliaRequest(request, [gen, id](Launcher& app, aurelia::Reply reply) {
-        if (!app.aurelia_ui_.open || gen != app.aurelia_page_generation_) return;
-        auto& s = app.aurelia_ui_; s.busy = false;
-        if (const auto history = reply.ok ? aurelia::chatHistory(reply.data) : std::nullopt) s.messages = *history;
-        else s.status = reply.error.empty() ? tr(L"Nieprawidłowa odpowiedź Aurelii") : reply.error;
-        s.first = std::max(0, static_cast<int>(s.messages.size()) - 5);
-        aurelia::Request live{C::chat_live}; live.id = id;
-        app.aureliaRequest(live, [gen](Launcher& a, aurelia::Reply r) {
-            if (gen != a.aurelia_page_generation_ || !a.aurelia_ui_.open) return;
-            a.aurelia_ui_.live = false;
-            if (!r.cancelled) a.aurelia_ui_.status = r.error.empty() ? tr(L"Czat rozłączony. F5 łączy ponownie.") : r.error;
-            InvalidateRect(a.hwnd_, nullptr, FALSE);
-        }, [gen](Launcher& a, json::Value event) {
-            if (gen != a.aurelia_page_generation_ || !a.aurelia_ui_.open) return;
-            auto& s = a.aurelia_ui_; const auto kind = aurelia::text(event, "event");
-            if (kind == "ready") {
-                s.live = true; s.status = tr(L"Połączono · wiadomości na żywo");
-                // Close the gap between the initial history request and arming the listener.
-                aurelia::Request history{C::chat_history}; history.id = s.friend_id;
-                a.aureliaRequest(history, [gen](Launcher& host, aurelia::Reply reply) {
-                    if (!host.aurelia_ui_.open || host.aurelia_page_generation_ != gen) return;
-                    if (auto messages = reply.ok ? aurelia::chatHistory(reply.data) : std::nullopt) {
-                        auto& visible = host.aurelia_ui_.messages;
-                        for (const auto& m : *messages) if (std::none_of(visible.begin(), visible.end(), [&](const auto& old) {
-                            return old.timestamp == m.timestamp && old.self == m.self && old.text == m.text;
-                        })) visible.push_back(m);
-                        std::stable_sort(visible.begin(), visible.end(), [](const auto& x, const auto& y) { return x.timestamp < y.timestamp; });
-                    }
-                    InvalidateRect(host.hwnd_, nullptr, FALSE);
-                }, {}, a.aurelia_chat_cancel_);
-            }
-            else if (kind == "typing") s.status = tr(L"Pisze…");
-            else if (kind == "error") s.status = wideLenient(aurelia::text(event, "message"));
-            else if (kind == "message" || kind == "echo") {
-                aurelia::ChatMessage m{aurelia::integer(event.get("timestamp")).value_or(0), kind == "echo", wideLenient(aurelia::text(event, "text"))};
-                if (std::none_of(s.messages.begin(), s.messages.end(), [&](const auto& old) { return old.timestamp == m.timestamp && old.self == m.self && old.text == m.text; })) s.messages.push_back(std::move(m));
-                if (s.messages.size() > 1000) s.messages.erase(s.messages.begin(), s.messages.begin() + 200);
-                s.first = std::max(0, static_cast<int>(s.messages.size()) - 5); s.status = tr(L"Połączono · wiadomości na żywo");
-            }
-            InvalidateRect(a.hwnd_, nullptr, FALSE);
-        }, app.aurelia_chat_cancel_);
-        InvalidateRect(app.hwnd_, nullptr, FALSE);
-    }, {}, aurelia_chat_cancel_);
-}
-
 void Launcher::aureliaSubmit() {
-    auto& s = aurelia_ui_; if (!s.open || s.input.empty() || s.busy || s.sending) return;
-    if (s.page == P::chat) {
-        const auto message = s.input; const auto generation = aurelia_page_generation_; s.sending = true;
-        aurelia::Request request{C::chat_send}; request.id = s.friend_id; request.text = message;
-        aureliaRequest(request, [generation, message](Launcher& app, aurelia::Reply reply) {
-            if (!app.aurelia_ui_.open || app.aurelia_page_generation_ != generation) return;
-            auto& s = app.aurelia_ui_; s.sending = false;
-            if (reply.ok && aurelia::flag(reply.data, "sent")) {
-                const auto timestamp = aurelia::integer(reply.data.get("server_timestamp")).value_or(0);
-                auto delivered = wideLenient(aurelia::text(reply.data, "modified_message")); if (delivered.empty()) delivered = message;
-                if (std::none_of(s.messages.begin(), s.messages.end(), [&](const auto& old) { return old.self && old.timestamp == timestamp && old.text == delivered; }))
-                    s.messages.push_back({timestamp, true, delivered});
-                if (s.input == message) { s.input.clear(); app.aurelia_chat_drafts_.erase(s.friend_id); }
-                s.chat_follow = true; s.status = tr(L"Wysłano");
-            } else s.status = reply.error.empty() ? tr(L"Nie udało się wysłać wiadomości. Tekst zachowano.") : reply.error;
-            InvalidateRect(app.hwnd_, nullptr, FALSE);
-        });
-    } else if (s.page == P::versions) aureliaActivate({tr(L"Zainstalować i przypiąć wskazany manifest?"), tr(L"Starsza wersja może nie obsługiwać nowszych zapisów gry."), {}, A::downgrade, 0, s.input});
-    else if (s.page == P::libraries) {
-        const std::filesystem::path path(s.input);
-        if (!path.is_absolute()) { s.status = tr(L"Podaj pełną ścieżkę biblioteki"); return; }
-        aureliaActivate({{}, {}, {}, A::choose_library, 0, s.input});
-    } else if (s.page == P::workshop) {
+    auto& s = aurelia_ui_; if (!s.open || s.input.empty() || s.busy) return;
+    if (s.page == P::versions) aureliaActivate({tr(L"Zainstalować i przypiąć wskazany manifest?"), tr(L"Starsza wersja może nie obsługiwać nowszych zapisów gry."), {}, A::downgrade, 0, s.input});
+    else if (s.page == P::workshop) {
         auto input = s.input; A action = A::workshop_install;
         if (input.starts_with(L"+")) { action = A::workshop_subscribe; input.erase(0, 1); }
         else if (input.starts_with(L"-")) { action = A::workshop_unsubscribe; input.erase(0, 1); }
@@ -403,36 +407,29 @@ void Launcher::aureliaCharacter(wchar_t c) {
     if (!aureliaTyping() || c < 32 || c == 127 || aurelia_ui_.input.size() >= 4000) return;
     aurelia_ui_.input.push_back(c); InvalidateRect(hwnd_, nullptr, FALSE);
 }
+// The wheel scrolls the rows; the focus stays on a visible one.
 void Launcher::aureliaScroll(int rows) {
     auto& s = aurelia_ui_; if (!s.open || s.confirmation) return;
-    const auto v = renderer_.viewport(); const aurelia_ui::Layout layout{v.width, v.height};
-    if (s.page == P::chat) {
-        const auto area = layout.log(); const float maximum = std::max(0.0f, s.chat_content - (area.bottom - area.top));
-        s.chat_scroll = std::clamp(s.chat_scroll + rows * 60.0f, 0.0f, maximum); s.chat_follow = s.chat_scroll >= maximum;
-        InvalidateRect(hwnd_, nullptr, FALSE); return;
-    }
-    const int count = s.page == P::chat ? static_cast<int>(s.messages.size()) : static_cast<int>(s.rows.size());
-    s.first = std::clamp(s.first + rows, 0, std::max(0, count - (s.page == P::chat ? 1 : layout.visible(s))));
+    const int visible = aureliaVisibleRows(), count = static_cast<int>(s.rows.size());
+    s.first = std::clamp(s.first + rows, 0, std::max(0, count - visible));
+    if (count) s.focus = std::clamp(s.focus, s.first, std::min(count - 1, s.first + visible - 1));
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
 void Launcher::aureliaKey(WPARAM key, bool repeated) {
     auto& s = aurelia_ui_; if (!s.open) return;
     if (s.confirmation) {
-        if (key == VK_ESCAPE || key == VK_BACK) s.confirmation.reset();
-        else if (key == VK_LEFT || key == VK_RIGHT || key == VK_TAB) s.hover = s.hover == -5 ? -4 : -5;
-        else if ((key == VK_RETURN || key == VK_SPACE) && !repeated) {
-            const auto row = *s.confirmation; s.confirmation.reset(); if (s.hover == -5) aureliaActivate(row, true);
-        }
+        if (key == VK_ESCAPE || key == VK_BACK) { aureliaAnswer(false); return; }
+        if (key == VK_LEFT || key == VK_RIGHT || key == VK_TAB || key == VK_UP || key == VK_DOWN) { s.confirm_focus = !s.confirm_focus; audio_.navigate(); }
+        else if ((key == VK_RETURN || key == VK_SPACE) && !repeated) { aureliaAnswer(s.confirm_focus); return; }
         InvalidateRect(hwnd_, nullptr, FALSE); return;
     }
     if (key == VK_ESCAPE || (key == VK_BACK && !s.input_focus)) {
-        if (s.page == P::setup) closeAurelia();
-        else if (s.page == P::chat) aureliaPage(P::friends);
-        else if (s.page == P::game || s.page == P::friends) closeAurelia();
+        if (s.page == P::setup || s.page == P::game) closeAurelia();
+        else if (s.page == P::branches) aureliaPage(P::versions);
         else aureliaPage(P::game);
         return;
     }
-    if (key == VK_F5 && !repeated) { if (s.page == P::chat) aureliaOpenChat(s.friend_id, s.friend_name); else aureliaPage(s.page); return; }
+    if (key == VK_F5 && !repeated) { aureliaPage(s.page); return; }
     if (key == VK_TAB && !s.input_hint.empty()) { s.input_focus = !s.input_focus; InvalidateRect(hwnd_, nullptr, FALSE); return; }
     if (key == VK_PRIOR || key == VK_NEXT) { aureliaScroll(key == VK_PRIOR ? -4 : 4); return; }
     if (s.input_focus) {
@@ -440,6 +437,7 @@ void Launcher::aureliaKey(WPARAM key, bool repeated) {
             const auto last = s.input.back(); s.input.pop_back();
             if (last >= 0xdc00 && last <= 0xdfff && !s.input.empty() && s.input.back() >= 0xd800 && s.input.back() <= 0xdbff) s.input.pop_back();
         } else if (key == VK_RETURN && !repeated) aureliaSubmit();
+        else if (key == VK_UP) { s.input_focus = false; s.focus = std::max(0, static_cast<int>(s.rows.size()) - 1); }
         else if (key == 'V' && (GetKeyState(VK_CONTROL) & 0x8000) && OpenClipboard(hwnd_)) {
             if (const auto handle = GetClipboardData(CF_UNICODETEXT)) {
                 if (const auto* text = static_cast<const wchar_t*>(GlobalLock(handle))) {
@@ -449,14 +447,18 @@ void Launcher::aureliaKey(WPARAM key, bool repeated) {
                 }
             }
             CloseClipboard();
-        } else if (key == 'A' && (GetKeyState(VK_CONTROL) & 0x8000)) { /* Append-only field: keep its text. */ }
+        }
         InvalidateRect(hwnd_, nullptr, FALSE); return;
     }
     if (key == VK_UP || key == VK_DOWN) {
-        s.focus = std::clamp(s.focus + (key == VK_UP ? -1 : 1), 0, std::max(0, static_cast<int>(s.rows.size()) - 1));
-        const auto v = renderer_.viewport(); const aurelia_ui::Layout layout{v.width, v.height};
+        const int last = static_cast<int>(s.rows.size()) - 1;
+        if (key == VK_DOWN && s.focus >= last && !s.input_hint.empty()) { s.input_focus = true; audio_.navigate(); InvalidateRect(hwnd_, nullptr, FALSE); return; }
+        const int next = std::clamp(s.focus + (key == VK_UP ? -1 : 1), 0, std::max(0, last));
+        if (next == s.focus) { navigationBoundary(); return; }
+        s.focus = next; audio_.navigate();
+        const int visible = aureliaVisibleRows();
         if (s.focus < s.first) s.first = s.focus;
-        if (s.focus >= s.first + layout.visible(s)) s.first = s.focus - layout.visible(s) + 1;
+        if (s.focus >= s.first + visible) s.first = s.focus - visible + 1;
     } else if ((key == VK_RETURN || key == VK_SPACE) && !repeated && s.focus >= 0 && s.focus < static_cast<int>(s.rows.size())) aureliaActivate(s.rows[s.focus]);
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
@@ -465,10 +467,28 @@ void Launcher::aureliaClick(float x, float y) {
     const auto hit = layout.hit(s, x, y);
     if (hit == -1) { aureliaKey(VK_ESCAPE, false); return; }
     if (s.confirmation) {
-        if (hit == -4) s.confirmation.reset();
-        else if (hit == -5) { const auto row = *s.confirmation; s.confirmation.reset(); aureliaActivate(row, true); }
+        if (hit == -4 || hit == -5) { aureliaAnswer(hit == -5); return; }
     } else if (hit == -2) { s.input_focus = true; if (!desktop_mode_ && pad_input_) openKeyboard(); }
     else if (hit == -3) aureliaSubmit();
     else if (hit >= 0) { s.input_focus = false; s.focus = hit; aureliaActivate(s.rows[hit]); }
+    InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
+// The desktop dialog (Renderer::drawDesktopAurelia) records its controls: rows, the field, its
+// button, Back and ✕, and the confirmation's two answers.
+void Launcher::aureliaDesktopClick(desktop_ui::SheetHit hit) {
+    using K = desktop_ui::SheetHit::Kind;
+    auto& s = aurelia_ui_;
+    if (hit.kind == K::close) { closeAurelia(); return; }
+    if (hit.kind == K::back) { aureliaKey(VK_ESCAPE, false); return; }
+    if (s.confirmation) {
+        if (hit.kind == K::action && (hit.index == 1 || hit.index == 2)) aureliaAnswer(hit.index == 2);
+        return;
+    }
+    if (hit.kind == K::field) s.input_focus = true;
+    else if (hit.kind == K::action && hit.index == 0) aureliaSubmit();
+    else if (hit.kind == K::row && hit.index >= 0 && hit.index < static_cast<int>(s.rows.size())) {
+        s.input_focus = false; s.focus = hit.index; aureliaActivate(s.rows[static_cast<size_t>(hit.index)]);
+    }
     InvalidateRect(hwnd_, nullptr, FALSE);
 }

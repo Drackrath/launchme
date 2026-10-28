@@ -5,16 +5,30 @@
 #include <Windows.h>
 
 int main() {
-    if (parseAppSettings("music_theme=9\n").music_theme != 9 ||
-        parseAppSettings("music_theme=10\n").music_theme != 10 ||
-        parseAppSettings("music_theme=11\n").music_theme != 11 ||
-        parseAppSettings("music_theme=12\n").music_theme != 0 ||
-        parseAppSettings("music_theme=-1\n").music_theme != 0 ||
-        parseAppSettings("music_theme=4junk\n").music_theme != 0) return 7;
+    // Themes are saved by id; the old numbered list maps "Brak" (10) and Horizons (11), and its
+    // never-shipped themes fall back to the default (Horizons).
+    if (AppSettings{}.music_theme != 1 ||
+        parseAppSettings("music_track=none\n").music_theme != 0 ||
+        parseAppSettings("music_track=exploratory-silence\n").music_theme != 2 ||
+        parseAppSettings("music_track=gone\n").music_theme != 1 ||
+        parseAppSettings("music_theme=9\n").music_theme != 1 ||
+        parseAppSettings("music_theme=10\n").music_theme != 0 ||
+        parseAppSettings("music_theme=11\n").music_theme != 1 ||
+        parseAppSettings("music_theme=12\n").music_theme != 1 ||
+        parseAppSettings("music_theme=-1\n").music_theme != 1 ||
+        parseAppSettings("music_theme=4junk\n").music_theme != 1 ||
+        parseAppSettings("music_track=none\nmusic_theme=11\n").music_theme != 0 ||
+        parseAppSettings("music_theme=11\nmusic_track=none\n").music_theme != 0) return 7;
+    {
+        AppSettings saved; saved.music_theme = 2;
+        const auto file = std::filesystem::temp_directory_path() / L"launchme-music-track-test.ini";
+        if (!saveAppSettings(saved, file) || loadAppSettings(file).music_theme != 2) return 7;
+        std::error_code error; std::filesystem::remove(file, error);
+    }
     if (AppSettings{}.ui_sound || AppSettings{}.toast_sound || AppSettings{}.boot_sound ||
         parseAppSettings("ui_sound=1\n").ui_sound || parseAppSettings("toast_sound=-1\n").toast_sound ||
         parseAppSettings("boot_sound=2\n").boot_sound || parseAppSettings("boot_sound=1junk\n").boot_sound ||
-        parseAppSettings(" boot_sound = 1 \r\n").boot_sound != 1) return 29;
+        parseAppSettings(" boot_sound = 1 \r\n").boot_sound) return 29; // One built-in start sound ("Brak") is left.
     const auto style = parseDrawerStyle("# appearance\n drawer_opacity = 0.74\r\n"
                                         "drawer_fade_fraction=0.24\n");
     if (std::abs(style.opacity - 0.74f) > 0.001f ||
@@ -367,11 +381,22 @@ int main() {
     auto sounds = config;
     sounds.ui_sound = 0;
     sounds.toast_sound = 0;
-    sounds.boot_sound = 1;
-    sounds.music_theme = 10;
-    if (!saveAppSettings(sounds, file) || loadAppSettings(file).boot_sound != 1 ||
+    sounds.boot_sound = 0;
+    sounds.music_theme = 0; // "Brak"
+    if (!saveAppSettings(sounds, file) || loadAppSettings(file).boot_sound != 0 ||
         loadAppSettings(file).ui_sound != 0 || loadAppSettings(file).toast_sound != 0 ||
-        loadAppSettings(file).music_theme != 10) return 30;
+        loadAppSettings(file).music_theme != 0) return 30;
+    // Aurelia and Steam: what Aurelia manages, its cloud, Steam switched off and a game's account.
+    auto steam = config; steam.steam_enabled = false; steam.aurelia_default = true; steam.aurelia_cloud = false;
+    steam.aurelia_steam = {"620"}; steam.steam_launch_accounts["400"] = 76561198000000002ULL;
+    if (!saveAppSettings(steam, file)) return 31;
+    {
+        const auto loaded = loadAppSettings(file);
+        if (loaded.steam_enabled || !loaded.aurelia_default || loaded.aurelia_cloud || loaded.aurelia_steam != std::unordered_set<std::string>{"620"} ||
+            loaded.steam_launch_accounts.size() != 1 || loaded.steam_launch_accounts.at("400") != 76561198000000002ULL) return 31;
+        if (!AppSettings{}.steam_enabled || AppSettings{}.aurelia_default || !AppSettings{}.aurelia_cloud ||
+            !parseAppSettings("steam_account=../x:1\nsteam_account=400:junk\n").steam_launch_accounts.empty()) return 31;
+    }
     if (!saveAppSettings(config, file)) return 13;
     // Older files only had accent_color: it must stay a cover colour and leave the UI on its default.
     const auto legacy = parseAppSettings("accent_color=#D64649\n");

@@ -59,7 +59,7 @@ void Launcher::click(float mouse_x, float mouse_y, bool double_click) {
     }
     case Modal::identify: if (!double_click) identifyClick(x, y); return;
     case Modal::gog_install: {
-        const auto row = gog_install_ui::Layout{view.width, view.height, gog_install_ui_.game.source == GameSource::epic || gog_install_ui_.steam}.hit(x, y);
+        const auto row = gog_install_ui::Layout{view.width, view.height, gog_install_ui::helperInstall(gog_install_ui_.game.source) || gog_install_ui_.steam}.hit(x, y);
         if (!double_click && row >= 0) { gog_install_ui_.row = row; gogInstallAccept(); }
         return;
     }
@@ -167,6 +167,7 @@ void Launcher::click(float mouse_x, float mouse_y, bool double_click) {
             dashboardPointerDown(x, y);
             return;
         }
+        if (friend_chat_.open) { friendChatClick(x - drawer_left, y); return; } // The conversation's Back, field and Send.
         if (friends_layout::listBack(drawer_left).contains(x, y)) { friendsBack(); return; }
         if (y < 104) return; // Rows scrolled under the header are hidden.
         const auto index = friends_layout::hit(friends_.friends, y + friends_scroll_);
@@ -296,7 +297,7 @@ bool Launcher::hoverButton(float mouse_x, float mouse_y) const {
         const identify_ui::Layout layout{view.width, view.height};
         return layout.back().contains(x, y) || layout.source().contains(x, y) || layout.search().contains(x, y) || layout.hit(x, y, identify_state_) >= 0;
     }
-    case Modal::gog_install: return gog_install_ui::Layout{view.width, view.height, gog_install_ui_.game.source == GameSource::epic || gog_install_ui_.steam}.hit(x, y) >= 0;
+    case Modal::gog_install: return gog_install_ui::Layout{view.width, view.height, gog_install_ui::helperInstall(gog_install_ui_.game.source) || gog_install_ui_.steam}.hit(x, y) >= 0;
     case Modal::companion_picker: return companion_ui::PickerLayout{view.width, view.height}.hit(companion_.picker, x, y) != companion_ui::no_hit;
     case Modal::tarot: return tarotPointerOver(x, y);
     case Modal::profile: return profilePointerOver(x, y);
@@ -382,6 +383,7 @@ bool Launcher::hoverButton(float mouse_x, float mouse_y) const {
                 tile == static_cast<int>(Tile::steam) || tile == static_cast<int>(Tile::discord) || tile == static_cast<int>(Tile::profile) ||
                 (tile >= plugins && tile < plugins + static_cast<int>(plugin_widgets_.size()));
         }
+        if (friend_chat_.open) return friend_chat::Layout{drawer_left, view.height}.hit(x, y) != 0;
         return friends_layout::listBack(drawer_left).contains(x, y) ||
                (y >= 104 && friends_layout::hit(friends_.friends, y + friends_scroll_).has_value());
     }
@@ -440,6 +442,7 @@ bool Launcher::hoverButton(float mouse_x, float mouse_y) const {
 // Hover across screens, leaving the window, and the end of a mouse drag.
 void Launcher::mouseMove(float mouse_x, float mouse_y) {
     if (topModal() == Modal::aurelia) {
+        if (desktop_mode_ && desktopModalMove(mouse_x, mouse_y)) return; // Drawn as a desktop dialog.
         const auto view = renderer_.viewport();
         const int hit = aurelia_ui::Layout{view.width, view.height}.hit(aurelia_ui_, mouse_x / view.scale, mouse_y / view.scale);
         if (aurelia_ui_.hover != hit) { aurelia_ui_.hover = hit; InvalidateRect(hwnd_, nullptr, FALSE); }
@@ -530,6 +533,11 @@ void Launcher::mouseMove(float mouse_x, float mouse_y) {
     if (tour_.open && !exit_prompt_) { const auto view = renderer_.viewport(); tourHover(mouse_x / view.scale, mouse_y / view.scale); return; }
     if (fileBrowserOpen()) { const auto view = renderer_.viewport(); fileBrowserHover(mouse_x / view.scale, mouse_y / view.scale); return; }
     if (color_editor_.open) { if (color_editor_.dragging) colorEditorDrag(mouse_x / renderer_.viewport().scale); return; }
+    if (friendChatOpen()) { // The conversation's Back, field and Send under the pointer.
+        const auto view = renderer_.viewport();
+        const int hover = friend_chat::Layout{view.width - friends_layout::drawer_width, view.height}.hit(mouse_x / view.scale, mouse_y / view.scale);
+        if (friend_chat_.hover != hover) { friend_chat_.hover = hover; InvalidateRect(hwnd_, nullptr, FALSE); }
+    }
     if (dashboard_press_source_ == 3) { const auto view = drawerViewport(); dashboardPointerMove(mouse_x / view.scale, mouse_y / view.scale); return; }
     if (devicesOpen()) { const auto view = renderer_.viewport(); deviceDrag(mouse_x / view.scale, mouse_y / view.scale); return; }
     if (cropOpen()) { const auto view = renderer_.viewport(); cropDrag(mouse_x / view.scale, mouse_y / view.scale); return; }

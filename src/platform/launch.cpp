@@ -4,7 +4,9 @@
 #include <algorithm>
 #include <cwctype>
 #include <filesystem>
+#include <optional>
 #include <string>
+#include <vector>
 
 namespace {
 thread_local HANDLE launched_process = nullptr;
@@ -56,11 +58,25 @@ INT_PTR executeGameAction(HWND window, const GameAction& action) {
     const auto directory = action.working_directory.wstring();
     info.lpDirectory = directory.empty() ? nullptr : directory.c_str();
     info.nShow = SW_SHOWNORMAL;
-    if (ShellExecuteExW(&info)) {
+    // The action's own variables: set for the synchronous ShellExecuteEx (SEE_MASK_NOASYNC), the
+    // started process inherits them, then Launchme's environment is restored.
+    std::vector<std::pair<std::wstring, std::optional<std::wstring>>> previous;
+    for (const auto& [name, value] : action.environment) {
+        if (name.empty() || name.find(L'=') != std::wstring::npos) continue;
+        std::wstring old(32767, L'\0');
+        const DWORD length = GetEnvironmentVariableW(name.c_str(), old.data(), static_cast<DWORD>(old.size()));
+        previous.emplace_back(name, length && length < old.size() ? std::optional<std::wstring>(old.substr(0, length)) : std::nullopt);
+        SetEnvironmentVariableW(name.c_str(), value.c_str());
+    }
+    const BOOL started = ShellExecuteExW(&info);
+    const DWORD error = GetLastError();
+    for (auto it = previous.rbegin(); it != previous.rend(); ++it)
+        SetEnvironmentVariableW(it->first.c_str(), it->second ? it->second->c_str() : nullptr);
+    if (started) {
         launched_process = info.hProcess; // May be null: a running client took the link.
         return 33;
     }
-    switch (GetLastError()) {
+    switch (error) {
     case ERROR_CANCELLED: return launch_error::cancelled;
     case ERROR_FILE_NOT_FOUND: return launch_error::file_missing;
     case ERROR_PATH_NOT_FOUND: case ERROR_BAD_NETPATH: case ERROR_INVALID_DRIVE: return launch_error::path_missing;

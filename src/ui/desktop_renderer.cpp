@@ -239,7 +239,7 @@ void Renderer::drawDesktop() {
     layout.tools = static_cast<int>(view.tools.size());
     layout.companion_card = view.companion_card;
     layout.narrow = view.sidebar_narrow; layout.pane_width = view.pane_width;
-    desktop_chips_.clear(); desktop_chip_add_ = {}; desktop_rating_ = {}; desktop_achievements_ = {}; desktop_studios_ = {};
+    desktop_chips_.clear(); desktop_chip_add_ = {}; desktop_rating_ = {}; desktop_achievements_ = {}; desktop_cloud_ = {}; desktop_studios_ = {};
     desktop_hotspots_.clear(); // Widżety record their controls here.
     companion_bubble_ = {};
     brush(app_bg);
@@ -1025,7 +1025,14 @@ void Renderer::drawDesktopPane(const Layout& layout, const View& view) {
     // Collections, as chips that open them; "+" adds the game to one.
     float y = layout.paneContentTop(s);
     if (!context_->aurelia_cloud.empty()) {
-        textLine(context_->aurelia_cloud, left, y, width, desktop_small_font_.Get(), uiAccent(0.9f));
+        // Cloud saves (a game Aurelia manages): the state, and a click opens its page.
+        const float w = std::min(width, textAdvance(context_->aurelia_cloud, desktop_small_font_.Get()) + 44);
+        const Rect chip{left - 6, y - 13, left - 6 + w, y + 13};
+        const bool hover = view.hover.target == Target::pane_cloud;
+        if (hover) desktopFill(chip, 7, gray(1, view.pressed.target == Target::pane_cloud ? 0.04f : 0.07f));
+        desktopGlyph(0xE753, chip.left + 16, y, 14, gray(hover ? 0.98f : 0.78f)); // Segoe MDL2 "Cloud".
+        textLine(context_->aurelia_cloud, chip.left + 32, y, w - 38, desktop_small_font_.Get(), gray(hover ? 0.98f : 0.78f));
+        desktop_cloud_ = chip;
         y += 30;
     }
     textLine(upper(tr(L"Kolekcje")), left, y, width, desktop_label_font_.Get(), palette::muted());
@@ -1072,7 +1079,8 @@ void Renderer::drawDesktopPane(const Layout& layout, const View& view) {
     const auto& details = pane.details;
     if (!details.description.empty()) y += paragraph(details.description, left, y, width, desktop_font_.Get(), gray(0.80f), 60) + 18;
     else {
-        textLine(pane.details_loading ? tr(L"Wczytywanie opisu…") : tr(L"Opis gry nie jest dostępny."), left, y + 9, width, desktop_font_.Get(), palette::muted());
+        if (pane.details_loading) drawSkeleton(D2D1::RectF(left, y, left + width, y + 66), 3, 22);
+        else textLine(tr(L"Opis gry nie jest dostępny."), left, y + 9, width, desktop_font_.Get(), palette::muted());
         y += 36;
     }
     std::vector<std::pair<const wchar_t*, const std::wstring*>> facts;

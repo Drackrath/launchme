@@ -49,14 +49,17 @@ struct AppSettings {
     bool show_private = false;
     bool show_store = false;
     std::unordered_set<std::string> enabled_pc_sources;
+    bool steam_enabled = true;
+    // Szczegóły → "…" → Konto Steam: a game's chosen account (app id → SteamID64); absent: the default.
+    std::map<std::string, uint64_t> steam_launch_accounts; // Ustawienia → Biblioteka → Steam: off hides its games, shortcuts and collections.
     // Platformy PC → MultiMC / Prism: a launcher the user pointed at (portable MultiMC is never
     // installed anywhere Launchme looks); empty: only the ones found on their own.
     std::filesystem::path multimc_path;
     float music_volume = 0.075f;
-    int music_theme = 0;
-    // Settings → Dźwięk → "Folder dźwięków": music themes and the start sound are also looked up
-    // there, and its audio files can be picked by name. music_file / boot_file (a file name in
-    // that folder) win over music_theme / boot_sound when set.
+    int music_theme = 1; // An index of music_themes.hpp (saved by its id); 1: Launchme — Horizons.
+    // Settings → Dźwięk → "Folder dźwięków": its audio files can be picked by name. music_file /
+    // boot_file (a file name in that folder) win over music_theme / boot_sound while the folder
+    // still holds them; otherwise the built-in choice plays.
     std::filesystem::path sound_folder;
     std::wstring music_file, boot_file;
     // The launcher's file picker opens here when a request names no folder ("Ostatnio używany").
@@ -225,7 +228,12 @@ struct AppSettings {
     // Optional out-of-process Steam features; changing the backend takes effect on restart.
     bool aurelia = false;
     bool aurelia_intro_done = false;
-    std::unordered_set<std::string> aurelia_standalone; // Per-game opt-in; Steam integration is the default.
+    // Games Aurelia manages (installed, launched and removed through it), each chosen; with
+    // aurelia_default every Steam game but the ones in aurelia_steam (managed by the Steam client).
+    std::unordered_set<std::string> aurelia_standalone;
+    bool aurelia_default = false;
+    std::unordered_set<std::string> aurelia_steam;
+    bool aurelia_cloud = true; // Cloud state and sync of the games Aurelia manages.
     std::unordered_set<std::string> aurelia_auto_cloud; // Explicit opt-in to sync before/after standalone play.
     // Videos downloaded from ScreenScraper: <video_folder>\<ES-DE system>\videos\<ROM name>.mp4, the
     // layout of ES-DE's downloaded_media (pointing it there shares them). Empty: <config>\media.

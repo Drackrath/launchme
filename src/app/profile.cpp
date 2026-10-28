@@ -454,6 +454,7 @@ void Launcher::rebuildProfile() {
     add(static_cast<int>(GameSource::steam), GameSource::steam, L"Steam", "steam", account_ && p.name != tr(L"Gracz") ? p.name : std::wstring(tr(L"Brak konta")), account_ != 0);
     add(static_cast<int>(GameSource::gog), GameSource::gog, L"GOG", "gog", gog_state_.account.empty() ? local_only : std::wstring(tr(L"Konto połączone")), !gog_state_.account.empty());
     add(static_cast<int>(GameSource::epic), GameSource::epic, L"Epic Games", "epic", epic_state_.account.empty() ? local_only : std::wstring(tr(L"Konto połączone")), !epic_state_.account.empty());
+    add(static_cast<int>(GameSource::amazon), GameSource::amazon, L"Amazon Games", "amazon", amazon_state_.account.empty() ? local_only : std::wstring(tr(L"Konto połączone")), amazonConnected());
     add(static_cast<int>(GameSource::xbox), GameSource::xbox, L"Xbox", "xbox", tr(L"Aplikacja Xbox"), false);
     add(static_cast<int>(GameSource::ea), GameSource::ea, L"EA", "ea", ea_import_.snapshot ? std::wstring(tr(L"Biblioteka zaimportowana")) : local_only, ea_import_.snapshot.has_value());
     add(static_cast<int>(GameSource::ubisoft), GameSource::ubisoft, L"Ubisoft Connect", "ubisoft", ubisoft_account_ ? std::wstring(tr(L"Konto Ubisoft Connect")) : local_only, ubisoft_account_);

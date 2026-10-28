@@ -4,6 +4,8 @@
 #include <filesystem>
 #include <string>
 #include <array>
+#include <utility>
+#include <vector>
 #include "key_codec.hpp"
 #include "installation.hpp"
 #include "../i18n/i18n.hpp"
@@ -12,9 +14,10 @@
 // xbox: Xbox app / Microsoft Store PC games (Gaming Services packages); appended to keep values stable.
 // drmfree: games found in the user's DRM-free folders, src/library/drm_free.hpp.
 // multimc: Minecraft instances of MultiMC / Prism Launcher / PolyMC, src/library/multimc.hpp.
-enum class GameSource { steam, gog, battlenet, ea, ubisoft, epic, custom, xbox, drmfree, multimc };
-inline constexpr std::array<GameSource, 7> pc_sources{GameSource::gog, GameSource::battlenet, GameSource::ea, GameSource::ubisoft, GameSource::epic,
-                                                      GameSource::xbox, GameSource::multimc};
+// amazon: Amazon Games through the optional Nile helper, src/store/amazon.hpp.
+enum class GameSource { steam, gog, battlenet, ea, ubisoft, epic, custom, xbox, drmfree, multimc, amazon };
+inline constexpr std::array<GameSource, 8> pc_sources{GameSource::gog, GameSource::battlenet, GameSource::ea, GameSource::ubisoft, GameSource::epic,
+                                                      GameSource::xbox, GameSource::multimc, GameSource::amazon};
 // category/settings are XMB home tiles: a Steam collection (app_id = category index) and the Settings shortcut.
 // glance/companion: the Glance and Towarzyszka tiles of the Metro and XMB homes (src/ui/home_widgets.hpp).
 enum class GameKind { steam, all, platform, back, nonsteam, store, catalog, pc_platform, category, settings, glance, companion };
@@ -29,6 +32,9 @@ struct GameAction {
     // Launchme keeps the foreground: the started process gets no foreground permission, and
     // Launchme hands focus to the game's window itself (Steam → Ciche uruchamianie).
     bool keep_focus = false;
+    // Variables the started process gets on top of Launchme's own (Amazon Games: its SDK and
+    // entitlement, src/store/amazon.cpp); empty for nearly every action.
+    std::vector<std::pair<std::wstring, std::wstring>> environment;
     explicit operator bool() const { return !target.empty(); }
 };
 
@@ -72,6 +78,9 @@ struct Game {
     // Play time the store or launcher counted itself (MultiMC/Prism instances, a store account),
     // in minutes; 0 when unknown. Launchme's own count for the game is kept apart (library_state).
     uint32_t store_playtime_minutes = 0;
+    // Unix seconds when acquired in the store library; 0 when the source cannot tell.
+    // Not an installation/update timestamp. Display-only version groups keep the newest addition.
+    uint64_t added_at = 0;
 };
 
 inline const char* sourceSlug(GameSource source) {
@@ -85,6 +94,7 @@ inline const char* sourceSlug(GameSource source) {
     case GameSource::custom: return "custom";
     case GameSource::drmfree: return "drmfree";
     case GameSource::multimc: return "multimc";
+    case GameSource::amazon: return "amazon";
     default: return "steam";
     }
 }
@@ -97,9 +107,10 @@ inline const wchar_t* sourceName(GameSource source) {
     case GameSource::ubisoft: return L"Ubisoft Connect";
     case GameSource::epic: return L"Epic Games";
     case GameSource::xbox: return L"Xbox";
-    case GameSource::custom: return tr(L"Moje gry");
+    case GameSource::custom: return tr(L"Gry dodane ręcznie");
     case GameSource::drmfree: return L"DRM-free";
     case GameSource::multimc: return L"MultiMC / Prism";
+    case GameSource::amazon: return L"Amazon Games";
     default: return L"Steam";
     }
 }
@@ -158,7 +169,7 @@ inline std::string gameCacheKey(const Game& game) {
 inline const wchar_t* primaryActionLabel(const Game& game) {
     if (game.source == GameSource::battlenet && game.installation.phase == InstallPhase::unknown) return tr(L"Otwórz klienta");
     if (game.installation.active()) return game.source == GameSource::gog ? tr(L"Instalacja GOG") :
-        game.source == GameSource::epic ? tr(L"Instalacja Epic") :
+        game.source == GameSource::epic ? tr(L"Instalacja Epic") : game.source == GameSource::amazon ? tr(L"Instalacja Amazon") :
         game.source == GameSource::battlenet ? tr(L"Instalacja Battle.net") : tr(L"Pobieranie w Steam");
     if (game.installed) return tr(L"Uruchom");
     if (localFileGame(game.source)) return tr(L"Brak pliku");

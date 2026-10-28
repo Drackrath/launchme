@@ -1,6 +1,7 @@
 #include "../src/platform/library_state.hpp"
 #include "../src/library/recent_games.hpp"
 #include "../src/library/versions.hpp"
+#include "../src/model/library_time.hpp"
 #include "../src/platform/atomic_file.hpp"
 #include <Windows.h>
 #include <fstream>
@@ -125,6 +126,47 @@ int main() {
     if (recent.size() != 2 || recent[0].app_id != 1) return 4;
     const auto added = library_view::arrange({back, a, b, c}, {library_view::Order::added, false}, state.first_seen);
     if (added[0].kind != GameKind::back || added[1].app_id != 3 || added[2].app_id != 2) return 5;
+    {
+        // A later store sync must not outrank a newer purchase. File/update/play times do not count.
+        Game steam{10, L"Zulu purchase"}, gog, epic, manual, scanned, unknown{11, L"Unknown"};
+        gog.source = GameSource::gog; gog.kind = GameKind::store; gog.source_id = "123"; gog.name = L"Alpha old purchase";
+        epic = gog; epic.source = GameSource::epic; epic.name = L"Beta purchase";
+        manual = gog; manual.source = GameSource::custom; manual.name = L"Manual";
+        scanned = gog; scanned.source = GameSource::drmfree; scanned.name = L"Scanned";
+        steam.added_at = 300; epic.added_at = 200; gog.added_at = 100;
+        gog.last_updated = gog.last_played = 999999;
+        const std::map<std::string, uint64_t> detected{{gameKey(steam), 600}, {gameKey(gog), 900}, {gameKey(epic), 800},
+            {gameKey(manual), 500}, {gameKey(scanned), 400}};
+        const auto result = library_view::arrange({unknown, gog, steam, scanned, epic, manual, back}, {library_view::Order::added}, detected);
+        const std::vector<std::string> expected{"", gameKey(manual), gameKey(scanned), gameKey(steam), gameKey(epic), gameKey(gog), gameKey(unknown)};
+        for (size_t i = 0; i < expected.size(); ++i) if (gameKey(result[i]) != expected[i]) return 61;
+        // Equal/unknown dates keep deterministic natural title order; no invented per-game times.
+        epic.added_at = gog.added_at;
+        const auto tied = library_view::arrange({epic, gog}, {library_view::Order::added}, detected);
+        if (tied[0].source != GameSource::gog) return 62;
+        gog.name = steam.name;
+        versions::Index index({steam, gog});
+        for (const auto& preference : {gameKey(steam), gameKey(gog)}) {
+            const auto group = index.collapse({gog, steam}, {{versions::identity(steam), preference}}, detected);
+            if (group.size() != 1 || group[0].added_at != 300 || gameKey(group[0]) != preference) return 63;
+        }
+        // An undated version uses its own first detection, not that of the preferred representative.
+        gog.added_at = 0;
+        const auto group = index.collapse({gog, steam}, {}, detected);
+        if (group.size() != 1 || group[0].added_at != 900) return 64;
+    }
+    {
+        constexpr uint64_t now = 1800000000;
+        if (library_time::seconds("1700000000", now) != 1700000000 ||
+            library_time::utc("2023-11-14T22:13:20.123Z", now) != 1700000000 ||
+            library_time::utc("2023-11-14T22:13:20Z", now) != 1700000000 ||
+            library_time::utc("2024-02-29T00:00:00Z", now) != 1709164800) return 65;
+        for (const auto* bad : {"", "-1", "1700000000000", "1700000000.5", "1e9", "18446744073709551616", "1900000000"})
+            if (library_time::seconds(bad, now)) return 66;
+        for (const auto* bad : {"2023-02-29T00:00:00Z", "2023-11-14T24:00:00Z", "2023-11-14T22:13:60Z", "2023-11-14T22:13:20.Z",
+                               "2023-11-14T22:13:20.aZ", "2023-11-14T22:13:20Zjunk", "2030-01-01T00:00:00Z", "2023-11-14T22:13:20"})
+            if (library_time::utc(bad, now)) return 67;
+    }
     // Release dates (from the game index): newest first, undated last in title order.
     const std::unordered_map<std::string, int> dates{{"steam:1", 19981119}, {"steam:3", 20110419}};
     const auto by_release = library_view::arrange({back, a, b, c}, {library_view::Order::release, false}, state.first_seen, false, &dates);

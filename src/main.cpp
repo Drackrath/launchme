@@ -247,6 +247,11 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpara
             if (wparam != VK_F8 && wparam != VK_F11) { app->noteUserInput(); app->noteDesktopInput(); }
             // The topmost modal layer (exit prompt, power menu, walkthrough, dialogs) takes the key first.
             if (app->modalKey(wparam, (lparam & (1LL << 30)) != 0)) return 0;
+            // A friend's conversation in the drawer: its field takes the keys (Tab, F8, F11 and the Guide stay global).
+            if (app->friendChatOpen() && wparam != VK_TAB && wparam != VK_F8 && wparam != VK_F11 && !(wparam == VK_HOME && app->homeKeyIsGuide())) {
+                app->friendChatKey(wparam, (lparam & (1LL << 30)) != 0);
+                return 0;
+            }
             if (app->companionPasteKey(wparam, (lparam & (1LL << 30)) != 0)) return 0;
             // The desktop library: its keys, shortcuts and search field (false: the shared handling below).
             if (app->desktopKey(wparam, (lparam & (1LL << 30)) != 0)) return 0;

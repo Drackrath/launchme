@@ -567,13 +567,13 @@ void Renderer::paint(const std::vector<GameCard>& cards, size_t selected, bool s
             drawCustomGameEditor();
             if (context.tv_meta) drawDesktopMeta(*context.tv_meta); // Edytuj metadane from the game's menu.
             drawLibraryManager();
-            drawFileBrowser(); // Opened from the panels above; the power menu and exit prompt stay over it.
-            if (!context.aurelia) drawKeyboard(); // Aurelia's field belongs above its page.
+            // Opened from the panels above; the power menu and exit prompt stay over it (over Aurelia, below).
+            if (!context.aurelia) { drawFileBrowser(); drawKeyboard(); } // Aurelia's field belongs above its page.
             drawCompanionPicker();
             drawProfile(); // Over any screen, from the drawer: the lowest dialog.
             drawTarot(); // Over the home it opens from; the walkthrough, prompts and toasts above it.
             drawAurelia();
-            if (context.aurelia) drawKeyboard();
+            if (context.aurelia) { drawFileBrowser(); drawKeyboard(); } // Inny folder… opens the picker over it.
             drawWhatsNew(); // After an update's restart: the top dialog; the walkthrough and prompts above it.
             drawTour(); // Over the panels it opens; notifications and the exit prompt stay above it.
             drawHints();
@@ -705,7 +705,35 @@ bool Renderer::animating() const {
     return decoder_.pending() > 0 || decoder_.completed() != decoded_seen_ || uploads_left_ ||
            std::chrono::steady_clock::now() - cinematic_changed_ < std::chrono::milliseconds(350) ||
            (desktop_viewport_ && std::chrono::steady_clock::now() - desktop_hero_changed_ < std::chrono::milliseconds(320)) ||
-           std::chrono::steady_clock::now() - last_reveal_ < reveal_duration;
+           std::chrono::steady_clock::now() - last_reveal_ < reveal_duration ||
+           std::chrono::steady_clock::now() - skeleton_at_ < std::chrono::milliseconds(150);
+}
+
+void Renderer::drawSkeleton(D2D1_RECT_F area, int lines, float step, float alpha) {
+    const float width = area.right - area.left;
+    if (width <= 0 || lines <= 0 || alpha <= 0.003f) return;
+    skeleton_at_ = std::chrono::steady_clock::now();
+    const float bar = std::min(12.0f, step * 0.5f);
+    std::vector<D2D1_ROUNDED_RECT> bars;
+    for (int i = 0; i < lines; ++i) {
+        const float top = area.top + i * step + (step - bar) * 0.5f;
+        if (top + bar > area.bottom) break;
+        const float share = i == lines - 1 ? 0.58f : i % 3 == 1 ? 0.9f : 0.97f; // The last line shorter, as a paragraph ends.
+        bars.push_back(D2D1::RoundedRect(D2D1::RectF(area.left, top, area.left + width * share, top + bar), bar * 0.5f, bar * 0.5f));
+    }
+    brush(palette::gray(1, 0.06f * alpha));
+    for (const auto& r : bars) target_->FillRoundedRectangle(r, solid_.Get());
+    // The sweep: a band of light crossing the whole block every ~1.6 s.
+    const float band = std::max(120.0f, width * 0.35f);
+    const float phase = std::fmod(elapsed_ / 1.6f, 1.0f);
+    const float center = area.left - band + (width + 2 * band) * phase;
+    const D2D1_GRADIENT_STOP stops[] = {{0.0f, D2D1::ColorF(1, 1, 1, 0)}, {0.5f, D2D1::ColorF(1, 1, 1, 0.07f * alpha)}, {1.0f, D2D1::ColorF(1, 1, 1, 0)}};
+    Microsoft::WRL::ComPtr<ID2D1GradientStopCollection> collection;
+    Microsoft::WRL::ComPtr<ID2D1LinearGradientBrush> sweep;
+    if (FAILED(target_->CreateGradientStopCollection(stops, 3, collection.GetAddressOf())) ||
+        FAILED(target_->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties(D2D1::Point2F(center - band * 0.5f, 0), D2D1::Point2F(center + band * 0.5f, 0)),
+                                                  collection.Get(), sweep.GetAddressOf()))) return;
+    for (const auto& r : bars) target_->FillRoundedRectangle(r, sweep.Get());
 }
 
 Renderer::TextureStats Renderer::textureStats() const {

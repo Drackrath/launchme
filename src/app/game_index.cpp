@@ -66,7 +66,7 @@ std::vector<game_index::LibraryGame> Launcher::gameIndexGames() const {
         if (game.source == GameSource::gog) item.gog_id = game.source_id;
         item.installed = game.installed;
         item.emulated = game.kind == GameKind::nonsteam && !game.rom.empty();
-        if (const auto seen = library_state_.first_seen.find(item.key); seen != library_state_.first_seen.end()) item.first_seen = seen->second;
+        item.first_seen = library_view::addedTime(game, library_state_.first_seen); // The index's persisted name for its "added" sort.
         item.last_played = game.last_played;
         const auto history = recent_games::historyKey(game, account_, gog_state_.account, epic_state_.account);
         if (const auto found = library_state_.last_played.find(history); found != library_state_.last_played.end())

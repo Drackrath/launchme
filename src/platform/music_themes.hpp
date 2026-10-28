@@ -1,20 +1,23 @@
 #pragma once
 #include <array>
+#include <string_view>
 #include "../i18n/i18n.hpp"
 
-struct MusicTheme { const wchar_t* name; const wchar_t* file; };
-inline constexpr std::array<MusicTheme, 12> music_themes{{
-    {L"Home Menu", L"2-04. (Bonus) Home Menu - No Intro.flac"},
-    {L"System Settings", L"1-42. System Settings - Main Theme.flac"},
-    {L"Internet Settings", L"1-43. System Settings - Internet Settings.flac"},
-    {L"Mii Maker", L"1-25. Mii Maker - Main Theme.flac"},
-    {L"Nintendo eShop", L"1-30. Nintendo eShop - Main Theme.flac"},
-    {L"Friend List", L"1-06. Friend List.flac"},
-    {L"Activity Log", L"1-35. Activity Log - Main Theme.flac"},
-    {L"Camera — Album", L"1-15. Nintendo 3DS Camera - Album.flac"},
-    {L"Camera — Chilled", L"1-16. Nintendo 3DS Camera - Slideshow (Chilled).flac"},
-    {L"Camera — Jazz", L"1-22. Nintendo 3DS Camera - Slideshow (Jazz).flac"},
-    {trKey(L"Brak"), nullptr}, // Keep the existing Off index; append themes after it.
-    {L"Launchme — Horizons", L"HorizonsTheme.mp3"}
+// The built-in music themes: only what ships in assets/ (CMakeLists.txt), plus "Brak". A theme is
+// saved by its id (settings.ini: music_track), so the list may grow or shrink without moving a
+// saved choice. Files of the chosen sound folder follow these in the settings list.
+struct MusicTheme { const wchar_t* name; const wchar_t* file; const char* id; };
+inline constexpr std::array<MusicTheme, 3> music_themes{{
+    {trKey(L"Brak"), nullptr, "none"},
+    {L"Launchme \u2014 Horizons", L"HorizonsTheme.mp3", "horizons"},
+    {L"Launchme \u2014 Exploratory Silence", L"ExploratorySilenceTheme.mp3", "exploratory-silence"},
 }};
+inline constexpr int default_music_theme = 1; // Launchme — Horizons.
+inline int musicThemeIndex(std::string_view id) {
+    for (size_t i = 0; i < music_themes.size(); ++i) if (id == music_themes[i].id) return static_cast<int>(i);
+    return -1;
+}
+// The old numbered list (music_theme=0…11): ten themes that were never shipped, "Brak" at 10 and
+// Horizons at 11. A removed theme falls back to the default one.
+inline int legacyMusicTheme(int index) { return index == 10 ? 0 : index == 11 ? 1 : default_music_theme; }
 inline constexpr size_t music_pcm_limit = 64 * 1024 * 1024;

@@ -41,13 +41,14 @@ int LauncherUiTest::drmFree(HWND window) {
     // The overview starts with the DRM-free folders, above the six stores.
     app.openSettings(); app.settings_state_.selectCategory(static_cast<int>(Category::library));
     app.pc_scanning_ = false; app.buildSettingsRows();
-    if (app.settings_rows_.size() <= pc_sources.size() + 1 || app.settings_rows_[0].id != Id::pc_platform ||
-        app.settings_rows_[0].source != GameSource::drmfree || app.settings_rows_[0].title != L"Katalog gier DRM-free" ||
-        app.settings_rows_[0].checked || app.settings_rows_[1].source != GameSource::gog) return 2101;
+    // Steam first, the DRM-free folders second, then the stores by name.
+    if (app.settings_rows_.size() <= pc_sources.size() + 2 || app.settings_rows_[0].source != GameSource::steam || app.settings_rows_[1].id != Id::pc_platform ||
+        app.settings_rows_[1].source != GameSource::drmfree || app.settings_rows_[1].title != L"Katalog DRM-free" ||
+        app.settings_rows_[1].checked || app.settings_rows_[2].source != app.platformOrder()[2]) return 2101;
     if (!capture(L"drm-free-overview.png")) return 2102;
     const auto view = app.renderer_.viewport();
     const auto layout = Layout::of(view.width, view.height, app.settings_state_, app.settings_rows_);
-    const auto cog = layout.pluginCog(0, 0);
+    const auto cog = layout.pluginCog(1, 0);
     app.settingsClick((cog.left + cog.right) * 0.5f, (cog.top + cog.bottom) * 0.5f);
     if (app.settings_state_.platform() != GameSource::drmfree || app.settings_rows_.size() != 3 || app.settings_rows_[0].id != Id::drm_scan ||
         app.settings_rows_[1].id != Id::drm_background || !app.settings_rows_[1].checked || app.settings_rows_[2].id != Id::drm_add_root) return 2103;
@@ -205,9 +206,14 @@ int LauncherUiTest::drmFree(HWND window) {
     if (art.applying || art.status != L"Zastosowano grafikę z dysku." || !bound || !bound->cover ||
         selectedArtworkId(celeste_game, ArtworkKind::cover, coverCacheDirectory()) != local_id) return 2149;
 
-    // Search field by keyboard: Up from the first type enters it; the selected text is replaced by typing.
+    // Back sits above the types (top left): Up from the first type reaches it, Down returns; Right
+    // enters the search field, whose selected text is replaced by typing.
     art.local_focus = false; art.gallery = false; art.category = 0;
     app.artworkMove(0, -1);
+    if (!art.back_focus || app.editingArtworkSearch()) return 2150;
+    app.artworkMove(0, 1);
+    if (art.back_focus || art.category != 0) return 2150;
+    app.artworkMove(1, 0);
     if (!app.editingArtworkSearch() || !art.query_selected) return 2150;
     for (const auto ch : std::wstring(L"Revenant")) app.onCharacter(ch);
     if (art.query != L"Revenant" || !art.results_mode || art.query_selected) return 2151;
@@ -215,7 +221,7 @@ int LauncherUiTest::drmFree(HWND window) {
     app.artworkMove(0, 1);
     if (app.editingArtworkSearch() || art.results_mode || !art.loading || art.query != L"Revenant") return 2152;
     // "Wyczyść" (also Delete) empties the field and keeps the focus there.
-    app.artworkMove(0, -1);
+    if (art.gallery) app.artworkMove(0, -1); else app.artworkMove(1, 0); // The gallery's top row or the rail: the field.
     if (!app.editingArtworkSearch()) return 2153;
     app.clearArtworkQuery();
     if (!art.query.empty() || !app.editingArtworkSearch()) return 2154;
@@ -276,13 +282,15 @@ int LauncherUiTest::drmFree(HWND window) {
         app.artworkMove(-1, 0); // Left: the search field again.
         if (!art.search_focus || art.provider_focus) return 2163;
         app.closeArtworkBrowser();
-        // Other games have no "Źródło": Down from the last type reaches "Z dysku…", then Back (the small
-        // circle at the top left), which Enter presses; Down stops there.
+        // Other games have no "Źródło": Down from the last type reaches "Z dysku…" and stops there; Back
+        // (the small circle at the top left) is above the first type, and Enter presses it.
         app.openArtworkBrowser(celeste_game);
         art.category = static_cast<int>(artwork_ui::kinds.size()) - 1;
         app.artworkMove(0, 1);
         if (art.emulated() || art.provider_focus || !art.local_focus) return 2164;
         app.artworkMove(0, 1); app.artworkMove(0, 1);
+        if (art.back_focus || !art.local_focus) return 2177;
+        app.artworkMove(0, -1); art.category = 0; app.artworkMove(0, -1);
         if (!art.back_focus || art.local_focus || art.crop_focus) return 2177;
         app.artworkAccept();
         if (app.artworkOpen()) return 2178;
@@ -365,10 +373,17 @@ int LauncherUiTest::drmFree(HWND window) {
     const auto* emptied = pcs();
     if (emptied && std::any_of(emptied->games.begin(), emptied->games.end(), [](const Game& tile) { return tile.source == GameSource::drmfree; })) return 2130;
     app.back();
-    if (app.settings_state_.platform() || app.settings_state_.row() != 0) return 2131;
+    if (app.settings_state_.platform() || app.settings_state_.row() != 1) return 2131; // Its row, after Steam's.
     // Media i dane → "ScreenScraper" opens its own page of API settings; Back returns to that row.
     app.settings_state_.selectCategory(static_cast<int>(settings_ui::Category::media)); app.buildSettingsRows();
-    if (!select(Id::game_videos) || !select(Id::screenscraper_open)) return 2165;
+    // ScreenScraper is one level further, in "Klucze usług" (the services first on the page).
+    if (!select(Id::game_videos)) return 2165;
+    {
+        const auto keys = std::find_if(app.settings_rows_.begin(), app.settings_rows_.end(), [](const auto& row) { return row.page == settings_ui::Page::service_keys; });
+        if (keys == app.settings_rows_.end() || keys - app.settings_rows_.begin() > 0) return 2165;
+        app.settings_state_.selected[app.settings_state_.category] = 0; app.settings_state_.options = true; app.settingsActivate();
+        if (!app.settings_state_.at(settings_ui::Page::service_keys) || !select(Id::screenscraper_open)) return 2165;
+    }
     const int opener = app.settings_state_.row();
     app.settingsActivate();
     if (!app.settings_state_.at(settings_ui::Page::screenscraper) || app.settings_rows_.size() != screenscraper::fields.size() + 2 || app.settings_rows_.back().id != Id::screenscraper_clear ||

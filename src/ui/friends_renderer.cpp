@@ -35,8 +35,88 @@ void Renderer::drawFriends() {
         target_->FillRectangle(D2D1::RectF(0, 0, viewport_.width, height), friends_backdrop_.Get());
     }
     if (context_->plugin_drawer) drawPluginPage(x, true);
+    else if (context_->dashboard.list && context_->friend_chat) drawFriendChat(x);
     else if (context_->dashboard.list) drawFriendsList(x);
     else drawDashboard(x);
+}
+
+// A friend's conversation (friend_chat_view.hpp): Back and the name as the list's header, the
+// messages as bubbles (theirs on the left, yours on the right) and the field with its Send button.
+void Renderer::drawFriendChat(float x) {
+    auto& s = *context_->friend_chat;
+    const friend_chat::Layout layout{x, viewport_.height};
+    const auto back = layout.back();
+    const auto back_rect = D2D1::RectF(back.left, back.top, back.right, back.bottom);
+    brush(drawButton(back_rect, s.back_focus ? 1.0f : 0.0f, 1, false, s.hover == 1));
+    target_->FillEllipse(D2D1::Ellipse(D2D1::Point2F((back.left + back.right) * 0.5f, (back.top + back.bottom) * 0.5f), 3, 3), solid_.Get());
+    const float title_left = back.right + 14, title_width = x + friend_chat::Layout::width - 24 - title_left;
+    textLine(s.name, title_left, (back.top + back.bottom) * 0.5f, title_width, category_font_.Get(), color(0.95f, 0.95f, 0.95f));
+    // One quiet line under it: what is happening, else what the friend is doing.
+    const bool problem = s.failed && !s.status.empty();
+    textLine(s.status.empty() ? s.presence : s.status, x + 26, 94, friend_chat::Layout::width - 50, friend_status_font_.Get(),
+             problem ? palette::danger() : color(0.62f, 0.62f, 0.62f));
+    // Messages, measured first: the newest stay in view while the list follows them.
+    const auto log = layout.log();
+    const float log_width = log.right - log.left, bubble_max = std::floor(log_width * 0.82f), pad_x = 14, pad_y = 10, gap = 8;
+    struct Measured { float width = 0, height = 0; };
+    std::vector<Measured> sizes(s.messages.size());
+    float content = 0;
+    for (size_t i = 0; i < s.messages.size(); ++i) {
+        const auto& text = s.messages[i].text;
+        const float inner = bubble_max - 2 * pad_x;
+        const float h = paragraph(text, 0, 0, inner, friend_name_font_.Get(), palette::text(), 200, false);
+        const float w = std::min(inner, std::ceil(textAdvance(text, friend_name_font_.Get())) + 2);
+        sizes[i] = {w + 2 * pad_x, std::max(h, typeMetrics(friend_name_font_.Get()).line) + 2 * pad_y};
+        content += sizes[i].height + gap;
+    }
+    s.content = content;
+    const float visible = log.bottom - log.top, maximum = std::max(0.0f, content - visible);
+    s.scroll = s.follow ? maximum : std::clamp(s.scroll, 0.0f, maximum);
+    target_->PushAxisAlignedClip(D2D1::RectF(log.left - 2, log.top, log.right + 2, log.bottom), D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+    // Fewer messages than the log holds sit at its bottom, next to the field.
+    float y = log.top - s.scroll + std::max(0.0f, visible - content);
+    for (size_t i = 0; i < s.messages.size(); ++i) {
+        const auto& message = s.messages[i];
+        const auto size = sizes[i];
+        if (y + size.height >= log.top && y <= log.bottom) {
+            const float left = message.self ? log.right - size.width : log.left;
+            const auto box = D2D1::RectF(left, y, left + size.width, y + size.height);
+            brush(message.self ? color(1, 1, 1, 0.16f) : color(1, 1, 1, 0.07f));
+            target_->FillRoundedRectangle(D2D1::RoundedRect(box, 16, 16), solid_.Get());
+            paragraph(message.text, left + pad_x, y + pad_y, size.width - 2 * pad_x, friend_name_font_.Get(), palette::text(), 200);
+        }
+        y += size.height + gap;
+    }
+    if (s.messages.empty())
+        textLine(s.busy ? tr(L"Wczytywanie rozmowy…") : tr(L"Brak wiadomości"), log.left + 2, log.bottom - 24, log_width, friend_status_font_.Get(), color(0.55f, 0.55f, 0.55f));
+    target_->PopAxisAlignedClip();
+    if (maximum > 0) {
+        const float thumb = std::max(24.0f, visible * visible / content);
+        const float top = log.top + (visible - thumb) * (s.scroll / maximum);
+        brush(color(1, 1, 1, 0.22f));
+        target_->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(log.right + 6, top, log.right + 9, top + thumb), 1.5f, 1.5f), solid_.Get());
+    }
+    // The field: a pill, brighter and outlined in the accent while it takes typing.
+    const auto f = layout.field();
+    const auto field = D2D1::RectF(f.left, f.top, f.right, f.bottom);
+    const bool typing = !s.back_focus;
+    brush(color(1, 1, 1, typing ? 0.12f : s.hover == 2 ? 0.08f : 0.06f)); target_->FillRoundedRectangle(pill(field), solid_.Get());
+    if (typing) { brush(uiAccent()); target_->DrawRoundedRectangle(pill(field), solid_.Get(), 1.5f); }
+    const float middle = (field.top + field.bottom) * 0.5f, text_left = field.left + 20, room = field.right - field.left - 40;
+    const auto shown = s.input.size() > 80 ? L"…" + s.input.substr(s.input.size() - 79) : s.input;
+    if (shown.empty()) textLine(tr(L"Wiadomość"), text_left, middle, room, friend_name_font_.Get(), color(0.5f, 0.5f, 0.5f));
+    else textLine(shown, text_left, middle, room, friend_name_font_.Get(), palette::text(), DWRITE_TEXT_ALIGNMENT_LEADING);
+    if (typing && std::sin(elapsed_ * 4.0f) >= 0)
+        textLine(L"│", text_left + std::min(room - 6, shown.empty() ? 0.0f : textAdvance(shown, friend_name_font_.Get())) - 2, middle, 20, friend_name_font_.Get(), palette::text());
+    // Send: a round button with an arrow, faint while there is nothing to send.
+    const auto send_box = layout.send();
+    const auto send = D2D1::RectF(send_box.left, send_box.top, send_box.right, send_box.bottom);
+    const bool ready = !s.input.empty() && !s.sending;
+    const auto ink = drawButton(send, 0, 1, false, s.hover == 3 && ready, ready);
+    const float cx = (send.left + send.right) * 0.5f, cy = (send.top + send.bottom) * 0.5f;
+    line(cx - 7, cy, cx + 7, cy, ink, 2);
+    line(cx + 1, cy - 6, cx + 7, cy, ink, 2);
+    line(cx + 1, cy + 6, cx + 7, cy, ink, 2);
 }
 
 // Steam friends list inside the drawer, opened from the dashboard's Steam friends tile.

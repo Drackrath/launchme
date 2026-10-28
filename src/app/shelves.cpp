@@ -176,8 +176,8 @@ void Launcher::rebuildUninstalledSteamGames(const std::unordered_map<uint32_t, s
 void Launcher::buildShelves() {
     // Steam's scanner reports store-hidden/private games as private_game. Our hidden copies are
     // derived afresh from the unmodified source lists; never carry them over into the next build.
-    std::erase_if(private_category_.games, [](const Game& game) {
-        return game.source != GameSource::steam || (game.kind == GameKind::steam && game.visibility == GameVisibility::hidden);
+    std::erase_if(private_category_.games, [this](const Game& game) {
+        return game.source != GameSource::steam || !settings_.steam_enabled || (game.kind == GameKind::steam && game.visibility == GameVisibility::hidden);
     });
     for (const auto& game : store_private_library_)
         if (!excludedGame(game) && settings_.enabled_pc_sources.contains(sourceSlug(game.source))) private_category_.games.push_back(game);
@@ -189,7 +189,9 @@ void Launcher::buildShelves() {
         private_category_.games.push_back(std::move(copy));
         return true;
     };
-    for (const auto& game : installed_library_)
+    // Steam switched off (Ustawienia → Biblioteka): none of its games, shortcuts or collections.
+    const bool steam = settings_.steam_enabled;
+    if (steam) for (const auto& game : installed_library_)
         if (!user_hidden(game) && (game.installed || game.installation.active() || settings_.show_uninstalled)) public_library_.push_back(game);
     for (const auto& game : store_library_)
         if (!excludedGame(game) && settings_.enabled_pc_sources.contains(sourceSlug(game.source)) && !user_hidden(game) &&
@@ -202,9 +204,9 @@ void Launcher::buildShelves() {
     // User-added games stay listed while their file is missing ("Brak pliku"): the user put them there.
     for (const auto& game : custom_library_)
         if (!user_hidden(game)) { public_library_.push_back(game); ++custom_games; }
-    for (const auto& game : uninstalled_library_)
+    if (steam) for (const auto& game : uninstalled_library_)
         if (!user_hidden(game) && settings_.show_uninstalled) public_library_.push_back(game);
-    public_library_.insert(public_library_.end(), shortcut_library_.begin(), shortcut_library_.end());
+    if (steam) public_library_.insert(public_library_.end(), shortcut_library_.begin(), shortcut_library_.end());
     if (private_shelf_ && private_category_.games.empty()) private_shelf_ = false;
     // Ctrl+H: hidden and private games join the shelves, grids and search for this session. They
     // keep their visibility, so play history, the bookmark and the screensaver still skip them.
@@ -214,8 +216,9 @@ void Launcher::buildShelves() {
                 public_library_.push_back(game);
     applyMetadataTitles(public_library_); // Edytuj metadane: the player's own titles (before grouping and sorting).
     recent_games::apply(public_library_, library_state_.last_played, account_, gog_state_.account, epic_state_.account);
+    recordLibraryGames(); // Record fallbacks before sorting and grouping this snapshot.
     versions_ = versions::Index(public_library_);
-    grouped_library_ = versions_.collapse(public_library_, library_state_.preferred_versions);
+    grouped_library_ = versions_.collapse(public_library_, library_state_.preferred_versions, library_state_.first_seen);
     if (screen_ == ScreenMode::details && !detail_games_.empty() && !detail_games_[0].version_group.empty()) {
         const auto group = versions_.by_game.find(gameKey(detail_games_[0]));
         detail_games_[0].version_group = group == versions_.by_game.end() ? std::string{} : group->second;
@@ -258,8 +261,7 @@ void Launcher::buildShelves() {
         std::vector<std::pair<uint64_t, const Game*>> added;
         for (const auto* game : played) {
             if (!game->installed || game->last_played || !isGame(*game) || picked.contains(gameKey(*game))) continue;
-            const auto seen = library_state_.first_seen.find(gameKey(*game));
-            added.emplace_back(seen == library_state_.first_seen.end() ? 0 : seen->second, game);
+            added.emplace_back(library_view::addedTime(*game, library_state_.first_seen), game);
         }
         const auto count = std::min(added.size(), recent_limit - recent.games.size());
         std::partial_sort(added.begin(), added.begin() + static_cast<std::ptrdiff_t>(count), added.end(),
@@ -276,10 +278,10 @@ void Launcher::buildShelves() {
     if (!settings_.enabled_pc_sources.empty() || custom_games) {
         Category pcs{tr(L"Platformy PC")};
         pcs.id = "pc-platforms";
-        for (const auto source : {GameSource::steam, GameSource::gog, GameSource::battlenet, GameSource::ea, GameSource::ubisoft, GameSource::epic, GameSource::xbox,
-                                  GameSource::multimc, GameSource::drmfree, GameSource::custom}) {
+        for (const auto source : {GameSource::steam, GameSource::gog, GameSource::battlenet, GameSource::ea, GameSource::ubisoft, GameSource::epic, GameSource::amazon,
+                                  GameSource::xbox, GameSource::multimc, GameSource::drmfree, GameSource::custom}) {
             if (source == GameSource::custom ? !custom_games : source == GameSource::drmfree ? !drm_games :
-                source != GameSource::steam && !settings_.enabled_pc_sources.contains(sourceSlug(source))) continue;
+                (source == GameSource::steam ? !steam : !settings_.enabled_pc_sources.contains(sourceSlug(source)))) continue;
             // Steam without an account here and none of its games: its tile would open an empty library.
             if (source == GameSource::steam && !account_ &&
                 std::none_of(public_library_.begin(), public_library_.end(), [](const Game& game) { return game.source == GameSource::steam && isGame(game); }))
@@ -293,7 +295,7 @@ void Launcher::buildShelves() {
         categories_.push_back(std::move(pcs));
     }
     platform_games_.clear();
-    for (const auto& shortcut : shortcut_library_)
+    if (steam) for (const auto& shortcut : shortcut_library_)
         platform_games_[shortcut.platform].push_back(shortcut);
     if (private_shelf_)
         for (const auto& game : private_category_.games)
@@ -340,7 +342,7 @@ void Launcher::buildShelves() {
     }
     for (auto& shelf : managedShelves(account_, shown, library_state_.collections, public_library_, private_shelf_))
         categories_.push_back(Category{std::move(shelf.name), std::move(shelf.games), 0, std::move(shelf.id)});
-    if (collections_source_.empty()) {
+    if (collections_source_.empty() && steam) {
         std::vector<const Game*> newest;
         newest.reserve(installed_library_.size());
         for (const auto& game : installed_library_) if (game.installed && !locallyHidden(game)) newest.push_back(&game);
@@ -363,7 +365,7 @@ void Launcher::buildShelves() {
             std::erase_if(games, [](const Game& game) { return !game.installed && !game.installation.active(); });
         categories_.push_back(Category{private_category_.title, std::move(games), 0, "private"});
     }
-    for (auto& category : categories_) category.games = versions_.collapse(category.games, library_state_.preferred_versions);
+    for (auto& category : categories_) category.games = versions_.collapse(category.games, library_state_.preferred_versions, library_state_.first_seen);
     pc_library_.clear();
     if (pc_source_) for (const auto& game : public_library_)
         if (game.source == *pc_source_ && game.kind != GameKind::nonsteam) pc_library_.push_back(game);
@@ -377,7 +379,6 @@ void Launcher::buildShelves() {
     for (size_t i = 0; i < categories_.size(); ++i)
         category_titles_.push_back(i ? categories_[i].title : tr(L"Ostatnie"));
     buildSettingsRows();
-    recordLibraryGames();
     syncGameIndex();
     updateRunningCandidates();
     if (desktop_mode_) buildDesktopSidebar(); // Its sections and counts follow the same library.

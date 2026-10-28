@@ -1,6 +1,7 @@
 #include "epic_account.hpp"
 #include "../platform/protected_file.hpp"
 #include "../platform/text_encoding.hpp"
+#include "../model/library_time.hpp"
 #include <algorithm>
 #include <iomanip>
 #include <set>
@@ -36,15 +37,17 @@ public:
         if (text->empty()) return {};
         std::istringstream data(*text); SecureZeroMemory(text->data(), text->size()); data.imbue(std::locale::classic());
         Session s; std::string header; size_t count = 0;
-        // v2 adds each game's play time as Epic counts it (minutes), v3 its art (keyImages); older files still load.
-        if (!(data >> header) || (header != "launchme-epic-v1" && header != "launchme-epic-v2" && header != "launchme-epic-v3") ||
+        // v2 adds play time, v3 art, v4 acquisition dates; older files still load.
+        if (!(data >> header) || (header != "launchme-epic-v1" && header != "launchme-epic-v2" && header != "launchme-epic-v3" && header != "launchme-epic-v4") ||
             !(data >> std::quoted(s.tokens.access) >> std::quoted(s.tokens.refresh) >> std::quoted(s.tokens.account) >> std::quoted(s.tokens.name) >> s.tokens.expires >> s.synced_at >> count) || count > 10000) return {Failure::storage};
-        const bool playtime = header != "launchme-epic-v1", art = header == "launchme-epic-v3";
+        const bool playtime = header != "launchme-epic-v1", art = header == "launchme-epic-v3" || header == "launchme-epic-v4";
         for (size_t i = 0; i < count; ++i) {
             Game g; std::string name; int visibility = 0;
             if (!(data >> std::quoted(g.source_id) >> std::quoted(name) >> std::quoted(g.epic_namespace) >> std::quoted(g.epic_catalog) >> std::quoted(g.epic_partner) >> visibility) || visibility < 0 || visibility > 2) return {Failure::storage};
             if (playtime && !(data >> g.store_playtime_minutes)) return {Failure::storage};
             if (art && !(data >> std::quoted(g.store_tall_art) >> std::quoted(g.store_wide_art) >> std::quoted(g.store_logo_art))) return {Failure::storage};
+            if (header == "launchme-epic-v4" && !(data >> g.added_at)) return {Failure::storage};
+            g.added_at = library_time::seconds(g.added_at);
             g.source = GameSource::epic; g.kind = GameKind::store; g.installed = false;
             g.name = text_encoding::wide(name); g.visibility = static_cast<GameVisibility>(visibility); s.games.push_back(std::move(g));
         }
@@ -55,11 +58,11 @@ public:
     bool save(const Session& s) override {
         if (!valid(s)) return false;
         std::ostringstream data; data.imbue(std::locale::classic());
-        data << "launchme-epic-v3\n" << std::quoted(s.tokens.access) << ' ' << std::quoted(s.tokens.refresh) << ' ' << std::quoted(s.tokens.account) << ' ' <<
+        data << "launchme-epic-v4\n" << std::quoted(s.tokens.access) << ' ' << std::quoted(s.tokens.refresh) << ' ' << std::quoted(s.tokens.account) << ' ' <<
             std::quoted(s.tokens.name) << ' ' << s.tokens.expires << ' ' << s.synced_at << ' ' << s.games.size() << '\n';
         for (const auto& g : s.games) data << std::quoted(g.source_id) << ' ' << std::quoted(text_encoding::utf8(g.name)) << ' ' << std::quoted(g.epic_namespace) << ' ' <<
             std::quoted(g.epic_catalog) << ' ' << std::quoted(g.epic_partner) << ' ' << static_cast<int>(g.visibility) << ' ' << g.store_playtime_minutes << ' ' <<
-            std::quoted(g.store_tall_art) << ' ' << std::quoted(g.store_wide_art) << ' ' << std::quoted(g.store_logo_art) << '\n';
+            std::quoted(g.store_tall_art) << ' ' << std::quoted(g.store_wide_art) << ' ' << std::quoted(g.store_logo_art) << ' ' << g.added_at << '\n';
         auto text = data.str(); const auto saved = protected_file::write(file_, text, L"Launchme Epic account");
         SecureZeroMemory(text.data(), text.size()); return saved;
     }

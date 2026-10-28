@@ -85,6 +85,12 @@ void Launcher::paint(bool overlay) {
     context.rating_label = ratingLabel();
     context.detail_rating = ratingDetailAction();
     context.detail_identify = identifyDetailAction();
+    context.detail_close_action = closeDetailAction();
+    context.detail_cloud_action = cloudDetailAction();
+    if (context.detail_cloud_action >= 0 && !cards_.empty()) {
+        const auto found = aurelia_cloud_.find(cards_[0].game.app_id);
+        context.detail_cloud = found == aurelia_cloud_.end() ? aurelia::CloudState::unknown : found->second.state;
+    }
     // The board of logos has no order, filter or view of its own: what it is says a line under its tabs.
     context.library_controls = libraryControls() && !studioBoard() ? &library_controls_ : nullptr;
     if (studioBoard()) context.library_note = library_category_ == "publishers" ?
@@ -267,6 +273,7 @@ void Launcher::paint(bool overlay) {
     context.menu_launch = menu_rows.launch;
     context.menu_metadata = menu_rows.metadata;
     context.menu_aurelia = menu_rows.aurelia;
+    if (menu_rows.steam_account && selected_ < cards_.size()) context.menu_steam_account = steamAccountLabel(cards_[selected_].game);
     if (selected_ < cards_.size()) context.aurelia_cloud = aureliaCloudText(cards_[selected_].game);
     // Kept while the menu fades out so its height does not jump mid-animation.
     if (!cards_.empty()) for (const auto& action : pluginContext(cards_[selected_].game)) context.menu_plugins.push_back(action.item.title.localized());
@@ -481,6 +488,7 @@ void Launcher::paint(bool overlay) {
     context.friends_scroll = friends_scroll_;
     context.friends_cursor = friends_cursor_;
     context.dashboard.list = friends_list_;
+    if (friends_list_ && friend_chat_.open) context.friend_chat = &friend_chat_;
     context.dashboard.focus = dashboard_tile_;
     context.dashboard.layout = dashboardLayout();
     context.dashboard.scroll = std::min(dashboard_scroll_, context.dashboard.layout.maxScroll(drawerViewport().height));

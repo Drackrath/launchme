@@ -107,7 +107,7 @@ inline Rect embedBody(const Sheet& sheet) { const auto p = sheet.panel(); return
 // Extra hit indices of Szczegóły's buttons (SheetHit::Kind::tile, sub).
 enum class DetailsExtra { artwork, folder, hide };
 // Tryb TV's dialogs drawn as desktop dialogs over desktop pages (desktop_dialogs_renderer.cpp).
-enum class DialogKind { none, collections, custom_editor, identify, power_menu, exit_prompt, gog_install };
+enum class DialogKind { none, collections, custom_editor, identify, power_menu, exit_prompt, gog_install, aurelia };
 
 namespace settings_sheet {
 using settings_ui::Control;

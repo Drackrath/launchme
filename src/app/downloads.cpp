@@ -126,7 +126,8 @@ std::vector<Game> Launcher::collectDownloads(std::vector<downloads_ui::Row>& row
         if (gog_install_ui_.snapshot.state == gog::InstallState::loading) install.phase = InstallPhase::allocating; // Asking for the files.
         add(gog_install_ui_.game, install, gog_install_ui_.game.source == GameSource::epic);
         for (auto& item : found) if (gameKey(item.first) == gameKey(gog_install_ui_.game)) {
-            item.second.destination = (gog_install_ui_.game.source == GameSource::epic || gog_install_ui_.snapshot.state == gog::InstallState::installing ?
+            item.second.destination = (gog_install_ui_.game.source == GameSource::epic || gog_install_ui_.game.source == GameSource::amazon ||
+                gog_install_ui_.snapshot.state == gog::InstallState::installing ?
                 gog_install_ui_.request.install_directory : gog_install_ui_.request.download_root).wstring();
         }
     }
@@ -343,6 +344,7 @@ void Launcher::openDownloadSource(const Game& game, const downloads_ui::Row& row
         break;
     case GameSource::gog: openGogInstall(game); break;
     case GameSource::epic: openEpicInstall(game); break;
+    case GameSource::amazon: openAmazonInstall(game); break;
     default: launchGame(game); break; // Battle.net: its client.
     }
     InvalidateRect(hwnd_, nullptr, FALSE);

@@ -121,7 +121,7 @@ void Launcher::navigate(int amount, bool edge_menu) {
 void Launcher::openLibrary() {
     rememberPlace(); library_controls_ = {};
     versions_ = versions::Index(public_library_);
-    grouped_library_ = versions_.collapse(public_library_, library_state_.preferred_versions);
+    grouped_library_ = versions_.collapse(public_library_, library_state_.preferred_versions, library_state_.first_seen);
     pc_source_.reset(); library_console_.clear();
     library_category_.clear(); category_library_.clear();
     if (public_library_.empty()) {
@@ -334,6 +334,7 @@ void Launcher::onCharacter(wchar_t character) {
     case Modal::gog_install: case Modal::companion_picker: case Modal::tarot: case Modal::whats_new: case Modal::profile: return;
     default: break; // No dialog, or one without a text field (Pobierz brakujące okładki).
     }
+    if (friendChatOpen() && topDialog() == Modal::none) { friendChatCharacter(character); return; } // The drawer's conversation.
     if (desktopActive() && desktopCharacter(character)) return; // Type-to-search in the desktop window.
     if (pluginPageTyping()) { pluginPageType(character); return; }
     if (companionTyping()) { companionType(character); return; }
@@ -352,7 +353,7 @@ void Launcher::onCharacter(wchar_t character) {
         if (settings_secret_selected_) { clearSecretInput(); settings_secret_selected_ = false; }
         const auto id = settings_rows_[settings_state_.row()].id;
         const size_t limit = id == settings_ui::Id::battlenet_callback ? 262144u : id == settings_ui::Id::ea_callback ? 16384u :
-                             id == settings_ui::Id::gog_callback ? 8192u : 512u;
+                             id == settings_ui::Id::gog_callback || id == settings_ui::Id::amazon_callback ? 8192u : 512u;
         if (settings_secret_input_.size() < limit) settings_secret_input_ += character;
         InvalidateRect(hwnd_, nullptr, FALSE);
         return;
@@ -416,7 +417,7 @@ void Launcher::eraseSearchCharacter(bool repeated) {
 void Launcher::updateSearch() {
     search_dirty_ = false;
     versions_ = versions::Index(public_library_);
-    grouped_library_ = versions_.collapse(public_library_, library_state_.preferred_versions);
+    grouped_library_ = versions_.collapse(public_library_, library_state_.preferred_versions, library_state_.first_seen);
     search_results_ = searchPublicGames(grouped_library_, search_query_, private_shelf_);
     grid_scroll_ = 0;
     rebuildCards(false);
@@ -863,6 +864,7 @@ void Launcher::menuAccept() {
     case Item::launch: dismissMenu(); openLaunchEditor(game); break;
     case Item::metadata: dismissMenu(); if (desktop_mode_) desktopMetaOpen(game); else openMetadata(game); break;
     case Item::aurelia: dismissMenu(); openAurelia(&game); break;
+    case Item::steam_account: cycleSteamAccount(game); break; // The menu stays: the row shows the next choice.
     default: openArtworkBrowser(game); break;
     }
 }
@@ -921,6 +923,10 @@ void Launcher::launch() {
     const auto& active = cards_[selected_].game;
     if (screen_ == ScreenMode::store) { openDetails(active); return; }
     if (screen_ == ScreenMode::details && detail_action_ == -1) { back(); return; }
+    if (screen_ == ScreenMode::details && detail_action_ >= 0 && detail_action_ == closeDetailAction()) { const auto game = active; detail_action_ = 0; closeGame(game); return; } // ✕ beside Wróć.
+    if (screen_ == ScreenMode::details && detail_action_ >= 0 && detail_action_ == cloudDetailAction()) {
+        const auto game = active; openAurelia(&game); aureliaPage(aurelia_ui::Page::cloud); return;
+    }
     if (screen_ == ScreenMode::details && detail_action_ == pluginDetailAction()) { openPluginDetail(); return; }
     if (screen_ == ScreenMode::details && detail_action_ == favoriteDetailAction()) { toggleFavorite(active); return; }
     if (screen_ == ScreenMode::details && detail_action_ == collectionsDetailAction()) { openCollectionManager(active); return; }
@@ -953,15 +959,16 @@ void Launcher::launch() {
     launchGame(active);
 }
 
-void Launcher::launchGame(const Game& original) {
+void Launcher::launchGame(const Game& original, bool via_steam) {
     Game active = original; active.version_group.clear();
     if (pending_launch_ || launchAnimationActive() || !isGame(active)) return;
     if (switchToGame(active)) { focusPlayedGame(gameKey(active)); return; }
     if (aurelia_active_ && aurelia::validGame(active) && (aurelia_operations_.contains(active.app_id) || aurelia_playing_.contains(active.app_id))) {
         showNotification(NotificationKind::error, L"Aurelia", tr(L"Operacja dla tej gry już trwa")); return;
     }
-    if (aurelia_active_ && aurelia::validGame(active) &&
-        (!active.installed || active.installation.active() || settings_.aurelia_standalone.contains(std::to_string(active.app_id)))) {
+    // A game Aurelia manages is installed and launched through it; any other Steam game, or one
+    // whose launch through Aurelia was refused, keeps the Steam client (below).
+    if (!via_steam && (aureliaManaged(active) || (aurelia_active_ && aurelia::validGame(active) && aurelia_downloads_.contains(active.app_id)))) {
         aureliaLaunch(active); return;
     }
     if (active.source == GameSource::gog && !active.installed && !gog_state_.account.empty() &&
@@ -969,6 +976,9 @@ void Launcher::launchGame(const Game& original) {
     if (active.source == GameSource::epic && !active.installed && !epic_state_.account.empty() &&
         (!active.account_id.empty() || active.installation.active())) { openEpicInstall(active); return; }
     if (active.source == GameSource::epic && active.epic_managed) { startEpicGame(active); return; }
+    // Amazon Games: an account title is installed through Nile; an installed one starts from its fuel.json.
+    if (active.source == GameSource::amazon && !active.installed && amazonConnected() &&
+        (!active.account_id.empty() || active.installation.active())) { openAmazonInstall(active); return; }
     // A Steam game to install: the library picked in Launchme's dialog (src/app/steam_install.cpp).
     if (steamInstallDialogWanted(active) && openSteamInstall(active)) return;
     const auto action = primaryGameAction(active);

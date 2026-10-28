@@ -1,6 +1,7 @@
 #include "epic_account.hpp"
 #include "../net/json.hpp"
 #include "../net/url_encoding.hpp"
+#include "../model/library_time.hpp"
 #include "../platform/protected_file.hpp"
 #include "../platform/text_encoding.hpp"
 #include <algorithm>
@@ -130,7 +131,7 @@ public:
     }
     Result library(const Config& cfg, Session& session, const Cancel& cancel) override {
         HttpBudget budget(600000);
-        struct Item { std::string app, space, catalog; };
+        struct Item { std::string app, space, catalog; uint64_t acquired = 0; };
         std::map<std::string, Item> items;
         std::set<std::string> cursors;
         std::string cursor;
@@ -146,9 +147,12 @@ public:
             if (!records || records->type != json::Value::Type::array || !meta || meta->type != json::Value::Type::object) return {Failure::invalid};
             for (const auto& value : records->elements) {
                 Item item{field(value, "appName"), field(value, "namespace"), field(value, "catalogItemId")};
+                item.acquired = library_time::utc(field(value, "acquisitionDate"));
                 if (item.space == "ue" || item.app.starts_with("UE_") || item.app.empty() || item.app == "1" || field(value, "sandboxType") == "PRIVATE") continue;
                 if (!identifier(item.app) || !identifier(item.space) || !identifier(item.catalog)) return {Failure::invalid};
                 if (const auto old = items.find(item.app); old != items.end() && (old->second.space != item.space || old->second.catalog != item.catalog)) return {Failure::invalid};
+                if (const auto old = items.find(item.app); old != items.end() && old->second.acquired &&
+                    (!item.acquired || old->second.acquired < item.acquired)) item.acquired = old->second.acquired;
                 items[item.app] = std::move(item);
                 if (items.size() > 10000) return {Failure::invalid};
             }
@@ -166,7 +170,9 @@ public:
             // Known games are kept as saved; one saved before Epic's art was read (0.2.4 and older) is asked once more.
             if (const auto old = previous.find(id); old != previous.end() && old->second.epic_catalog == item.catalog && old->second.epic_namespace == item.space &&
                 !old->second.store_tall_art.empty()) {
-                games.push_back(old->second); continue;
+                games.push_back(old->second);
+                if (item.acquired) games.back().added_at = item.acquired;
+                continue;
             }
             HttpResponse response;
             auto r = get(L"https://catalog-public-service-prod06.ol.epicgames.com/catalog/api/shared/namespace/" + url_encoding::component(std::string_view(item.space)) +
@@ -185,10 +191,12 @@ public:
             if (skip) continue;
             Game game; game.source = GameSource::epic; game.kind = GameKind::store; game.installed = false;
             game.source_id = id; game.epic_namespace = item.space; game.epic_catalog = item.catalog;
+            game.added_at = item.acquired;
             game.name = text_encoding::wideLenient(field(*product, "title"));
             if (game.name.empty() || game.name.size() > 2048) return {Failure::invalid};
             keyImages(*product, game);
             if (const auto old = previous.find(id); old != previous.end()) { game.visibility = old->second.visibility; game.store_playtime_minutes = old->second.store_playtime_minutes; }
+            if (!game.added_at) if (const auto old = previous.find(id); old != previous.end()) game.added_at = old->second.added_at;
             if (const auto attrs = product->get("customAttributes")) {
                 for (const auto key : {"ThirdPartyManagedApp", "ThirdPartyManagedProvider", "partnerLinkType"})
                     if (const auto attr = attrs->get(key); attr && !field(*attr, "value").empty()) game.epic_partner = field(*attr, "value");

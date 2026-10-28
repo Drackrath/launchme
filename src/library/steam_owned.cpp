@@ -1,5 +1,6 @@
 #include "steam_owned.hpp"
 #include "visibility.hpp"
+#include "../model/library_time.hpp"
 #include "../platform/atomic_file.hpp"
 #include "../platform/text_encoding.hpp"
 #include <Windows.h>
@@ -7,6 +8,7 @@
 #include <charconv>
 #include <cstring>
 #include <fstream>
+#include <map>
 #include <set>
 #include <sstream>
 
@@ -109,7 +111,8 @@ std::optional<std::vector<Game>> clientSteamOwnedGames(const std::filesystem::pa
     auto* metadata = invoke<void*>(connection.client, 15, connection.user, connection.pipe, "STEAMAPPS_INTERFACE_VERSION001");
     if (!apps || !metadata) return {};
     // Versioned public ABIs: ISteamApps008::BIsSubscribedApp (6),
-    // ISteamApps001::GetAppData (0). No unversioned/private vtable slots.
+    // GetEarliestPurchaseUnixTime (8), ISteamApps001::GetAppData (0).
+    // No unversioned/private vtable slots.
     std::vector<Game> result;
     for (const auto id : *candidates) {
         if (id == 480 || !invoke<bool>(apps, 6, id)) continue;
@@ -121,6 +124,7 @@ std::optional<std::vector<Game>> clientSteamOwnedGames(const std::filesystem::pa
         const int name_size = invoke<int>(metadata, 0, id, "common/name", name, static_cast<int>(sizeof(name)));
         if (name_size <= 0 || name_size >= static_cast<int>(sizeof(name))) return {};
         Game game; game.app_id = id; game.name = text_encoding::wide(name); game.installed = false;
+        game.added_at = library_time::seconds(invoke<uint32_t>(apps, 8, id));
         if (game.name.empty()) return {};
         if (!steamTool(game)) result.push_back(std::move(game));
     }
@@ -130,13 +134,17 @@ std::optional<std::vector<Game>> clientSteamOwnedGames(const std::filesystem::pa
 }
 
 void mergeSteamOwnedGames(SteamLibrary& library, const std::vector<Game>& owned) {
-    std::set<uint32_t> present, mine;
-    for (const auto& game : owned) mine.insert(game.app_id);
+    std::set<uint32_t> present;
+    std::map<uint32_t, uint64_t> mine;
+    for (const auto& game : owned) mine.emplace(game.app_id, game.added_at);
     for (auto* list : {&library.visible, &library.private_games})
         for (auto& game : *list) {
             present.insert(game.app_id);
             // Installed by another account, but this one owns it too: no account switch to play it.
-            if (mine.contains(game.app_id)) game.steam_owner = 0;
+            if (const auto found = mine.find(game.app_id); found != mine.end()) {
+                game.steam_owner = 0;
+                game.added_at = found->second;
+            }
         }
     for (auto game : owned) {
         if (!game.app_id || steamTool(game) || !present.insert(game.app_id).second) continue;
@@ -156,12 +164,16 @@ const std::vector<Game>& SteamOwnedGames::read(uint64_t account, bool force) {
     auto fresh = fetch_(root_, account);
     answered_ = fresh.has_value();
     if (fresh) {
+        std::map<uint32_t, uint64_t> dates;
+        for (const auto& game : games_) dates.emplace(game.app_id, game.added_at);
+        for (auto& game : *fresh) if (!game.added_at)
+            if (const auto found = dates.find(game.app_id); found != dates.end()) game.added_at = found->second;
         games_ = std::move(*fresh);
-        std::string content = "steam-owned-v1 " + std::to_string(account) + '\n';
+        std::string content = "steam-owned-v2 " + std::to_string(account) + '\n';
         for (const auto& game : games_) {
             const auto name = text_encoding::utf8(game.name);
             if (name.find_first_of("\r\n\t") == std::string::npos)
-                content += std::to_string(game.app_id) + '\t' + name + '\n';
+                content += std::to_string(game.app_id) + '\t' + std::to_string(game.added_at) + '\t' + name + '\n';
         }
         atomic_file::write(cache_ / (std::to_wstring(account) + L".txt"), content);
     }
@@ -175,7 +187,8 @@ const std::vector<Game>& SteamOwnedGames::cached(uint64_t account) {
             const auto content = bytes(cache_ / (std::to_wstring(account) + L".txt"), 8 * 1024 * 1024);
             std::istringstream input(std::string(content.begin(), content.end()));
             std::string line;
-            if (std::getline(input, line) && line == "steam-owned-v1 " + std::to_string(account)) {
+            if (std::getline(input, line) && (line == "steam-owned-v1 " + std::to_string(account) || line == "steam-owned-v2 " + std::to_string(account))) {
+                const bool dates = line.starts_with("steam-owned-v2 ");
                 std::set<uint32_t> seen;
                 while (std::getline(input, line)) {
                     const auto tab = line.find('\t');
@@ -183,7 +196,11 @@ const std::vector<Game>& SteamOwnedGames::cached(uint64_t account) {
                     uint32_t id = 0;
                     const auto parsed = std::from_chars(line.data(), line.data() + tab, id);
                     if (parsed.ec != std::errc{} || parsed.ptr != line.data() + tab || !id || id == 480 || id >= 0x80000000u) continue;
-                    Game game; game.app_id = id; game.installed = false; game.name = text_encoding::wide(line.substr(tab + 1));
+                    Game game; game.app_id = id; game.installed = false;
+                    const auto name_at = dates ? line.find('\t', tab + 1) : tab;
+                    if (name_at == std::string::npos) continue;
+                    if (dates) game.added_at = library_time::seconds(std::string_view(line).substr(tab + 1, name_at - tab - 1));
+                    game.name = text_encoding::wide(line.substr(name_at + 1));
                     if (!game.name.empty() && !steamTool(game) && seen.insert(id).second) games_.push_back(std::move(game));
                 }
             }

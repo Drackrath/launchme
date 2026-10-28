@@ -141,6 +141,7 @@ int LauncherUiTest::launchAnimation(HWND window) {
     app.settings_.launch_animation = false; app.game_sessions_.clear(); app.cancelGameFocus();
     app.openSettings();
     app.settings_state_.selectCategory(static_cast<int>(settings_ui::Category::library)); app.buildSettingsRows();
+    app.openPlatformSettings(GameSource::steam); // Steam's own options live on its page.
     const auto silent_row = std::find_if(app.settings_rows_.begin(), app.settings_rows_.end(),
         [](const auto& item) { return item.id == settings_ui::Id::steam_silent_launch; });
     if (silent_row == app.settings_rows_.end() || silent_row->checked || app.settings_.steam_silent_launch) return 5104;

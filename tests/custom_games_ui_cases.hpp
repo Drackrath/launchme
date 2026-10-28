@@ -135,7 +135,7 @@ int LauncherUiTest::customGames(HWND window) {
     if (app.settingsOpen()) return 617;
     const auto pcs = category("pc-platforms");
     if (pcs == app.categories_.end() || pcs->games.back().kind != GameKind::pc_platform ||
-        pcs->games.back().source != GameSource::custom || pcs->games.back().name != L"Moje gry") return 618;
+        pcs->games.back().source != GameSource::custom || pcs->games.back().name != L"Gry dodane ręcznie") return 618;
     const auto tile = pcs->games.size() - 1;
     app.showCategory(static_cast<size_t>(pcs - app.categories_.begin()));
     app.focusCard(tile);

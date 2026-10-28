@@ -25,7 +25,7 @@ int LauncherUiTest::aureliaIntegration(HWND window) {
     };
     struct Fake {
         std::mutex mutex; std::vector<aurelia::Request> calls;
-        std::atomic_bool send_failure{false}, download{false}, stop_download{false}, helper_failure{false};
+        std::atomic_bool send_failure{false}, download{false}, stop_download{false}, helper_failure{false}, stop_failure{false};
         std::atomic_int helper_calls{0};
         std::atomic_bool logged_in{true}, bad_health{false};
         std::atomic_uint64_t account{76561198000000001ULL};
@@ -49,7 +49,8 @@ int LauncherUiTest::aureliaIntegration(HWND window) {
         case C::dlc: return ok(R"({"dlc":[{"app_id":903,"name":"The Moonlit Archive","owned":true,"installed":true,"disabled":false},{"app_id":904,"name":"Beyond the Fog","owned":true,"installed":false,"disabled":false},{"app_id":905,"name":"Soundtrack","owned":false,"installed":false,"disabled":false}]})");
         case C::manifests: return ok(R"([{"depot_id":903,"depot_name":"Windows content","branch":"public","manifest_id":8593343465227540543}])");
         case C::branches: return ok(R"({"branches":["public","beta"]})");
-        case C::libraries: return ok(R"({"libraries":[{"path":"D:\\SteamLibrary","free_bytes":900000000000}]})");
+        case C::libraries: return ok(R"({"libraries":[{"path":"\\\\?\\D:\\SteamLibrary","free_bytes":900000000000}]})");
+        case C::stop: return fake->stop_failure ? aurelia::Reply{false, false, {}, L"Fixture refused"} : ok(R"({"app_id":902,"status":"stopped","forced":true})");
         case C::workshop_browse: return ok(R"({"items":[{"id":12345678901234567,"title":"Moonlit paths"}]})");
         case C::friends: return ok(R"([{"steam_id":76561198000000002,"persona_name":"Luna","persona_state":1,"game_name":"The Moonlit Archive"}])");
         case C::chat_history: return ok(R"([{"timestamp":100,"from_self":false,"message":"Got time for a new adventure?"},{"timestamp":101,"from_self":true,"message":"Yes! Just checking my cloud saves."}])");
@@ -100,36 +101,57 @@ int LauncherUiTest::aureliaIntegration(HWND window) {
     if (!app.settings_.aurelia_intro_done || app.topModal() != Launcher::Modal::none) return 10304;
     app.aurelia_active_ = app.aurelia_authenticated_ = true; app.aurelia_account_ = app.account_;
     if (!app.menuRows().aurelia) return 10305;
+    // A Steam game the client manages: the dialog offers only the choice; nothing goes through Aurelia.
     app.openAurelia(&game); if (!wait([&] { return !app.aurelia_ui_.busy; })) return 10306;
+    if (app.aureliaManaged(game) || app.aurelia_ui_.rows.size() != 1 || app.aurelia_ui_.rows[0].action != A::steam || !app.aurelia_ui_.rows[0].toggle) return 10370;
+    app.aureliaActivate(app.aurelia_ui_.rows[0]);
+    if (!app.settings_.aurelia_standalone.contains("902") || !app.aureliaManaged(game) || app.aurelia_ui_.rows.size() < 5) return 10308;
     if (!capture(L"aurelia-game-tv.png")) return 10307;
-    app.aureliaActivate({{}, {}, {}, A::steam});
-    if (!app.settings_.aurelia_standalone.contains("902")) return 10308;
-    app.aureliaActivate({{}, {}, {}, A::steam});
-    app.aureliaPage(P::cloud); if (!wait([&] { return !app.aurelia_ui_.busy; })) return 10309;
-    if (app.aurelia_cloud_[902].state != aurelia::CloudState::files) return 10310;
+    // The global default inverts the per-game choice; its exception list is separate.
+    app.settings_.aurelia_default = true; app.aureliaRows();
+    if (!app.aureliaManaged(game) || app.aurelia_ui_.rows[0].checked) return 10371;
+    app.aureliaActivate(app.aurelia_ui_.rows[0]);
+    if (app.aureliaManaged(game) || !app.settings_.aurelia_steam.contains("902")) return 10372;
+    app.aureliaActivate(app.aurelia_ui_.rows[0]); app.settings_.aurelia_default = false; app.aureliaRows();
+    if (!app.aureliaManaged(game)) return 10373;
+    // Cloud: its state from the listing, no file list; a sync detects the conflict.
+    app.aureliaPage(P::cloud);
+    if (!wait([&] { return app.aurelia_cloud_[902].state == aurelia::CloudState::files; })) return 10310;
+    for (const auto& row : app.aurelia_ui_.rows) if (row.action == A::none) return 10374;
     app.aureliaActivate({{}, {}, {}, A::sync});
     if (!wait([&] { return !app.aurelia_ui_.busy; }) || app.aurelia_cloud_[902].state != aurelia::CloudState::conflicts) return 10311;
     if (!capture(L"aurelia-cloud-conflict-tv.png")) return 10312;
     app.aureliaActivate({L"Use cloud saves", L"Replace local saves", {}, A::resolve_cloud});
     if (!app.aurelia_ui_.confirmation || fake->count(C::cloud_sync) != 1) return 10313;
-    app.modalKey(VK_ESCAPE, false); if (app.aurelia_ui_.confirmation || fake->count(C::cloud_sync) != 1) return 10314;
+    app.modalKey(VK_ESCAPE, false); if (app.aurelia_ui_.confirmation || fake->count(C::cloud_sync) != 1 || !app.aurelia_ui_.open) return 10314;
     app.aureliaActivate({L"Use cloud saves", {}, {}, A::resolve_cloud}, true);
     if (!wait([&] { return !app.aurelia_ui_.busy; }) || app.aurelia_cloud_[902].state != aurelia::CloudState::synced) return 10315;
+    // The cloud toggle: no state shown or checked while off.
+    app.aureliaPage(P::setup); app.aureliaActivate({{}, {}, {}, A::cloud_toggle});
+    if (app.settings_.aurelia_cloud || !app.aureliaCloudText(game).empty() || !app.aurelia_cloud_.empty()) return 10375;
+    app.aureliaActivate({{}, {}, {}, A::cloud_toggle});
+    if (!app.settings_.aurelia_cloud) return 10376;
+    app.aureliaPage(P::dlc); app.aurelia_ui_.game = game;
     app.aureliaPage(P::dlc); if (!wait([&] { return !app.aurelia_ui_.busy; })) return 10316;
-    if (app.aurelia_ui_.rows.size() != 4 || app.aurelia_ui_.rows[3].action != A::none) return 10317;
+    if (app.aurelia_ui_.rows.size() != 3 || app.aurelia_ui_.rows[2].action != A::none || !app.aurelia_ui_.rows[2].locked) return 10317;
     if (!capture(L"aurelia-dlc-tv.png")) return 10318;
-    app.aureliaActivate(app.aurelia_ui_.rows[1]);
+    app.aureliaActivate(app.aurelia_ui_.rows[0]);
     if (!wait([&] { return !app.aurelia_ui_.busy; }) || fake->last(C::disable_dlc).app != 903) return 10319;
     app.aureliaPage(P::versions); if (!wait([&] { return !app.aurelia_ui_.busy; })) return 10320;
     app.aurelia_ui_.input = L"903 8593343465227540543"; app.aureliaSubmit();
     if (!app.aurelia_ui_.confirmation || fake->count(C::downgrade)) return 10321;
     if (!capture(L"aurelia-downgrade-confirm-tv.png")) return 10322;
-    app.aurelia_ui_.hover = -5; app.modalKey(VK_RETURN, false);
+    app.aurelia_ui_.confirm_focus = true; app.modalKey(VK_RETURN, false);
     if (!wait([&] { return !app.aurelia_ui_.busy; }) || fake->last(C::downgrade).id != 8593343465227540543ULL) return 10323;
     app.aureliaPage(P::versions); if (!wait([&] { return !app.aurelia_ui_.busy; }) || !capture(L"aurelia-versions-tv.png")) return 10324;
     app.aureliaPage(P::workshop); if (!wait([&] { return !app.aurelia_ui_.busy; })) return 10325;
-    app.aureliaActivate(app.aurelia_ui_.rows[1]);
+    app.aureliaActivate(app.aurelia_ui_.rows[0]);
     if (!wait([&] { return !app.aurelia_ui_.busy; }) || fake->last(C::workshop_subscribe).id != 12345678901234567ULL) return 10326;
+    // Libraries: Aurelia's canonical \\?\ paths shown and passed plainly; another folder through the picker.
+    app.aurelia_library_action_ = A::install; app.aureliaPage(P::libraries); if (!wait([&] { return !app.aurelia_ui_.busy; })) return 10377;
+    if (app.aurelia_ui_.rows.size() != 2 || app.aurelia_ui_.rows[0].title != L"D:\\SteamLibrary" || app.aurelia_ui_.rows[1].action != A::browse_library ||
+        !app.aurelia_ui_.input_hint.empty()) return 10378;
+    if (!capture(L"aurelia-libraries-tv.png")) return 10379;
     app.aureliaPage(P::game); if (!wait([&] { return !app.aurelia_ui_.busy; })) return 10327;
     app.aureliaOperation({C::install, 902}, game);
     if (!wait([&] { return fake->download && app.aurelia_downloads_.contains(902) && app.aurelia_downloads_[902].progress.percent() == 50; })) return 10328;
@@ -138,42 +160,76 @@ int LauncherUiTest::aureliaIntegration(HWND window) {
     app.openAurelia(&game); if (!wait([&] { return !app.aurelia_ui_.busy; })) return 10330;
     app.aureliaActivate({{}, {}, {}, A::cancel});
     if (!wait([&] { return app.aurelia_operations_.empty(); }) || !fake->stop_download) return 10331;
-    app.aureliaPage(P::friends); if (!wait([&] { return !app.aurelia_ui_.busy; })) return 10332;
-    app.aureliaActivate(app.aurelia_ui_.rows.back());
-    if (!wait([&] { return app.aurelia_ui_.live && app.aurelia_ui_.messages.size() == 3; }) || app.aurelia_ui_.friend_name != L"Luna") return 10333;
-    app.aurelia_ui_.input = L"--help & hello, Luna!"; app.aureliaSubmit();
-    if (!wait([&] { return !app.aurelia_ui_.sending; }) || !app.aurelia_ui_.input.empty() || fake->last(C::chat_send).text != L"--help & hello, Luna!") return 10334;
-    if (!capture(L"aurelia-chat-tv.png")) return 10335;
-    fake->send_failure = true; app.aurelia_ui_.input = L"Keep my draft"; app.aureliaSubmit();
-    if (!wait([&] { return !app.aurelia_ui_.sending; }) || app.aurelia_ui_.input != L"Keep my draft") return 10336;
-    // Modal input cannot leak into the library. Pad keyboard uses the very same message field.
-    const auto selection = app.selected_; app.onCharacter(L'!');
-    if (app.aurelia_ui_.input.back() != L'!' || app.selected_ != selection || !app.textFieldActive()) return 10337;
-    app.openKeyboard(); if (!app.keyboard_.open) return 10338;
-    app.keyboardBackspace(); app.closeKeyboard();
-    if (app.aurelia_ui_.input != L"Keep my draft") return 10339;
-    app.closeAurelia(); if (!app.aurelia_chat_cancel_->load()) return 10340;
-    app.aureliaOpenChat(76561198000000002ULL, L"Luna");
-    if (!wait([&] { return app.aurelia_ui_.live; }) || app.aurelia_ui_.input != L"Keep my draft") return 10354;
-    app.closeAurelia();
     // A stale page result cannot reopen or replace the next page.
-    app.openAurelia(&game); app.aureliaPage(P::dlc); app.aureliaPage(P::versions);
+    app.aureliaPage(P::dlc); app.aureliaPage(P::versions);
     if (!wait([&] { return !app.aurelia_ui_.busy; }) || app.aurelia_ui_.page != P::versions) return 10341;
     app.closeAurelia();
+    // Odinstaluj from the game's menu: the question alone, through Aurelia only for a managed game.
+    app.uninstallGame(game);
+    if (!app.aurelia_ui_.open || !app.aurelia_ui_.confirmation || !app.aurelia_ui_.confirm_only) return 10380;
+    app.modalKey(VK_ESCAPE, false); if (app.aurelia_ui_.open || fake->count(C::uninstall)) return 10381;
+    // Widżety → Znajomi Steam → a friend: the conversation in the drawer, never the Steam client.
+    app.toggleFriendsDrawer(); app.friends_list_ = true;
+    if (!wait([&] { return !app.friends_loading_ && !app.friends_.friends.empty(); })) return 10332;
+    app.friends_cursor_ = 0; dispatched.clear(); app.friendsAccept();
+    if (!wait([&] { return app.friend_chat_.live && app.friend_chat_.messages.size() == 3; }) || app.friend_chat_.name != L"Luna" ||
+        !dispatched.empty() || app.aurelia_ui_.open) return 10333;
+    app.friend_chat_.input = L"--help & hello, Luna!"; app.friendChatSend();
+    if (!wait([&] { return !app.friend_chat_.sending; }) || !app.friend_chat_.input.empty() || fake->last(C::chat_send).text != L"--help & hello, Luna!") return 10334;
+    app.friends_progress_ = 1;
+    if (!capture(L"friend-chat-tv.png")) return 10335;
+    fake->send_failure = true; app.friend_chat_.input = L"Keep my draft"; app.friendChatSend();
+    if (!wait([&] { return !app.friend_chat_.sending; }) || app.friend_chat_.input != L"Keep my draft") return 10336;
+    // Typing reaches the conversation only; the pad keyboard uses the same field.
+    const auto selection = app.selected_; app.onCharacter(L'!');
+    if (app.friend_chat_.input.back() != L'!' || app.selected_ != selection || !app.textFieldActive()) return 10337;
+    app.openKeyboard(); if (!app.keyboard_.open) return 10338;
+    app.keyboardBackspace(); app.closeKeyboard();
+    if (app.friend_chat_.input != L"Keep my draft") return 10339;
+    // Back: the list again, its cursor kept, the listener ended, the draft kept for this account.
+    const auto listener = app.friend_chat_cancel_;
+    app.friendsBack();
+    if (app.friend_chat_.open || !app.friends_open_ || !app.friends_list_ || app.friends_cursor_ != 0 || !listener->load()) return 10340;
+    app.friendsAccept();
+    if (!wait([&] { return app.friend_chat_.live; }) || app.friend_chat_.input != L"Keep my draft") return 10354;
+    app.closeFriends();
+    // Zamknij grę of a game Aurelia launched, before Launchme has seen its process: Aurelia stops
+    // the recorded one (forced, outside the daemon); the game counts as closed only when play returns.
+    app.aurelia_playing_.insert(902); app.closeGame(game);
+    if (!wait([&] { return app.aurelia_stopping_.contains(902) && app.aurelia_stopping_[902] != 0; }) || !fake->last(C::stop).force) return 10382;
+    if (app.closeDetailAction() != -2) return 10383; // Not on the game's page.
+    app.aurelia_stopping_[902] = 1; app.aureliaPoll(GetTickCount64());
+    if (app.aurelia_stopping_.contains(902) || app.notifications_.empty()) return 10384; // Still running past the deadline: said so.
+    fake->stop_failure = true; app.closeGame(game);
+    if (!wait([&] { return !app.aurelia_stopping_.contains(902); })) return 10385;
+    fake->stop_failure = false; app.aurelia_playing_.erase(902);
+    // Szczegóły: ✕ beside Wróć while it runs; the cloud after "…" for a managed game.
+    app.openDetails(game); app.details_loading_ = false;
+    if (app.closeDetailAction() != -2 || app.cloudDetailAction() < 0) return 10386;
+    app.aurelia_playing_.insert(902);
+    if (app.closeDetailAction() < 0 || app.cloudDetailAction() <= app.closeDetailAction()) return 10387;
+    app.aurelia_cloud_[902] = {aurelia::CloudState::conflicts, 2, 1};
+    if (!capture(L"aurelia-details-close-cloud-tv.png")) return 10345;
+    app.aurelia_playing_.erase(902);
     app.desktop_mode_ = true; app.screen_ = ScreenMode::shelves; app.buildDesktopSidebar(); app.rebuildCards(true);
     app.openAurelia(); if (!wait([&] { return !app.aurelia_ui_.busy; }) || !capture(L"aurelia-settings-desktop.png")) return 10342;
-    app.aureliaOpenChat(76561198000000002ULL, L"Luna");
-    if (!wait([&] { return app.aurelia_ui_.live; }) || !capture(L"aurelia-chat-desktop.png")) return 10343;
-    app.closeAurelia(); app.aurelia_cloud_[902] = {aurelia::CloudState::conflicts, 2, 1};
+    app.openAurelia(&game); if (!wait([&] { return !app.aurelia_ui_.busy; }) || !capture(L"aurelia-game-desktop.png")) return 10343;
+    app.closeAurelia();
     if (!capture(L"aurelia-cloud-card-desktop.png")) return 10344;
-    app.desktop_mode_ = false; app.openDetails(game); app.details_loading_ = false;
-    if (!capture(L"aurelia-cloud-card-tv.png")) return 10345;
+    app.toggleFriendsDrawer(); app.friends_list_ = true;
+    if (!wait([&] { return !app.friends_loading_ && !app.friends_.friends.empty(); })) return 10388;
+    app.friends_cursor_ = 0; app.friendsAccept();
+    app.friends_progress_ = 1;
+    if (!wait([&] { return app.friend_chat_.live; }) || !capture(L"friend-chat-desktop.png")) return 10389;
+    app.closeFriends(); app.desktop_mode_ = false;
     // Disabling is persisted, but the running session remains coherent until restart.
     app.toggleAurelia(); if (app.settings_.aurelia || !app.aurelia_active_) return 10346;
+    app.aurelia_library_source_ = true; // No Steam client in this fixture: Aurelia's list is the library.
     app.startAureliaLibraryWorker();
     if (!wait([&] { return app.installed_library_.size() == 2 && fake->count(C::library) > 0; })) return 10349;
-    // The integration is additive: normal Play still dispatches Steam, per-game opt-in dispatches Aurelia.
-    dispatched.clear(); Game routed{902, L"Routing fixture"};
+    // Only a managed game goes through Aurelia: the others dispatch the Steam client.
+    dispatched.clear(); Game routed{902, L"Routing fixture"}; routed.installed = true;
+    app.settings_.aurelia_standalone.clear();
     app.launchGame(routed); app.finishLaunch();
     if (dispatched != std::vector<std::wstring>{L"steam://rungameid/902"} || fake->count(C::play)) return 10352;
     app.game_sessions_.clear(); app.game_activity_jobs_->active.clear();
@@ -186,16 +242,19 @@ int LauncherUiTest::aureliaIntegration(HWND window) {
     if (!wait([&] { return !app.aurelia_playing_.contains(902) && !app.aurelia_ui_.busy; }) || fake->count(C::play) != before_play ||
         app.aurelia_cloud_[902].state != aurelia::CloudState::conflicts) return 10355;
     app.closeAurelia();
-    fake->logged_in = false; app.steam_rescan_->wake();
+    fake->logged_in = false; app.aureliaRescan();
     if (!wait([&] { return !app.aurelia_authenticated_ && app.aurelia_setup_status_.find(L"offline") != std::wstring::npos; }) || app.installed_library_.size() != 2) return 10356;
-    fake->bad_health = true; app.steam_rescan_->wake();
+    fake->bad_health = true; app.aureliaRescan();
     if (!wait([&] { return app.aurelia_setup_status_ == tr(L"Nieprawidłowa odpowiedź Aurelii"); }) || app.account_ != 76561198000000001ULL || app.installed_library_.size() != 2) return 10357;
-    fake->bad_health = false; fake->logged_in = true; app.steam_rescan_->wake();
+    fake->bad_health = false; fake->logged_in = true; app.aureliaRescan();
     if (!wait([&] { return app.aurelia_authenticated_; })) return 10358;
-    app.aureliaOpenChat(76561198000000002ULL, L"Luna");
-    if (!wait([&] { return app.aurelia_ui_.live; })) return 10359;
-    app.aurelia_ui_.input = L"Private account draft";
-    fake->account = 76561198000000003ULL; app.steam_rescan_->wake();
-    if (!wait([&] { return app.account_ == 76561198000000003ULL; }) || !app.aurelia_chat_drafts_.empty() || app.aurelia_ui_.open) return 10360;
+    app.toggleFriendsDrawer(); if (!app.friends_open_) app.toggleFriendsDrawer();
+    app.friends_list_ = true;
+    if (!wait([&] { return !app.friends_loading_ && !app.friends_.friends.empty(); })) return 10390;
+    app.friends_cursor_ = 0; app.friendsAccept();
+    if (!wait([&] { return app.friend_chat_.live; })) return 10359;
+    app.friend_chat_.input = L"Private account draft";
+    fake->account = 76561198000000003ULL; app.aureliaRescan();
+    if (!wait([&] { return app.account_ == 76561198000000003ULL; }) || !app.friend_chat_drafts_.empty() || app.friend_chat_.open) return 10360;
     return 0;
 }
