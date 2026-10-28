@@ -41,16 +41,25 @@ constexpr const char* serif_names[] = {"Georgia", "Cambria", "Constantia", "Pala
 constexpr const char* serif_fallback[] = {"Noto Serif", "DejaVu Serif", "serif"};
 constexpr const char* mono_names[] = {"Consolas"};
 constexpr const char* mono_fallback[] = {"Noto Sans Mono", "DejaVu Sans Mono", "monospace"};
+// The icon fonts: the launcher's own (res/fonts/launchme-icons.ttf, beside the program), whose
+// icons sit at Segoe MDL2's code points.
+constexpr const char* icon_names[] = {"Segoe Fluent Icons", "Segoe MDL2 Assets"};
+constexpr const char* icon_family = "Launchme Icons";
+constexpr const char* icon_fallback[] = {icon_family};
 struct Alias { std::span<const char* const> names, fallback; };
 constexpr Alias aliases[] = {{sans_names, sans_fallback}, {print_names, print_fallback}, {serif_names, serif_fallback},
-                             {mono_names, mono_fallback}};
+                             {mono_names, mono_fallback}, {icon_names, icon_fallback}};
 // A family DirectWrite does not know falls back to the system's UI font.
 constexpr const Alias& default_alias = aliases[0];
+constexpr const Alias& icon_alias = aliases[4];
 
+bool bundledIcons();
+
+// Windows' icon fonts are known only when the launcher's icon font is there to stand in.
 const Alias* aliasOf(const std::string& folded) {
     for (const auto& alias : aliases)
         for (const char* name : alias.names)
-            if (fold(name) == folded) return &alias;
+            if (fold(name) == folded) return &alias != &icon_alias || bundledIcons() ? &alias : nullptr;
     return nullptr;
 }
 
@@ -81,8 +90,9 @@ std::string resolveSystem(const std::string& family) {
     std::lock_guard lock(mutex);
     if (const auto found = resolved.find(key); found != resolved.end()) return found->second;
     std::string result = family;
-    if (!installed(key)) {
-        const Alias* alias = aliasOf(key);
+    if (const Alias* alias = aliasOf(key); alias == &icon_alias) {
+        result = icon_family;
+    } else if (!installed(key)) {
         const auto fallback = (alias ? *alias : default_alias).fallback;
         const auto chosen = std::find_if(fallback.begin(), fallback.end(), [](const char* name) { return generic(name) || installed(fold(name)); });
         result = chosen != fallback.end() ? *chosen : fallback.back();
@@ -105,6 +115,28 @@ struct AppFonts {
     std::atomic<unsigned> generation{0};
 };
 AppFonts& appFonts() { static AppFonts fonts; return fonts; }
+
+// The launcher's icon font, an application font from the program's assets (once).
+bool bundledIcons() {
+    static const bool loaded = [] {
+        char program[4096];
+        const ssize_t length = readlink("/proc/self/exe", program, sizeof(program) - 1);
+        if (length <= 0) return false;
+        program[length] = 0;
+        const std::string folder = std::string(program).substr(0, std::string(program).rfind('/'));
+        for (const char* place : {"/assets/fonts/launchme-icons.ttf", "/../share/launchme/assets/fonts/launchme-icons.ttf"}) {
+            sk_sp<SkTypeface> typeface = fontManager()->makeFromFile((folder + place).c_str());
+            if (!typeface) continue;
+            auto& fonts = appFonts();
+            std::lock_guard lock(fonts.mutex);
+            fonts.typefaces.push_back(std::move(typeface));
+            fonts.generation.fetch_add(1, std::memory_order_release);
+            return true;
+        }
+        return false;
+    }();
+    return loaded;
+}
 
 // Every family name a typeface answers to (typographic and legacy, every language).
 std::vector<std::string> familiesOf(const SkTypeface& typeface) {
