@@ -5,12 +5,7 @@
 #include "../platform/atomic_file.hpp"
 #include "../platform/text_encoding.hpp"
 
-#ifdef _WIN32
-#include <Windows.h>
-#include <bcrypt.h>
-#include <wincodec.h>
-#include <wrl/client.h>
-#endif
+#include "../artwork/image_codec.hpp"
 #include <algorithm>
 #include <array>
 #include <charconv>
@@ -23,24 +18,13 @@ namespace companion::feed {
 namespace {
 bool validImage(std::span<const uint8_t> bytes, uint32_t* width = nullptr, uint32_t* height = nullptr) {
     if (bytes.empty() || bytes.size() > 16 * 1024 * 1024) return false;
-    const HRESULT com = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    struct Cleanup { HRESULT result; ~Cleanup() { if (SUCCEEDED(result)) CoUninitialize(); } } cleanup{com};
-    using Microsoft::WRL::ComPtr;
-    ComPtr<IWICImagingFactory> factory;
-    ComPtr<IWICStream> stream;
-    ComPtr<IWICBitmapDecoder> decoder;
-    ComPtr<IWICBitmapFrameDecode> frame;
-    ComPtr<IWICBitmapScaler> scaler;
-    ComPtr<IWICFormatConverter> converter;
-    UINT w = 0, h = 0;
-    std::array<BYTE, 64> pixels{};
-    const bool valid = SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory))) &&
-        SUCCEEDED(factory->CreateStream(&stream)) && SUCCEEDED(stream->InitializeFromMemory(const_cast<BYTE*>(bytes.data()), static_cast<DWORD>(bytes.size()))) &&
-        SUCCEEDED(factory->CreateDecoderFromStream(stream.Get(), nullptr, WICDecodeMetadataCacheOnLoad, &decoder)) && SUCCEEDED(decoder->GetFrame(0, &frame)) &&
-        SUCCEEDED(frame->GetSize(&w, &h)) && w && h && w <= 16384 && h <= 16384 && uint64_t(w) * h <= 16 * 1024 * 1024 &&
-        SUCCEEDED(factory->CreateBitmapScaler(&scaler)) && SUCCEEDED(scaler->Initialize(frame.Get(), 4, 4, WICBitmapInterpolationModeFant)) &&
-        SUCCEEDED(factory->CreateFormatConverter(&converter)) && SUCCEEDED(converter->Initialize(scaler.Get(), GUID_WICPixelFormat32bppPBGRA,
-            WICBitmapDitherTypeNone, nullptr, 0, WICBitmapPaletteTypeCustom)) && SUCCEEDED(converter->CopyPixels(nullptr, 16, 64, pixels.data()));
+    uint32_t w = 0, h = 0;
+    // Fully decoded (to 4×4), so a truncated photo is refused.
+    const bool valid = image_codec::decode(bytes, [&](const image_codec::Info& info) -> std::optional<image_codec::Size> {
+        if (info.width > 16384 || info.height > 16384 || uint64_t(info.width) * info.height > 16 * 1024 * 1024) return {};
+        w = info.width; h = info.height;
+        return image_codec::Size{4, 4};
+    }, image_codec::Filter::fant, true).has_value();
     if (valid) { if (width) *width = w; if (height) *height = h; }
     return valid;
 }
@@ -157,10 +141,9 @@ std::optional<State> publish(const std::filesystem::path& folder, const Draft& d
     std::error_code ec;
     std::filesystem::create_directories(folder, ec);
     if (ec) return {};
-    // Windows releases this lock after a crash too. Concurrent launches cannot exceed the quota.
-    const HANDLE lock = CreateFileW((folder / L"publish.lock").c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (lock == INVALID_HANDLE_VALUE) return {};
-    struct Release { HANDLE handle; ~Release() { CloseHandle(handle); } } release{lock};
+    // The system releases this lock after a crash too. Concurrent launches cannot exceed the quota.
+    const atomic_file::ExclusiveLock lock(folder / L"publish.lock");
+    if (!lock.locked()) return {};
     auto state = load(folder);
     if (!state || !due(*state, day, now) || std::any_of(state->posts.begin(), state->posts.end(), [&](const Post& p) { return p.id == draft.id; })) return {};
     auto record = json::object();

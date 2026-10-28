@@ -80,7 +80,7 @@ std::wstring entities(std::wstring_view text) {
             }
         }
         if (point<32 || point>0x10ffff || (point>=0xd800 && point<=0xdfff)) { result+=text[at++]; continue; }
-        if (point<=0xffff) result+=static_cast<wchar_t>(point);
+        if (point<=0xffff || sizeof(wchar_t)==4) result+=static_cast<wchar_t>(point); // UTF-32 on Linux.
         else { point-=0x10000; result+=static_cast<wchar_t>(0xd800+(point>>10)); result+=static_cast<wchar_t>(0xdc00+(point&1023)); }
         at=end+1;
     }

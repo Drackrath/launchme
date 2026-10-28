@@ -336,6 +336,7 @@ set(LAUNCHME_APP_SOURCES
     src/library/screenscraper_config.cpp
     src/library/screenscraper.cpp
     ${LAUNCHME_COVER_SOURCES}
+    src/artwork/image_codec_wic.cpp
     src/artwork/steamgriddb.cpp
     src/artwork/platform_logo.cpp
     src/artwork/esde_art.cpp

@@ -2,6 +2,7 @@
 #include "json.hpp"
 #include "../platform/atomic_file.hpp"
 #include "../platform/text_encoding.hpp"
+#include "../artwork/image_codec.hpp"
 #include "../artwork/image_compact.hpp"
 #ifdef _WIN32
 #include <Windows.h>
@@ -10,7 +11,9 @@
 #include <xmllite.h>
 #include <shlwapi.h>
 #include <wrl/client.h>
-#include <wincodec.h>
+#else
+#include <curl/curl.h>
+#include <expat.h>
 #endif
 #include <algorithm>
 #include <cmath>
@@ -24,12 +27,25 @@ namespace {
 constexpr size_t max_feed = 1024 * 1024, max_image = 8 * 1024 * 1024;
 std::wstring host(std::wstring_view url) {
     if (!url.starts_with(L"https://") || url.size() > 4096 || url.find_first_of(L"\r\n\t \\") != url.npos) return {};
+#ifdef _WIN32
     const std::wstring copy(url);
     URL_COMPONENTS parts{sizeof(parts)};
     parts.dwHostNameLength = parts.dwUserNameLength = parts.dwPasswordLength = 1;
     if (!WinHttpCrackUrl(copy.c_str(), static_cast<DWORD>(copy.size()), 0, &parts) || parts.nPort != 443 ||
         parts.dwUserNameLength || parts.dwPasswordLength) return {};
     std::wstring result(parts.lpszHostName, parts.dwHostNameLength);
+#else
+    // libcurl's parser, with WinHttpCrackUrl's rules: port 443, no user name or password.
+    struct Url { CURLU* handle = curl_url(); ~Url() { curl_url_cleanup(handle); } } parts;
+    const auto part = [&](CURLUPart which, unsigned flags) -> std::optional<std::string> {
+        char* value = nullptr;
+        if (curl_url_get(parts.handle, which, &value, flags) != CURLUE_OK || !value) return std::nullopt;
+        std::string text(value); curl_free(value); return text;
+    };
+    if (!parts.handle || curl_url_set(parts.handle, CURLUPART_URL, text_encoding::utf8(url).c_str(), 0) != CURLUE_OK ||
+        part(CURLUPART_PORT, CURLU_DEFAULT_PORT) != "443" || part(CURLUPART_USER, 0) || part(CURLUPART_PASSWORD, 0)) return {};
+    std::wstring result = text_encoding::wideLenient(part(CURLUPART_HOST, 0).value_or(""));
+#endif
     std::transform(result.begin(), result.end(), result.begin(), [](wchar_t c) { return static_cast<wchar_t>(towlower(c)); });
     return result;
 }
@@ -67,6 +83,7 @@ bool steamNewsUrl(std::wstring_view url) {
         (h == L"steamstore-a.akamaihd.net" && url.starts_with(L"https://steamstore-a.akamaihd.net/news/externalpost/"));
 }
 std::wstring newsDate(uint64_t timestamp) {
+#ifdef _WIN32
     const uint64_t ticks = (timestamp + 11644473600ULL) * 10000000ULL;
     FILETIME time{static_cast<DWORD>(ticks),static_cast<DWORD>(ticks >> 32)};
     SYSTEMTIME date{};
@@ -74,6 +91,14 @@ std::wstring newsDate(uint64_t timestamp) {
     wchar_t result[16]{};
     swprintf_s(result,L"%02u.%02u.%04u",date.wDay,date.wMonth,date.wYear);
     return result;
+#else
+    const std::time_t time = static_cast<std::time_t>(timestamp);
+    std::tm date{};
+    if (timestamp > 253402300799ULL || gmtime_s(&date,&time)) return {};
+    wchar_t result[16]{};
+    swprintf_s(result,L"%02d.%02d.%04d",date.tm_mday,date.tm_mon+1,date.tm_year+1900);
+    return result;
+#endif
 }
 std::wstring attribute(std::wstring_view tag, std::wstring_view key) {
     size_t at = 0;
@@ -116,22 +141,11 @@ std::wstring articleImage(std::wstring contents) {
 }
 bool validImage(std::span<const uint8_t> bytes) {
     if (bytes.empty() || bytes.size() > max_image) return false;
-    const HRESULT initialized = CoInitializeEx(nullptr,COINIT_MULTITHREADED);
-    struct Com { HRESULT hr; ~Com() { if (SUCCEEDED(hr)) CoUninitialize(); } } com{initialized};
-    using Microsoft::WRL::ComPtr;
-    ComPtr<IWICImagingFactory> factory; ComPtr<IWICStream> stream; ComPtr<IWICBitmapDecoder> decoder;
-    ComPtr<IWICBitmapFrameDecode> frame; ComPtr<IWICBitmapScaler> scaler; ComPtr<IWICFormatConverter> converter;
-    if (FAILED(CoCreateInstance(CLSID_WICImagingFactory,nullptr,CLSCTX_INPROC_SERVER,IID_PPV_ARGS(&factory))) ||
-        FAILED(factory->CreateStream(&stream)) || FAILED(stream->InitializeFromMemory(const_cast<BYTE*>(bytes.data()),static_cast<DWORD>(bytes.size()))) ||
-        FAILED(factory->CreateDecoderFromStream(stream.Get(),nullptr,WICDecodeMetadataCacheOnDemand,&decoder)) || FAILED(decoder->GetFrame(0,&frame))) return false;
-    UINT width=0,height=0;
-    if (FAILED(frame->GetSize(&width,&height)) || !width || !height || width>16384 || height>16384 || uint64_t(width)*height>16*1024*1024) return false;
-    const double scale = std::min(1.0,320.0/std::max(width,height));
-    width = std::max<UINT>(1,static_cast<UINT>(width*scale)); height = std::max<UINT>(1,static_cast<UINT>(height*scale));
-    if (FAILED(factory->CreateBitmapScaler(&scaler)) || FAILED(scaler->Initialize(frame.Get(),width,height,WICBitmapInterpolationModeFant)) ||
-        FAILED(factory->CreateFormatConverter(&converter)) || FAILED(converter->Initialize(scaler.Get(),GUID_WICPixelFormat32bppBGRA,WICBitmapDitherTypeNone,nullptr,0,WICBitmapPaletteTypeCustom))) return false;
-    std::vector<uint8_t> pixels(size_t(width)*height*4);
-    return SUCCEEDED(converter->CopyPixels(nullptr,width*4,static_cast<UINT>(pixels.size()),pixels.data()));
+    return image_codec::decode(bytes,[](const image_codec::Info& info) -> std::optional<image_codec::Size> {
+        if (info.width>16384 || info.height>16384 || uint64_t(info.width)*info.height>16*1024*1024) return {};
+        const double scale = std::min(1.0,320.0/std::max(info.width,info.height));
+        return image_codec::Size{std::max<uint32_t>(1,static_cast<uint32_t>(info.width*scale)),std::max<uint32_t>(1,static_cast<uint32_t>(info.height*scale))};
+    }).has_value();
 }
 std::string metadata(const std::filesystem::path& file, const std::wstring& url, const Get& get,
                      ImageSession* session, const std::function<bool(const json::Value&)>& valid, bool refresh = false, bool* stale = nullptr) {
@@ -187,6 +201,21 @@ std::optional<std::vector<Item>> parseSteam(std::string_view bytes, Section sect
     }
     return result;
 }
+namespace {
+// A finished <item>: Eurogamer articles only, each link once.
+void addRssItem(Item item, std::vector<Item>& result, std::unordered_set<std::wstring>& urls) {
+    item.title = clean(std::move(item.title)); item.url = clean(std::move(item.url), 4096);
+    const auto h = host(item.url);
+    if (item.title.empty() || (h != L"www.eurogamer.pl" && h != L"www.eurogamer.net") || !urls.insert(item.url).second) return;
+    item.source = h == L"www.eurogamer.pl" ? L"Eurogamer.pl" : L"Eurogamer";
+    item.date = clean(std::move(item.date), 40);
+    if (item.date.size() >= 16 && item.date[3] == L',') item.date = item.date.substr(5, 11);
+    if (!imageUrl(item.image)) item.image.clear();
+    if (const auto at = item.image.find(L"&auto=webp"); at != item.image.npos) item.image.erase(at, 10); // WIC: request JPEG.
+    if (result.size() < item_limit) result.push_back(std::move(item));
+}
+}
+#ifdef _WIN32
 std::optional<std::vector<Item>> parseRss(std::string_view bytes) {
     if (bytes.empty() || bytes.size() > max_feed) return std::nullopt;
     using Microsoft::WRL::ComPtr;
@@ -230,20 +259,75 @@ std::optional<std::vector<Item>> parseRss(std::string_view bytes) {
         } else if (type == XmlNodeType_EndElement && in_item && depth == item_depth + 1 && tag == L"item") {
             // XmlLite reports end elements at the depth inside the element being closed.
             in_item = false;
-            item.title = clean(std::move(item.title)); item.url = clean(std::move(item.url), 4096);
-            const auto h = host(item.url);
-            if (item.title.empty() || (h != L"www.eurogamer.pl" && h != L"www.eurogamer.net") || !urls.insert(item.url).second) continue;
-            item.source = h == L"www.eurogamer.pl" ? L"Eurogamer.pl" : L"Eurogamer";
-            item.date = clean(std::move(item.date), 40);
-            if (item.date.size() >= 16 && item.date[3] == L',') item.date = item.date.substr(5, 11);
-            if (!imageUrl(item.image)) item.image.clear();
-            if (const auto at = item.image.find(L"&auto=webp"); at != item.image.npos) item.image.erase(at, 10); // WIC: request JPEG.
-            if (result.size() < item_limit) result.push_back(std::move(item));
+            addRssItem(std::move(item), result, urls);
         }
     }
     if (FAILED(status) || !rss || !channel || in_item) return std::nullopt;
     return result;
 }
+#else
+// Expat in place of XmlLite, with its settings: no DTD at all, at most 32 levels of elements.
+// Elements are matched by local name (namespace URI and name are split by '\x01'); depth
+// counts the open elements, so an <item> sits at 2 inside <rss><channel>.
+std::optional<std::vector<Item>> parseRss(std::string_view bytes) {
+    if (bytes.empty() || bytes.size() > max_feed) return std::nullopt;
+    struct State {
+        XML_Parser parser = XML_ParserCreateNS(nullptr, '\x01');
+        std::vector<Item> result;
+        std::unordered_set<std::wstring> urls;
+        bool rss = false, channel = false, in_item = false;
+        unsigned depth = 0, item_depth = 0;
+        Item item;
+        std::wstring field_name;
+        ~State() { if (parser) XML_ParserFree(parser); }
+        static std::string_view local(const XML_Char* name, std::string_view* ns = nullptr) {
+            const std::string_view full(name);
+            const auto split = full.find('\x01');
+            if (ns) *ns = split == full.npos ? std::string_view{} : full.substr(0, split);
+            return split == full.npos ? full : full.substr(split + 1);
+        }
+    } state;
+    if (!state.parser) return std::nullopt;
+    XML_SetUserData(state.parser, &state);
+    XML_SetStartDoctypeDeclHandler(state.parser, [](void* data, const XML_Char*, const XML_Char*, const XML_Char*, int) {
+        XML_StopParser(static_cast<State*>(data)->parser, XML_FALSE);
+    });
+    XML_SetElementHandler(state.parser, [](void* data, const XML_Char* name, const XML_Char** attributes) {
+        auto& s = *static_cast<State*>(data);
+        std::string_view ns;
+        const auto tag = State::local(name, &ns);
+        const unsigned depth = s.depth++;
+        if (s.depth > 32) { XML_StopParser(s.parser, XML_FALSE); return; }
+        if (depth == 0 && tag == "rss") s.rss = true;
+        if (s.rss && depth == 1 && tag == "channel") s.channel = true;
+        if (s.channel && depth == 2 && tag == "item") { s.in_item = true; s.item_depth = depth; s.item = {}; }
+        if (s.in_item && depth == s.item_depth + 1) {
+            s.field_name = text_encoding::wideLenient(tag);
+            if (tag == "content" && ns == "http://search.yahoo.com/mrss/")
+                for (auto* at = attributes; at[0] && at[1]; at += 2)
+                    if (State::local(at[0]) == "url") s.item.image = text_encoding::wideLenient(at[1]);
+        }
+    }, [](void* data, const XML_Char* name) {
+        auto& s = *static_cast<State*>(data);
+        if (s.in_item && s.depth == s.item_depth + 1 && State::local(name) == "item") {
+            s.in_item = false;
+            addRssItem(std::move(s.item), s.result, s.urls);
+        }
+        --s.depth;
+    });
+    XML_SetCharacterDataHandler(state.parser, [](void* data, const XML_Char* text, int length) {
+        auto& s = *static_cast<State*>(data);
+        if (!s.in_item || s.depth != s.item_depth + 2 || length <= 0) return;
+        auto* target = s.field_name == L"title" ? &s.item.title : s.field_name == L"link" ? &s.item.url : s.field_name == L"pubDate" ? &s.item.date : nullptr;
+        if (!target) return;
+        const auto value = text_encoding::wideLenient(std::string_view(text, static_cast<size_t>(length)));
+        if (target->size() + value.size() <= 4096) target->append(value);
+    });
+    if (XML_Parse(state.parser, bytes.data(), static_cast<int>(bytes.size()), XML_TRUE) != XML_STATUS_OK ||
+        !state.rss || !state.channel || state.in_item) return std::nullopt;
+    return std::move(state.result);
+}
+#endif
 Feed load(Section section, bool english, const std::filesystem::path& cache, bool refresh, const Get& get) {
     if (section == Section::owned) return {}; // Requires an explicit current-library snapshot.
     const bool steam = section == Section::steam || section == Section::upcoming;
