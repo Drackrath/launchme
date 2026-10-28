@@ -16,7 +16,7 @@ std::wstring upper(std::wstring value) {
 std::wstring libraryStatus(const Game& game, SessionState session) {
     return session == SessionState::frozen ? tr(L"Wstrzymana") : session == SessionState::running ? tr(L"W grze") :
         game.installation.active() ? installationText(game.installation) : game.installed ? tr(L"Zainstalowane") :
-        localFileGame(game.source) ? tr(L"Brak pliku") : tr(L"Do instalacji");
+        localFileGame(game.source) ? missingFileLabel(game) : tr(L"Do instalacji");
 }
 }
 
@@ -364,7 +364,7 @@ void Renderer::drawLibraryList() {
         const std::wstring status = session == SessionState::frozen ? std::wstring(tr(L"Wstrzymana")) :
                                     session == SessionState::running ? std::wstring(tr(L"W grze")) :
                                     game.installation.active() ? installationText(game.installation) :
-                                    !game.installed && localFileGame(game.source) ? std::wstring(tr(L"Brak pliku")) : std::wstring();
+                                    !game.installed && localFileGame(game.source) ? std::wstring(missingFileLabel(game)) : std::wstring();
         const float text_left = card.x + card.size + 18;
         const float title_right = detailed ? right - 20 : columns.titleRight();
         // A name too long for its row fades out on the right; the focused one glides to its end and back.

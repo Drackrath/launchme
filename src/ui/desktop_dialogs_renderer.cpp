@@ -233,17 +233,45 @@ void Renderer::drawDesktopCustomEditor() {
     for (int index = 0; index < custom_game_ui::field_count; ++index) fields += ui.shows(index);
     // Launch options of a library game: its name under the panel's title.
     const float subtitle = ui.launchOptions() ? 24.0f : 0.0f;
+    // A user-added game: its poster (matched by the typed name) and "Zidentyfikuj grę" on the right.
+    const bool poster = ui.posterShown();
+    constexpr float poster_w = 150, poster_column = poster_w + 22;
     const float height = sheet_header + 16 + subtitle + static_cast<float>(fields) * field_step + (ui.error.empty() ? 0.0f : 26.0f) + 64;
-    const auto p = desktopDialogFrame(view, 620, height, ui.launchOptions() ? tr(L"Opcje uruchamiania") : ui.editing() ? tr(L"Edytuj grę") : tr(L"Dodaj grę"), false);
+    const auto p = desktopDialogFrame(view, poster ? 620 + poster_column : 620, height,
+                                      ui.launchOptions() ? tr(L"Opcje uruchamiania") : ui.editing() ? tr(L"Edytuj grę") : tr(L"Dodaj grę"), false);
+    const float fields_right = p.right - 22 - (poster ? poster_column : 0.0f);
     const std::array<const wchar_t*, custom_game_ui::field_count> labels{trKey(L"Nazwa"), trKey(L"Plik"), trKey(L"Opcje uruchamiania"), trKey(L"Folder roboczy")};
     const int focused_field = custom_game_ui::field(ui.focus);
     float y = p.top + sheet_header + 14;
+    if (poster) {
+        bindCustomPoster();
+        const Rect box{p.right - 22 - poster_w, y + 20, p.right - 22, y + 20 + poster_w * 1.5f};
+        const bool loading = ui.poster == custom_game_ui::Poster::loading;
+        desktopFill(box, 10, gray(1, 0.045f));
+        if (custom_poster_.bitmap) fillPoster(custom_poster_, D2D1::RectF(box.left, box.top, box.right, box.bottom), 10, loading ? 0.45f : 1.0f, false, nullptr);
+        const wchar_t* caption = loading ? tr(L"Szukanie okładki…") : ui.poster == custom_game_ui::Poster::missing ? tr(L"Nie znaleziono okładki") :
+                                 ui.poster == custom_game_ui::Poster::none ? tr(L"Okładka według nazwy") : nullptr;
+        if (caption && (!custom_poster_.bitmap || loading)) {
+            auto* font = desktop_small_font_.Get();
+            const auto alignment = font->GetTextAlignment();
+            font->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+            const float width = box.right - box.left - 20, lines = paragraph(caption, box.left + 10, 0, width, font, gray(0), 3, false);
+            paragraph(caption, box.left + 10, middle(box) - lines * 0.5f, width, font, custom_poster_.bitmap ? palette::text() : palette::muted(), 3);
+            font->SetTextAlignment(alignment);
+        }
+        desktopStroke(box, 10, gray(1, hover == SheetHit{Kind::action, static_cast<int>(Item::identify)} ? 0.28f : 0.1f));
+        desktopModalHot({Kind::action, static_cast<int>(Item::identify)}, box); // A click on it identifies the game too.
+        const Rect b{box.left, box.bottom + 10, box.right, box.bottom + 46};
+        desktopButton(b, 1, hover == SheetHit{Kind::action, static_cast<int>(Item::identify)} ? 1.0f : 0.0f, false, true, glyph::search, tr(L"Zidentyfikuj grę"));
+        if (ui.focus == Item::identify) desktopFocusRing(b, 8);
+        desktopModalHot({Kind::action, static_cast<int>(Item::identify)}, b);
+    }
     if (ui.launchOptions()) { textLine(ui.title, p.left + 22, y + 6, p.right - p.left - 44, desktop_strong_font_.Get(), palette::text()); y += subtitle; }
     for (int index = 0; index < custom_game_ui::field_count; ++index) {
         if (!ui.shows(index)) continue;
-        textLine(tr(labels[static_cast<size_t>(index)]), p.left + 22, y + 8, p.right - p.left - 44, desktop_label_font_.Get(), gray(0.62f));
+        textLine(tr(labels[static_cast<size_t>(index)]), p.left + 22, y + 8, fields_right - p.left - 22, desktop_label_font_.Get(), gray(0.62f));
         const bool browse = custom_game_ui::browseRow(index);
-        const float field_right = p.right - 22 - (browse ? 120.0f : 0.0f);
+        const float field_right = fields_right - (browse ? 120.0f : 0.0f);
         const Rect f{p.left + 22, y + 20, field_right, y + 60};
         const wchar_t* placeholder = index == custom_game_ui::directory_field ? tr(L"Domyślnie: folder pliku") :
             index == custom_game_ui::arguments_field && ui.launchOptions() ? tr(L"Np. -windowed -skipintro") : L"";
@@ -251,7 +279,7 @@ void Renderer::drawDesktopCustomEditor() {
                          ui.caret, focused_field == index, ui.selected, hover == SheetHit{Kind::field, index} ? 1.0f : 0.0f);
         desktopModalHot({Kind::field, index}, f);
         if (browse) {
-            const Rect b{field_right + 10, f.top, p.right - 22, f.bottom};
+            const Rect b{field_right + 10, f.top, fields_right, f.bottom};
             const Item item = index == custom_game_ui::file_field ? Item::file_browse : Item::directory_browse;
             desktopButton(b, 1, hover == SheetHit{Kind::tile_action, index} ? 1.0f : 0.0f, false, true, glyph::folder_open, tr(L"Wybierz"));
             if (ui.focus == item) desktopFocusRing(b, 8);
@@ -259,7 +287,7 @@ void Renderer::drawDesktopCustomEditor() {
         }
         y += field_step;
     }
-    if (!ui.error.empty()) { textLine(ui.error, p.left + 22, y + 6, p.right - p.left - 44, desktop_small_font_.Get(), palette::danger()); y += 26; }
+    if (!ui.error.empty()) { textLine(ui.error, p.left + 22, y + 6, fields_right - p.left - 22, desktop_small_font_.Get(), palette::danger()); y += 26; }
     const float by = p.bottom - 20 - 36;
     const auto button = [&](Item item, Rect r, int style, wchar_t icon, const std::wstring& label) {
         desktopButton(r, style, hover == SheetHit{Kind::action, static_cast<int>(item)} ? 1.0f : 0.0f, false, true, icon, label);
@@ -268,11 +296,11 @@ void Renderer::drawDesktopCustomEditor() {
     };
     button(Item::save, {p.right - 22 - 120, by, p.right - 22, by + 36}, 2, 0, tr(L"Zapisz"));
     button(Item::cancel, {p.right - 22 - 120 - 10 - 110, by, p.right - 22 - 130, by + 36}, 1, 0, tr(L"Anuluj"));
-    if (ui.editing()) {
-        const auto label = ui.confirm_remove ? std::wstring(tr(L"Potwierdź usunięcie")) : std::wstring(tr(L"Usuń"));
+    if (ui.editing()) { // Only the entry goes; the game's file stays.
+        const auto label = ui.confirm_remove ? std::wstring(tr(L"Potwierdź usunięcie")) : std::wstring(tr(L"Usuń z biblioteki"));
         const Rect r{p.left + 22, by, p.left + 22 + std::max(110.0f, textAdvance(label, desktop_button_font_.Get()) + 52), by + 36};
         button(Item::remove, r, 1, glyph::remove, label);
-        if (ui.confirm_remove) desktopStroke(r, 8, palette::danger(0.8f), 1.5f);
+        desktopStroke(r, 8, palette::danger(ui.confirm_remove ? 0.8f : 0.45f), ui.confirm_remove ? 1.5f : 1.0f);
     }
     desktop_modal_ = DialogKind::custom_editor;
     target_->SetTransform(saved);

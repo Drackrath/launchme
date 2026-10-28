@@ -258,7 +258,7 @@ int LauncherUiTest::customGames(HWND window) {
     app.customEditorKey(VK_RIGHT, false); // Moving away disarms it.
     if (editor.confirm_remove || editor.focus != Item::cancel) return 637;
     // Mouse: Cancel closes; the panel for a new game has no "Usuń".
-    const custom_game_ui::Layout layout{app.renderer_.viewport().width, app.renderer_.viewport().height};
+    const auto layout = custom_game_ui::Layout::of(editor, app.renderer_.viewport().width, app.renderer_.viewport().height);
     const auto cancel = layout.button(Item::cancel), remove = layout.button(Item::remove);
     if (layout.hit((remove.left + remove.right) * 0.5f, (remove.top + remove.bottom) * 0.5f, false) ||
         layout.hit((remove.left + remove.right) * 0.5f, (remove.top + remove.bottom) * 0.5f, true) != Item::remove) return 641;

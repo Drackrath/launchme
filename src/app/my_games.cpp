@@ -1,18 +1,24 @@
 // User-added games ("Moje gry"): custom-games.json, the worker that checks which files
 // exist, merging them into shelves/libraries, and the Settings → Library editor panel.
 #include "launcher.hpp"
+#include "launcher_internal.hpp"
 #include "../artwork/cover_cache.hpp"
 #include "../library/recent_games.hpp"
 #include "../library/view_options.hpp"
 #include "../platform/text_encoding.hpp"
 
 #include <algorithm>
+#include <cwctype>
 #include <optional>
 
 using custom_game_ui::Item;
+using custom_game_ui::Poster;
 
 namespace {
 std::filesystem::path customGamesFile() { return userConfigDirectory() / L"custom-games.json"; }
+// Posters matched for names typed in the editor, before any game holds them; emptied as it closes.
+std::filesystem::path posterPreviewCache() { return coverCacheDirectory().parent_path() / L"artwork" / L"editor-preview"; }
+constexpr uint64_t poster_delay_ms = 500; // The typed name rests this long before its poster is looked up.
 
 constexpr size_t field_limits[custom_game_ui::field_count]{
     custom_games::max_name, custom_games::max_path, custom_games::max_arguments, custom_games::max_path};
@@ -45,7 +51,7 @@ void Launcher::rebuildCustomLibrary() {
     custom_library_.clear();
     for (const auto& entry : custom_games_) {
         const auto found = custom_installed_.find(entry.id);
-        custom_library_.push_back(custom_games::makeGame(entry, found == custom_installed_.end() || found->second));
+        custom_library_.push_back(custom_games::makeGame(entry, found == custom_installed_.end() || found->second)); // No file: never installed.
     }
 }
 
@@ -61,7 +67,7 @@ void Launcher::refreshCustomGames() {
         for (const auto& [id, path] : files) {
             if (!alive->load() || token->load() != generation) return;
             std::error_code error;
-            message->installed[id] = std::filesystem::exists(path, error) && !error;
+            message->installed[id] = !path.empty() && std::filesystem::exists(path, error) && !error; // No file chosen: nothing to look for.
         }
         if (alive->load() && token->load() == generation &&
             PostMessageW(window, custom_games_message, 0, reinterpret_cast<LPARAM>(message.get()))) message.release();
@@ -124,22 +130,130 @@ void Launcher::forgetCustomArtwork(const Game& game, bool selections) {
 
 // --- Editor -----------------------------------------------------------------
 
-void Launcher::openCustomEditor(const std::string& id) {
+void Launcher::openCustomEditor(const std::string& id, std::optional<Item> focus) {
+    if (custom_editor_.open) closeCustomEditor(); // Another game's panel (its preview and a new game's identification go).
     custom_game_ui::State ui;
     if (!id.empty()) {
         const auto found = std::find_if(custom_games_.begin(), custom_games_.end(), [&](const auto& entry) { return entry.id == id; });
         if (found == custom_games_.end()) return;
         ui.id = id;
         ui.fields = {found->name, found->path.native(), found->arguments, found->directory.native()};
-    }
+        ui.art_name = found->name; // Its artwork was matched by this name.
+    } else ui.pending_id = custom_games::newId(custom_games_); // Zidentyfikuj grę keys a new game by it before it is saved.
     ui.open = true;
     // A new game starts at "Wybierz…": one press picks the file, the next one saves it.
-    ui.focus = id.empty() ? Item::file_browse : Item::name;
-    ui.caret = ui.fields[custom_game_ui::name_field].size();
+    ui.focus = focus ? *focus : id.empty() ? Item::file_browse : Item::name;
+    const int index = custom_game_ui::field(ui.focus);
+    ui.caret = ui.fields[index >= 0 ? index : custom_game_ui::name_field].size();
+    // The poster: at once for the name the panel opens with, then a moment after typing stops.
+    custom_poster_ = {};
+    custom_poster_name_ = custom_games::trim(ui.fields[custom_game_ui::name_field]);
+    ++custom_poster_generation_;
+    custom_poster_at_ = custom_poster_name_.empty() ? 0 : GetTickCount64();
+    ui.poster = custom_poster_name_.empty() ? Poster::none : Poster::loading;
     custom_editor_ = std::move(ui);
     // The Space/Enter that opened the panel already queued its WM_CHAR: it must not type.
     for (MSG typed{}; PeekMessageW(&typed, hwnd_, WM_CHAR, WM_CHAR, PM_REMOVE);) {}
+    pollCustomEditorPoster();
     audio_.context();
+    InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
+Game Launcher::customEditorGame() const {
+    using namespace custom_game_ui;
+    const auto& ui = custom_editor_;
+    custom_games::Entry entry;
+    entry.id = ui.gameId();
+    entry.name = custom_games::trim(ui.fields[name_field]).substr(0, custom_games::max_name);
+    entry.path = custom_games::cleanPath(ui.fields[file_field]);
+    entry.arguments = custom_games::trim(ui.fields[arguments_field]);
+    entry.directory = custom_games::cleanPath(ui.fields[directory_field]);
+    return custom_games::makeGame(entry, false); // Never resolves a shortcut here (makeGame does that only for found files).
+}
+
+void Launcher::pollCustomEditorPoster() {
+    auto& ui = custom_editor_;
+    if (!ui.open || !ui.posterShown()) return;
+    const auto name = custom_games::trim(ui.fields[custom_game_ui::name_field]);
+    const auto now = GetTickCount64();
+    if (name != custom_poster_name_) {
+        // Typed: the lookup waits until the name rests; an answer for an older name is dropped.
+        custom_poster_name_ = name;
+        ++custom_poster_generation_;
+        custom_poster_at_ = name.empty() ? 0 : now + poster_delay_ms;
+        if (name.empty()) { custom_poster_ = {}; ui.poster = Poster::none; }
+        else ui.poster = Poster::loading; // The last poster stays, dimmed, until the next one comes.
+        InvalidateRect(hwnd_, nullptr, FALSE);
+    }
+    if (!custom_poster_at_ || now < custom_poster_at_) return;
+    custom_poster_at_ = 0;
+    // The game's own artwork while the name is the one it belongs to (the saved name, or the one it
+    // was identified under); any other name is matched apart, so the game keeps its artwork until saved.
+    auto game = customEditorGame();
+    const bool own = !ui.gameId().empty() && !ui.art_name.empty() && name == ui.art_name;
+    if (!own) {
+        auto folded = name;
+        std::transform(folded.begin(), folded.end(), folded.begin(), [](wchar_t ch) { return static_cast<wchar_t>(std::towlower(ch)); });
+        constexpr char hex[] = "0123456789abcdef";
+        std::string id = "preview-";
+        auto value = static_cast<uint64_t>(std::hash<std::wstring>{}(folded));
+        for (int i = 0; i < 16; ++i, value >>= 4) id += hex[value & 15];
+        game.source_id = std::move(id);
+    }
+    const auto generation = ++custom_poster_generation_;
+    if (custom_poster_fetch_) { customEditorPosterFound(generation, name, custom_poster_fetch_(game, own)); return; } // Tests.
+    if (!runtime_started_) { ui.poster = Poster::missing; return; }
+    const auto deliver = [alive = alive_, window = hwnd_, generation, name](std::vector<uint8_t> bytes) {
+        if (!alive->load()) return;
+        auto message = std::make_unique<RemoteMessage>();
+        message->run = [generation, name, bytes = std::move(bytes)](Launcher& app) mutable { app.customEditorPosterFound(generation, name, std::move(bytes)); };
+        if (PostMessageW(window, remote_message, 0, reinterpret_cast<LPARAM>(message.get()))) message.release();
+    };
+    const bool started = work_.start([game, deliver, cache = own ? coverCacheDirectory() : posterPreviewCache()] {
+        HttpBudget budget(20000);
+        std::error_code ec;
+        std::filesystem::create_directories(cache, ec);
+        // SteamGridDB's 600×900 grid (or the Steam store's capsule) by title; a square cover stands in.
+        auto bytes = artworkForGame(game, ArtworkKind::poster, cache, {});
+        if (bytes.empty()) bytes = artworkForGame(game, ArtworkKind::cover, cache, {});
+        deliver(std::move(bytes));
+    }, [deliver](std::exception_ptr) { deliver({}); });
+    if (!started) ui.poster = Poster::missing;
+}
+
+void Launcher::customEditorPosterFound(uint64_t generation, std::wstring name, std::vector<uint8_t> bytes) {
+    auto& ui = custom_editor_;
+    if (!ui.open || generation != custom_poster_generation_ || name != custom_poster_name_) return;
+    custom_poster_ = bytes.empty() ? ImageBytes{} : shareImage(std::move(bytes));
+    ui.poster = custom_poster_ ? Poster::shown : Poster::missing;
+    InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
+void Launcher::customEditorIdentify() {
+    auto& ui = custom_editor_;
+    if (!ui.open || !ui.posterShown()) return;
+    const auto game = customEditorGame();
+    if (game.name.empty()) {
+        ui.error = tr(L"Wpisz nazwę gry (do 200 znaków).");
+        customEditorFocus(Item::name);
+        InvalidateRect(hwnd_, nullptr, FALSE);
+        return;
+    }
+    if (game.source_id.empty()) { ui.error = tr(L"Nie udało się utworzyć identyfikatora gry."); InvalidateRect(hwnd_, nullptr, FALSE); return; }
+    openIdentifyFor(game); // Over the panel; the panel waits beneath it.
+}
+
+void Launcher::customEditorIdentified(const std::string& key) {
+    auto& ui = custom_editor_;
+    if (!ui.open || !ui.posterShown() || ui.gameId().empty() || key != "custom:" + ui.gameId()) return;
+    // The artwork the identification stored is the game's for the name it was identified under.
+    ui.art_name = custom_games::trim(ui.fields[custom_game_ui::name_field]);
+    if (!ui.editing()) ui.identified_new = true;
+    custom_poster_name_ = ui.art_name;
+    ++custom_poster_generation_;
+    custom_poster_at_ = GetTickCount64();
+    ui.poster = Poster::loading;
+    pollCustomEditorPoster();
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
@@ -189,6 +303,18 @@ std::wstring Launcher::launchArguments(const Game& game) const {
 }
 
 void Launcher::closeCustomEditor() {
+    const auto& ui = custom_editor_;
+    if (ui.identified_new && !ui.pending_id.empty()) {
+        // A new game identified, then not saved: what the identification stored under its key goes.
+        auto game = customEditorGame();
+        forgetCustomArtwork(game, true);
+        rawg_metadata_.erase(gameKey(game));
+        std::error_code ec;
+        std::filesystem::remove(userConfigDirectory() / L"metadata" / (gameCacheKey(game) + ".rawg.json"), ec);
+    }
+    if (ui.posterShown() && ui.open && runtime_started_) // Posters matched for typed names are not kept.
+        work_.start([cache = posterPreviewCache()] { std::error_code ec; std::filesystem::remove_all(cache, ec); });
+    custom_poster_ = {}; custom_poster_name_.clear(); custom_poster_at_ = 0; ++custom_poster_generation_;
     custom_editor_ = {};
     mouse_transition_until_ = GetTickCount64() + GetDoubleClickTime();
     InvalidateRect(hwnd_, nullptr, FALSE);
@@ -196,7 +322,8 @@ void Launcher::closeCustomEditor() {
 
 void Launcher::customEditorFocus(Item item) {
     auto& ui = custom_editor_;
-    if (!ui.open || ui.focus == item || (item == Item::remove && !ui.editing())) return;
+    if (!ui.open || ui.focus == item || (item == Item::remove && !ui.editing()) || (item == Item::identify && !ui.posterShown())) return;
+    if (item == Item::identify) ui.identify_from = ui.focus;
     if (const int row = custom_game_ui::row(item); row < custom_game_ui::field_count && !ui.shows(row)) return;
     ui.focus = item;
     ui.selected = ui.confirm_remove = false;
@@ -208,7 +335,13 @@ void Launcher::customEditorFocus(Item item) {
 void Launcher::customEditorMove(int horizontal, int vertical) {
     const auto focus = custom_editor_.focus;
     auto next = focus;
-    if (vertical) {
+    const bool poster = custom_editor_.posterShown();
+    if (focus == Item::identify) {
+        // The poster's column: Left back to the row it was reached from, Down to the bottom buttons.
+        if (horizontal < 0) next = custom_editor_.identify_from == Item::identify ? Item::name : custom_editor_.identify_from;
+        else if (vertical > 0) next = Item::save;
+        else { navigationBoundary(); return; }
+    } else if (vertical) {
         // Rows the panel leaves out (launch options) are passed over.
         int row = custom_game_ui::row(focus);
         do row += vertical; while (row >= 0 && row < custom_game_ui::field_count && !custom_editor_.shows(row));
@@ -224,11 +357,13 @@ void Launcher::customEditorMove(int horizontal, int vertical) {
         }
     } else if (horizontal) {
         const bool forward = horizontal > 0;
+        // The rightmost item of a field row continues to "Zidentyfikuj grę" under the poster.
         switch (focus) {
+        case Item::name: case Item::arguments: if (forward && poster) next = Item::identify; break;
         case Item::file: if (forward) next = Item::file_browse; break;
-        case Item::file_browse: if (!forward) next = Item::file; break;
+        case Item::file_browse: next = forward ? (poster ? Item::identify : focus) : Item::file; break;
         case Item::directory: if (forward) next = Item::directory_browse; break;
-        case Item::directory_browse: if (!forward) next = Item::directory; break;
+        case Item::directory_browse: next = forward ? (poster ? Item::identify : focus) : Item::directory; break;
         case Item::remove: if (forward) next = Item::cancel; break;
         case Item::cancel: next = forward ? Item::save : custom_editor_.editing() ? Item::remove : Item::cancel; break;
         case Item::save: if (!forward) next = Item::cancel; break;
@@ -288,6 +423,7 @@ void Launcher::customEditorKey(WPARAM key, bool repeated) {
         std::vector<Item> order;
         for (const auto item : {Item::name, Item::file, Item::file_browse, Item::arguments, Item::directory, Item::directory_browse})
             if (ui.shows(custom_game_ui::row(item))) order.push_back(item);
+        if (ui.posterShown()) order.push_back(Item::identify);
         if (ui.editing()) order.push_back(Item::remove);
         order.push_back(Item::cancel); order.push_back(Item::save);
         const auto position = static_cast<int>(std::find(order.begin(), order.end(), ui.focus) - order.begin());
@@ -309,6 +445,7 @@ void Launcher::customEditorAccept() {
     case Item::directory_browse: customEditorBrowse(true); break;
     case Item::save: customEditorSave(); break;
     case Item::cancel: closeCustomEditor(); break;
+    case Item::identify: customEditorIdentify(); break;
     case Item::remove:
         if (ui.confirm_remove) { customEditorRemove(); break; }
         ui.confirm_remove = true;
@@ -412,7 +549,10 @@ void Launcher::customEditorSave() {
     if (ui.editing() && existing == custom_games_.end()) { closeCustomEditor(); return; } // Removed meanwhile.
     if (!ui.editing() && custom_games_.size() >= custom_games::max_games) { fail(tr(L"Osiągnięto limit gier: ") + std::to_wstring(custom_games::max_games), Item::save); return; }
     custom_games::Entry entry;
-    entry.id = ui.editing() ? ui.id : custom_games::newId(custom_games_);
+    // A new game keeps the ID it was opened with (its identification is stored under it).
+    const bool pending_free = custom_games::validId(ui.pending_id) &&
+        std::none_of(custom_games_.begin(), custom_games_.end(), [&](const auto& item) { return item.id == ui.pending_id; });
+    entry.id = ui.editing() ? ui.id : pending_free ? ui.pending_id : custom_games::newId(custom_games_);
     entry.name = custom_games::trim(ui.fields[name_field]);
     entry.path = custom_games::cleanPath(ui.fields[file_field]);
     entry.arguments = custom_games::trim(ui.fields[arguments_field]);
@@ -435,8 +575,9 @@ void Launcher::customEditorSave() {
     custom_games_ = std::move(next);
     // A new file is assumed present until the worker has checked it.
     if (!previous || previous->play_action.target != entry.path.native()) custom_installed_.erase(entry.id);
-    // Artwork was matched by title: a new name is matched again (the user's picks stay).
-    if (previous && previous->name != entry.name) forgetCustomArtwork(*previous, false);
+    // Artwork was matched by title (or identified as one): a new name is matched again (the user's picks stay).
+    if (!ui.art_name.empty() && ui.art_name != entry.name) forgetCustomArtwork(previous ? *previous : custom_games::makeGame(entry, false), false);
+    ui.identified_new = false; // Saved: its identification stays with it.
     closeCustomEditor();
     applyCustomGames();
     if (settingsOpen() && settings_state_.category == static_cast<int>(settings_ui::Category::library)) {
@@ -467,6 +608,8 @@ void Launcher::launchEditorSave() {
     check.path = ui.target == Target::drm_free ? custom_games::cleanPath(ui.fields[file_field]) : std::wstring(L"C:\\steam");
     check.arguments = custom_games::trim(ui.fields[arguments_field]);
     if (ui.target == Target::drm_free) check.directory = custom_games::cleanPath(ui.fields[directory_field]);
+    // A DRM-free game is its folder's file: unlike a game added by hand, it always has one.
+    if (check.path.empty()) { fail(tr(L"Wybierz plik gry lub wpisz jego pełną ścieżkę."), Item::file); return; }
     switch (custom_games::validate(check)) {
     case custom_games::Problem::path: fail(tr(L"Wybierz plik gry lub wpisz jego pełną ścieżkę."), Item::file); return;
     case custom_games::Problem::arguments: fail(tr(L"Opcje uruchamiania: jedna linia, do 2000 znaków."), Item::arguments); return;
@@ -506,14 +649,19 @@ void Launcher::customEditorRemove() {
     auto& ui = custom_editor_;
     const auto existing = std::find_if(custom_games_.begin(), custom_games_.end(), [&](const auto& entry) { return entry.id == ui.id; });
     if (!ui.editing() || existing == custom_games_.end()) { closeCustomEditor(); return; }
-    auto next = custom_games_;
-    next.erase(next.begin() + (existing - custom_games_.begin()));
-    if (!custom_games::save(next, customGamesFile())) {
+    if (!removeCustomGame(ui.id)) {
         ui.error = tr(L"Nie udało się zapisać listy gier.");
         ui.confirm_remove = false;
         InvalidateRect(hwnd_, nullptr, FALSE);
-        return;
     }
+}
+
+bool Launcher::removeCustomGame(const std::string& id) {
+    const auto existing = std::find_if(custom_games_.begin(), custom_games_.end(), [&](const auto& entry) { return entry.id == id; });
+    if (existing == custom_games_.end()) return true; // Gone already.
+    auto next = custom_games_;
+    next.erase(next.begin() + (existing - custom_games_.begin()));
+    if (!custom_games::save(next, customGamesFile())) return false;
     const auto game = custom_games::makeGame(*existing, true);
     custom_games_ = std::move(next);
     custom_installed_.erase(game.source_id);
@@ -522,14 +670,32 @@ void Launcher::customEditorRemove() {
     if (library_state_.first_seen.erase(gameKey(game)) + library_state_.last_played.erase(recent_games::historyKey(game, account_, gog_state_.account)) +
         library_state_.hidden.erase(gameKey(game)))
         library_state_dirty_ = true;
-    closeCustomEditor();
+    if (custom_editor_.open && custom_editor_.id == id) closeCustomEditor();
     applyCustomGames();
     audio_.context();
+    return true;
+}
+
+// "Usuń z biblioteki" in the game's menu (Tryb TV, its Details' "…" and the desktop window): only the
+// entry goes, never the game's file; while it runs or is suspended it stays.
+bool Launcher::canRemoveFromLibrary(const Game& game) const {
+    return game.source == GameSource::custom && game.kind == GameKind::store && !game.source_id.empty() &&
+           std::any_of(custom_games_.begin(), custom_games_.end(), [&](const auto& entry) { return entry.id == game.source_id; });
+}
+
+void Launcher::askRemoveFromLibrary(const Game& game) {
+    if (!canRemoveFromLibrary(game) || sessionState(game) != SessionState::none) return;
+    dismissMenu();
+    remove_game_ = game;
+    prompt_kind_ = PromptKind::remove;
+    exit_prompt_ = 1; // "Edytuj grę…" is the safe default; Usuń z biblioteki is one step up.
+    audio_.context();
+    InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
 void Launcher::customEditorClick(float x, float y) {
     const auto view = renderer_.viewport();
-    const auto hit = custom_game_ui::Layout{view.width, view.height, custom_editor_.hidden()}.hit(x, y, custom_editor_.editing());
+    const auto hit = custom_game_ui::Layout::of(custom_editor_, view.width, view.height).hit(x, y, custom_editor_.editing());
     if (!hit) return;
     customEditorFocus(*hit);
     if (custom_game_ui::field(*hit) < 0) customEditorAccept();

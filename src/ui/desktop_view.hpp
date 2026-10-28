@@ -96,7 +96,7 @@ enum class Action {
     none, play, suspend, close_game, details, favorite, collections, collection_toggle, collection_new, collection_manage,
     versions, artwork, retry_art, missing_art, identify, folder, hide, exclude, plugin, sort, section_rename, section_games,
     section_options, section_delete, section_up, section_down, section_tv, section_hide, clear_marks, select_all, store_page, downloads, metadata, companion_change, companion_mind,
-    companion_settings, uninstall, launch_options, aurelia, steam_account
+    companion_settings, uninstall, launch_options, aurelia, steam_account, remove_game
 };
 struct MenuItem {
     Action action = Action::none;
@@ -249,7 +249,8 @@ struct QuickLayout {
 // ---- Edytuj metadane: the player's own title and details (src/app/desktop_metadata.cpp) -----
 
 inline constexpr int meta_fields = 8; // Tytuł, Opis, Producent, Wydawca, Data premiery, Gatunki, Czas przejścia, Czas gry.
-enum class MetaItem { title, description, developer, publisher, release_date, genres, hours, playtime, save, restore, cancel, close };
+// identify: Zidentyfikuj, the game's match in RAWG (and its artwork) over the dialog.
+enum class MetaItem { title, description, developer, publisher, release_date, genres, hours, playtime, save, restore, cancel, close, identify };
 struct MetaView {
     bool open = false;
     std::wstring game;                           // Its name when the dialog opened.
@@ -261,6 +262,7 @@ struct MetaView {
     bool selected = false;                       // Ctrl+A: typing replaces the field.
     int hover = -1;
     bool overridden = false;                     // Przywróć automatyczne has something to undo.
+    bool identify = false;                       // Zidentyfikuj is offered (not for Steam's own games).
     bool pad = false;                            // Tryb TV: the pad's hint under the heading.
 };
 struct MetaLayout {
@@ -293,13 +295,15 @@ struct MetaLayout {
         const auto p = panel();
         const float y = p.bottom - 24 - button_h;
         if (item == MetaItem::restore) return {p.left + 24, y, p.left + 24 + 230, y + button_h};
+        if (item == MetaItem::identify) return {p.left + 24 + 230 + 12, y, p.left + 24 + 230 + 12 + 132, y + button_h};
         if (item == MetaItem::cancel) return {p.right - 24 - 116, y, p.right - 24, y + button_h};
         return {p.right - 24 - 116 - 12 - 132, y, p.right - 24 - 116 - 12, y + button_h}; // Zapisz.
     }
-    int hit(float x, float y) const {
+    int hit(float x, float y, bool identify = false) const {
         if (close().contains(x, y)) return static_cast<int>(MetaItem::close);
         for (int i = 0; i < meta_fields; ++i) if (field(i).contains(x, y)) return i;
         for (const auto item : {MetaItem::save, MetaItem::restore, MetaItem::cancel}) if (button(item).contains(x, y)) return static_cast<int>(item);
+        if (identify && button(MetaItem::identify).contains(x, y)) return static_cast<int>(MetaItem::identify);
         return -1;
     }
 };

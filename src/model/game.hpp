@@ -131,6 +131,11 @@ inline std::wstring artworkTitle(const Game& game) {
 // Games launched straight from a file on disk (user-added or found in DRM-free folders):
 // not installed means the file is missing, never "install".
 inline bool localFileGame(GameSource source) { return source == GameSource::custom || source == GameSource::drmfree; }
+// A game added by hand without its file yet (one to play next, or one played elsewhere): its action
+// asks for the file ("Wskaż plik") instead of reporting it missing.
+inline bool fileNotChosen(const Game& game) { return game.source == GameSource::custom && !game.source_id.empty() && game.play_action.target.empty(); }
+inline const wchar_t* missingFileLabel(const Game& game) { return fileNotChosen(game) ? tr(L"Wskaż plik") : tr(L"Brak pliku"); }
+inline const wchar_t* missingFileBadge(const Game& game) { return fileNotChosen(game) ? tr(L"WSKAŻ PLIK") : tr(L"BRAK PLIKU"); }
 
 // Stand-in names of Steam titles whose name is not known yet. They are stored in
 // Game::name in the active language, so checks accept either language.
@@ -180,7 +185,7 @@ inline const wchar_t* primaryActionLabel(const Game& game) {
         game.source == GameSource::epic ? tr(L"Instalacja Epic") : game.source == GameSource::amazon ? tr(L"Instalacja Amazon") :
         game.source == GameSource::battlenet ? tr(L"Instalacja Battle.net") : tr(L"Pobieranie w Steam");
     if (game.installed) return tr(L"Uruchom");
-    if (localFileGame(game.source)) return tr(L"Brak pliku");
+    if (localFileGame(game.source)) return missingFileLabel(game);
     if (game.source == GameSource::gog && !game.account_id.empty()) return tr(L"Instaluj");
     if (game.source == GameSource::gog && game.install_action.target.starts_with(L"https://")) return tr(L"Otwórz GOG");
     return game.source != GameSource::steam && game.install_action.kind == ActionKind::open_client ?

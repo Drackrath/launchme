@@ -130,6 +130,7 @@ void Renderer::drawContextMenu() {
     context_menu::Rows rows{context_->menu_suspend, static_cast<int>(context_->menu_plugins.size()), context_->menu_session,
                             context_->menu_detail_options, context_->menu_folder, context_->menu_exclude, context_->menu_hide, context_->psfive};
     rows.uninstall = context_->menu_uninstall;
+    rows.remove = context_->menu_remove;
     rows.launch = context_->menu_launch;
     rows.metadata = context_->menu_metadata;
     rows.aurelia = context_->menu_aurelia;
@@ -168,7 +169,8 @@ void Renderer::drawContextMenu() {
         case context_menu::Item::hide: return context_->menu_hidden ? tr(L"Pokaż") : tr(L"Ukryj");
         case context_menu::Item::exclude: return tr(L"Wyklucz");
         case context_menu::Item::uninstall: return tr(L"Odinstaluj");
-        case context_menu::Item::launch: return tr(L"Opcje uruchamiania");
+        case context_menu::Item::launch: return context_->menu_edit_game ? tr(L"Edytuj grę") : tr(L"Opcje uruchamiania");
+        case context_menu::Item::remove: return tr(L"Usuń z biblioteki");
         case context_menu::Item::metadata: return tr(L"Edytuj metadane");
         case context_menu::Item::aurelia: return tr(L"Zarządzaj · Aurelia");
         case context_menu::Item::steam_account: return account_label.c_str();
@@ -183,8 +185,8 @@ void Renderer::drawContextMenu() {
         const float row_y = y + 8 + row * 53.0f;
         const auto entry = context_menu::item(row, rows);
         // "Zamknij grę" and "Odinstaluj" are destructive: a soft red, as used for save errors in Settings.
-        const bool destructive = entry == context_menu::Item::close || entry == context_menu::Item::uninstall;
-        if (entry == context_menu::Item::uninstall && row > 0) {
+        const bool destructive = entry == context_menu::Item::close || entry == context_menu::Item::uninstall || entry == context_menu::Item::remove;
+        if ((entry == context_menu::Item::uninstall || entry == context_menu::Item::remove) && row > 0) {
             // Set apart from the rows above by a hairline, the way the desktop menu separates it.
             brush(color(0.90f, 0.90f, 0.90f, 0.12f * alpha));
             target_->FillRectangle(D2D1::RectF(x + 26, row_y - 2.5f, x + width - 26, row_y - 1.5f), solid_.Get());

@@ -20,7 +20,7 @@ inline constexpr size_t max_games = 500;
 struct Entry {
     std::string id;                  // 16 lowercase hex digits: Game::source_id, stable across renames.
     std::wstring name;
-    std::filesystem::path path;      // Anything ShellExecute opens: .exe, .lnk, .bat/.cmd, .url...
+    std::filesystem::path path;      // Anything ShellExecute opens: .exe, .lnk, .bat/.cmd, .url...; empty: no file chosen yet.
     std::wstring arguments;
     std::filesystem::path directory; // Working directory; empty = the file's folder.
     bool operator==(const Entry&) const = default;
@@ -46,7 +46,8 @@ std::string newId(const std::vector<Entry>& existing);
 
 std::filesystem::path workingDirectory(const Entry& entry);
 GameAction action(const Entry& entry);
-// A library game: GameSource::custom, key "custom:<id>". Only a found file is playable.
+// A library game: GameSource::custom, key "custom:<id>". Only a found file is playable; without a
+// file the game has no action (fileNotChosen) and asks for one.
 Game makeGame(const Entry& entry, bool installed);
 
 // A missing file is an empty, readable list. An unreadable one is copied to

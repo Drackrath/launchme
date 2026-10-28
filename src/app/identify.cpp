@@ -212,6 +212,7 @@ void Launcher::onIdentify(std::unique_ptr<IdentifyMessage> message) {
         }
         if (game.source == GameSource::drmfree) drmIdentified(game, rawg_metadata_[key]);
         closeIdentify(); audio_.context();
+        customEditorIdentified(key); // Opened from Dodaj / Edytuj grę: its poster is the identified game's now.
         requestVisibleArt(); // Posters and wide tiles the views show (the desktop grid's) load again.
         if (!message->artwork.error.empty()) showNotification(NotificationKind::launch, tr(L"Metadane zapisane"), message->artwork.error);
     }

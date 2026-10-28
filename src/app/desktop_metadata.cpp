@@ -194,9 +194,11 @@ void Launcher::desktopMetaOpen(const Game& game) {
     } else meta.playtime_note = tr(L"Steam: czas gry jeszcze się wczytuje");
     meta.shown = meta.fields;
     meta.overridden = metadataOverride(game) != nullptr;
+    meta.identify = !steamArtwork(game); // Steam's own games are identified by their AppID already.
     meta.caret = meta.fields[0].size();
     meta.pad = !desktop_mode_;
     desktop_meta_key_ = gameKey(game);
+    desktop_meta_game_ = game;
     MSG pending; // The key that opened it must not type into the title.
     while (PeekMessageW(&pending, hwnd_, WM_CHAR, WM_CHAR, PM_REMOVE)) {}
     InvalidateRect(hwnd_, nullptr, FALSE);
@@ -206,6 +208,7 @@ void Launcher::desktopMetaClose() {
     if (!desktop_meta_.open) return;
     desktop_meta_ = {};
     desktop_meta_key_.clear();
+    desktop_meta_game_ = {};
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
@@ -277,6 +280,14 @@ void Launcher::desktopMetaActivate(int item) {
         return;
     }
     case MetaItem::cancel: case MetaItem::close: desktopMetaClose(); return;
+    case MetaItem::identify: {
+        // The game's match in RAWG (its details and artwork), in place of this dialog: what was typed here is not kept.
+        if (!desktop_meta_.identify) return;
+        const auto game = desktop_meta_game_;
+        desktopMetaClose();
+        openIdentifyFor(game);
+        return;
+    }
     default: return;
     }
 }
@@ -315,9 +326,14 @@ bool Launcher::desktopMetaKey(WPARAM key) {
     if (text) meta.caret = std::min(meta.caret, text->size());
     switch (key) {
     case VK_ESCAPE: desktopMetaClose(); return true;
-    case VK_TAB: { // The fields, then Zapisz, Przywróć automatyczne and Anuluj.
-        constexpr int count = meta_fields + 3;
-        meta.focus = (meta.focus + (shift ? count - 1 : 1)) % count;
+    case VK_TAB: { // The fields, then Zapisz, Przywróć automatyczne, Anuluj and Zidentyfikuj.
+        std::vector<int> order;
+        for (int i = 0; i < meta_fields; ++i) order.push_back(i);
+        for (const auto item : {MetaItem::save, MetaItem::restore, MetaItem::cancel}) order.push_back(static_cast<int>(item));
+        if (meta.identify) order.push_back(static_cast<int>(MetaItem::identify));
+        const auto at = std::find(order.begin(), order.end(), meta.focus);
+        const int count = static_cast<int>(order.size()), position = at == order.end() ? 0 : static_cast<int>(at - order.begin());
+        meta.focus = order[static_cast<size_t>((position + (shift ? count - 1 : 1)) % count)];
         meta.selected = false;
         if (meta.focus < meta_fields) meta.caret = meta.fields[static_cast<size_t>(meta.focus)].size();
         break;
@@ -369,7 +385,7 @@ bool Launcher::desktopMetaPointer(float mouse_x, float mouse_y, bool press, bool
     const auto view = renderer_.desktopViewport();
     const float scale = desktopScale();
     const MetaLayout layout{view.width, view.height};
-    const int hit = layout.hit(mouse_x / scale, mouse_y / scale);
+    const int hit = layout.hit(mouse_x / scale, mouse_y / scale, meta.identify);
     if (!press) {
         if (hit != meta.hover) { meta.hover = hit; InvalidateRect(hwnd_, nullptr, FALSE); }
         return true;
@@ -404,11 +420,12 @@ void Launcher::openMetadata(const Game& game) {
 
 namespace {
 // Rows of the dialog as drawn: Tytuł; Opis; Producent | Wydawca; Data premiery | Czas przejścia | Gatunki;
-// Czas gry; Przywróć | Zapisz | Anuluj.
-const std::vector<std::vector<int>>& metaRows() {
-    static const std::vector<std::vector<int>> rows{
-        {0}, {1}, {2, 3}, {4, 6, 5}, {7},
-        {static_cast<int>(MetaItem::restore), static_cast<int>(MetaItem::save), static_cast<int>(MetaItem::cancel)}};
+// Czas gry; Przywróć | Zidentyfikuj | Zapisz | Anuluj.
+std::vector<std::vector<int>> metaRows(bool identify) {
+    std::vector<std::vector<int>> rows{{0}, {1}, {2, 3}, {4, 6, 5}, {7}, {static_cast<int>(MetaItem::restore)}};
+    if (identify) rows.back().push_back(static_cast<int>(MetaItem::identify));
+    rows.back().push_back(static_cast<int>(MetaItem::save));
+    rows.back().push_back(static_cast<int>(MetaItem::cancel));
     return rows;
 }
 }
@@ -417,7 +434,7 @@ void Launcher::metadataKey(WPARAM key, bool repeated) {
     auto& meta = desktop_meta_;
     if (!metadataOpen()) return;
     const bool field = meta.focus >= 0 && meta.focus < meta_fields;
-    const auto& rows = metaRows();
+    const auto rows = metaRows(meta.identify);
     int row = 0, column = 0;
     for (int r = 0; r < static_cast<int>(rows.size()); ++r)
         for (int c = 0; c < static_cast<int>(rows[static_cast<size_t>(r)].size()); ++c)
@@ -460,7 +477,7 @@ void Launcher::metadataKey(WPARAM key, bool repeated) {
 void Launcher::metadataClick(float x, float y) {
     if (!metadataOpen()) return;
     const auto view = renderer_.viewport();
-    const int hit = MetaLayout{view.width, view.height}.hit(x, y); // Logical coordinates.
+    const int hit = MetaLayout{view.width, view.height}.hit(x, y, desktop_meta_.identify); // Logical coordinates.
     if (hit < 0) return; // Outside: it stays.
     if (hit < meta_fields) {
         desktop_meta_.focus = hit;
@@ -475,6 +492,6 @@ void Launcher::metadataClick(float x, float y) {
 void Launcher::metadataPointer(float x, float y) {
     if (!metadataOpen()) return;
     const auto view = renderer_.viewport();
-    const int hit = MetaLayout{view.width, view.height}.hit(x, y); // Logical coordinates.
+    const int hit = MetaLayout{view.width, view.height}.hit(x, y, desktop_meta_.identify); // Logical coordinates.
     if (hit != desktop_meta_.hover) { desktop_meta_.hover = hit; InvalidateRect(hwnd_, nullptr, FALSE); }
 }

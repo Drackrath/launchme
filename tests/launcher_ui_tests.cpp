@@ -109,6 +109,7 @@ public:
     static int modalLayers(HWND window);
     static int language(HWND window);
     static int customGames(HWND window);
+    static int manualGames(HWND window); // manual_games_ui_cases.hpp
     static int fileBrowserAndColors(HWND window);
     static int dashboard(HWND window);
     static int screensaver(HWND window);
@@ -2021,6 +2022,7 @@ int LauncherUiTest::language(HWND window) {
 #include "organization_ui_cases.hpp"
 #include "excluded_games_ui_cases.hpp"
 #include "uninstall_ui_cases.hpp"
+#include "manual_games_ui_cases.hpp"
 #include "hltb_ui_cases.hpp"
 #include "plugin_achievements_ui_cases.hpp"
 #include "render_layering_ui_cases.hpp"
@@ -2242,6 +2244,15 @@ int main(int argc, char** argv) {
         if (code) std::cerr << "Organization regression: " << code << '\n';
         return code;
     }
+    if (argc == 2 && std::string_view(argv[1]) == "--manual-games") {
+        std::filesystem::create_directories(root);
+        const auto code = window ? LauncherUiTest::manualGames(window) : 99;
+        if (window) DestroyWindow(window);
+        CoUninitialize();
+        if (code) std::cerr << "Games added by hand regression: " << code << '\n';
+        else std::cout << "Games added by hand: no file, poster, identify, remove from library passed\n";
+        return code;
+    }
     if (argc == 2 && std::string_view(argv[1]) == "--uninstall") {
         std::filesystem::create_directories(root);
         const auto code = window ? LauncherUiTest::uninstallGames(window) : 99;
@@ -2363,6 +2374,7 @@ int main(int argc, char** argv) {
     if (!code && !profiling) code = LauncherUiTest::modalLayers(window);
     if (!code && !profiling) code = LauncherUiTest::language(window);
     if (!code && !profiling) code = LauncherUiTest::customGames(window);
+    if (!code && !profiling) code = LauncherUiTest::manualGames(window);
     if (!code && !profiling) code = LauncherUiTest::dashboard(window);
     if (!code && !profiling) code = LauncherUiTest::screensaver(window);
     if (!code && !profiling) code = LauncherUiTest::controllerFamilies(window);

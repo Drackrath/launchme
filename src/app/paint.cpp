@@ -270,6 +270,9 @@ void Launcher::paint(bool overlay) {
     context.menu_exclude = menu_rows.exclude;
     context.menu_hide = menu_rows.hide;
     context.menu_uninstall = menu_rows.uninstall;
+    context.menu_remove = menu_rows.remove;
+    // A game added by hand: its launch options are the game's own editor.
+    context.menu_edit_game = selected_ < cards_.size() && cards_[selected_].game.source == GameSource::custom;
     context.menu_launch = menu_rows.launch;
     context.menu_metadata = menu_rows.metadata;
     context.menu_aurelia = menu_rows.aurelia;
@@ -296,6 +299,10 @@ void Launcher::paint(bool overlay) {
     if (exit_prompt_ && prompt_kind_ == PromptKind::uninstall) {
         context.prompt_question = std::wstring(tr(L"Odinstalować grę?")) + L" " + uninstall_game_.name;
         context.prompt_labels = {std::wstring(tr(L"Odinstaluj")), std::wstring(tr(L"Otwórz folder gry")), std::wstring(tr(L"Anuluj"))};
+    }
+    if (exit_prompt_ && prompt_kind_ == PromptKind::remove) {
+        context.prompt_question = std::wstring(tr(L"Usunąć z biblioteki?")) + L" " + remove_game_.name;
+        context.prompt_labels = {std::wstring(tr(L"Usuń z biblioteki")), std::wstring(tr(L"Edytuj grę…")), std::wstring(tr(L"Anuluj"))};
     }
     if (exit_prompt_ && prompt_kind_ == PromptKind::move_videos) {
         const auto megabytes = std::to_wstring((video_move_bytes_ + 512 * 1024) / (1024 * 1024));
@@ -544,7 +551,7 @@ void Launcher::paint(bool overlay) {
     if (profile_.open || profile_.alpha > 0.003f) { context.profile = &profile_; context.hint_device = hintDevice(); }
     if (whats_new_.open) context.whats_new = &whats_new_;
     if (aurelia_ui_.open) context.aurelia = &aurelia_ui_;
-    if (customEditorOpen()) context.custom_editor = &custom_editor_;
+    if (customEditorOpen()) { context.custom_editor = &custom_editor_; context.custom_poster = custom_poster_; }
     if (metadataOpen()) context.tv_meta = &desktop_meta_;
     if (fileBrowserOpen()) context.file_browser = &file_browser_;
     if (color_editor_.open && settingsOpen()) context.color_editor = &color_editor_;

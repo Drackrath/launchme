@@ -66,7 +66,8 @@ bool validId(std::string_view id) {
 
 Problem validate(const Entry& entry) {
     if (entry.name.size() > max_name || trim(entry.name).empty() || !plainText(entry.name)) return Problem::name;
-    if (!validPath(entry.path, true)) return Problem::path;
+    // No file yet is fine (a game to play next, or one played elsewhere): listed, not playable.
+    if (!entry.path.empty() && !validPath(entry.path, true)) return Problem::path;
     if (entry.arguments.size() > max_arguments || !plainText(entry.arguments)) return Problem::arguments;
     if (!entry.directory.empty() && !validPath(entry.directory, false)) return Problem::directory;
     return Problem::none;
@@ -163,15 +164,15 @@ Game makeGame(const Entry& entry, bool installed) {
     game.source = GameSource::custom;
     game.source_id = entry.id;
     game.name = entry.name;
-    game.installed = installed;
-    game.play_action = action(entry);
+    game.installed = installed && !entry.path.empty();
+    if (!entry.path.empty()) game.play_action = action(entry);
     // "Otwórz folder" uses the working directory; process tracking for custom
     // games uses only executable, never ownership of this possibly shared folder.
     game.install_directory = workingDirectory(entry);
     auto extension = entry.path.extension().native();
     std::transform(extension.begin(), extension.end(), extension.begin(), [](wchar_t ch) { return static_cast<wchar_t>(std::towlower(ch)); });
     if (extension == L".exe") game.executable = entry.path;
-    else if (extension == L".lnk" && installed) {
+    else if (extension == L".lnk" && game.installed) {
         auto target = shortcutTarget(entry.path);
         auto target_extension = target.extension().native();
         std::transform(target_extension.begin(), target_extension.end(), target_extension.begin(), [](wchar_t ch) { return static_cast<wchar_t>(std::towlower(ch)); });

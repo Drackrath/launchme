@@ -89,6 +89,10 @@ Settings → System → Help → **Open folder** (the version row) opens it.
   EA and Battle.net libraries imported from their store pages (no EA app needed: sign in on ea.com,
   paste the token page), Ubisoft from the signed-in client, DRM-free folders, and MultiMC / Prism Launcher
   instances as games. Every platform, Steam included, can be switched off.
+- **Games added by hand** (Settings → Library → *Manually added games* → **Add game**): any program, shortcut or
+  script, or no file at all, for a game to play next or one played elsewhere; such a game reads **Choose file** and
+  opens its editor at the file. The editor shows the poster its name finds as you type, with **Identify game** under it;
+  **Remove from library** (the game's menu, in red, after a question) removes the entry, never the game's files.
 - **Extended Aurelia integration** (Windows, optional, off by default): install/update the latest x64 helper
   from Settings → Library → Steam → *Manage Aurelia*. It manages only the games you choose (or all, by default)
   and adds managed Steam downloads, cloud-save status and conflict

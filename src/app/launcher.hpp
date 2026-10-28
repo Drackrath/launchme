@@ -1487,7 +1487,22 @@ private:
     void rebuildCustomLibrary();
     void applyCustomGames();
     void forgetCustomArtwork(const Game& game, bool selections);
-    void openCustomEditor(const std::string& id);
+    // `focus`: where the panel opens (a new game: "Wybierz…"; an existing one: its name).
+    void openCustomEditor(const std::string& id, std::optional<custom_game_ui::Item> focus = std::nullopt);
+    // The edited game as the library would hold it (its key: the saved ID or, while adding, the one
+    // it will be saved under), named as typed: the poster preview and "Zidentyfikuj grę" use it.
+    Game customEditorGame() const;
+    // The poster beside the fields: matched by the typed name a moment after typing stops (or the
+    // game's own artwork while the name is the one it was matched or identified for).
+    void pollCustomEditorPoster();
+    void customEditorPosterFound(uint64_t generation, std::wstring name, std::vector<uint8_t> bytes);
+    void customEditorIdentify();                     // "Zidentyfikuj grę" under the poster.
+    void customEditorIdentified(const std::string& key); // Zidentyfikuj grę finished: its artwork is the game's.
+    // Removes a user-added game with its artwork and history; false when the list could not be saved.
+    bool removeCustomGame(const std::string& id);
+    // "Usuń z biblioteki" (the game's menu, TV and desktop): a user-added game, after a question.
+    bool canRemoveFromLibrary(const Game& game) const;
+    void askRemoveFromLibrary(const Game& game);
     // "Opcje uruchamiania…" of a library game (my_games.cpp): user-added, DRM-free and Steam games.
     bool launchEditable(const Game& game) const;
     void openLaunchEditor(const Game& game);
@@ -1993,7 +2008,9 @@ private:
     bool frozen_state_readable_ = true; // Never overwrite a journal that failed recovery.
     std::optional<int> exit_prompt_; // Selected exit_prompt::Choice while asking.
     // The same three-button prompt also asks whether downloaded videos follow a new video folder.
-    enum class PromptKind { exit, move_videos, uninstall };
+    // remove: "Usuń z biblioteki" of a user-added game (remove_game_); its file stays on disk.
+    enum class PromptKind { exit, move_videos, uninstall, remove };
+    Game remove_game_;
     Game uninstall_game_; // PromptKind::uninstall: the game Launchme itself would remove (Legendary, GOG silently).
     GameAction uninstall_silent_; // ...and for a GOG game, its Inno uninstaller with the silent switches.
     // Szczegóły → … → Odinstaluj (also the game's menu): Steam's own dialog, GOG's Inno uninstaller
@@ -2148,6 +2165,14 @@ private:
     std::vector<Game> custom_library_;
     std::shared_ptr<std::atomic_uint32_t> custom_token_ = std::make_shared<std::atomic_uint32_t>(0);
     custom_game_ui::State custom_editor_;
+    // The editor's poster: the name it was asked for, when to ask (debounce; 0: nothing pending),
+    // the request generation (a newer one discards older answers) and the image shown.
+    std::wstring custom_poster_name_;
+    uint64_t custom_poster_at_ = 0;
+    uint64_t custom_poster_generation_ = 0;
+    ImageBytes custom_poster_;
+    // Tests: answers a poster request at once instead of the artwork lookup (SteamGridDB, Steam store).
+    std::function<std::vector<uint8_t>(const Game& game, bool own)> custom_poster_fetch_;
     file_browser::State file_browser_;
     std::function<void(const std::filesystem::path&)> file_browser_done_;
     uint64_t file_browser_preview_at_ = 0; // GetTickCount64() when the highlighted image is read; 0 = none.
@@ -2655,6 +2680,7 @@ private:
     // Edytuj metadane (desktop_metadata.cpp): the player's own title and details over the found ones.
     desktop_ui::MetaView desktop_meta_;
     std::string desktop_meta_key_;
+    Game desktop_meta_game_; // The edited game, for its Zidentyfikuj.
     mutable metadata::Overrides metadata_overrides_; // Read on first use (metadata_overrides.json).
     mutable bool metadata_loaded_ = false;
     const metadata::Override* metadataOverride(const Game& game) const;

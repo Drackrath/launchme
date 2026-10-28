@@ -175,6 +175,7 @@ bool Launcher::actionEnabled(const Game& game) const {
          (effective.source == GameSource::amazon && amazonConnected()) || (xboxOwnInstall(effective) && xboxConnected())))
         return true;
     if (effective.source == GameSource::epic && effective.epic_managed) return true;
+    if (fileNotChosen(effective)) return true; // "Wskaż plik": its editor, at the file (launchGame).
     const auto* owner = plugins_.find(game.catalog_plugin);
     return effective.kind != GameKind::catalog ? static_cast<bool>(primaryGameAction(effective)) :
            owner && owner->enabled && owner->error.empty() && !plugins_busy_ && !plugin_command_pending_ &&

@@ -288,10 +288,10 @@ bool Launcher::hoverButton(float mouse_x, float mouse_y) const {
     case Modal::library_dialog:
         return library_manager_ui::Layout::of(view.width, view.height, library_dialog_).hit(library_dialog_, x, y) != -3;
     case Modal::custom_editor: {
-        const auto hit = custom_game_ui::Layout{view.width, view.height}.hit(x, y, custom_editor_.editing());
+        const auto hit = custom_game_ui::Layout::of(custom_editor_, view.width, view.height).hit(x, y, custom_editor_.editing());
         return hit && custom_game_ui::field(*hit) < 0;
     }
-    case Modal::metadata: return desktop_ui::MetaLayout{view.width, view.height}.hit(x, y) >= desktop_ui::meta_fields;
+    case Modal::metadata: return desktop_ui::MetaLayout{view.width, view.height}.hit(x, y, desktop_meta_.identify) >= desktop_ui::meta_fields;
     case Modal::bulk_covers: return bulk_covers_ui::Layout{view.width, view.height, bulk_ui_.buttons()}.hit(x, y) >= 0;
     case Modal::identify: {
         const identify_ui::Layout layout{view.width, view.height};

@@ -264,7 +264,7 @@ void Renderer::drawRectangularCard(const GameCard& card, size_t index, float alp
         drawCardBadge(x, y, tile_w, tile_h, transparency, frozen);
         drawCardStatus(x, y, tile_w, tile_h, transparency, frozen ? tr(L"Wstrzymana") : tr(L"W grze"));
     } else if (emphasis > 0.004f && isGame(game) && !game.installed && game.kind != GameKind::catalog && !cinematic) // Library tiles: the dimming says it.
-        text(localFileGame(game.source) ? tr(L"BRAK PLIKU") : tr(L"DO INSTALACJI"), x + 8, y + tile_h - 36, tile_w - 16, 28,
+        text(localFileGame(game.source) ? missingFileBadge(game) : tr(L"DO INSTALACJI"), x + 8, y + tile_h - 36, tile_w - 16, 28,
              button_font_.Get(), gray(0.95f, emphasis * transparency));
 }
 

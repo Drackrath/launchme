@@ -253,7 +253,7 @@ void Renderer::drawCard(const GameCard& card, size_t index) {
         drawCardBadge(x, y, size, size, transparency, frozen);
         drawCardStatus(x, y, size, size, transparency, frozen ? tr(L"Wstrzymana") : tr(L"W grze"));
     } else if (selected && !card.game.installed && card.game.kind != GameKind::catalog && !context_->snitch)
-        text(localFileGame(card.game.source) ? tr(L"BRAK PLIKU") : tr(L"DO INSTALACJI"), x + 8, y + size - 33, size - 16, 28,
+        text(localFileGame(card.game.source) ? missingFileBadge(card.game) : tr(L"DO INSTALACJI"), x + 8, y + size - 33, size - 16, 28,
              button_font_.Get(), color(0.95f, 0.95f, 0.95f, transparency));
     if (rail_layer) target_->PopLayer();
 }

@@ -171,7 +171,7 @@ void Renderer::drawXmbLabels() {
         const auto session = sessionOf(game);
         const std::wstring status = session == SessionState::frozen ? std::wstring(tr(L"Wstrzymana")) : session == SessionState::running ? std::wstring(tr(L"W grze")) :
                                     game.installation.active() ? std::wstring(primaryActionLabel(game)) :
-                                    !game.installed ? std::wstring(localFileGame(game.source) ? tr(L"Brak pliku") : tr(L"Do instalacji")) : activePlatformName(game);
+                                    !game.installed ? std::wstring(localFileGame(game.source) ? missingFileLabel(game) : tr(L"Do instalacji")) : activePlatformName(game);
         text(game.name, label_x, middle - 31, width, 32, category_font_.Get(), gray(0.97f, alpha));
         text(status, label_x, middle + 5, width, 24, settings_body_font_.Get(), gray(0.62f, alpha));
     }

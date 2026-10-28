@@ -447,7 +447,7 @@ LPCWSTR Launcher::desktopCursor(float mouse_x, float mouse_y) const {
     if (const auto shape = desktopModalCursor(mouse_x, mouse_y)) return shape;
     if (desktop_meta_.open && desktopActive()) { // Edytuj metadane: its fields take text, its buttons a click.
         const auto view = renderer_.desktopViewport();
-        const int hit = desktop_ui::MetaLayout{view.width, view.height}.hit(mouse_x / desktopScale(), mouse_y / desktopScale());
+        const int hit = desktop_ui::MetaLayout{view.width, view.height}.hit(mouse_x / desktopScale(), mouse_y / desktopScale(), desktop_meta_.identify);
         return hit < 0 ? IDC_ARROW : hit < desktop_ui::meta_fields ? IDC_IBEAM : IDC_HAND;
     }
     if (desktop_quick_.open && desktopActive()) {
@@ -1162,7 +1162,8 @@ void Launcher::desktopOpenGameMenu(float x, float y, bool keyboard) {
         if (aurelia_active_ && aurelia::validGame(game)) items.push_back({Action::aurelia, tr(L"Zarządzaj · Aurelia"), {}, glyph::edit});
         // The file, options and folder it starts with (Steam: its launch options).
         if (steamAccountChoices(game).size() > 1) items.push_back({Action::steam_account, tr(L"Konto Steam: ") + steamAccountLabel(game), {}, glyph::people});
-        if (launchEditable(game)) items.push_back({Action::launch_options, tr(L"Opcje uruchamiania…"), {}, glyph::settings});
+        if (launchEditable(game)) // A game added by hand: the file, name and options are its own editor.
+            items.push_back({Action::launch_options, game.source == GameSource::custom ? tr(L"Edytuj grę…") : tr(L"Opcje uruchamiania…"), {}, glyph::settings});
         if (!gameFolder(game).empty()) items.push_back({Action::folder, tr(L"Otwórz folder gry"), {}, glyph::folder_open});
         const auto plugins = pluginContext(game);
         if (!plugins.empty()) separator();
@@ -1182,6 +1183,12 @@ void Launcher::desktopOpenGameMenu(float x, float y, bool keyboard) {
             MenuItem uninstall{Action::uninstall, tr(L"Odinstaluj…"), {}, glyph::remove};
             uninstall.danger = true;
             items.push_back(std::move(uninstall));
+        }
+        if (canRemoveFromLibrary(game) && session == SessionState::none) { // A game added by hand: its entry, after a question.
+            if (hideableCopies(game).empty() && !canExclude(game)) separator();
+            MenuItem remove{Action::remove_game, tr(L"Usuń z biblioteki…"), {}, glyph::remove};
+            remove.danger = true;
+            items.push_back(std::move(remove));
         }
     } else {
         MenuItem title{Action::none, std::wstring(tr(L"Zaznaczone: ")) + gamesLabel(games.size()), {}, glyph::check};
@@ -1419,6 +1426,7 @@ void Launcher::desktopMenuPick(const desktop_ui::MenuItem& item, bool /*from_sub
         return;
     case Action::exclude: if (game) excludeGame(*game); return;
     case Action::uninstall: if (game) uninstallGame(*game); return;
+    case Action::remove_game: if (game) askRemoveFromLibrary(*game); return;
     case Action::sort:
         settings_.desktop_sort = std::clamp(item.value, 1, 4);
         settings_dirty_ = true; settings_edited_ = std::chrono::steady_clock::now();

@@ -288,6 +288,7 @@ struct ViewContext {
     update_ui::WhatsNew* whats_new = nullptr; // Co nowego after an update; the renderer records the text's height.
     const desktop_ui::MetaView* tv_meta = nullptr; // Tryb TV: Edytuj metadane (the desktop dialog, on the TV canvas).
     const custom_game_ui::State* custom_editor = nullptr; // Settings → Library add/edit panel.
+    ImageBytes custom_poster; // Its poster beside the fields (custom_game_ui::State::poster says why there is none).
     const file_browser::State* file_browser = nullptr;    // The launcher's file picker, over everything.
     const settings_ui::ColorEditor* color_editor = nullptr; // Settings: "Inny…" colour.
     const library_manager_ui::State* library_manager = nullptr;
@@ -323,6 +324,7 @@ struct ViewContext {
     bool menu_session = false; // Running or suspended: "Zamknij grę" replaces "Ponów grafiki".
     bool menu_detail_options = false, menu_folder = false, menu_exclude = false;
     bool menu_hide = false, menu_hidden = false; // Details options: "Ukryj" / "Pokaż".
+    bool menu_remove = false, menu_edit_game = false; // "Usuń z biblioteki" (red, last) / "Opcje uruchamiania" read "Edytuj grę".
     bool menu_uninstall = false, menu_launch = false; // "Odinstaluj" (red, last) / Details' "Opcje uruchamiania".
     bool menu_metadata = false; // Details' "Edytuj metadane".
     bool menu_aurelia = false;

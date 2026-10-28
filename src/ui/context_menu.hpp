@@ -14,7 +14,8 @@ namespace context_menu {
 // The crop editor opens from "Zmień grafikę" (the artwork browser's "Kadruj").
 // "launch": Details' "…" → Opcje uruchamiania (a game's file, options and folder; Steam: its options).
 // "metadata": Details' "…" → Edytuj metadane (the player's own title, studios, dates and play time).
-enum class Item { primary, suspend, plugin, details, artwork, retry, close, folder, hide, exclude, uninstall, launch, metadata, aurelia, steam_account };
+// "remove": Usuń z biblioteki, a game added by hand (only its entry goes, after a question), red and last like Odinstaluj.
+enum class Item { primary, suspend, plugin, details, artwork, retry, close, folder, hide, exclude, uninstall, launch, metadata, aurelia, steam_account, remove };
 struct Rows {
     bool suspend = false;
     int plugins = 0;
@@ -26,17 +27,19 @@ struct Rows {
     bool metadata = false;       // Details' "…": a game with its own key.
     bool aurelia = false;
     bool steam_account = false;  // Details' "…": a Steam game and more than one remembered account to launch it from.
+    bool remove = false;         // Launcher::canRemoveFromLibrary (never while the game runs).
 };
 constexpr auto order(Rows options) {
     return options.secondary_only ?
-        std::array{Item::details, Item::primary, Item::suspend, Item::aurelia, Item::plugin, Item::artwork, Item::retry, Item::close, Item::folder, Item::launch, Item::steam_account, Item::metadata, Item::hide, Item::exclude, Item::uninstall} :
-        std::array{Item::primary, Item::suspend, Item::aurelia, Item::plugin, Item::details, Item::artwork, Item::retry, Item::close, Item::folder, Item::launch, Item::steam_account, Item::metadata, Item::hide, Item::exclude, Item::uninstall};
+        std::array{Item::details, Item::primary, Item::suspend, Item::aurelia, Item::plugin, Item::artwork, Item::retry, Item::close, Item::folder, Item::launch, Item::steam_account, Item::metadata, Item::hide, Item::exclude, Item::uninstall, Item::remove} :
+        std::array{Item::primary, Item::suspend, Item::aurelia, Item::plugin, Item::details, Item::artwork, Item::retry, Item::close, Item::folder, Item::launch, Item::steam_account, Item::metadata, Item::hide, Item::exclude, Item::uninstall, Item::remove};
 }
 constexpr bool visible(Item entry, Rows options) {
     if (entry == Item::aurelia) return options.aurelia;
     if (entry == Item::steam_account) return options.detail_options && options.steam_account;
     if (options.detail_options) return entry == Item::artwork || (entry == Item::launch && options.launch) || (entry == Item::metadata && options.metadata) || (entry == Item::folder && options.folder) ||
-        (entry == Item::hide && options.hide) || (entry == Item::exclude && options.exclude) || (entry == Item::uninstall && options.uninstall);
+        (entry == Item::hide && options.hide) || (entry == Item::exclude && options.exclude) || (entry == Item::uninstall && options.uninstall) ||
+        (entry == Item::remove && options.remove);
     switch (entry) {
     case Item::primary: return !options.secondary_only;
     case Item::suspend: return options.suspend;
@@ -44,6 +47,7 @@ constexpr bool visible(Item entry, Rows options) {
     case Item::retry: return !options.session;
     case Item::close: return options.session;
     case Item::uninstall: return options.uninstall && !options.session; // Last and red in the game's menu too ("…" on PSfive); never while it runs.
+    case Item::remove: return options.remove && !options.session;
     case Item::folder: case Item::hide: case Item::exclude: case Item::launch: case Item::metadata: return false;
     default: return true;
     }
@@ -91,13 +95,19 @@ inline float top(const GameCard& card, Rows options, bool beside, float view_hei
 }
 inline settings_ui::Rect bounds(const GameCard& card, Rows rows, bool beside, float view_width, float view_height,
                                 const std::optional<settings_ui::Rect>& anchor = {}) {
-    const float w = anchor ? 300.0f : width(card, beside), h = height(rows);
+    float w = anchor ? 300.0f : width(card, beside);
+    const float h = height(rows);
     if (anchor) {
         const float x = std::clamp(anchor->left, 8.0f, std::max(8.0f, view_width - w - 8));
         const float y = anchor->bottom + 10 + h <= view_height - 8 ? anchor->bottom + 10 : std::max(8.0f, anchor->top - h - 10);
         return {x, y, x + w, y + h};
     }
-    const float x = left(card, beside, view_width), y = top(card, rows, beside, view_height);
+    float x = left(card, beside, view_width);
+    const float y = top(card, rows, beside, view_height);
+    if (rows.remove && !beside && w < 270.0f) { // "Usuń z biblioteki" needs more than a small card's width.
+        w = 270.0f;
+        x = std::min(x, std::max(8.0f, view_width - w - 8));
+    }
     return {x, y, x + w, y + h};
 }
 } // namespace context_menu

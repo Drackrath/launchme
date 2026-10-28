@@ -20,10 +20,10 @@ int LauncherUiTest::modalLayers(HWND window) {
         {Modal::profile, [&](bool on) { app.profile_.open = on; }},
         {Modal::tarot, [&](bool on) { app.tarot_.open = on; }},
         {Modal::gog_install, [&](bool on) { app.gog_install_ui_.open = on; }},
-        {Modal::identify, [&](bool on) { app.identify_state_.open = on; }},
         {Modal::bulk_covers, [&](bool on) { app.bulk_ui_.open = on; }},
         {Modal::metadata, [&](bool on) { app.desktop_meta_.open = on; }},
         {Modal::custom_editor, [&](bool on) { app.custom_editor_.open = on; }},
+        {Modal::identify, [&](bool on) { app.identify_state_.open = on; }}, // "Zidentyfikuj grę" of the editor opens over it.
         {Modal::library_dialog, [&](bool on) { app.library_dialog_.open = on; }},
         {Modal::aurelia, [&](bool on) { app.aurelia_ui_.open = on; }},
         {Modal::file_browser, [&](bool on) { app.file_browser_.open = on; }}, // Aurelia's "Inny folder…" opens it over Aurelia.

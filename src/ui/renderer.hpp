@@ -207,6 +207,8 @@ public:
     void resetArtworkThumbnails(size_t count);
     // The file picker's image preview (src/ui/file_browser_renderer.cpp); empty bytes clear it.
     void setFileBrowserPreview(std::vector<uint8_t> bytes);
+    // Dodaj / Edytuj grę: its poster still decoding (the launcher paints until it shows).
+    bool customPosterPending() const { return custom_poster_.loaded() && !custom_poster_.bitmap; }
     void setArtworkThumbnail(size_t index, std::vector<uint8_t> bytes, bool logo);
     // Screensaver (src/ui/screensaver_renderer.cpp): three image slots, decoded off the UI thread.
     static constexpr int screensaver_slots = 3;
@@ -821,6 +823,7 @@ private:
     void drawDesktopCollectionsDialog();
     void drawDesktopCustomEditor();
     void drawDesktopIdentify();
+    void bindCustomPoster(); // ViewContext::custom_poster into custom_poster_ (decoded once per picture).
     void drawDesktopPrompts(); // Zasilanie and the question before closing.
     void drawDesktopGogInstall();
     void desktopModalHot(desktop_ui::SheetHit hit, settings_ui::Rect rect) { desktop_modal_hotspots_.push_back({hit, rect}); }
@@ -935,6 +938,7 @@ private:
     std::vector<Cover> artwork_thumbnails_;
     Cover file_browser_preview_;
     Cover notification_cover_;
+    Cover custom_poster_; // Dodaj / Edytuj grę: the poster beside the fields (ViewContext::custom_poster).
     Cover companion_photo_; // The picture she sent in the chat.
     std::array<SpringBox, 3> companion_card_focus_;
     std::array<float, 3> companion_card_frame_{-1, -1, -1}; // TV settings, desktop settings, picker.

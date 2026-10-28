@@ -34,10 +34,10 @@ Launcher::Modal Launcher::topDialog() const {
     if (companion_.picker.open) return Modal::companion_picker;
     if (fileBrowserOpen()) return Modal::file_browser; // Opened from the panels below it.
     if (libraryDialogOpen()) return Modal::library_dialog;
+    if (identifyOpen()) return Modal::identify; // Also over Dodaj / Edytuj grę ("Zidentyfikuj grę" under its poster).
     if (customEditorOpen()) return Modal::custom_editor;
     if (metadataOpen()) return Modal::metadata; // From the game's menu.
     if (bulkCoversOpen()) return Modal::bulk_covers;
-    if (identifyOpen()) return Modal::identify;
     if (gogInstallOpen()) return Modal::gog_install;
     if (tarot_.open) return Modal::tarot; // Opened only from the bare home.
     if (profile_.open) return Modal::profile; // Over any screen, from the drawer: the lowest dialog.

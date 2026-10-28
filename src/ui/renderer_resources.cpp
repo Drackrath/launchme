@@ -190,6 +190,7 @@ bool Renderer::createTargetResources() {
     for (auto& image : saver_slots_) createBitmap(image);
     createBitmap(file_browser_preview_);
     createBitmap(notification_cover_);
+    createBitmap(custom_poster_);
     createBitmap(companion_photo_);
     createBitmap(companion_photo_large_);
     for (auto& [id, image] : companion_feed_images_) createBitmap(image);
@@ -218,6 +219,7 @@ void Renderer::discardTarget() {
     for (auto& thumbnail : artwork_thumbnails_) { thumbnail.bitmap.Reset(); thumbnail.brush.Reset(); }
     file_browser_preview_.bitmap.Reset(); file_browser_preview_.brush.Reset();
     notification_cover_.bitmap.Reset(); notification_cover_.brush.Reset();
+    custom_poster_.bitmap.Reset(); custom_poster_.brush.Reset();
     companion_photo_.bitmap.Reset(); companion_photo_.brush.Reset();
     companion_photo_large_.bitmap.Reset(); companion_photo_large_.brush.Reset();
     for (auto& [id, image] : companion_feed_images_) { image.bitmap.Reset(); image.brush.Reset(); image.decoding.reset(); }
@@ -381,6 +383,7 @@ void Renderer::uploadDecoded() {
     for (auto& image : saver_slots_) collect(image);
     collect(file_browser_preview_);
     collect(notification_cover_);
+    collect(custom_poster_);
     collect(companion_photo_);
     collect(companion_photo_large_);
     for (auto& [id, image] : companion_feed_images_) collect(image);

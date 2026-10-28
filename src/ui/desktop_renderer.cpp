@@ -813,7 +813,7 @@ void Renderer::drawDesktopPoster(const Layout& layout, const View& view, size_t 
         const float cx = rect.right - 20, cy = rect.top + 20;
         brush(gray(0, 0.6f * alpha));
         target_->FillEllipse(D2D1::Ellipse(D2D1::Point2F(cx, cy), 12, 12), solid_.Get());
-        desktopGlyph(localFileGame(game.source) ? glyph::remove : glyph::download, cx, cy, 11, gray(0.92f, alpha));
+        desktopGlyph(fileNotChosen(game) ? glyph::folder_open : localFileGame(game.source) ? glyph::remove : glyph::download, cx, cy, 11, gray(0.92f, alpha));
     }
     // The store's or console's mark, top right (Ustawienia → Okno desktopowe); the check box is top left.
     if (view.platform_badges && isGame(game)) {
@@ -854,7 +854,7 @@ void Renderer::drawDesktopPoster(const Layout& layout, const View& view, size_t 
     std::wstring meta = activePlatformName(game);
     if (meta.empty() && !game.version_group.empty()) meta = tr(L"Kilka wersji");
     if (!game.installed && !installing && game.kind != GameKind::catalog)
-        meta += (meta.empty() ? L"" : L" · ") + std::wstring(localFileGame(game.source) ? tr(L"Brak pliku") : tr(L"Do instalacji"));
+        meta += (meta.empty() ? L"" : L" · ") + std::wstring(localFileGame(game.source) ? missingFileLabel(game) : tr(L"Do instalacji"));
     textLine(meta, cell.left + 2, meta_y, cell.right - cell.left - 4, desktop_small_font_.Get(), palette::muted(alpha));
 }
 

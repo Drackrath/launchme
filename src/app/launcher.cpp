@@ -470,6 +470,7 @@ void Launcher::tick() {
     }
     pollHoldGestures();
     pollFileBrowserPreview();
+    pollCustomEditorPoster(); // Dodaj / Edytuj grę: the typed name's poster once typing rests.
     menu_progress_ += ((menu_open_ ? 1.0f : 0.0f) - menu_progress_) * ease(dt, 13.0f);
     if (keyboard_.open && !textFieldActive()) closeKeyboard(); // Its field closed (Esc, a click, a screen change).
     keyboard_progress_ += ((keyboard_.open ? 1.0f : 0.0f) - keyboard_progress_) * ease(dt, 14.0f);
@@ -564,6 +565,7 @@ void Launcher::tick() {
     if (desktop) needs_paint |= tickDesktop(dt);
     needs_paint |= tickDesktopSheet(dt); // Ustawienia as a desktop dialog: its scroll and caret.
     needs_paint |= tickDesktopDialog();  // Kolekcje, Dodaj grę, Zidentyfikuj grę: the caret.
+    needs_paint |= customEditorOpen() && renderer_.customPosterPending(); // Its poster shows once decoded.
     if (favorite_pulse_ > 0.0f) {
         favorite_pulse_ = std::max(0.0f, favorite_pulse_ - dt / 0.22f);
         needs_paint = true;

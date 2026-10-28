@@ -435,6 +435,7 @@ void Renderer::drawDesktopMeta(const MetaView& meta) {
         if (meta.focus == id) desktopFocusRing(r, 8);
     };
     button(MetaItem::restore, 0, tr(L"Przywróć automatyczne"), meta.overridden);
+    if (meta.identify) button(MetaItem::identify, 1, tr(L"Zidentyfikuj"), true); // The game's match in RAWG and its artwork.
     button(MetaItem::save, 2, tr(L"Zapisz"), true);
     button(MetaItem::cancel, 1, tr(L"Anuluj"), true);
 }

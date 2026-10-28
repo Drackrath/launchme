@@ -273,9 +273,9 @@ void Launcher::buildSettingsRows() {
                 add({Id::custom_covers, Control::action, tr(L"Okładki"),
                     tr(L"Wyszukaj i pobierz brakujące okładki tych gier (SteamGridDB, sklep Steam)."), tr(L"Szukaj")});
             for (const auto& entry : custom_games_) {
-                std::wstring description = entry.path.filename().native();
+                std::wstring description = entry.path.empty() ? std::wstring(tr(L"Bez pliku gry")) : entry.path.filename().native();
                 if (!entry.arguments.empty()) description += L"  " + entry.arguments;
-                if (const auto found = custom_installed_.find(entry.id); found != custom_installed_.end() && !found->second)
+                if (const auto found = custom_installed_.find(entry.id); !entry.path.empty() && found != custom_installed_.end() && !found->second)
                     description = tr(L"Brak pliku") + (L" · " + description);
                 Row row{Id::custom_game, Control::action, entry.name, std::move(description), tr(L"Edytuj")};
                 row.key = entry.id;
@@ -312,7 +312,7 @@ void Launcher::buildSettingsRows() {
             // User-added games as one total, like "Znalezione gry" of DRM-free: the list is its own page.
             const auto missing = std::count_if(custom_games_.begin(), custom_games_.end(), [&](const auto& entry) {
                 const auto found = custom_installed_.find(entry.id);
-                return found != custom_installed_.end() && !found->second;
+                return !entry.path.empty() && found != custom_installed_.end() && !found->second; // No file chosen is not missing.
             });
             std::wstring description = tr(L"Program, skrót lub skrypt spoza sklepów.");
             if (missing) description += L" · " + (tr(L"Brak pliku: ") + std::to_wstring(missing));

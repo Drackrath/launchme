@@ -2313,6 +2313,18 @@ constexpr Entry entries[] = {
     {L"Twórcy gier z Twojej biblioteki, którzy mają logo. Wybierz logo, aby zobaczyć ich gry.",
      L"Developers of the games in your library that have a logo. Choose a logo to see their games."},
     {L"Puste pole: wartość automatyczna. A wpisuje w pole, B zamyka.", L"An empty field uses the automatic value. A types into a field, B closes."},
+    // Games added by hand without a file, their poster in the editor and Usuń z biblioteki (src/app/my_games.cpp).
+    {L"Wskaż plik", L"Choose file"},
+    {L"WSKAŻ PLIK", L"CHOOSE FILE"},
+    {L"Bez pliku gry", L"No game file"},
+    {L"Usuń z biblioteki", L"Remove from library"},
+    {L"Usuń z biblioteki…", L"Remove from library…"},
+    {L"Usunąć z biblioteki?", L"Remove from library?"},
+    {L"Usunięto z biblioteki", L"Removed from library"},
+    {L"Edytuj grę…", L"Edit game…"},
+    {L"Szukanie okładki…", L"Looking for a cover…"},
+    {L"Nie znaleziono okładki", L"No cover found"},
+    {L"Okładka według nazwy", L"Cover found by name"},
     // Entries of extras built only on this machine (local/i18n), when present.
 #if __has_include("strings_en_local.inc")
 #include "strings_en_local.inc"

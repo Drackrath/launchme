@@ -261,7 +261,7 @@ void Renderer::drawMetroTile(const GameCard& card, size_t index) {
                 textLine(info.caption, left, bottom - 32, width, title_font, gray(0.98f, transparency * shown));
             } else textLine(info.caption, left, bottom - 8, width, title_font, gray(0.98f, transparency * shown));
             if (!game.installed && isGame(game) && game.kind != GameKind::catalog && role == Role::game)
-                textLine(localFileGame(game.source) ? tr(L"BRAK PLIKU") : tr(L"DO INSTALACJI"), left, y + 24, width, button_font_.Get(), gray(0.95f, transparency * shown));
+                textLine(localFileGame(game.source) ? missingFileBadge(game) : tr(L"DO INSTALACJI"), left, y + 24, width, button_font_.Get(), gray(0.95f, transparency * shown));
         }
     }
     // The accent outline fades into the plain edge of the other tiles as `emphasis` drops; with the

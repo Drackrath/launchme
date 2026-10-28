@@ -861,6 +861,7 @@ void Launcher::menuAccept() {
     case Item::hide: dismissMenu(); toggleHidden(game); break;
     case Item::exclude: excludeGame(game); break;
     case Item::uninstall: uninstallGame(game); break;
+    case Item::remove: askRemoveFromLibrary(game); break;
     case Item::launch: dismissMenu(); openLaunchEditor(game); break;
     case Item::metadata: dismissMenu(); if (desktop_mode_) desktopMetaOpen(game); else openMetadata(game); break;
     case Item::aurelia: dismissMenu(); openAurelia(&game); break;
@@ -989,6 +990,12 @@ void Launcher::launchGame(const Game& original, bool via_steam) {
     if (active.source == GameSource::xbox && !active.installed && xboxConnected() && xboxOwnInstall(active)) { openXboxInstall(active); return; }
     // A Steam game to install: the library picked in Launchme's dialog (src/app/steam_install.cpp).
     if (steamInstallDialogWanted(active) && openSteamInstall(active)) return;
+    // A game added by hand without its file ("Wskaż plik"): its editor opens at the file.
+    if (fileNotChosen(active)) {
+        dismissMenu();
+        openCustomEditor(active.source_id, desktop_mode_ ? custom_game_ui::Item::file : custom_game_ui::Item::file_browse);
+        return;
+    }
     const auto action = primaryGameAction(active);
     if (!action) {
         if (localFileGame(active.source))

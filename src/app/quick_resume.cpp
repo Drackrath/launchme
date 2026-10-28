@@ -103,12 +103,14 @@ context_menu::Rows Launcher::menuRows() const {
         rows.aurelia = aurelia_active_ && aurelia::validGame(game);
         rows.steam_account = steamAccountChoices(game).size() > 1;
         rows.metadata = isGame(game) && game.kind != GameKind::catalog && !gameKey(game).empty(); // Not a store's offer.
+        rows.remove = canRemoveFromLibrary(game) && sessionState(game) == SessionState::none; // Usuń z biblioteki, never while it runs.
         return rows;
     }
     const auto state = sessionState(game);
     context_menu::Rows rows{settings_.quick_resume && state == SessionState::running, static_cast<int>(pluginContext(game).size()), state != SessionState::none};
     rows.secondary_only = psfiveActive();
     rows.uninstall = canUninstall(game);
+    rows.remove = canRemoveFromLibrary(game);
     rows.aurelia = aurelia_active_ && aurelia::validGame(game);
     return rows;
 }
@@ -374,6 +376,16 @@ void Launcher::exitPromptAccept() {
         if (index == 0) uninstallManagedGame(game, silent);
         else if (index == 1 && game.install_directory.is_absolute())
             execute_(hwnd_, GameAction{game.install_directory.wstring(), {}, {}, ActionKind::open_client});
+        return;
+    }
+    if (prompt_kind_ == PromptKind::remove) {
+        prompt_kind_ = PromptKind::exit;
+        const int index = static_cast<int>(choice); // 0 remove it from the library, 1 its editor, 2 cancel.
+        const auto game = std::exchange(remove_game_, Game{});
+        if (index == 0) {
+            if (removeCustomGame(game.source_id)) showNotification(NotificationKind::launch, tr(L"Usunięto z biblioteki"), game.name);
+            else showNotification(NotificationKind::error, tr(L"Nie udało się zapisać listy gier."), game.name);
+        } else if (index == 1) openCustomEditor(game.source_id);
         return;
     }
     if (prompt_kind_ == PromptKind::move_videos) {

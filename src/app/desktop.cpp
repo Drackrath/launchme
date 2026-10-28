@@ -815,7 +815,7 @@ void Launcher::desktopView(desktop_ui::View& view) {
         pane.primary = installationText(game.installation);
         pane.status = tr(L"Instalacja w toku");
     } else pane.status = pane.frozen ? tr(L"Wstrzymana") : pane.running ? tr(L"W grze") :
-                         game.installed ? tr(L"Zainstalowana") : localFileGame(game.source) ? tr(L"Brak pliku") : tr(L"Niezainstalowana");
+                         game.installed ? tr(L"Zainstalowana") : localFileGame(game.source) ? missingFileLabel(game) : tr(L"Niezainstalowana");
     pane.favorite = isFavorite(game);
     if (favorite_pulse_ > 0.0f && library_view::selectionKey(game) == favorite_pulse_key_) pane.favorite_pulse = favorite_pulse_;
     bool loading = false;
