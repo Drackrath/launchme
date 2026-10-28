@@ -44,3 +44,11 @@ bool performPowerAction(PowerAction action) {
     }
     return false;
 }
+
+// The drawer clock's battery test (BatteryFlag 128: no system battery; 255: unknown).
+std::optional<BatteryStatus> batteryStatus() {
+    SYSTEM_POWER_STATUS power{};
+    if (!GetSystemPowerStatus(&power) || power.BatteryFlag == 255 || (power.BatteryFlag & 128) || power.BatteryLifePercent > 100)
+        return std::nullopt;
+    return BatteryStatus{power.BatteryLifePercent, (power.BatteryFlag & 8) != 0};
+}

@@ -155,7 +155,17 @@ set(LAUNCHME_LINUX_COMPANION_SOURCES
 
 # System services: memory, sensors, power, Discord, downloads.
 set(LAUNCHME_LINUX_SERVICE_SOURCES
+    src/platform/discord_linux.cpp
+    src/platform/memory_usage_linux.cpp
+    src/platform/performance.cpp
+    src/platform/power_linux.cpp
+    src/platform/sensors.cpp
+    src/platform/sensors_linux.cpp
+    src/platform/steam_downloads_linux.cpp
 )
+# GDBus for systemd-logind (power_linux.cpp); dlopen for NVML (sensors_linux.cpp).
+pkg_check_modules(GIO REQUIRED IMPORTED_TARGET gio-2.0)
+list(APPEND LAUNCHME_CORE_LIBS PkgConfig::GIO ${CMAKE_DL_LIBS})
 
 # Audio and video: playback, FLAC, system volume, trailers.
 set(LAUNCHME_LINUX_MEDIA_SOURCES
@@ -228,6 +238,9 @@ if(BUILD_TESTING)
     # Companion and updater:
 
     # System services:
+    launchme_executable(sensors_tests TEST dashboard_temperature_sensors SOURCES tests/sensors_tests.cpp src/platform/sensors.cpp)
+    launchme_executable(system_services_linux_tests TEST linux_system_services SOURCES tests/system_services_linux_tests.cpp)
+    launchme_executable(steam_install_live_test SOURCES tests/steam_install_live_test.cpp)
 
     # Audio and video:
 
