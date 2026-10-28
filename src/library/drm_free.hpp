@@ -64,7 +64,8 @@ std::string format(const Catalog& catalog);
 Loaded load(const std::filesystem::path& file);
 bool save(const Catalog& catalog, const std::filesystem::path& file);
 
-// Lowercase, normalized, without a trailing separator: the key of folder comparisons.
+// Normalized, without a trailing separator: the key of folder comparisons. Windows: lowercase,
+// backslashes; Linux keeps the case (its file systems tell "Game" and "game" apart).
 std::wstring folderKey(const std::filesystem::path& folder);
 std::string folderId(const std::filesystem::path& folder);
 bool validRoot(const std::filesystem::path& root);
@@ -84,6 +85,9 @@ struct Candidate {
     uint64_t size = 0;
     bool console = false;    // PE subsystem: console tools and servers rank low.
     bool x64 = false;
+    // Linux: a native game (an ELF executable or a shell launcher such as GOG's start.sh) ranks
+    // above a Windows .exe beside it; gog_start: start.sh next to GOG's gameinfo.
+    bool native = false, script = false, gog_start = false;
     // Neighbours that identify an engine's main executable.
     bool unity_data = false, godot_pack = false, unreal_stub = false, gamemaker_data = false, rpgmaker = false, renpy = false;
 };

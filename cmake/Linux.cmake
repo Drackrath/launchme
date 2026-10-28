@@ -143,6 +143,12 @@ set(LAUNCHME_LINUX_IMAGE_SOURCES
 
 # Sockets, folders and files.
 set(LAUNCHME_LINUX_FILES_SOURCES
+    src/library/drm_free.cpp
+    src/library/pe_version.cpp
+    src/net/remote_server.cpp
+    src/platform/file_listing.cpp
+    src/net/companion_backup.cpp
+    src/platform/steam_library_sync.cpp
 )
 
 # Game store discovery on Linux (Steam, Heroic, Lutris, Prism Launcher, ...).
@@ -283,6 +289,15 @@ if(BUILD_TESTING)
     # Images:
 
     # Files and sockets:
+    launchme_executable(remote_server_tests TEST remote_server_parsing_and_loopback SOURCES tests/remote_server_tests.cpp)
+    launchme_executable(file_listing_tests TEST file_browser_listing_and_drives SOURCES tests/file_listing_tests.cpp)
+    launchme_executable(change_watch_tests TEST folder_change_notifications SOURCES tests/change_watch_tests.cpp)
+    launchme_executable(pe_version_tests TEST pe_version_resources SOURCES tests/pe_version_tests.cpp)
+    launchme_executable(steam_library_sync_tests TEST steam_library_sync_outbox SOURCES tests/steam_library_sync_tests.cpp)
+    find_program(LAUNCHME_NODE_EXECUTABLE node)
+    if(LAUNCHME_NODE_EXECUTABLE)
+        add_test(NAME steam_library_sync_bridge COMMAND "${LAUNCHME_NODE_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/steam_library_bridge_tests.mjs")
+    endif()
 
     # Stores:
     launchme_executable(linux_stores_tests TEST linux_heroic_lutris_prism_libraries SOURCES tests/linux_stores_tests.cpp)

@@ -10,6 +10,11 @@
 #ifdef _WIN32
 #include <Windows.h>
 #include <winver.h>
+#else
+#include "pe_version.hpp"
+#include <dirent.h>
+#include <fcntl.h>
+#include <sys/stat.h>
 #endif
 
 #include <algorithm>
@@ -21,12 +26,19 @@
 #include <thread>
 #include <unordered_map>
 
+#ifdef _WIN32
 #pragma comment(lib, "version.lib")
+#endif
 
 namespace drm_free {
 using namespace detail;
 namespace {
 constexpr size_t max_document = 2 * 1024 * 1024; // json::parse refuses anything larger.
+#ifdef _WIN32
+constexpr wchar_t key_separator = L'\\'; // folderKey()'s separator.
+#else
+constexpr wchar_t key_separator = L'/';
+#endif
 
 bool plainText(std::wstring_view text) {
     for (const wchar_t ch : text) if (ch < L' ' || ch == 127) return false;
@@ -74,6 +86,7 @@ void appendString(std::string& output, std::wstring_view value) {
     output += '"';
 }
 
+#ifdef _WIN32
 bool fileExists(const std::filesystem::path& path) {
     const DWORD attributes = path.empty() ? INVALID_FILE_ATTRIBUTES : GetFileAttributesW(path.c_str());
     return attributes != INVALID_FILE_ATTRIBUTES && !(attributes & FILE_ATTRIBUTE_DIRECTORY);
@@ -92,6 +105,15 @@ uint64_t lastWriteSeconds(const std::filesystem::path& path) {
     return time.QuadPart / 10'000'000ULL;
 }
 
+#endif
+// One folder entry, as each system lists it.
+struct Found {
+    std::wstring name;
+    bool folder = false, link = false; // link: a reparse point or symbolic link; a link to a folder is a folder.
+    bool hidden_system = false;        // Both the hidden and the system attribute (Windows).
+    uint64_t size = 0;
+};
+#ifdef _WIN32
 // Visits a folder's entries (no "." / ".."); the visitor returns false to stop.
 template<class Visit> bool listFolder(const std::filesystem::path& folder, Visit&& visit) {
     WIN32_FIND_DATAW data{};
@@ -101,16 +123,63 @@ template<class Visit> bool listFolder(const std::filesystem::path& folder, Visit
     do {
         const std::wstring_view name(data.cFileName);
         if (name == L"." || name == L"..") continue;
-        if (!visit(data)) break;
+        const DWORD attributes = data.dwFileAttributes;
+        const Found found{data.cFileName, (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0, (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0,
+                          (attributes & FILE_ATTRIBUTE_HIDDEN) && (attributes & FILE_ATTRIBUTE_SYSTEM),
+                          (static_cast<uint64_t>(data.nFileSizeHigh) << 32) | data.nFileSizeLow};
+        if (!visit(found)) break;
     } while (FindNextFileW(find, &data));
     FindClose(find);
     return true;
 }
+#else
+bool fileExists(const std::filesystem::path& path) {
+    std::error_code error;
+    const auto status = path.empty() ? std::filesystem::file_status{} : std::filesystem::status(path, error);
+    return !error && std::filesystem::exists(status) && !std::filesystem::is_directory(status);
+}
+
+bool directoryExists(const std::filesystem::path& path) {
+    std::error_code error;
+    return !path.empty() && std::filesystem::is_directory(path, error);
+}
+
+// Seconds since 1601, as on Windows.
+uint64_t lastWriteSeconds(const std::filesystem::path& path) {
+    struct stat info{};
+    if (::stat(path.c_str(), &info) != 0 || info.st_mtim.tv_sec < -11644473600LL) return 0;
+    return static_cast<uint64_t>(info.st_mtim.tv_sec + 11644473600LL);
+}
+
+// Visits a folder's entries (no "." / ".."); the visitor returns false to stop. A link shows
+// its target (link set); broken links, devices, pipes and sockets are left out.
+template<class Visit> bool listFolder(const std::filesystem::path& folder, Visit&& visit) {
+    DIR* directory = opendir(folder.c_str());
+    if (!directory) return false;
+    while (const dirent* entry = readdir(directory)) {
+        const std::string_view name = entry->d_name;
+        if (name == "." || name == "..") continue;
+        struct stat info{};
+        if (fstatat(dirfd(directory), entry->d_name, &info, AT_SYMLINK_NOFOLLOW) != 0) continue;
+        Found found;
+        found.link = S_ISLNK(info.st_mode);
+        if (found.link && fstatat(dirfd(directory), entry->d_name, &info, 0) != 0) continue;
+        found.folder = S_ISDIR(info.st_mode);
+        if (!found.folder && !S_ISREG(info.st_mode)) continue;
+        found.name = text_encoding::wideLenient(name);
+        found.size = found.folder ? 0 : static_cast<uint64_t>(info.st_size);
+        if (!visit(found)) break;
+    }
+    closedir(directory);
+    return true;
+}
+#endif
 
 bool hasSuffix(std::wstring_view text, std::wstring_view suffix) { return text.size() >= suffix.size() && text.substr(text.size() - suffix.size()) == suffix; }
 
 struct PeInfo { bool valid = false, dll = false, console = false, x64 = false; };
 PeInfo peInfo(const std::filesystem::path& file) {
+#ifdef _WIN32
     const HANDLE handle = CreateFileW(file.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
                                       OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
     if (handle == INVALID_HANDLE_VALUE) return {};
@@ -118,6 +187,14 @@ PeInfo peInfo(const std::filesystem::path& file) {
     DWORD read = 0;
     const BOOL ok = ReadFile(handle, bytes, sizeof(bytes), &read, nullptr);
     CloseHandle(handle);
+#else
+    unsigned char bytes[4096]{};
+    std::ifstream input(file, std::ios::binary);
+    if (!input) return {};
+    input.read(reinterpret_cast<char*>(bytes), sizeof(bytes));
+    const size_t read = static_cast<size_t>(input.gcount());
+    const bool ok = true;
+#endif
     if (!ok || read < 0x40 || bytes[0] != 'M' || bytes[1] != 'Z') return {};
     const auto u16 = [&](size_t at) { return static_cast<uint16_t>(bytes[at] | (bytes[at + 1] << 8)); };
     const size_t pe = static_cast<size_t>(bytes[0x3C]) | (static_cast<size_t>(bytes[0x3D]) << 8) |
@@ -132,6 +209,54 @@ PeInfo peInfo(const std::filesystem::path& file) {
     return info;
 }
 
+#ifndef _WIN32
+// Linux: native games. An ELF executable (a PIE has an interpreter; a shared library has none).
+struct ElfInfo { bool valid = false, x64 = false; };
+ElfInfo elfInfo(const std::filesystem::path& file) {
+    unsigned char bytes[4096]{};
+    std::ifstream input(file, std::ios::binary);
+    if (!input) return {};
+    input.read(reinterpret_cast<char*>(bytes), sizeof(bytes));
+    const size_t read = static_cast<size_t>(input.gcount());
+    if (read < 64 || bytes[0] != 0x7F || bytes[1] != 'E' || bytes[2] != 'L' || bytes[3] != 'F' || bytes[5] != 1) return {}; // Little-endian only.
+    const bool wide = bytes[4] == 2;
+    const auto u16 = [&](size_t at) { return at + 2 <= read ? static_cast<uint16_t>(bytes[at] | (bytes[at + 1] << 8)) : uint16_t{0}; };
+    const auto u32 = [&](size_t at) { return at + 4 <= read ? static_cast<uint32_t>(u16(at) | (static_cast<uint32_t>(u16(at + 2)) << 16)) : uint32_t{0}; };
+    const uint16_t type = u16(16), machine = u16(18);
+    ElfInfo info;
+    info.x64 = machine == 62 || machine == 183; // x86-64, AArch64.
+    if (type == 2) { info.valid = true; return info; }
+    if (type != 3) return {};
+    const size_t table = wide ? static_cast<size_t>(u32(32)) | (static_cast<size_t>(u32(36)) << 32) : u32(28);
+    const size_t size = u16(wide ? 54 : 42), count = u16(wide ? 56 : 44);
+    for (size_t i = 0; i < count && size >= 4 && table + (i + 1) * size <= read; ++i)
+        if (u32(table + i * size) == 3) { info.valid = true; return info; } // PT_INTERP.
+    return {};
+}
+// Names worth opening: no extension, a native build's suffix or a shell script.
+bool nativeName(std::wstring_view key) {
+    if (key.empty() || key.front() == L'.') return false;
+    if (key.find(L'.') == std::wstring_view::npos) return true;
+    for (const std::wstring_view suffix : {L".sh", L".x86_64", L".x86", L".x64", L".bin", L".elf", L".appimage"})
+        if (hasSuffix(key, suffix)) return true;
+    return false;
+}
+bool shellScript(const std::filesystem::path& file) {
+    std::ifstream input(file, std::ios::binary);
+    char magic[2]{};
+    return input.read(magic, 2) && magic[0] == '#' && magic[1] == '!';
+}
+// GOG's Linux installers: "gameinfo" names the game on its first line.
+std::wstring gameInfoTitle(const std::filesystem::path& file) {
+    std::ifstream input(file, std::ios::binary);
+    std::string line;
+    if (!std::getline(input, line) || line.size() > 4 * max_name) return {};
+    const auto title = trim(text_encoding::wideLenient(line), L" \t\r\u00a0");
+    return title.size() <= max_name && plainText(title) ? title : std::wstring{};
+}
+#endif
+
+#ifdef _WIN32
 std::wstring versionString(const std::filesystem::path& file) {
     DWORD ignored = 0;
     const DWORD size = GetFileVersionInfoSizeExW(FILE_VER_GET_NEUTRAL, file.c_str(), &ignored);
@@ -158,6 +283,38 @@ std::wstring versionString(const std::filesystem::path& file) {
             if (!result.empty() && !genericProduct(result)) return result;
         }
     return {};
+}
+#else
+// The same lookups as VerQueryValueW, from the file's own bytes; native games have none.
+std::wstring versionString(const std::filesystem::path& file) {
+    if (!hasSuffix(lower(file.filename().wstring()), L".exe")) return {};
+    const auto info = pe_version::read(file);
+    if (!info) return {};
+    std::vector<std::wstring> blocks;
+    for (size_t i = 0; i < info->translations.size() && i < 4; ++i) {
+        wchar_t block[16]{};
+        swprintf_s(block, L"%04x%04x", info->translations[i].first, info->translations[i].second);
+        blocks.push_back(block);
+    }
+    for (const auto* fallback : {L"040904b0", L"040904e4", L"000004b0"}) blocks.push_back(fallback);
+    for (const auto* key : {L"ProductName", L"FileDescription"})
+        for (const auto& block : blocks) {
+            const auto* value = info->find(block, key);
+            if (!value || value->empty()) continue;
+            auto result = trim(*value, L" \t\u00a0\u2122\u00ae\u00a9");
+            if (result.size() > max_name || !plainText(result)) continue;
+            if (!result.empty() && !genericProduct(result)) return result;
+        }
+    return {};
+}
+#endif
+
+// goggame-*.info paths use backslashes; Linux reads them too (Windows games through Wine or Proton).
+std::filesystem::path infoPath(std::wstring text) {
+#ifndef _WIN32
+    std::replace(text.begin(), text.end(), L'\\', L'/');
+#endif
+    return text;
 }
 
 uint32_t steamAppId(const std::filesystem::path& file) {
@@ -189,13 +346,13 @@ std::optional<Detection> gogInfo(const std::filesystem::path& folder, const std:
             if (!flag(task, "isPrimary") || text(task, "type") != L"FileTask") continue;
             const auto relative = text(task, "path");
             if (relative.empty()) continue;
-            const auto executable = (folder / relative).lexically_normal();
+            const auto executable = (folder / infoPath(relative)).lexically_normal();
             if (!inside(executable, folder) || !fileExists(executable)) continue;
             Detection result;
             result.executable = executable;
             result.arguments = text(task, "arguments", 2000);
             if (const auto directory = text(task, "workingDir"); !directory.empty()) {
-                const auto resolved = (folder / directory).lexically_normal();
+                const auto resolved = (folder / infoPath(directory)).lexically_normal();
                 if (resolved == folder.lexically_normal() || inside(resolved, folder)) result.working_directory = resolved;
             }
             result.title = trim(text(*root, "name", max_name));
@@ -229,9 +386,15 @@ bool genericChild(std::wstring_view name) {
     return generic.contains(lower(name));
 }
 
-bool rootNoise(std::wstring_view name, DWORD attributes) {
+bool rootNoise(std::wstring_view name, bool hidden_system) {
     if (name.empty() || name.front() == L'.' || name.front() == L'$') return true;
-    if ((attributes & FILE_ATTRIBUTE_HIDDEN) && (attributes & FILE_ATTRIBUTE_SYSTEM)) return true;
+    if (hidden_system) return true;
+#ifndef _WIN32
+    // A root of "/" or a whole disk: the system's own folders.
+    static const std::unordered_set<std::wstring> system{L"lost+found", L"bin", L"boot", L"dev", L"efi", L"etc", L"lib", L"lib32", L"lib64",
+        L"proc", L"run", L"sbin", L"snap", L"srv", L"sys", L"tmp", L"usr", L"var", L"compatdata", L"shadercache"};
+    if (system.contains(std::wstring(name))) return true;
+#endif
     static const std::unordered_set<std::wstring> noise{L"system volume information", L"recovery", L"windows", L"windowsapps", L"xboxgames",
         L"program files", L"program files (x86)", L"programdata", L"users", L"steamapps", L"steamlibrary", L"msocache", L"config.msi",
         L"perflogs", L"onedrivetemp", L"intel", L"amd", L"nvidia"};
@@ -239,15 +402,15 @@ bool rootNoise(std::wstring_view name, DWORD attributes) {
 }
 
 void collectChildren(const std::filesystem::path& folder, int depth, const ScanOptions& options, std::vector<std::pair<std::filesystem::path, int>>& work) {
-    listFolder(folder, [&](const WIN32_FIND_DATAW& data) {
-        if (!(data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) || rootNoise(data.cFileName, data.dwFileAttributes)) return true;
-        if (depth > 0 && (data.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) return true; // No link loops inside containers.
-        const auto child = folder / data.cFileName;
+    listFolder(folder, [&](const Found& item) {
+        if (!item.folder || rootNoise(item.name, item.hidden_system)) return true;
+        if (depth > 0 && item.link) return true; // No link loops inside containers.
+        const auto child = folder / item.name;
         const auto key = folderKey(child);
         if (options.known.contains(key)) return true;
         for (const auto& known : options.known)
-            if ((known.size() > key.size() && known.starts_with(key) && known[key.size()] == L'\\') ||
-                (key.size() > known.size() && key.starts_with(known) && key[known.size()] == L'\\')) return true;
+            if ((known.size() > key.size() && known.starts_with(key) && known[key.size()] == key_separator) ||
+                (key.size() > known.size() && key.starts_with(known) && key[known.size()] == key_separator)) return true;
         work.emplace_back(child, depth);
         return true;
     });
@@ -258,9 +421,14 @@ void collectChildren(const std::filesystem::path& folder, int depth, const ScanO
 
 std::wstring folderKey(const std::filesystem::path& folder) {
     auto value = folder.lexically_normal().wstring();
+#ifdef _WIN32
     std::replace(value.begin(), value.end(), L'/', L'\\');
     while (value.size() > 3 && value.back() == L'\\') value.pop_back();
     return lower(value);
+#else
+    while (value.size() > 1 && value.back() == L'/') value.pop_back();
+    return value;
+#endif
 }
 
 std::string folderId(const std::filesystem::path& folder) {
@@ -276,13 +444,17 @@ std::string folderId(const std::filesystem::path& folder) {
 }
 
 bool validRoot(const std::filesystem::path& root) {
+#ifdef _WIN32
     return validPath(root) && root.has_root_name();
+#else
+    return validPath(root);
+#endif
 }
 
 bool inside(const std::filesystem::path& path, const std::filesystem::path& folder) {
     const auto child = folderKey(path), parent = folderKey(folder);
     if (parent.empty() || child.size() <= parent.size() || !child.starts_with(parent)) return false;
-    return parent.back() == L'\\' || child[parent.size()] == L'\\';
+    return parent.back() == key_separator || child[parent.size()] == key_separator;
 }
 
 const std::filesystem::path* rootOf(const Catalog& catalog, const std::filesystem::path& folder) {
@@ -411,6 +583,14 @@ bool save(const Catalog& catalog, const std::filesystem::path& file) {
 bool excludedExecutable(std::wstring_view file_name) {
     auto stem = lower(file_name);
     if (hasSuffix(stem, L".exe")) stem.resize(stem.size() - 4);
+#ifndef _WIN32
+    for (const std::wstring_view suffix : {L".sh", L".x86_64", L".x86", L".x64", L".bin", L".elf", L".appimage"})
+        if (hasSuffix(stem, suffix)) { stem.resize(stem.size() - suffix.size()); break; }
+    // Runtimes and helpers shipped beside native games.
+    for (const auto* fragment : {L"crashpad", L"chrome-sandbox", L"chrome_sandbox", L"xdg-", L"zenity", L"steam-runtime", L"ld-linux",
+                                 L"pressure-vessel", L"steamworks", L"desktop-file"})
+        if (stem.find(fragment) != std::wstring::npos) return true;
+#endif
     static const wchar_t* prefixes[]{L"unins", L"uninst", L"setup", L"install", L"vcredist", L"vc_redist", L"dxsetup", L"dxwebsetup",
         L"dotnet", L"ndp4", L"oalinst", L"physx", L"ue4prereq", L"ueprereq", L"unitycrashhandler", L"crashreport", L"crashpad", L"crashhandler",
         L"crashsender", L"bugsplat", L"easyanticheat", L"beservice", L"battleye", L"cefsharp", L"qtwebengine", L"notification_helper",
@@ -458,7 +638,13 @@ int executableScore(const Candidate& candidate, std::wstring_view folder_name, s
     if (candidate.rpgmaker || candidate.renpy) score += 80;
     if (candidate.gamemaker_data) score += 60;
     if (hasSuffix(stem, L"-win64-shipping") || hasSuffix(stem, L"-win32-shipping") || hasSuffix(stem, L"-wingdk-shipping")) score += 30;
-    if (candidate.size < 64 * 1024) score -= 60;
+#ifndef _WIN32
+    if (hasSuffix(stem, L"-linux-shipping") || hasSuffix(stem, L"-linuxarm64-shipping")) score += 30;
+    if (candidate.native) score += 40; // The Linux build over a Windows one beside it.
+    if (candidate.gog_start) score += 150;
+#endif
+    if (candidate.script) {} // A launcher script is small by nature.
+    else if (candidate.size < 64 * 1024) score -= 60;
     else if (candidate.size < 300 * 1024) score -= 15;
     else if (candidate.size >= 20 * 1024 * 1024) score += 20;
     else if (candidate.size >= 2 * 1024 * 1024) score += 10;
@@ -466,6 +652,9 @@ int executableScore(const Candidate& candidate, std::wstring_view folder_name, s
     if (candidate.x64) score += 5;
     const auto parent = lower(candidate.path.parent_path().filename().wstring());
     if (parent == L"x64" || parent == L"win64" || stem.find(L"64") != std::wstring::npos) score += 8;
+#ifndef _WIN32
+    else if (parent == L"linux" || parent == L"linux64" || parent == L"linux-x86_64" || parent == L"x86_64") score += 8;
+#endif
     if (stem.find(L"launcher") != std::wstring::npos) score -= 15;
     for (const auto* weak : {L"config", L"setting", L"option", L"editor", L"tool", L"sdk", L"server", L"dedicated", L"benchmark",
                              L"test", L"debug", L"helper", L"crash", L"register", L"activation", L"language", L"setup"})
@@ -487,15 +676,19 @@ Detection detect(const std::filesystem::path& folder, const Cancelled& cancelled
         std::unordered_set<std::wstring> names;
         std::vector<std::pair<std::wstring, uint64_t>> executables;
         std::vector<std::wstring> folders, gog_files;
-        listFolder(current.folder, [&](const WIN32_FIND_DATAW& data) {
+        listFolder(current.folder, [&](const Found& item) {
             ++visited;
-            const std::wstring name(data.cFileName);
+            const std::wstring& name = item.name;
             const auto key = lower(name);
             names.insert(key);
-            if (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
-                if (!(data.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) folders.push_back(name);
+            if (item.folder) {
+                if (!item.link) folders.push_back(name);
             } else if (hasSuffix(key, L".exe")) {
-                executables.emplace_back(name, (static_cast<uint64_t>(data.nFileSizeHigh) << 32) | data.nFileSizeLow);
+                executables.emplace_back(name, item.size);
+#ifndef _WIN32
+            } else if (nativeName(key)) {
+                executables.emplace_back(name, item.size);
+#endif
             } else if (current.depth == 0 && key.starts_with(L"goggame-") && hasSuffix(key, L".info")) gog_files.push_back(name);
             return visited < visit_limit;
         });
@@ -505,6 +698,9 @@ Detection detect(const std::filesystem::path& folder, const Cancelled& cancelled
                 return result;
             }
             if (names.contains(L"steam_appid.txt")) result.steam_app_id = steamAppId(current.folder / L"steam_appid.txt");
+#ifndef _WIN32
+            if (names.contains(L"gameinfo")) result.title = gameInfoTitle(current.folder / L"gameinfo");
+#endif
             if (!gog_files.empty()) {
                 std::sort(gog_files.begin(), gog_files.end());
                 if (auto gog = gogInfo(current.folder, gog_files)) {
@@ -532,6 +728,22 @@ Detection detect(const std::filesystem::path& folder, const Cancelled& cancelled
                     return hasSuffix(item, L".rgss3a") || hasSuffix(item, L".rgss2a") || hasSuffix(item, L".rgssad");
                 }));
             candidate.unreal_stub = names.contains(stem) && directoryExists(current.folder / stem / L"Binaries");
+#ifndef _WIN32
+            if (const auto key = lower(name); !hasSuffix(key, L".exe")) {
+                if (hasSuffix(key, L".sh")) {
+                    if (!shellScript(candidate.path)) continue;
+                    candidate.script = true;
+                    candidate.gog_start = key == L"start.sh" && names.contains(L"gameinfo");
+                } else {
+                    const auto elf = elfInfo(candidate.path);
+                    if (!elf.valid) continue;
+                    candidate.x64 = elf.x64;
+                }
+                candidate.native = true;
+                candidates.push_back(std::move(candidate));
+                continue;
+            }
+#endif
             const auto pe = peInfo(candidate.path);
             if (!pe.valid || pe.dll) continue;
             candidate.console = pe.console;
@@ -549,7 +761,7 @@ Detection detect(const std::filesystem::path& folder, const Cancelled& cancelled
             if (candidate.depth > 2) continue;
             const auto relative = candidate.path.lexically_relative(folder);
             if (relative.empty()) continue;
-            const auto child = relative.begin()->native();
+            const auto child = relative.begin()->wstring();
             if (!genericChild(child)) children.insert(lower(child));
         }
         if (children.size() >= 2) { result.container = true; return result; }

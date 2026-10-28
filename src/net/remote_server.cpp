@@ -3,6 +3,15 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <iphlpapi.h>
+#else
+#include "../platform/text_encoding.hpp"
+#include <arpa/inet.h>
+#include <ifaddrs.h>
+#include <net/if.h>
+#include <netinet/in.h>
+#include <poll.h>
+#include <sys/socket.h>
+#include <unistd.h>
 #endif
 
 #include <algorithm>
@@ -14,6 +23,15 @@ namespace {
 constexpr size_t head_limit = 16 * 1024, body_limit = 64 * 1024;
 constexpr int connection_limit = 12;
 constexpr auto read_budget = std::chrono::seconds(8);
+#ifdef _WIN32
+using Socket = SOCKET;
+const Socket no_socket = INVALID_SOCKET;
+void closeSocket(Socket socket) { closesocket(socket); }
+#else
+using Socket = int;
+constexpr Socket no_socket = -1;
+void closeSocket(Socket socket) { ::close(socket); }
+#endif
 
 const char* reason(int status) {
     switch (status) {
@@ -28,14 +46,24 @@ const char* reason(int status) {
     }
 }
 // Readable within 100 ms; false: not yet (the caller checks its budget and `stopping`).
-bool readable(SOCKET socket) {
+bool readable(Socket socket) {
+#ifdef _WIN32
     fd_set set; FD_ZERO(&set); FD_SET(socket, &set);
     timeval wait{0, 100 * 1000};
     return select(0, &set, nullptr, nullptr, &wait) == 1;
+#else
+    pollfd item{socket, POLLIN, 0}; // poll, not select: descriptors may exceed FD_SETSIZE.
+    return poll(&item, 1, 100) == 1;
+#endif
 }
-bool sendAll(SOCKET socket, std::string_view data) {
+bool sendAll(Socket socket, std::string_view data) {
+#ifdef _WIN32
+    constexpr int flags = 0;
+#else
+    constexpr int flags = MSG_NOSIGNAL; // A phone that hung up is no SIGPIPE.
+#endif
     while (!data.empty()) {
-        const int sent = send(socket, data.data(), static_cast<int>(std::min<size_t>(data.size(), 64 * 1024)), 0);
+        const int sent = static_cast<int>(send(socket, data.data(), static_cast<int>(std::min<size_t>(data.size(), 64 * 1024)), flags));
         if (sent <= 0) return false;
         data.remove_prefix(static_cast<size_t>(sent));
     }
@@ -117,19 +145,28 @@ Server::~Server() { stop(); }
 
 bool Server::start(uint16_t port, Handler handler, bool loopback_only) {
     stop();
+#ifdef _WIN32
     WSADATA data{};
     if (WSAStartup(MAKEWORD(2, 2), &data) != 0) return false;
     winsock_ = true;
-    const SOCKET listener = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if (listener == INVALID_SOCKET) { stop(); return false; }
+    const Socket listener = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (listener == no_socket) { stop(); return false; }
     BOOL exclusive = TRUE; // Nobody else may take the same port beside it.
     setsockopt(listener, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, reinterpret_cast<const char*>(&exclusive), sizeof(exclusive));
+#else
+    // Not inherited by games started meanwhile. Linux never shares a listening port without
+    // SO_REUSEPORT; SO_REUSEADDR only lets a restart bind past the old connections' TIME_WAIT.
+    const Socket listener = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, IPPROTO_TCP);
+    if (listener == no_socket) { stop(); return false; }
+    const int reuse = 1;
+    setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+#endif
     sockaddr_in address{};
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = htonl(loopback_only ? INADDR_LOOPBACK : INADDR_ANY);
     address.sin_port = htons(port);
     if (bind(listener, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) != 0 || listen(listener, 16) != 0) {
-        closesocket(listener);
+        closeSocket(listener);
         stop();
         return false;
     }
@@ -148,26 +185,32 @@ void Server::stop() {
         std::unique_lock lock(mutex_);
         idle_.wait(lock, [&] { return active_ == 0; });
     }
-    if (listener_ != ~uintptr_t{0}) { closesocket(static_cast<SOCKET>(listener_)); listener_ = ~uintptr_t{0}; }
+    if (listener_ != ~uintptr_t{0}) { closeSocket(static_cast<Socket>(listener_)); listener_ = ~uintptr_t{0}; }
+#ifdef _WIN32
     if (winsock_) { WSACleanup(); winsock_ = false; }
+#endif
     handler_ = {};
     port_ = 0;
 }
 
 void Server::run() {
-    const auto listener = static_cast<SOCKET>(listener_);
+    const auto listener = static_cast<Socket>(listener_);
     while (!stopping_) {
         if (!readable(listener)) continue;
-        const SOCKET client = accept(listener, nullptr, nullptr);
-        if (client == INVALID_SOCKET) continue;
+#ifdef _WIN32
+        const Socket client = accept(listener, nullptr, nullptr);
+#else
+        const Socket client = accept4(listener, nullptr, nullptr, SOCK_CLOEXEC);
+#endif
+        if (client == no_socket) continue;
         {
             std::lock_guard lock(mutex_);
-            if (active_ >= connection_limit) { closesocket(client); continue; }
+            if (active_ >= connection_limit) { closeSocket(client); continue; }
             ++active_;
         }
         std::thread([this, client] {
             serve(static_cast<uintptr_t>(client));
-            closesocket(client);
+            closeSocket(client);
             std::lock_guard lock(mutex_);
             --active_;
             idle_.notify_all();
@@ -176,9 +219,16 @@ void Server::run() {
 }
 
 void Server::serve(uintptr_t handle) {
-    const auto client = static_cast<SOCKET>(handle);
+    const auto client = static_cast<Socket>(handle);
+#ifdef _WIN32
     const DWORD send_timeout = 10000;
     setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char*>(&send_timeout), sizeof(send_timeout));
+    constexpr int send_done = SD_SEND;
+#else
+    const timeval send_timeout{10, 0};
+    setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &send_timeout, sizeof(send_timeout));
+    constexpr int send_done = SHUT_WR;
+#endif
     const auto deadline = std::chrono::steady_clock::now() + read_budget;
     std::string data;
     size_t head_end = std::string::npos;
@@ -190,7 +240,7 @@ void Server::serve(uintptr_t handle) {
         out += "Cache-Control: " + response.cache + "\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nConnection: close\r\n\r\n";
         if (!request || request->method != "HEAD") out += response.body;
         sendAll(client, out);
-        shutdown(client, SD_SEND);
+        shutdown(client, send_done);
     };
     char buffer[8192];
     while (true) {
@@ -205,7 +255,7 @@ void Server::serve(uintptr_t handle) {
         }
         if (head_end != std::string::npos && data.size() >= head_end + 4 + length) break;
         if (!readable(client)) continue;
-        const int got = recv(client, buffer, sizeof(buffer), 0);
+        const int got = static_cast<int>(recv(client, buffer, sizeof(buffer), 0));
         if (got <= 0) return;
         data.append(buffer, static_cast<size_t>(got));
     }
@@ -217,13 +267,15 @@ void Server::serve(uintptr_t handle) {
 }
 
 Address::Kind classify(uint32_t ip, std::wstring_view adapter) {
-    if (adapter.find(L"Tailscale") != std::wstring_view::npos || (ip & 0xFFC00000u) == 0x64400000u) return Address::Kind::tailscale; // 100.64.0.0/10
+    // "tailscale0": the Linux interface.
+    if (adapter.find(L"Tailscale") != std::wstring_view::npos || adapter.starts_with(L"tailscale") || (ip & 0xFFC00000u) == 0x64400000u) return Address::Kind::tailscale; // 100.64.0.0/10
     if ((ip & 0xFF000000u) == 0x0A000000u || (ip & 0xFFF00000u) == 0xAC100000u || (ip & 0xFFFF0000u) == 0xC0A80000u) return Address::Kind::local;
     return Address::Kind::global;
 }
 
 std::vector<Address> addresses() {
     std::vector<Address> out;
+#ifdef _WIN32
     ULONG size = 16 * 1024;
     std::vector<uint8_t> buffer;
     ULONG result = ERROR_BUFFER_OVERFLOW;
@@ -246,6 +298,21 @@ std::vector<Address> addresses() {
             out.push_back({classify(ip, name), text});
         }
     }
+#else
+    ifaddrs* list = nullptr;
+    if (getifaddrs(&list) != 0) return out;
+    for (const auto* item = list; item; item = item->ifa_next) {
+        if (!item->ifa_addr || item->ifa_addr->sa_family != AF_INET || (item->ifa_flags & IFF_LOOPBACK) ||
+            !(item->ifa_flags & IFF_UP) || !(item->ifa_flags & IFF_RUNNING)) continue;
+        const auto* address = reinterpret_cast<const sockaddr_in*>(item->ifa_addr);
+        const uint32_t ip = ntohl(address->sin_addr.s_addr);
+        if ((ip & 0xFF000000u) == 0x7F000000u || (ip & 0xFFFF0000u) == 0xA9FE0000u || ip == 0) continue; // Loopback, link-local.
+        char text[INET_ADDRSTRLEN]{};
+        if (!inet_ntop(AF_INET, &address->sin_addr, text, sizeof(text))) continue;
+        out.push_back({classify(ip, text_encoding::wideLenient(item->ifa_name ? item->ifa_name : "")), text_encoding::wideLenient(text)});
+    }
+    freeifaddrs(list);
+#endif
     std::stable_sort(out.begin(), out.end(), [](const Address& a, const Address& b) { return a.kind < b.kind; });
     return out;
 }
