@@ -190,7 +190,20 @@ list(APPEND LAUNCHME_CORE_LIBS PkgConfig::GIO ${CMAKE_DL_LIBS})
 
 # Audio and video: playback, FLAC, system volume, trailers.
 set(LAUNCHME_LINUX_MEDIA_SOURCES
+    src/platform/audio.cpp
+    src/platform/audio_sdl.cpp
+    src/platform/flac.cpp
+    src/platform/flac_ffmpeg.cpp
+    src/platform/system_audio_pulse.cpp
+    src/platform/video_player_ffmpeg.cpp
+    src/platform/volume_monitor.cpp
 )
+pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET libavformat libavcodec libavutil libswresample libswscale)
+pkg_check_modules(LIBPULSE REQUIRED IMPORTED_TARGET libpulse)
+if(NOT SDL3_INCLUDE_DIR IN_LIST CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES) # -I/usr/include would break #include_next.
+    set_property(SOURCE src/platform/audio_sdl.cpp src/platform/video_player_ffmpeg.cpp APPEND PROPERTY INCLUDE_DIRECTORIES "${SDL3_INCLUDE_DIR}")
+endif()
+list(APPEND LAUNCHME_CORE_LIBS PkgConfig::FFMPEG PkgConfig::LIBPULSE "${SDL3_LIBRARY}")
 
 # Game controllers: gamepads, Steam Controller, Bluetooth, device service.
 set(LAUNCHME_LINUX_CONTROLLER_SOURCES
@@ -293,6 +306,14 @@ if(BUILD_TESTING)
     launchme_executable(steam_install_live_test SOURCES tests/steam_install_live_test.cpp)
 
     # Audio and video:
+    add_custom_target(launchme_audio ALL
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/assets"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/res/HorizonsTheme.mp3" "${CMAKE_CURRENT_BINARY_DIR}/assets/HorizonsTheme.mp3"
+        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/res/HorizonsTheme.mp3" VERBATIM)
+    launchme_executable(soundtrack_tests TEST native_flac_decode SOURCES tests/soundtrack_tests.cpp src/platform/flac.cpp)
+    add_dependencies(soundtrack_tests launchme_audio)
+    launchme_executable(volume_monitor_tests TEST off_thread_system_volume SOURCES tests/volume_monitor_tests.cpp)
+    launchme_executable(audio_output_tests TEST audio_cues_music_and_voice SOURCES tests/audio_output_tests.cpp)
 
     # Controllers:
 

@@ -98,14 +98,22 @@ std::optional<int> headphoneBattery(IPropertyStore* properties) {
 }
 }
 
+struct SystemAudio::Impl {
+    Microsoft::WRL::ComPtr<IMMDeviceEnumerator> devices;
+    std::array<Microsoft::WRL::ComPtr<IAudioEndpointVolume>, 2> endpoints;
+};
+
+SystemAudio::SystemAudio() : impl_(std::make_unique<Impl>()) {}
+SystemAudio::~SystemAudio() = default;
+
 bool SystemAudio::read(VolumeLevel& value, bool input) {
-    auto& endpoint = endpoints_[input];
+    auto& endpoint = impl_->endpoints[input];
     if (!endpoint) {
-        if (!devices_ && FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr,
-                                                  CLSCTX_INPROC_SERVER, IID_PPV_ARGS(devices_.GetAddressOf()))))
+        if (!impl_->devices && FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr,
+                                                  CLSCTX_INPROC_SERVER, IID_PPV_ARGS(impl_->devices.GetAddressOf()))))
             return false;
         Microsoft::WRL::ComPtr<IMMDevice> device;
-        if (FAILED(devices_->GetDefaultAudioEndpoint(input ? eCapture : eRender, eMultimedia, device.GetAddressOf())) ||
+        if (FAILED(impl_->devices->GetDefaultAudioEndpoint(input ? eCapture : eRender, eMultimedia, device.GetAddressOf())) ||
             FAILED(device->Activate(__uuidof(IAudioEndpointVolume), CLSCTX_ALL, nullptr,
                                     reinterpret_cast<void**>(endpoint.GetAddressOf())))) { endpoint_ids_[input].clear(); return false; }
         endpoint_ids_[input] = endpointId(device.Get());
@@ -120,7 +128,7 @@ bool SystemAudio::read(VolumeLevel& value, bool input) {
     return true;
 }
 
-void SystemAudio::refreshDevice() { for (auto& endpoint : endpoints_) endpoint.Reset(); endpoint_ids_ = {}; }
+void SystemAudio::refreshDevice() { for (auto& endpoint : impl_->endpoints) endpoint.Reset(); endpoint_ids_ = {}; }
 
 std::optional<bool> SystemAudio::headphonesConnected() {
     const auto state = headphonesState();
@@ -128,10 +136,10 @@ std::optional<bool> SystemAudio::headphonesConnected() {
 }
 
 std::optional<headphones::State> SystemAudio::headphonesState() {
-    if (!devices_ && FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr,
-                                             CLSCTX_INPROC_SERVER, IID_PPV_ARGS(devices_.GetAddressOf())))) return {};
+    if (!impl_->devices && FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr,
+                                             CLSCTX_INPROC_SERVER, IID_PPV_ARGS(impl_->devices.GetAddressOf())))) return {};
     Microsoft::WRL::ComPtr<IMMDeviceCollection> collection;
-    if (FAILED(devices_->EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE, collection.GetAddressOf()))) return {};
+    if (FAILED(impl_->devices->EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE, collection.GetAddressOf()))) return {};
     UINT count = 0;
     if (FAILED(collection->GetCount(&count))) return {};
     bool complete = true;
@@ -164,13 +172,13 @@ devices::Snapshot SystemAudio::enumerate() {
         channel.available = read(volume, input);
         channel.volume = volume.level; channel.muted = volume.muted; channel.endpoint = endpoint_ids_[input];
     }
-    if (!devices_) { result.status = tr(L"Nie można odczytać urządzeń audio."); return result; }
+    if (!impl_->devices) { result.status = tr(L"Nie można odczytać urządzeń audio."); return result; }
     for (const auto flow : {eRender, eCapture}) {
         Microsoft::WRL::ComPtr<IMMDevice> current;
-        devices_->GetDefaultAudioEndpoint(flow, eMultimedia, current.GetAddressOf());
+        impl_->devices->GetDefaultAudioEndpoint(flow, eMultimedia, current.GetAddressOf());
         const auto selected = endpointId(current.Get());
         Microsoft::WRL::ComPtr<IMMDeviceCollection> collection;
-        if (FAILED(devices_->EnumAudioEndpoints(flow, DEVICE_STATE_ACTIVE, collection.GetAddressOf()))) continue;
+        if (FAILED(impl_->devices->EnumAudioEndpoints(flow, DEVICE_STATE_ACTIVE, collection.GetAddressOf()))) continue;
         UINT count = 0; collection->GetCount(&count);
         for (UINT i = 0; i < count; ++i) {
             Microsoft::WRL::ComPtr<IMMDevice> device;
@@ -196,7 +204,7 @@ std::wstring SystemAudio::setVolume(float level, bool input, const std::wstring&
     refreshDevice(); VolumeLevel old;
     if (!read(old, input)) return input ? tr(L"Brak dostępnego wejścia audio.") : tr(L"Brak dostępnego wyjścia audio.");
     if (!expected.empty() && expected != endpoint_ids_[input]) return tr(L"Urządzenie audio zmieniło się. Ponów zmianę.");
-    if (FAILED(endpoints_[input]->SetMasterVolumeLevelScalar(std::clamp(level, 0.0f, 1.0f), nullptr)))
+    if (FAILED(impl_->endpoints[input]->SetMasterVolumeLevelScalar(std::clamp(level, 0.0f, 1.0f), nullptr)))
         return tr(L"Nie udało się zmienić głośności.");
     return {};
 }
@@ -204,7 +212,7 @@ std::wstring SystemAudio::setMuted(bool muted, bool input, const std::wstring& e
     refreshDevice(); VolumeLevel old;
     if (!read(old, input)) return input ? tr(L"Brak dostępnego wejścia audio.") : tr(L"Brak dostępnego wyjścia audio.");
     if (!expected.empty() && expected != endpoint_ids_[input]) return tr(L"Urządzenie audio zmieniło się. Ponów zmianę.");
-    if (FAILED(endpoints_[input]->SetMute(muted, nullptr))) return tr(L"Nie udało się zmienić wyciszenia.");
+    if (FAILED(impl_->endpoints[input]->SetMute(muted, nullptr))) return tr(L"Nie udało się zmienić wyciszenia.");
     return {};
 }
 std::wstring SystemAudio::setDefault(const std::wstring& id, bool input) {
@@ -218,7 +226,7 @@ std::wstring SystemAudio::setDefault(const std::wstring& id, bool input) {
     std::vector<std::wstring> previous;
     for (int role = 0; role < 3; ++role) {
         Microsoft::WRL::ComPtr<IMMDevice> device;
-        if (FAILED(devices_->GetDefaultAudioEndpoint(input ? eCapture : eRender, static_cast<ERole>(role), device.GetAddressOf())))
+        if (FAILED(impl_->devices->GetDefaultAudioEndpoint(input ? eCapture : eRender, static_cast<ERole>(role), device.GetAddressOf())))
             return tr(L"Nie można zachować poprzednich ustawień audio.");
         previous.push_back(endpointId(device.Get()));
         if (previous.back().empty()) return tr(L"Nie można zachować poprzednich ustawień audio.");

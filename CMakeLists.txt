@@ -349,8 +349,9 @@ set(LAUNCHME_APP_SOURCES
     src/net/json.cpp
     src/friends/steam_friends.cpp
     src/platform/audio.cpp
+    src/platform/audio_windows.cpp
     src/platform/flac.cpp
-    src/platform/system_audio.cpp
+    src/platform/system_audio_windows.cpp
     src/platform/volume_monitor.cpp
     src/platform/game_controllers.cpp
     src/platform/bluetooth_controllers.cpp
@@ -375,7 +376,7 @@ set(LAUNCHME_APP_SOURCES
     src/platform/power.cpp
     src/platform/sensors.cpp
     src/platform/discord.cpp
-    src/platform/video_player.cpp
+    src/platform/video_player_windows.cpp
     src/platform/updater.cpp
     src/app/updates.cpp
     src/ui/update_renderer.cpp
@@ -608,7 +609,7 @@ if(BUILD_TESTING)
         SOURCES tests/controller_models_tests.cpp)
     launchme_executable(device_live_test
         SOURCES tests/device_live_test.cpp src/platform/device_service.cpp src/platform/game_controllers.cpp
-            src/platform/steam_controller.cpp src/platform/system_audio.cpp src/platform/user_config.cpp src/net/http.cpp
+            src/platform/steam_controller.cpp src/platform/system_audio_windows.cpp src/platform/user_config.cpp src/net/http.cpp
         LIBS windowsapp hid xinput windowscodecs winhttp shell32 ole32 propsys)
     launchme_executable(steamgriddb_tests TEST steamgriddb_browser_and_selection
         SOURCES tests/steamgriddb_tests.cpp src/artwork/steamgriddb.cpp ${LAUNCHME_COVER_SOURCES} ${LAUNCHME_WEB_SOURCES}
@@ -767,7 +768,7 @@ add_test(NAME low_memory_mode COMMAND launcher_ui_tests --low-memory)
             ${LAUNCHME_WEB_SOURCES} ${LAUNCHME_I18N_SOURCES}
         LIBS shell32 ole32 crypt32 bcrypt winhttp windowscodecs)
     launchme_executable(video_player_live_test
-        SOURCES tests/video_player_live_test.cpp src/platform/video_player.cpp src/store/steam_trailer.cpp src/store/game_details.cpp src/artwork/image_compact.cpp
+        SOURCES tests/video_player_live_test.cpp src/platform/video_player_windows.cpp src/store/steam_trailer.cpp src/store/game_details.cpp src/artwork/image_compact.cpp
             ${LAUNCHME_WEB_SOURCES} ${LAUNCHME_I18N_SOURCES}
         LIBS mfplat mfuuid windowscodecs ole32 shell32 winhttp)
     launchme_executable(retry_policy_tests TEST artwork_retry_backoff
