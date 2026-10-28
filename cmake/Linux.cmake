@@ -207,7 +207,21 @@ list(APPEND LAUNCHME_CORE_LIBS PkgConfig::FFMPEG PkgConfig::LIBPULSE "${SDL3_LIB
 
 # Game controllers: gamepads, Steam Controller, Bluetooth, device service.
 set(LAUNCHME_LINUX_CONTROLLER_SOURCES
+    src/platform/bluetooth_controllers_linux.cpp
+    src/platform/bluez.cpp
+    src/platform/device_service_linux.cpp
+    src/platform/game_controllers.cpp
+    src/platform/game_controllers_linux.cpp
+    src/platform/linux_hid.cpp
+    src/platform/steam_controller.cpp
+    src/platform/steam_controller_linux.cpp
 )
+pkg_check_modules(LIBSYSTEMD REQUIRED IMPORTED_TARGET libsystemd)
+if(NOT SDL3_INCLUDE_DIR IN_LIST CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES) # -I/usr/include would break #include_next.
+    set_property(SOURCE src/platform/game_controllers_linux.cpp src/platform/steam_controller_linux.cpp
+        APPEND PROPERTY INCLUDE_DIRECTORIES "${SDL3_INCLUDE_DIR}")
+endif()
+list(APPEND LAUNCHME_CORE_LIBS "${SDL3_LIBRARY}" PkgConfig::LIBSYSTEMD)
 
 list(APPEND LAUNCHME_CORE_SOURCES ${LAUNCHME_LINUX_PROCESS_SOURCES} ${LAUNCHME_LINUX_IMAGE_SOURCES}
     ${LAUNCHME_LINUX_FILES_SOURCES} ${LAUNCHME_LINUX_STORE_SOURCES} ${LAUNCHME_LINUX_COMPANION_SOURCES}
@@ -316,5 +330,7 @@ if(BUILD_TESTING)
     launchme_executable(audio_output_tests TEST audio_cues_music_and_voice SOURCES tests/audio_output_tests.cpp)
 
     # Controllers:
+    launchme_executable(controller_linux_tests TEST controller_linux_sysfs_and_bluez SOURCES tests/controller_linux_tests.cpp)
+    launchme_executable(device_live_test SOURCES tests/device_live_test_linux.cpp)
 
 endif()
