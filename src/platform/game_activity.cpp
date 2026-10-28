@@ -3,6 +3,12 @@
 #ifdef _WIN32
 #include <Windows.h>
 #include <tlhelp32.h>
+#else
+#include "proc_fs.hpp"
+#include "system.hpp"
+#include "text_encoding.hpp"
+#include "../library/steam_registry.hpp"
+#include <unistd.h>
 #endif
 #include <algorithm>
 #include <cstdint>
@@ -12,6 +18,8 @@
 #include <utility>
 
 namespace {
+#ifdef _WIN32
+constexpr wchar_t separator = L'\\', list_separator = L';';
 std::wstring normalized(const std::filesystem::path& path) {
     auto result = path.lexically_normal().wstring();
     if (result.starts_with(L"\\\\?\\UNC\\")) result = L"\\\\" + result.substr(8);
@@ -20,14 +28,63 @@ std::wstring normalized(const std::filesystem::path& path) {
     std::transform(result.begin(), result.end(), result.begin(), [](wchar_t ch) { return static_cast<wchar_t>(std::towlower(ch)); });
     return result;
 }
+#else
+constexpr wchar_t separator = L'/', list_separator = L':';
+// Linux file systems tell case apart.
+std::wstring normalized(const std::filesystem::path& path) { return path.lexically_normal().wstring(); }
+std::wstring lower(std::wstring text) {
+    std::transform(text.begin(), text.end(), text.begin(), [](wchar_t ch) { return static_cast<wchar_t>(std::towlower(ch)); });
+    return text;
+}
+#endif
 bool helper(std::wstring name) {
     std::transform(name.begin(), name.end(), name.begin(), [](wchar_t ch) { return static_cast<wchar_t>(std::towlower(ch)); });
     for (const auto* ignored : {L"steam.exe", L"steamwebhelper.exe", L"galaxyclient.exe", L"battle.net.exe", L"epicgameslauncher.exe",
          L"ubisoftconnect.exe", L"upc.exe", L"eadesktop.exe", L"xboxpcapp.exe", L"xboxpcappce.exe", L"crashreportclient.exe", L"unitycrashhandler64.exe"})
         if (name == ignored) return true;
+#ifndef _WIN32
+    // The Linux clients (Steam, Heroic, Lutris and their helpers) and crash handlers.
+    for (const auto* ignored : {L"steam", L"steamwebhelper", L"steam-runtime-launcher-service", L"heroic", L"legendary", L"gogdl", L"nile",
+         L"lutris", L"crashreportclient", L"unitycrashhandler64", L"unitycrashhandler"})
+        if (name == ignored) return true;
+#endif
     return false;
 }
+#ifdef _WIN32
 struct Handle { HANDLE value; ~Handle() { if (value && value != INVALID_HANDLE_VALUE) CloseHandle(value); } };
+using Held = HANDLE;
+#else
+using Held = GameProcess;
+// A process of this user, as a Toolhelp snapshot entry: identity, and its program when readable.
+struct Entry {
+    GameProcess process;
+    std::optional<std::wstring> image; // normalized()
+    std::wstring name;                 // The program's file name (else the kernel's name for it).
+};
+// This user's live processes (the "session" of the Windows build).
+std::vector<Entry> snapshot() {
+    std::vector<Entry> result;
+    const auto user = static_cast<uint32_t>(::getuid());
+    for (const auto pid : proc_fs::processes()) {
+        const auto stat = proc_fs::stat(pid);
+        if (!stat || stat->ended() || !stat->start || proc_fs::owner(pid) != user) continue;
+        Entry entry{{pid, stat->start}, {}, {}};
+        if (const auto image = proc_fs::image(pid)) {
+            entry.image = normalized(*image);
+            // A Wine program's name keeps its Windows form (C:\...\game.exe).
+            const auto text = image->wstring();
+            const auto slash = text.find_last_of(L"/\\");
+            entry.name = slash == std::wstring::npos ? text : text.substr(slash + 1);
+        } else entry.name = text_encoding::wideLenient(proc_fs::name(pid));
+        result.push_back(std::move(entry));
+    }
+    return result;
+}
+bool same(const GameProcess& process) {
+    const auto stat = proc_fs::stat(process.pid);
+    return stat && !stat->ended() && stat->start == process.created;
+}
+#endif
 bool sharedFolder(const std::wstring& directory);
 // How a game's processes are recognized; empty when a shared shell/launcher would be ambiguous.
 struct ProcessMatch {
@@ -40,7 +97,7 @@ std::optional<ProcessMatch> processMatch(const Game& game) {
     ProcessMatch match;
     match.executable = game.executable.is_absolute() ? normalized(game.executable) : std::wstring{};
     match.directory = game.install_directory.is_absolute() && game.install_directory != game.install_directory.root_path() ? normalized(game.install_directory) : std::wstring{};
-    if (!match.directory.empty() && match.directory.back() != L'\\') match.directory += L'\\';
+    if (!match.directory.empty() && match.directory.back() != separator) match.directory += separator;
     // A custom game's directory is only its working folder. Apply these rules
     // to watches and destructive Quick Resume actions as well as discovery.
     if (game.source == GameSource::custom || (!match.directory.empty() && sharedFolder(match.directory))) match.directory.clear();
@@ -48,9 +105,13 @@ std::optional<ProcessMatch> processMatch(const Game& game) {
     if (!match.executable.empty() && match.directory.empty()) {
         const auto name = normalized(game.executable.filename());
         if (helper(name) || name == L"cmd.exe" || name == L"powershell.exe" || name == L"pwsh.exe" || name == L"explorer.exe") return {};
+#ifndef _WIN32
+        for (const auto* shared : {L"sh", L"bash", L"env", L"pwsh", L"flatpak", L"xdg-open", L"gio"}) if (name == shared) return {};
+#endif
     }
     return match;
 }
+#ifdef _WIN32
 std::optional<std::wstring> imagePath(HANDLE process) {
     // Not zero-filled: this runs for every process of each snapshot (64 KiB apiece); the
     // call reports the length it wrote.
@@ -58,8 +119,10 @@ std::optional<std::wstring> imagePath(HANDLE process) {
     if (!process || !QueryFullProcessImageNameW(process, 0, path, &count) || count >= std::size(path)) return {};
     return normalized(std::filesystem::path(std::wstring_view(path, count)));
 }
+#endif
 }
 namespace {
+#ifdef _WIN32
 std::optional<GameActivity> steamActivity(const Game& game) {
     if (game.source != GameSource::steam || !isGame(game) || !game.app_id) return {};
     const auto key = L"Software\\Valve\\Steam\\Apps\\" + std::to_wstring(game.app_id);
@@ -67,9 +130,36 @@ std::optional<GameActivity> steamActivity(const Game& game) {
     if (RegGetValueW(HKEY_CURRENT_USER, key.c_str(), L"Running", RRF_RT_REG_DWORD, nullptr, &running, &size) != ERROR_SUCCESS) return {};
     return running ? GameActivity::running : GameActivity::stopped;
 }
+#else
+std::optional<GameActivity> steamActivity(const Game& game) {
+    if (game.source != GameSource::steam || !isGame(game) || !game.app_id) return {};
+    const auto running = steam_registry::number({"Apps", std::to_string(game.app_id)}, "Running");
+    if (!running) return {};
+    return *running ? GameActivity::running : GameActivity::stopped;
+}
+// As the Windows scan below; a held process is kept by its identity (PID and start time).
+GameActivity scan(const Game& game, const ProcessMatch& match, std::vector<Held>* hold) {
+    bool uncertain = false, running = false;
+    const auto wanted = text_encoding::utf8Lenient(game.executable.filename().wstring()).substr(0, 15);
+    for (const auto& entry : snapshot()) {
+        if (helper(entry.name)) continue;
+        if (!entry.image) {
+            // Not inspectable (not dumpable): only its kernel name, cut to 15 bytes, is known.
+            if (!game.executable.empty() && text_encoding::utf8Lenient(entry.name) == wanted) uncertain = true;
+            continue;
+        }
+        if (!match.matches(*entry.image)) continue;
+        running = true;
+        if (!hold) break;
+        if (hold->size() < 64) hold->push_back(entry.process);
+    }
+    return running ? GameActivity::running : uncertain ? GameActivity::unknown : GameActivity::stopped;
+}
+#endif
 // Full process snapshot. With `hold`, every matching process is kept open with
 // SYNCHRONIZE so later polls can wait on it instead of scanning the system again.
-GameActivity scan(const Game& game, const ProcessMatch& match, std::vector<HANDLE>* hold) {
+#ifdef _WIN32
+GameActivity scan(const Game& game, const ProcessMatch& match, std::vector<Held>* hold) {
     const auto snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (snapshot == INVALID_HANDLE_VALUE) return GameActivity::unknown;
     Handle snapshot_handle{snapshot};
@@ -97,6 +187,7 @@ GameActivity scan(const Game& game, const ProcessMatch& match, std::vector<HANDL
     } while (Process32NextW(snapshot, &entry));
     return running ? GameActivity::running : uncertain ? GameActivity::unknown : GameActivity::stopped;
 }
+#endif
 
 bool emulatorStem(std::wstring_view stem) {
     static const wchar_t* names[]{L"cemu", L"retroarch", L"dolphin", L"rpcs3", L"pcsx2", L"yuzu", L"ryujinx", L"suyu", L"sudachi", L"eden",
@@ -123,7 +214,9 @@ bool platformEmulator(const Game& game, std::wstring_view stem) {
 }
 std::wstring folded(std::wstring text) {
     std::transform(text.begin(), text.end(), text.begin(), [](wchar_t ch) { return static_cast<wchar_t>(std::towlower(ch)); });
+#ifdef _WIN32
     for (auto& ch : text) if (ch == L'/') ch = L'\\';
+#endif
     return text;
 }
 bool mentionsRom(std::wstring_view text, const Game& game, bool title) {
@@ -137,6 +230,59 @@ bool mentionsRom(std::wstring_view text, const Game& game, bool title) {
     }
     return title && game.name.size() >= 4 && hay.find(folded(game.name)) != std::wstring::npos;
 }
+struct SeenEmulator {
+    GameProcess process;
+    std::wstring stem;
+    bool names_rom = false;
+};
+// Minecraft (MultiMC / Prism instances) runs as javaw.exe from a shared Java folder: the instance
+// is recognised by its folder on the Java command line (natives, game directory).
+struct JavaProcess {
+    GameProcess process;
+    std::wstring command; // folded()
+};
+#ifndef _WIN32
+std::optional<std::wstring> commandLine(uint32_t pid) {
+    const auto arguments = proc_fs::commandLine(pid);
+    if (!arguments) return {};
+    std::wstring line;
+    for (const auto& argument : *arguments) {
+        if (!line.empty()) line += L' ';
+        line += text_encoding::wideLenient(argument);
+    }
+    return line;
+}
+// Window titles belong to the display server: on Linux the command line alone names the ROM.
+std::vector<SeenEmulator> emulatorSnapshot(const Game& game) {
+    std::vector<SeenEmulator> seen;
+    if (game.rom.empty() && game.name.size() < 4) return seen;
+    const auto self = system_info::processId();
+    for (const auto& entry : snapshot()) {
+        if (entry.process.pid == self || helper(entry.name)) continue;
+        const auto stem = lower(std::filesystem::path(entry.name).stem().wstring());
+        if (!emulatorStem(stem)) continue;
+        bool named = false;
+        if (const auto line = commandLine(entry.process.pid)) named = mentionsRom(*line, game, false);
+        seen.push_back({entry.process, stem, named});
+        if (seen.size() >= 64) break;
+    }
+    return seen;
+}
+bool javaName(std::wstring_view name) {
+    return name == L"java" || name == L"javaw" || lower(std::wstring(name)) == L"javaw.exe" || lower(std::wstring(name)) == L"java.exe";
+}
+std::vector<JavaProcess> javaProcesses(uint32_t only_pid = 0) {
+    std::vector<JavaProcess> result;
+    for (const auto& entry : snapshot()) {
+        if (!javaName(entry.name) || (only_pid && entry.process.pid != only_pid)) continue;
+        const auto line = commandLine(entry.process.pid);
+        if (!line) continue;
+        result.push_back({entry.process, folded(*line)});
+        if (result.size() >= 64) break;
+    }
+    return result;
+}
+#else
 std::optional<std::wstring> commandLine(HANDLE process) {
     const auto ntdll = GetModuleHandleW(L"ntdll.dll");
     using Query = long (NTAPI *)(HANDLE, unsigned long, void*, unsigned long, unsigned long*);
@@ -169,11 +315,6 @@ std::optional<std::wstring> commandLine(HANDLE process) {
     if (!ReadProcessMemory(process, static_cast<BYTE*>(params) + 0x70, &cmd, sizeof(cmd), nullptr)) return {};
     return readText(cmd.buf, cmd.len);
 }
-struct SeenEmulator {
-    GameProcess process;
-    std::wstring stem;
-    bool names_rom = false;
-};
 std::vector<SeenEmulator> emulatorSnapshot(const Game& game) {
     std::vector<SeenEmulator> seen;
     if (game.rom.empty() && game.name.size() < 4) return seen;
@@ -213,12 +354,6 @@ std::vector<SeenEmulator> emulatorSnapshot(const Game& game) {
     } while (Process32NextW(snapshot, &entry) && seen.size() < 64);
     return seen;
 }
-// Minecraft (MultiMC / Prism instances) runs as javaw.exe from a shared Java folder: the instance
-// is recognised by its folder on the Java command line (natives, game directory).
-struct JavaProcess {
-    GameProcess process;
-    std::wstring command; // folded()
-};
 bool javaName(std::wstring_view name) {
     return CompareStringOrdinal(name.data(), static_cast<int>(name.size()), L"javaw.exe", -1, TRUE) == CSTR_EQUAL ||
            CompareStringOrdinal(name.data(), static_cast<int>(name.size()), L"java.exe", -1, TRUE) == CSTR_EQUAL;
@@ -244,15 +379,16 @@ std::vector<JavaProcess> javaProcesses(DWORD only_pid = 0) {
     } while (Process32NextW(snapshot, &entry) && result.size() < 64);
     return result;
 }
+#endif
 // The instance folder named as a whole path (not as the start of a longer folder name).
 bool namesInstance(const std::wstring& command, const Game& game) {
     if (game.source != GameSource::multimc || !game.install_directory.is_absolute()) return false;
     auto folder = folded(game.install_directory.lexically_normal().wstring());
-    while (folder.size() > 3 && folder.back() == L'\\') folder.pop_back();
+    while (folder.size() > 3 && folder.back() == separator) folder.pop_back();
     if (folder.size() < 4) return false;
     for (size_t at = command.find(folder); at != std::wstring::npos; at = command.find(folder, at + 1)) {
         const size_t end = at + folder.size();
-        if (end == command.size() || command[end] == L'\\' || command[end] == L'"' || command[end] == L' ' || command[end] == L';') return true;
+        if (end == command.size() || command[end] == separator || command[end] == L'"' || command[end] == L' ' || command[end] == list_separator) return true;
     }
     return false;
 }
@@ -262,6 +398,7 @@ std::vector<GameProcess> minecraftProcesses(const Game& game) {
     for (const auto& java : javaProcesses()) if (namesInstance(java.command, game)) found.push_back(java.process);
     return found;
 }
+#ifdef _WIN32
 bool holdProcess(uint32_t pid, std::vector<HANDLE>* hold) {
     if (!hold || hold->size() >= 64) return false;
     HANDLE process = OpenProcess(SYNCHRONIZE, FALSE, pid);
@@ -270,6 +407,15 @@ bool holdProcess(uint32_t pid, std::vector<HANDLE>* hold) {
     hold->push_back(process);
     return true;
 }
+#else
+bool holdProcess(uint32_t pid, std::vector<Held>* hold) {
+    if (!hold || hold->size() >= 64) return false;
+    const auto stat = proc_fs::stat(pid);
+    if (!stat || stat->ended()) return false;
+    hold->push_back({pid, stat->start});
+    return true;
+}
+#endif
 }
 
 GameActivity readGameActivity(const Game& game) {
@@ -303,16 +449,23 @@ ProcessWatch& ProcessWatch::operator=(ProcessWatch&& other) noexcept {
     return *this;
 }
 void ProcessWatch::release() {
+#ifdef _WIN32
     for (const auto handle : handles_) CloseHandle(handle);
+#endif
     handles_.clear();
 }
 bool ProcessWatch::holding() const { return !handles_.empty(); }
 GameActivity ProcessWatch::read(const Game& game) {
+#ifdef _WIN32
     // Steady state: one kernel wait per known process, no system-wide snapshot.
     std::erase_if(handles_, [](HANDLE handle) {
         if (WaitForSingleObject(handle, 0) == WAIT_TIMEOUT) return false;
         CloseHandle(handle); return true;
     });
+#else
+    // Steady state: one /proc/<pid>/stat read per known process, no scan of /proc.
+    std::erase_if(handles_, [](const GameProcess& process) { return !same(process); });
+#endif
     if (!handles_.empty()) { confirmed_ = true; return GameActivity::running; }
     if (game.source == GameSource::multimc) {
         // Its Java process, held from then on; until it appears the launch job (the launcher
@@ -366,6 +519,16 @@ std::vector<GameProcess> findGameProcesses(const Game& game) {
     if (game.source == GameSource::multimc) return minecraftProcesses(game);
     const auto match = processMatch(game);
     if (!match) return findEmulatorRomProcesses(game);
+#ifndef _WIN32
+    std::vector<GameProcess> found;
+    const auto self = system_info::processId();
+    for (const auto& entry : snapshot()) {
+        if (entry.process.pid == self || helper(entry.name) || !entry.image || !match->matches(*entry.image)) continue;
+        found.push_back(entry.process);
+        if (found.size() >= 64) break;
+    }
+    return found;
+#else
     const auto snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (snapshot == INVALID_HANDLE_VALUE) return {};
     Handle snapshot_handle{snapshot};
@@ -388,6 +551,7 @@ std::vector<GameProcess> findGameProcesses(const Game& game) {
         if (ticks) found.push_back({entry.th32ProcessID, ticks});
     } while (Process32NextW(snapshot, &entry) && found.size() < 64);
     return found;
+#endif
 }
 
 bool sharesProcesses(const Game& a, const Game& b) {
@@ -398,6 +562,10 @@ bool sharesProcesses(const Game& a, const Game& b) {
     return !first->directory.empty() && first->directory == second->directory;
 }
 
+#ifndef _WIN32
+// The foreground window and its process are the display server's (X11, Wayland), so the UI's.
+std::optional<GameWindow> findWindowGame(HWND, const std::vector<Game>&) { return {}; }
+#else
 std::optional<GameWindow> findWindowGame(HWND window, const std::vector<Game>& candidates) {
     DWORD pid = 0;
     if (!window || !IsWindowVisible(window) || IsIconic(window) || !GetWindowThreadProcessId(window, &pid) ||
@@ -428,8 +596,25 @@ std::optional<GameWindow> findWindowGame(HWND window, const std::vector<Game>& c
     if (!best) return {};
     return GameWindow{window, {pid, (static_cast<uint64_t>(created.dwHighDateTime) << 32) | created.dwLowDateTime}, gameKey(*best)};
 }
+#endif
 
 namespace {
+#ifndef _WIN32
+// `directory` (normalized, ending in '/') is, or lies above, the home folder or a folder many
+// programs run from, or lies inside the system: a process there proves nothing about one game.
+bool sharedFolder(const std::wstring& directory) {
+    std::vector<std::wstring> above{L"/usr/", L"/opt/", L"/tmp/", L"/var/", L"/home/", L"/run/", L"/srv/", L"/mnt/", L"/media/"};
+    if (const auto home = system_info::environment(L"HOME"); home && !home->empty()) {
+        auto folder = normalized(std::filesystem::path(*home));
+        if (folder.back() != separator) folder += separator;
+        above.push_back(std::move(folder));
+    }
+    for (const auto& folder : above) if (folder.starts_with(directory)) return true;
+    for (const auto* system : {L"/usr/", L"/bin/", L"/sbin/", L"/lib/", L"/lib64/", L"/etc/", L"/proc/", L"/sys/", L"/dev/"})
+        if (directory.starts_with(system)) return true;
+    return false;
+}
+#else
 // `directory` (normalized, ending in '\') is, or lies above, a folder many programs run from,
 // or lies inside Windows: a process there proves nothing about one game.
 bool sharedFolder(const std::wstring& directory) {
@@ -446,8 +631,33 @@ bool sharedFolder(const std::wstring& directory) {
     }
     return false;
 }
+#endif
 }
 
+#ifndef _WIN32
+HANDLE launchJob(HANDLE process) { return process > 0 ? process : 0; }
+
+GameActivity readLaunchJob(HANDLE job) {
+    if (job <= 0) return GameActivity::unknown;
+    const auto session = static_cast<uint32_t>(job);
+    const auto self = system_info::processId();
+    for (const auto pid : proc_fs::processes()) {
+        const auto stat = proc_fs::stat(pid);
+        if (!stat || stat->ended() || stat->session != session) continue;
+        // The ID is free again once the session is empty: a new leader of that number that is not
+        // the launcher's child is another program's session.
+        if (pid == session && stat->parent != self) continue;
+        const auto image = proc_fs::image(pid);
+        if (!image) return GameActivity::running; // Not inspectable: still a live process of the game.
+        // A store client the script or link started (and that stays open) is not the game.
+        const auto text = image->wstring();
+        const auto slash = text.find_last_of(L"/\\");
+        if (helper(slash == std::wstring::npos ? text : text.substr(slash + 1))) continue;
+        return GameActivity::running;
+    }
+    return GameActivity::stopped;
+}
+#else
 HANDLE launchJob(HANDLE process) {
     if (!process) return nullptr;
     const HANDLE job = CreateJobObjectW(nullptr, nullptr);
@@ -478,12 +688,18 @@ GameActivity readLaunchJob(HANDLE job) {
     }
     return GameActivity::stopped;
 }
+#endif
 
 std::vector<size_t> findRunningGames(const std::vector<Game>& candidates) {
     std::vector<size_t> running;
+#ifdef _WIN32
     DWORD steam_app = 0, size = sizeof(steam_app);
     if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\Valve\\Steam", L"RunningAppID", RRF_RT_REG_DWORD,
                      nullptr, &steam_app, &size) != ERROR_SUCCESS) steam_app = 0;
+#else
+    const auto reported = steam_registry::number({}, "RunningAppID");
+    const uint32_t steam_app = reported && *reported <= UINT32_MAX ? static_cast<uint32_t>(*reported) : 0;
+#endif
     std::vector<std::pair<size_t, ProcessMatch>> matchers;
     std::vector<char> found(candidates.size());
     bool needs_scan = false;
@@ -513,6 +729,12 @@ std::vector<size_t> findRunningGames(const std::vector<Game>& candidates) {
         }
     }
     if (!needs_scan) return running;
+#ifndef _WIN32
+    const auto self = system_info::processId();
+    for (const auto& entry : snapshot()) {
+        if (entry.process.pid == self || helper(entry.name) || !entry.image) continue;
+        const auto& full = entry.image;
+#else
     const auto snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (snapshot == INVALID_HANDLE_VALUE) return running;
     Handle snapshot_handle{snapshot};
@@ -528,6 +750,7 @@ std::vector<size_t> findRunningGames(const std::vector<Game>& candidates) {
         Handle process{OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, entry.th32ProcessID)};
         const auto full = imagePath(process.value);
         if (!full) continue;
+#endif
         std::optional<size_t> best;
         size_t best_score = 0;
         for (const auto& [index, match] : matchers) {
@@ -536,6 +759,10 @@ std::vector<size_t> findRunningGames(const std::vector<Game>& candidates) {
             if (score > best_score) { best_score = score; best = index; }
         }
         if (best && !found[*best]) { found[*best] = 1; running.push_back(*best); }
+#ifdef _WIN32
     } while (Process32NextW(snapshot, &entry));
+#else
+    }
+#endif
     return running;
 }

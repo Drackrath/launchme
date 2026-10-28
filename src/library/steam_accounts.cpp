@@ -5,6 +5,13 @@
 
 #ifdef _WIN32
 #include <Windows.h>
+#else
+#include "steam_registry.hpp"
+#include "../platform/proc_fs.hpp"
+#include "../platform/process_spawn.hpp"
+#include "../platform/text_encoding.hpp"
+#include <csignal>
+#include <unistd.h>
 #endif
 
 #include <algorithm>
@@ -67,6 +74,7 @@ std::optional<std::string> readText(const std::filesystem::path& file) {
     if (!input.read(text.data(), static_cast<std::streamsize>(text.size()))) return {};
     return text;
 }
+#ifdef _WIN32
 bool startProcess(const std::filesystem::path& exe, const std::wstring& arguments) {
     if (exe.empty()) return false;
     std::wstring line = L"\"" + exe.wstring() + L"\" " + arguments;
@@ -77,6 +85,29 @@ bool startProcess(const std::filesystem::path& exe, const std::wstring& argument
     CloseHandle(process.hThread); CloseHandle(process.hProcess);
     return true;
 }
+#else
+// steam.sh in its own session: Steam outlives the launcher, and is reaped if it does not.
+bool startProcess(const std::filesystem::path& exe, const std::wstring& arguments) {
+    if (exe.empty()) return false;
+    std::vector<std::string> line{exe.string()};
+    for (auto& argument : process_spawn::splitArguments(text_encoding::utf8Lenient(arguments))) line.push_back(std::move(argument));
+    process_spawn::Options options;
+    options.directory = exe.parent_path(); options.session = true;
+    pid_t pid = 0;
+    if (process_spawn::spawn(line, options, pid) != 0) return false;
+    process_spawn::reapLater(pid);
+    return true;
+}
+// Steam's client process ("steam", started by steam.sh) while it is alive.
+bool steamClient(uint32_t pid) {
+    const auto stat = proc_fs::stat(pid);
+    return stat && !stat->ended() && proc_fs::name(pid) == "steam" && proc_fs::owner(pid) == static_cast<uint32_t>(::getuid());
+}
+bool ended(uint32_t pid, uint64_t start) {
+    const auto stat = proc_fs::stat(pid);
+    return !stat || stat->ended() || stat->start != start;
+}
+#endif
 } // namespace
 
 std::vector<Account> parseLoginUsers(std::string_view vdf) {
@@ -178,6 +209,42 @@ std::string withAutoLogin(std::string_view vdf, uint64_t steam_id) {
     return result;
 }
 
+#ifndef _WIN32
+// registry.vdf's ActiveProcess/pid when that is Steam; else this user's "steam" process (the
+// Flatpak client records a PID of its own namespace).
+uint32_t runningSteamProcess() {
+    const auto recorded = steam_registry::number({"ActiveProcess"}, "pid");
+    if (recorded && *recorded && *recorded <= UINT32_MAX && steamClient(static_cast<uint32_t>(*recorded))) return static_cast<uint32_t>(*recorded);
+    for (const auto pid : proc_fs::processes()) if (steamClient(pid)) return pid;
+    return 0;
+}
+
+bool shutdownSteam(const std::filesystem::path& steam_exe, std::chrono::milliseconds timeout) {
+    const auto pid = runningSteamProcess();
+    if (!pid) return true;
+    const auto stat = proc_fs::stat(pid);
+    if (!stat) return true;
+    if (!startProcess(steam_exe, L"-shutdown")) return false;
+    // Not the launcher's child: its /proc entry (with the same start time) tells when it ends.
+    const auto until = std::chrono::steady_clock::now() + timeout;
+    while (!ended(pid, stat->start)) {
+        if (std::chrono::steady_clock::now() >= until) return false;
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(800)); // Its helpers let go of its files.
+    return true;
+}
+
+bool prepareSignIn(const std::filesystem::path& steam_root, const Account& account) {
+    if (account.account_name.empty() || !account.steam_id) return false;
+    const auto text = readText(steam_root / L"config" / L"loginusers.vdf");
+    if (!text) return false;
+    const auto updated = withAutoLogin(*text, account.steam_id);
+    if (updated.empty()) return false;
+    if (!steam_registry::set(steam_registry::file(), {{"AutoLoginUser", account.account_name}, {"RememberPassword", "1"}})) return false;
+    return updated == *text || atomic_file::write(steam_root / L"config" / L"loginusers.vdf", updated);
+}
+#else
 uint32_t runningSteamProcess() {
     DWORD pid = 0, size = sizeof(pid);
     if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\Valve\\Steam\\ActiveProcess", L"pid", RRF_RT_REG_DWORD, nullptr, &pid, &size) != ERROR_SUCCESS || !pid) return 0;
@@ -215,6 +282,7 @@ bool prepareSignIn(const std::filesystem::path& steam_root, const Account& accou
         return false;
     return updated == *text || atomic_file::write(steam_root / L"config" / L"loginusers.vdf", updated);
 }
+#endif
 
 bool startSteam(const std::filesystem::path& steam_exe) { return startProcess(steam_exe, L"-silent"); }
 
@@ -224,8 +292,13 @@ std::vector<Folder> libraryFolders(const std::filesystem::path& steam_root) {
         std::error_code ec;
         if (!std::filesystem::is_directory(path, ec)) continue; // An unplugged drive.
         Folder folder{path};
+#ifdef _WIN32
         ULARGE_INTEGER free{}, total{};
         if (GetDiskFreeSpaceExW(path.c_str(), &free, &total, nullptr)) { folder.free = free.QuadPart; folder.total = total.QuadPart; }
+#else
+        const auto space = std::filesystem::space(path, ec);
+        if (!ec) { folder.free = space.available; folder.total = space.capacity; }
+#endif
         result.push_back(std::move(folder));
     }
     return result;

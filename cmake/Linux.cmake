@@ -134,7 +134,16 @@ set(LAUNCHME_CORE_LIBS miniz Threads::Threads ICU::uc ICU::i18n OpenSSL::Crypto 
 
 # Processes: launching games and store clients, suspending them, /proc.
 set(LAUNCHME_LINUX_PROCESS_SOURCES
+    src/library/steam_accounts.cpp
+    src/library/steam_registry.cpp
+    src/store/epic_legendary.cpp
+    src/store/gog_install_native.cpp
+    src/platform/game_activity.cpp
+    src/platform/game_overlay_monitor_linux.cpp
     src/platform/launch.cpp
+    src/platform/proc_fs.cpp
+    src/platform/process_freeze.cpp
+    src/platform/process_spawn.cpp
 )
 
 # Image decoding and encoding (WIC on Windows).
@@ -296,6 +305,9 @@ if(BUILD_TESTING)
 
     # Tests per area, as their sources are ported (same areas as above).
     # Processes:
+    launchme_executable(game_session_tests TEST game_session_music_lifecycle
+        SOURCES tests/game_session_tests.cpp src/platform/game_activity.cpp src/platform/process_freeze.cpp)
+    launchme_executable(process_linux_tests TEST linux_launch_job_and_steam_registry SOURCES tests/process_linux_tests.cpp)
 
     # Images:
     launchme_executable(text_crop_tests TEST text_aware_crop SOURCES tests/text_crop_tests.cpp)

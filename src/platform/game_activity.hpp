@@ -4,6 +4,8 @@
 #include <string>
 #ifdef _WIN32
 #include <Windows.h>
+#else
+#include "launch.hpp" // HWND, HANDLE (a process ID) on Linux.
 #endif
 #include "../model/game.hpp"
 #include "../model/game_session.hpp"
@@ -32,7 +34,11 @@ private:
     // emulator. Latch that process (ROM on its command line or window, else one
     // that appeared after this watch began) so playtime is not lost when the script exits.
     bool claimEmulator(const Game& game);
+#ifdef _WIN32
     std::vector<void*> handles_;
+#else
+    std::vector<GameProcess> handles_; // Checked by PID and start time.
+#endif
     std::vector<uint32_t> baseline_;
     bool primed_ = false;
     bool confirmed_ = false;
@@ -59,9 +65,12 @@ struct GameWindow {
 };
 // Worker-only: match the foreground process against the same ownership rules as
 // game discovery. Never treats a store client or the launcher as a game.
+// Linux: always empty (windows belong to the display server, which is the UI's).
 std::optional<GameWindow> findWindowGame(HWND window, const std::vector<Game>& candidates);
 // A program or script the launcher started (ShellExecuteEx's process): a job object that holds
 // it and, by inheritance, every process it starts. Null when Windows refuses the assignment.
+// Linux: the program was started as a session leader; the job is its session (the same ID),
+// which every process it starts belongs to unless it starts a session of its own.
 HANDLE launchJob(HANDLE process);
 // Running while one of the job's processes is not a store client, crash handler or shell host
 // (a script's cmd.exe counts: the script is still working); stopped once none is left.
@@ -76,4 +85,7 @@ GameActivity readLaunchJob(HANDLE job);
 // the user profile...) never does. Non-Steam shortcuts are skipped: many share one emulator.
 // A session started here still watches that emulator by its ROM (findEmulatorRomProcesses).
 // One process belongs to the most specific game (its executable, else the deepest folder).
+// Linux: Steam's values come from ~/.steam/registry.vdf, "this user session" is this user's
+// processes in /proc, paths compare with case, and a Wine process counts as the Windows
+// program on its command line (Z:\ is the Linux root).
 std::vector<size_t> findRunningGames(const std::vector<Game>& candidates);

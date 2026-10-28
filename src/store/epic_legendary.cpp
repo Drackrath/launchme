@@ -10,6 +10,13 @@
 #include <bcrypt.h>
 #include <sddl.h>
 #include <shellapi.h>
+#else
+#include "../platform/process_spawn.hpp"
+#include <cerrno>
+#include <fcntl.h>
+#include <poll.h>
+#include <unistd.h>
+extern char** environ;
 #endif
 #include <algorithm>
 #include <array>
@@ -21,6 +28,7 @@ namespace epic {
 namespace {
 using text_encoding::wide;
 using text_encoding::utf8;
+#ifdef _WIN32
 struct Handle {
     HANDLE h = nullptr;
     explicit Handle(HANDLE value = nullptr) : h(value) {}
@@ -29,6 +37,17 @@ struct Handle {
     Handle& operator=(const Handle&) = delete;
     explicit operator bool() const { return h && h != INVALID_HANDLE_VALUE; }
 };
+// The profile's launchme.lock, held while Legendary works in it.
+Handle lockProfile(const std::filesystem::path& profile) {
+    return Handle(CreateFileW((profile / L"launchme.lock").c_str(), GENERIC_WRITE, 0, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr));
+}
+#else
+struct ProfileLock {
+    atomic_file::ExclusiveLock lock;
+    explicit operator bool() const { return lock.locked(); }
+};
+ProfileLock lockProfile(const std::filesystem::path& profile) { return ProfileLock{atomic_file::ExclusiveLock(profile / L"launchme.lock")}; }
+#endif
 std::string field(const json::Value& v, const char* key) { const auto p = v.get(key); return p ? p->stringOr() : std::string{}; }
 bool flag(const json::Value& v, const char* key) { const auto p = v.get(key); return p && p->type == json::Value::Type::boolean && p->flag; }
 std::string readText(const std::filesystem::path& p, size_t limit = 8 * 1024 * 1024) {
@@ -50,6 +69,80 @@ std::filesystem::path childPath(const std::filesystem::path& root, std::wstring_
     for (; r != canonical_root.end(); ++r, ++p) if (p == canonical.end() || !unicode_text::equalIgnoreCase(r->wstring(), p->wstring())) return {};
     return full;
 }
+#ifndef _WIN32
+// Only this user may enter the folder (0700); no ACLs needed.
+bool privateDirectory(const std::filesystem::path& p) {
+    std::error_code ec; std::filesystem::create_directories(p, ec); if (ec) return false;
+    std::filesystem::permissions(p, std::filesystem::perms::owner_all, std::filesystem::perm_options::replace, ec);
+    return !ec;
+}
+// As the Windows run below: stdout collected (8 MiB at most), stderr passed on line by line, the
+// helper and everything it started killed on cancellation.
+ProcessResult run(const std::filesystem::path& exe, const std::filesystem::path& profile, const std::vector<std::wstring>& args,
+                  const Cancel& cancel, const std::function<void(std::string_view)>& line = {}) {
+    if (cancel()) return {};
+    int out[2]{-1, -1}, err[2]{-1, -1};
+    struct Pipes { int* fds[2]; ~Pipes() { for (auto* pair : fds) for (int i = 0; i < 2; ++i) if (pair[i] >= 0) ::close(pair[i]); } } pipes{{out, err}};
+    if (::pipe2(out, O_CLOEXEC) != 0 || ::pipe2(err, O_CLOEXEC) != 0) return {};
+    std::vector<std::string> environment;
+    for (char** entry = environ; *entry; ++entry) {
+        const std::string_view text(*entry);
+        const auto key = text.substr(0, text.find('='));
+        if (key != "LEGENDARY_CONFIG_PATH" && key != "PYTHONIOENCODING" && key != "LEGENDARY_WRAPPER_EXE") environment.emplace_back(text);
+    }
+    environment.push_back("LEGENDARY_CONFIG_PATH=" + profile.string());
+    environment.push_back("PYTHONIOENCODING=utf-8");
+    std::vector<std::string> command{exe.string()};
+    for (const auto& arg : args) command.push_back(text_encoding::utf8Lenient(arg));
+    process_spawn::Options options;
+    options.directory = profile; options.session = true; options.output = out[1]; options.error = err[1]; options.environment = &environment;
+    pid_t pid = 0;
+    if (process_spawn::spawn(command, options, pid) != 0) return {};
+    ::close(out[1]); out[1] = -1; ::close(err[1]); err[1] = -1;
+    ProcessResult result; std::string pending; bool overflow = false, data = false;
+    const auto consume = [&](bool output, const char* data, size_t size) {
+        if (output) {
+            if (result.output.size() + size > 8 * 1024 * 1024) overflow = true;
+            else result.output.append(data, size);
+        } else if (line) {
+            pending.append(data, size);
+            for (size_t end; (end = pending.find_first_of("\r\n")) != pending.npos;) {
+                line(std::string_view(pending).substr(0, end)); pending.erase(0, end + 1);
+            }
+            if (pending.size() > 65536) pending.clear();
+        }
+    };
+    // Reads what is there now; false once both pipes are closed.
+    const auto drain = [&](int timeout) {
+        pollfd fds[2]{{out[0], POLLIN, 0}, {err[0], POLLIN, 0}};
+        if (::poll(fds, 2, timeout) < 0) return errno == EINTR;
+        bool open = false;
+        for (int i = 0; i < 2; ++i) {
+            int& fd = i ? err[0] : out[0];
+            if (fd < 0) continue;
+            if (fds[i].revents & (POLLIN | POLLHUP | POLLERR)) {
+                char buffer[16384];
+                const ssize_t got = ::read(fd, buffer, sizeof(buffer));
+                if (got > 0) { data = true; consume(i == 0, buffer, static_cast<size_t>(got)); }
+                else if (got == 0 || errno != EINTR) { ::close(fd); fd = -1; continue; }
+            }
+            open = true;
+        }
+        return open;
+    };
+    std::optional<int> code;
+    for (bool open = true;;) {
+        if (open) open = drain(40);
+        if (cancel() || overflow) { process_spawn::killGroup(pid); return {}; }
+        if (!code) code = process_spawn::waitExit(pid, std::chrono::milliseconds(open ? 0 : 40));
+        if (code && !open) break;
+        // A helper it left running may keep the pipes open: read what is left, then stop.
+        if (code) { do { data = false; drain(0); } while (data); break; }
+    }
+    if (line && !pending.empty()) line(pending);
+    result.ok = !overflow && *code == 0 && !cancel(); return result;
+}
+#else
 bool privateDirectory(const std::filesystem::path& p) {
     std::error_code ec; std::filesystem::create_directories(p, ec); if (ec) return false;
     Handle token; if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token.h)) return false;
@@ -62,10 +155,12 @@ bool privateDirectory(const std::filesystem::path& p) {
     const bool ok = SetFileSecurityW(p.c_str(), DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION, sd) != FALSE;
     LocalFree(sd); return ok;
 }
+#endif
 bool sha256(const std::filesystem::path& path, std::string_view expected, const Cancel& cancel) {
     const auto digest = hashing::fileHex(hashing::Algorithm::sha256, path, cancel);
     return !digest.empty() && !cancel() && digest == expected;
 }
+#ifdef _WIN32
 ProcessResult run(const std::filesystem::path& exe, const std::filesystem::path& profile, const std::vector<std::wstring>& args,
                   const Cancel& cancel, const std::function<void(std::string_view)>& line = {}) {
     if (cancel()) return {};
@@ -131,6 +226,7 @@ ProcessResult run(const std::filesystem::path& exe, const std::filesystem::path&
     drain(out_read.h, true); drain(err_read.h, false); if (line && !pending.empty()) line(pending);
     DWORD exit = 1; GetExitCodeProcess(process.h, &exit); result.ok = !overflow && exit == 0 && !cancel(); return result;
 }
+#endif
 class Credentials {
     std::filesystem::path profile_;
 public:
@@ -155,14 +251,14 @@ class LegendaryRunner final : public Runner {
 public:
     LegendaryRunner(std::filesystem::path root, LegendaryOperations operations) : root_(std::move(root)), profile_(root_ / L"epic" / L"legendary"), operations_(std::move(operations)) {}
     void cleanup() override {
-        Handle lock(CreateFileW((profile_ / L"launchme.lock").c_str(), GENERIC_WRITE, 0, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr));
+        auto lock = lockProfile(profile_);
         if (lock) { Credentials credentials(profile_); }
     }
     Result install(const Tokens& t, const Game& game, const gog::InstallRequest& request, const Cancel& cancel, const gog::InstallProgress& progress) override {
         if (!game.epic_partner.empty()) return {Failure::unsupported};
         if (!identifier(game.source_id) || !request.install_directory.is_absolute()) return {Failure::invalid};
         std::filesystem::path exe; auto result = setup(exe, cancel); if (!result) return result;
-        Handle lock(CreateFileW((profile_ / L"launchme.lock").c_str(), GENERIC_WRITE, 0, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr)); if (!lock) return {Failure::storage};
+        auto lock = lockProfile(profile_); if (!lock) return {Failure::storage};
         Credentials credentials(profile_); if (!credentials.write(t)) return {Failure::storage};
         const auto app = wide(game.source_id);
         const auto marker = root_ / L"installed" / L"epic" / (key_codec::encode(game.source_id) + ".path");
@@ -190,6 +286,7 @@ public:
                 if (cancel()) return {Failure::cancelled};
                 progress(gog::InstallState::installing, 0, 0);
                 const auto arguments = wide(field(*prereq, "args"));
+#ifdef _WIN32
                 SHELLEXECUTEINFOW info{sizeof(info)}; info.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_FLAG_NO_UI;
                 info.hwnd = reinterpret_cast<HWND>(request.owner_window); info.lpFile = path.c_str(); info.lpParameters = arguments.c_str();
                 const auto cwd = path.parent_path(); info.lpDirectory = cwd.c_str(); info.nShow = SW_SHOWNORMAL;
@@ -197,6 +294,10 @@ public:
                 Handle process(info.hProcess); if (!process) return {Failure::helper};
                 while (WaitForSingleObject(process.h, 100) == WAIT_TIMEOUT) if (cancel()) return {Failure::cancelled};
                 DWORD code = 1; GetExitCodeProcess(process.h, &code); if (code != 0 && code != 3010) return {Failure::helper};
+#else
+                // Windows redistributables: only Wine or Proton could run them, as they do the game.
+                (void)arguments;
+#endif
             } else if (!field(*prereq, "path").empty()) return {Failure::invalid};
         }
         if (cancel()) return {Failure::cancelled};
@@ -205,7 +306,7 @@ public:
     Result launch(const Tokens& t, const Game& game, GameAction& action, const Cancel& cancel, bool offline) override {
         if (!game.epic_managed || !identifier(game.source_id)) return {Failure::unsupported};
         std::filesystem::path exe; auto result = setup(exe, cancel); if (!result) return result;
-        Handle lock(CreateFileW((profile_ / L"launchme.lock").c_str(), GENERIC_WRITE, 0, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr)); if (!lock) return {Failure::storage};
+        auto lock = lockProfile(profile_); if (!lock) return {Failure::storage};
         Credentials credentials(profile_); if (!credentials.write(t)) return {Failure::storage};
         const auto installed = json::parse(readText(profile_ / L"installed.json")); const auto item = installed ? installed->get(game.source_id) : nullptr;
         if (!item || (offline && !flag(*item, "can_run_offline"))) return {Failure::offline};
@@ -214,7 +315,8 @@ public:
         const auto parsed = proc.ok ? json::parse(proc.output) : std::nullopt;
         const auto next = parsed ? launchAction(*parsed, game.install_directory) : std::nullopt;
         SecureZeroMemory(proc.output.data(), proc.output.size());
-        if (!next) return {Failure::helper}; action = *next; return {};
+        if (!next) return {Failure::helper};
+        action = *next; return {};
     }
 };
 }
@@ -250,17 +352,42 @@ std::optional<GameAction> launchAction(const json::Value& json, const std::files
     return action;
 }
 std::filesystem::path prepareLegendary(const std::filesystem::path& root, const Cancel& cancel) {
+#ifdef _WIN32
     constexpr auto digest = "6be77857dc0a6dd33ea7442ce8b5291944ec6da53757f81ca95b57ce794baf5b";
     const auto bin = root / L"tools" / L"legendary-0.21.1.exe";
-    if (regular(bin) && sha256(bin, digest, cancel)) return bin;
+    constexpr auto url = L"https://github.com/legendary-gl/legendary/releases/download/0.21.1/legendary_windows_x64.exe";
+    constexpr uint64_t bytes = 17654404;
+#elif defined(__aarch64__)
+    constexpr auto digest = "e901cb52ada10d5cef6ffb2a0985099958124457bfb455a571023d1e042143d9";
+    const auto bin = root / L"tools" / L"legendary-0.21.1";
+    constexpr auto url = L"https://github.com/legendary-gl/legendary/releases/download/0.21.1/legendary_linux_arm64";
+    constexpr uint64_t bytes = 2999455;
+#else
+    constexpr auto digest = "dbed33bbe96031e65858233e4badf0a1d401bb6cb0cc995d1237cf3a0c826a45";
+    const auto bin = root / L"tools" / L"legendary-0.21.1";
+    constexpr auto url = L"https://github.com/legendary-gl/legendary/releases/download/0.21.1/legendary_linux_x64";
+    constexpr uint64_t bytes = 3093622;
+#endif
+    if (regular(bin) && sha256(bin, digest, cancel)) {
+#ifndef _WIN32
+        std::error_code mode; std::filesystem::permissions(bin, std::filesystem::perms::owner_all, std::filesystem::perm_options::replace, mode);
+        if (mode) return {};
+#endif
+        return bin;
+    }
     if (cancel()) return {};
     std::error_code ec; std::filesystem::create_directories(bin.parent_path(), ec); if (ec) return {};
     const auto part = bin.wstring() + L".part";
-    const auto error = httpDownload(L"https://github.com/legendary-gl/legendary/releases/download/0.21.1/legendary_windows_x64.exe", part, 17654404, cancel, [](auto) {},
+    const auto error = httpDownload(url, part, bytes, cancel, [](auto) {},
         [](std::wstring_view url) { return url.starts_with(L"https://github.com/legendary-gl/legendary/releases/download/0.21.1/") || url.starts_with(L"https://release-assets.githubusercontent.com/"); });
     if (error != DownloadError::none || cancel()) return {};
     if (!sha256(part, digest, cancel)) { if (!cancel()) std::filesystem::remove(part, ec); return {}; }
+#ifdef _WIN32
     if (!MoveFileExW(part.c_str(), bin.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) return {};
+#else
+    std::filesystem::permissions(part, std::filesystem::perms::owner_all, std::filesystem::perm_options::replace, ec);
+    if (ec || !atomic_file::replace(part, bin)) return {};
+#endif
     return bin;
 }
 std::vector<Game> installedGames(const std::filesystem::path& root) {
@@ -286,7 +413,7 @@ bool uninstallManaged(const std::filesystem::path& root, const Game& game, const
     const auto profile = root / L"epic" / L"legendary";
     const auto exe = prepareLegendary(root, cancel);
     if (exe.empty() || cancel()) return false;
-    Handle lock(CreateFileW((profile / L"launchme.lock").c_str(), GENERIC_WRITE, 0, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr));
+    auto lock = lockProfile(profile);
     if (!lock) return false;
     // Legendary removes the files and its installed.json entry; no login is needed for that.
     const auto result = run(exe, profile, {L"-y", L"uninstall", wide(game.source_id)}, cancel);
