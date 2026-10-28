@@ -378,6 +378,10 @@ if(BUILD_TESTING)
     launchme_executable(volume_monitor_tests TEST off_thread_system_volume SOURCES tests/volume_monitor_tests.cpp)
     launchme_executable(audio_output_tests TEST audio_cues_music_and_voice SOURCES tests/audio_output_tests.cpp)
 
+    # Window and input:
+    launchme_executable(window_input_tests TEST window_input_routing
+        SOURCES tests/window_input_tests.cpp src/platform/sdl_window.cpp LIBS "${SDL3_LIBRARY}")
+
     # Controllers:
     launchme_executable(controller_linux_tests TEST controller_linux_sysfs_and_bluez SOURCES tests/controller_linux_tests.cpp)
     launchme_executable(device_live_test SOURCES tests/device_live_test_linux.cpp)

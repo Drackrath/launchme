@@ -1,5 +1,6 @@
 #include "app/launcher.hpp"
 #include "app/message_dispatch.hpp"
+#include "app/window_input.hpp"
 #include "platform/diagnostics.hpp"
 #include "platform/frame_clock.hpp"
 
@@ -15,6 +16,14 @@ namespace {
 // or by a plain second start ("show": the running launcher comes to the front instead).
 constexpr ULONG_PTR jump_copy_data = 0x4C4D4A50;
 HWND main_window = nullptr;
+// Keys, text, the wheel and clicks, as the SDL window on Linux routes them (app/window_input.hpp).
+window_input::Dispatcher<Launcher> input;
+
+platform::KeyEvent keyEvent(WPARAM wparam, LPARAM lparam, bool pressed) {
+    const platform::Modifiers modifiers{(GetKeyState(VK_SHIFT) & 0x8000) != 0, (GetKeyState(VK_CONTROL) & 0x8000) != 0,
+                                        (GetKeyState(VK_MENU) & 0x8000) != 0};
+    return {static_cast<unsigned>(wparam), static_cast<std::uint32_t>(wparam), pressed, (lparam & (1LL << 30)) != 0, modifiers};
+}
 // GUID_CONSOLE_DISPLAY_STATE (WinNT.h), defined here so no GUID library is needed.
 constexpr GUID console_display_state{0x6fe69556, 0x704a, 0x47a0, {0x8f, 0x24, 0xc2, 0x8d, 0x93, 0x6f, 0xda, 0x47}};
 constexpr WPARAM DBT_DEVNODES_CHANGED_VALUE = 0x0007; // Dbt.h: a device was added or removed.
@@ -243,174 +252,53 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpara
         }
         return TRUE;
     case WM_KEYDOWN:
-        if (app) {
-            if (wparam != VK_F8 && wparam != VK_F11) { app->noteUserInput(); app->noteDesktopInput(); }
-            // The topmost modal layer (exit prompt, power menu, walkthrough, dialogs) takes the key first.
-            if (app->modalKey(wparam, (lparam & (1LL << 30)) != 0)) return 0;
-            if (app->companionPasteKey(wparam, (lparam & (1LL << 30)) != 0)) return 0;
-            // The desktop library: its keys, shortcuts and search field (false: the shared handling below).
-            if (app->desktopKey(wparam, (lparam & (1LL << 30)) != 0)) return 0;
-            if (wparam == VK_HOME && app->homeKeyIsGuide()) app->homeDown((lparam & (1LL << 30)) != 0); // Guide: short = menu, hold = power.
-            else if (wparam == 'G' && !(lparam & (1LL << 30)) && !(GetKeyState(VK_CONTROL) & 0x8000) &&
-                     !(GetKeyState(VK_MENU) & 0x8000) && app->glanceAvailable()) app->openGlance();
-            else if (wparam == 'C' && !(lparam & (1LL << 30)) && !(GetKeyState(VK_CONTROL) & 0x8000) &&
-                     !(GetKeyState(VK_MENU) & 0x8000) && app->companionAvailable()) app->openCompanion();
-            else if (wparam == 'T' && !(lparam & (1LL << 30)) && !(GetKeyState(VK_CONTROL) & 0x8000) &&
-                     !(GetKeyState(VK_MENU) & 0x8000) && app->tarotAvailable()) app->openTarot();
-            else if ((app->editingSecret() || app->editingArtworkSearch()) && wparam == 'V' && (GetKeyState(VK_CONTROL) & 0x8000)) app->pasteSecret();
-            else if ((app->editingSecret() || app->editingArtworkSearch()) && wparam == 'A' && (GetKeyState(VK_CONTROL) & 0x8000)) app->selectSecret();
-            else if (app->editingArtworkSearch() && wparam == VK_DELETE) app->clearArtworkQuery(); // Delete = "Wyczyść".
-            else if ((app->editingSecret() || app->editingArtworkSearch()) && (wparam == VK_BACK || wparam == VK_DELETE)) app->eraseSecret();
-            else if (wparam == VK_RETURN) app->enterDown((lparam & (1LL << 30)) != 0);
-            else if (wparam == VK_TAB) app->tabDown((lparam & (1LL << 30)) != 0);
-            // A/D double as Left/Right, except where letters are text (search fields, and the
-            // library screen, where typing opens its search).
-            else if (wparam == VK_LEFT || (wparam == 'A' && !app->searching() && !app->artworkOpen() && !app->libraryTypeAhead() && !app->editingSecret())) {
-                if (app->settingsOpen()) app->settingsAdjust(-1);
-                else if (app->quickOpen()) app->quickMove(-1);
-                else if (app->categoryMenuOpen()) app->categoryMenuHorizontal(-1, (lparam & (1LL << 30)) != 0);
-                else app->navigate(-1);
-            }
-            else if (wparam == VK_RIGHT || (wparam == 'D' && !app->searching() && !app->artworkOpen() && !app->libraryTypeAhead() && !app->editingSecret())) {
-                if (app->settingsOpen()) app->settingsAdjust(1);
-                else if (app->quickOpen()) app->quickMove(1);
-                else if (app->categoryMenuOpen()) app->categoryMenuHorizontal(1, (lparam & (1LL << 30)) != 0);
-                else app->navigate(1);
-            }
-            else if (wparam == VK_DOWN) {
-                if (app->settingsOpen() && (GetKeyState(VK_SHIFT) & 0x8000)) app->settingsReorder(1);
-                else if (app->friendsOpen()) app->friendsMove(1);
-                else if (app->categoryMenuOpen()) app->categoryMenuMove(1);
-                else if (app->menuOpen()) app->menuMove(1);
-                else app->changeCategory(1);
-            } else if (wparam == VK_UP) {
-                if (app->settingsOpen() && (GetKeyState(VK_SHIFT) & 0x8000)) app->settingsReorder(-1);
-                else if (app->friendsOpen()) app->friendsMove(-1);
-                else if (app->categoryMenuOpen()) app->categoryMenuMove(-1);
-                else if (app->menuOpen()) app->menuMove(-1);
-                else app->changeCategory(-1);
-            } else if (wparam == VK_SPACE && !app->searching() && !app->artworkOpen() && !app->libraryScreen()) { // Not a pick in the library.
-                if (lparam & (1LL << 30)) return 0;
-                if (app->settingsOpen()) app->settingsActivate();
-                else if (app->quickOpen()) app->quickAccept();
-                else if (app->friendsOpen()) app->friendsAccept();
-                else if (app->categoryMenuOpen()) app->categoryMenuAccept();
-                else if (app->menuOpen()) app->menuAccept();
-                else app->accept();
-            }
-            else if (wparam == VK_F11) app->toggleFullscreen();
-            else if (wparam == VK_F6 && !(lparam & (1LL << 30))) app->focusLibraryControls();
-            else if (wparam == VK_F8 && !(lparam & (1LL << 30))) app->togglePerformance();
-            else if (wparam == VK_F5 && app->settingsOpen()) { app->saveSettings(); app->retryStore(); }
-            else if (wparam == VK_F5) app->retryStore();
-            else if ((wparam == VK_PRIOR || wparam == VK_NEXT) && app->glanceOpen() && !app->friendsOpen()) app->glanceStepSection(wparam == VK_PRIOR ? -1 : 1);
-            else if ((wparam == VK_PRIOR || wparam == VK_NEXT) && app->companionOpen() && !app->friendsOpen()) app->companionScroll(wparam == VK_PRIOR ? 1 : -1);
-            else if (wparam == VK_PRIOR && app->artworkOpen()) app->artworkPage(-1);
-            else if (wparam == VK_NEXT && app->artworkOpen()) app->artworkPage(1);
-            else if ((wparam == VK_PRIOR || wparam == VK_NEXT) && app->settingsOpen()) app->settingsShoulder(wparam == VK_PRIOR ? -1 : 1);
-            else if ((wparam == VK_PRIOR || wparam == VK_NEXT) && app->libraryTabsShown()) app->switchLibraryTab(wparam == VK_PRIOR ? -1 : 1);
-            else if (wparam == VK_PRIOR || wparam == VK_NEXT) app->homePage(wparam == VK_PRIOR ? -1 : 1); // Metro pages; elsewhere nothing.
-            else if (wparam == 'H' && !app->searching() && (GetKeyState(VK_CONTROL) & 0x8000)) app->togglePrivateCategory();
-            else if (wparam == VK_DELETE && app->companionOpen() && !app->friendsOpen() && !(lparam & (1LL << 30))) app->companionMindDeleteConfirm(true);
-            else if (wparam == 'F' && app->companionOpen() && !app->searching() && !app->friendsOpen() && !(lparam & (1LL << 30))) app->companionMindNextFilter();
-            else if (wparam == VK_BACK && app->searching()) app->eraseSearchCharacter((lparam & (1LL << 30)) != 0);
-            // Back takes one step per press: a held Backspace that just emptied a search must not
-            // go on to close it, leave the bar and then the library.
-            else if ((wparam == VK_ESCAPE || wparam == VK_BACK) && (lparam & (1LL << 30))) {}
-            else if (wparam == VK_ESCAPE || wparam == VK_BACK) {
-                if (app->quickOpen()) app->closeQuick();
-                else if (app->categoryMenuOpen()) app->closeCategoryMenu();
-                else if (app->friendsOpen()) app->friendsBack(); // Friends list -> tiles -> closed.
-                else if (app->menuOpen()) app->dismissMenu();
-                else app->back();
-            }
-        }
+        if (app) input.keyDown(*app, keyEvent(wparam, lparam, true)); // app/window_input.hpp
         return 0;
     case WM_PASTE:
         if (app) app->companionPaste();
         return 0;
     case WM_CHAR:
-        if (app && !app->exitPromptOpen() && !app->powerMenuOpen() && !app->tourOpen()) app->onCharacter(static_cast<wchar_t>(wparam));
+        if (app) input.character(*app, static_cast<wchar_t>(wparam));
         return 0;
     case WM_KEYUP:
-        if (app && wparam == VK_RETURN) app->enterUp();
-        if (app && wparam == VK_TAB) app->tabUp();
-        if (app && wparam == VK_HOME) app->homeUp();
+        if (app) input.keyUp(*app, static_cast<unsigned>(wparam));
         return 0;
     case WM_KILLFOCUS:
-        if (app) { app->cancelEnterHold(); app->cancelTabHold(); app->pointerUp(); }
+        if (app) input.focusLost(*app);
         return 0;
     case WM_SETFOCUS:
-        if (app) app->focusRegained();
+        if (app) input.focusGained(*app);
         return 0;
     case WM_MOUSEWHEEL:
-        if (app && !app->exitPromptOpen() && !app->powerMenuOpen() && !app->tourOpen()) {
-            app->noteUserInput();
+        if (app) {
             POINT point{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
             ScreenToClient(hwnd, &point);
-            if (app->desktopEmbedded()) { // Urządzenia, kadrowanie, plugin pages in a desktop sheet: their canvas.
-                float x = static_cast<float>(point.x), y = static_cast<float>(point.y);
-                app->desktopEmbedMap(x, y);
-                point = POINT{static_cast<LONG>(x), static_cast<LONG>(y)};
-            }
-            const auto modal = app->topModal();
-            const int raw = GET_WHEEL_DELTA_WPARAM(wparam);
-            // Lists move one row per notch: a precision touchpad's many small deltas add up to
-            // whole notches instead of each one moving a row (which overshot every list).
-            static int accumulated = 0;
-            const auto notch = [&] {
-                if ((accumulated < 0) != (raw < 0)) accumulated = 0; // Turned the other way.
-                accumulated += raw;
-                if (std::abs(accumulated) < WHEEL_DELTA) return 0;
-                const int step = accumulated < 0 ? 1 : -1;
-                accumulated += step * WHEEL_DELTA;
-                return step;
-            };
-            if (app->desktopWheel(static_cast<float>(point.x), static_cast<float>(point.y), raw,
-                                  (GET_KEYSTATE_WPARAM(wparam) & MK_CONTROL) != 0)) {} // Grid, sidebar, pane, poster size.
-            else if (app->companionOpen() && !app->friendsOpen() && modal == Launcher::Modal::none) app->companionWheel(raw);
-            else if (modal == Launcher::Modal::tarot) {} // The reading has nothing to scroll.
-            else if (modal == Launcher::Modal::profile) app->profileScroll(-static_cast<float>(raw) / WHEEL_DELTA * 96.0f); // Smooth, as a page.
-            else if (modal == Launcher::Modal::whats_new) app->whatsNewScroll(-static_cast<float>(raw) / WHEEL_DELTA * 60.0f); // Smooth, as text scrolls.
-            else if (const int step = notch(); !step) {}
-            else if (modal == Launcher::Modal::file_browser) app->fileBrowserWheel(step);
-            else if (modal == Launcher::Modal::library_dialog) app->libraryDialogKey(step > 0 ? VK_DOWN : VK_UP, false);
-            else if (modal == Launcher::Modal::companion_picker) app->companionPickerKey(step > 0 ? VK_NEXT : VK_PRIOR, false);
-            else if (app->cropOpen()) app->changeCategory(step);
-            else if (app->devicesOpen()) app->deviceWheel(static_cast<float>(point.x), step);
-            else if (app->artworkOpen()) app->artworkWheel(static_cast<float>(point.x), step);
-            else if (app->settingsOpen()) app->settingsWheel(static_cast<float>(point.x), step);
-            else if (app->friendsOpen() && app->overFriends(static_cast<float>(point.x))) app->scrollFriends(step);
-            else if (app->categoryMenuOpen()) app->scrollCategoryMenu(step);
-            else app->wheel(step, static_cast<float>(point.x));
+            input.wheel(*app, static_cast<float>(point.x), static_cast<float>(point.y), GET_WHEEL_DELTA_WPARAM(wparam),
+                        (GET_KEYSTATE_WPARAM(wparam) & MK_CONTROL) != 0);
         }
         return 0;
     case WM_LBUTTONDOWN:
     case WM_LBUTTONDBLCLK:
-        if (app) { app->noteUserInput(); app->noteDesktopInput(); }
-        if (app) app->click(static_cast<float>(GET_X_LPARAM(lparam)), static_cast<float>(GET_Y_LPARAM(lparam)),
-                             message == WM_LBUTTONDBLCLK);
+        if (app) input.leftDown(*app, static_cast<float>(GET_X_LPARAM(lparam)), static_cast<float>(GET_Y_LPARAM(lparam)),
+                                message == WM_LBUTTONDBLCLK);
         return 0;
     case WM_RBUTTONUP:
-        if (app) { app->noteUserInput(); app->noteDesktopInput(); app->contextClick(static_cast<float>(GET_X_LPARAM(lparam)), static_cast<float>(GET_Y_LPARAM(lparam))); }
+        if (app) input.rightUp(*app, static_cast<float>(GET_X_LPARAM(lparam)), static_cast<float>(GET_Y_LPARAM(lparam)));
         return 0;
     case WM_MOUSEMOVE: {
         TRACKMOUSEEVENT tracking{sizeof(TRACKMOUSEEVENT), TME_LEAVE, hwnd, 0};
         TrackMouseEvent(&tracking);
-        if (app) {
-            app->desktopMaximizeHover(false); // Over the client area, not the maximize button.
-            app->mouseMove(static_cast<float>(GET_X_LPARAM(lparam)), static_cast<float>(GET_Y_LPARAM(lparam)));
-        }
+        if (app) input.mouseMove(*app, static_cast<float>(GET_X_LPARAM(lparam)), static_cast<float>(GET_Y_LPARAM(lparam)));
         return 0;
     }
     case WM_MOUSELEAVE:
-        if (app) app->mouseLeave();
+        if (app) input.mouseLeave(*app);
         return 0;
     case WM_LBUTTONUP:
     case WM_CAPTURECHANGED:
         // Desktop buttons act on release over the same target; drags drop here.
-        if (app && message == WM_LBUTTONUP) app->desktopPointerUp(static_cast<float>(GET_X_LPARAM(lparam)), static_cast<float>(GET_Y_LPARAM(lparam)));
-        if (app) app->pointerUp(message == WM_CAPTURECHANGED);
+        if (app && message == WM_LBUTTONUP) input.leftUp(*app, static_cast<float>(GET_X_LPARAM(lparam)), static_cast<float>(GET_Y_LPARAM(lparam)));
+        else if (app) input.captureLost(*app);
         return 0;
     case WM_SETCURSOR:
         if (app && app->screensaverActive() && LOWORD(lparam) == HTCLIENT) { SetCursor(nullptr); return TRUE; }
