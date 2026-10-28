@@ -5,16 +5,13 @@
 #include "../library/studios.hpp"
 #include "../platform/text_encoding.hpp"
 
-#ifdef _WIN32
+// Linux: src/linux/win32 (Direct2D on Cairo, DirectWrite on Pango, WIC on image_codec).
 #include <d2d1.h>
 #include <dwrite.h>
 #include <wincodec.h>
 #include <wrl/client.h>
-#endif
 
-#ifdef _WIN32
 #include <Windows.h>
-#endif
 #include <fstream>
 #include <optional>
 
@@ -94,7 +91,6 @@ std::vector<uint8_t> drmFreeLogo() {
             ComPtr<IStream> stream;
             ComPtr<IWICBitmapEncoder> encoder;
             ComPtr<IWICBitmapFrameEncode> frame;
-            HGLOBAL memory = nullptr;
             STATSTG stats{};
             auto pixel_format = GUID_WICPixelFormat32bppBGRA;
             if (SUCCEEDED(target->EndDraw()) && SUCCEEDED(CreateStreamOnHGlobal(nullptr, TRUE, stream.GetAddressOf())) &&
@@ -103,11 +99,13 @@ std::vector<uint8_t> drmFreeLogo() {
                 SUCCEEDED(encoder->CreateNewFrame(frame.GetAddressOf(), nullptr)) && SUCCEEDED(frame->Initialize(nullptr)) &&
                 SUCCEEDED(frame->SetSize(width, height)) && SUCCEEDED(frame->SetPixelFormat(&pixel_format)) &&
                 SUCCEEDED(frame->WriteSource(bitmap.Get(), nullptr)) && SUCCEEDED(frame->Commit()) && SUCCEEDED(encoder->Commit()) &&
-                SUCCEEDED(stream->Stat(&stats, STATFLAG_NONAME)) && SUCCEEDED(GetHGlobalFromStream(stream.Get(), &memory))) {
-                if (const auto* data = static_cast<const uint8_t*>(GlobalLock(memory))) {
-                    png.assign(data, data + stats.cbSize.QuadPart);
-                    GlobalUnlock(memory);
-                }
+                SUCCEEDED(stream->Stat(&stats, STATFLAG_NONAME)) && stats.cbSize.QuadPart < 16 * 1024 * 1024) {
+                // The encoded bytes, read back from the stream's start.
+                png.resize(static_cast<size_t>(stats.cbSize.QuadPart));
+                LARGE_INTEGER start{};
+                ULONG read = 0;
+                if (FAILED(stream->Seek(start, STREAM_SEEK_SET, nullptr)) ||
+                    FAILED(stream->Read(png.data(), static_cast<ULONG>(png.size()), &read)) || read != png.size()) png.clear();
             }
         }
     }

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <memory>
 #include <optional>
 #include <string>
 #ifdef _WIN32
@@ -75,6 +76,13 @@ HANDLE launchJob(HANDLE process);
 // Running while one of the job's processes is not a store client, crash handler or shell host
 // (a script's cmd.exe counts: the script is still working); stopped once none is left.
 GameActivity readLaunchJob(HANDLE job);
+// A job launchJob() made, shared by the sessions that follow it: the last owner closes it (Linux:
+// the session ID, nothing to close). Null for a null job.
+using LaunchJob = std::shared_ptr<void>;
+LaunchJob ownLaunchJob(HANDLE job);
+GameActivity readLaunchJob(const LaunchJob& job); // unknown for a null job.
+// Releases what takeLaunchedProcess() returned (Linux: a process ID, already reaped; nothing).
+void closeLaunchedProcess(HANDLE process);
 
 // Indices of the `candidates` running now, however they were started (Steam, a store
 // client, a shortcut, before the launcher). Steam's RunningAppID, confirmed by

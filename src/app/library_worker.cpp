@@ -15,6 +15,9 @@
 #include "../library/owned_games.hpp"
 #include "../library/steam_owned.hpp"
 #include "../net/http.hpp"
+#ifndef _WIN32
+#include "../library/steam_registry.hpp"
+#endif
 
 #include <algorithm>
 #include <thread>
@@ -106,12 +109,19 @@ void Launcher::startLibraryWorker() {
         };
         // The running Steam client and its signed-in user (0 when closed or signed out).
         const auto steamProcess = [] {
+#ifdef _WIN32
             const auto value = [](const wchar_t* name) {
                 DWORD result = 0, size = sizeof(result);
                 RegGetValueW(HKEY_CURRENT_USER, L"Software\\Valve\\Steam\\ActiveProcess", name, RRF_RT_REG_DWORD, nullptr, &result, &size);
                 return result;
             };
             return static_cast<uint64_t>(value(L"pid")) << 32 | value(L"ActiveUser");
+#else
+            // The same key in Steam's registry.vdf (~/.steam/registry.vdf).
+            const auto file = steam_registry::file();
+            const auto value = [&](const char* name) { return static_cast<uint32_t>(steam_registry::number(file, {"ActiveProcess"}, name).value_or(0)); };
+            return static_cast<uint64_t>(value("pid")) << 32 | value("ActiveUser");
+#endif
         };
         // A full snapshot identical to the last one posted (Steam rewrote localconfig.vdf for a
         // setting the launcher does not read) is not sent: the UI would rebuild every shelf.
@@ -148,7 +158,11 @@ void Launcher::startLibraryWorker() {
             watch.directory(steam / L"appcache");
             for (const auto& library : libraries) watch.directory(library / L"steamapps");
             if (const auto config = userConfig(id); !config.empty()) { watch.directory(config); watch.directory(config / L"cloudstorage"); }
+#ifdef _WIN32
             watch.registry(HKEY_CURRENT_USER, L"Software\\Valve\\Steam\\ActiveProcess", 0, false);
+#else
+            watch.directory(steam_registry::file().parent_path()); // registry.vdf: Steam started or closed.
+#endif
             watched_libraries = libraries; watched_account = id;
         };
         uint64_t account = activeSteamId(steam);

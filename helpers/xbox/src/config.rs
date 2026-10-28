@@ -10,11 +10,32 @@ pub struct GameConfig {
 }
 
 // A relative path that stays inside the package.
+#[cfg(windows)]
 fn inside(name: &str) -> Option<PathBuf> {
     let path = PathBuf::from(name.replace('/', "\\"));
     path.components()
         .all(|c| matches!(c, Component::Normal(_)))
         .then_some(path)
+}
+
+// Linux: the manifest's Windows separators become '/'.
+#[cfg(not(windows))]
+fn inside(name: &str) -> Option<PathBuf> {
+    let path = PathBuf::from(name.replace('\\', "/"));
+    path.components()
+        .all(|c| matches!(c, Component::Normal(_)))
+        .then_some(path)
+}
+
+// A file of the package ("Bin\Game.exe", "/Content/data.pak") relative to the install folder, with
+// this system's separators; the caller still checks that every component is a plain name.
+#[cfg(windows)]
+pub fn package_relative(name: &str) -> PathBuf {
+    PathBuf::from(name.replace('/', "\\").trim_start_matches('\\'))
+}
+#[cfg(not(windows))]
+pub fn package_relative(name: &str) -> PathBuf {
+    PathBuf::from(name.replace('\\', "/").trim_start_matches('/'))
 }
 
 pub fn parse(text: &str) -> Option<GameConfig> {
@@ -68,6 +89,17 @@ mod tests {
         assert_eq!(config.name.as_deref(), Some("Studio.Game"));
         assert_eq!(config.version.as_deref(), Some("1.2.3.0"));
         assert_eq!(config.display_name.as_deref(), Some("The Game"));
+        #[cfg(windows)]
         assert_eq!(config.executables, vec![PathBuf::from("Bin\\Game.exe")]);
+        #[cfg(not(windows))]
+        assert_eq!(config.executables, vec![PathBuf::from("Bin/Game.exe")]);
+    }
+
+    #[test]
+    fn package_paths_use_this_systems_separators() {
+        let path = package_relative("\\Bin\\Win64/Game.exe");
+        assert_eq!(path.components().count(), 3);
+        assert!(path.components().all(|c| matches!(c, Component::Normal(_))));
+        assert!(!package_relative("..\\escape").components().all(|c| matches!(c, Component::Normal(_))));
     }
 }

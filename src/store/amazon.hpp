@@ -5,7 +5,8 @@
 // Amazon Games app. Nile signs in (the browser shows Amazon's page, the address it lands on is
 // pasted back), syncs the library, downloads, verifies and uninstalls; Launchme reads Nile's files
 // for the library and starts installed games itself from their fuel.json, with the variables the
-// Amazon Games SDK expects (as `nile launch` does).
+// Amazon Games SDK expects (as `nile launch` does). On Linux Nile's Linux build does the same and
+// the game, a Windows program, is started by Launchme's Wine/Proton runner like any other .exe.
 #include "../model/game.hpp"
 #include "../platform/helper_process.hpp"
 #include "gog_install.hpp" // The shared install progress/modal DTOs.
@@ -22,7 +23,13 @@ namespace amazon {
 using Cancel = std::function<bool()>;
 
 inline constexpr std::wstring_view helper_version = L"1.2.0";
-inline constexpr uint64_t helper_bytes = 12386046;
+#ifdef _WIN32
+inline constexpr uint64_t helper_bytes = 12386046;  // nile_windows_x86_64.exe
+#elif defined(__aarch64__)
+inline constexpr uint64_t helper_bytes = 10847400;  // nile_linux_arm64
+#else
+inline constexpr uint64_t helper_bytes = 11113264;  // nile_linux_x86_64
+#endif
 
 // `nile auth --login --non-interactive`: the sign-in page and what `nile register` needs after it.
 struct Login {

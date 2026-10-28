@@ -6,6 +6,7 @@
 #include "../src/net/json.hpp"
 #include "../src/platform/user_config.hpp"
 #include "../src/platform/text_encoding.hpp"
+#include <Windows.h>
 #include <fstream>
 #include <iostream>
 #include <regex>

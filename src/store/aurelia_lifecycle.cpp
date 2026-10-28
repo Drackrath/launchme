@@ -50,9 +50,20 @@ Reply launchStandalone(const Transport& invoke, Request request, const Cancel& c
     auto targets = send({Command::launch_targets, request.app});
     if (!targets.ok) return result(std::move(targets));
     bool standalone = false;
+#ifndef _WIN32
+    bool native = false; // Linux: the game's native build when it is installed, else the Windows one through Proton.
+#endif
     if (const auto* choices = targets.data.get("targets"); choices && choices->type == json::Value::Type::array)
-        for (const auto& target : choices->elements)
+        for (const auto& target : choices->elements) {
             if (text(target, "platform") == "windows" && text(target, "steam_mode") == "none" && flag(target, "available")) standalone = true;
+#ifndef _WIN32
+            if (text(target, "platform") == "linux" && flag(target, "available")) native = true;
+#endif
+        }
+#ifndef _WIN32
+    request.text = native ? L"linux" : L"windows";
+    standalone = standalone || native;
+#endif
     if (!standalone) return refuse(tr(L"Aurelia nie udostępnia zainstalowanej wersji Windows bez Steam dla tej gry."));
     const auto sync = [&](Request::Direction direction) {
         Request r{Command::cloud_sync, request.app}; r.direction = direction;

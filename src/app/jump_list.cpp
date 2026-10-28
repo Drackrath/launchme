@@ -4,15 +4,20 @@
 #include "launcher.hpp"
 #include "../platform/text_encoding.hpp"
 
+#ifdef _WIN32
 #include <objectarray.h>
 #include <propsys.h>
 #include <shobjidl.h>
+#endif
 
 #include <algorithm>
 
+#ifdef _WIN32
 using Microsoft::WRL::ComPtr;
+#endif
 
 namespace {
+#ifdef _WIN32
 // PKEY_Title (FMTID_SummaryInformation, 2): the entry's text.
 constexpr PROPERTYKEY title_key{{0xF29F85E0, 0x4FF9, 0x1068, {0xAB, 0x91, 0x08, 0x00, 0x2B, 0x27, 0xB3, 0xD9}}, 2};
 constexpr size_t recent_count = 6;
@@ -23,6 +28,8 @@ std::wstring hexOf(const std::string& bytes) {
     for (const unsigned char c : bytes) { text += digits[c >> 4]; text += digits[c & 15]; }
     return text;
 }
+
+#endif
 
 std::string bytesOf(std::wstring_view hex) {
     std::string bytes;
@@ -35,6 +42,7 @@ std::string bytesOf(std::wstring_view hex) {
     return bytes;
 }
 
+#ifdef _WIN32
 ComPtr<IShellLinkW> link(const std::wstring& exe, const std::wstring& command, const std::wstring& title) {
     ComPtr<IShellLinkW> shell;
     if (FAILED(CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(shell.GetAddressOf())))) return {};
@@ -53,6 +61,7 @@ ComPtr<IShellLinkW> link(const std::wstring& exe, const std::wstring& command, c
     PropVariantClear(&value);
     return titled ? shell : ComPtr<IShellLinkW>{};
 }
+#endif
 } // namespace
 
 void Launcher::jumpCommand(const std::wstring& command) {
@@ -79,6 +88,10 @@ void Launcher::pollJumpList() {
             else if (key.empty() || now - jump_pending_since_ > 60000) jump_pending_.clear();
         } else jump_pending_.clear();
     }
+#ifndef _WIN32
+    // No taskbar Jump List on Linux: commands still arrive from a second start (--jump=, main.cpp).
+    (void)now;
+#else
     // The list itself: rebuilt only when the recently played games change.
     if (now - jump_list_checked_ < 10000 || grouped_library_.empty()) return;
     jump_list_checked_ = now;
@@ -119,4 +132,5 @@ void Launcher::pollJumpList() {
         if (SUCCEEDED(tasks.As(&array))) list->AddUserTasks(array.Get());
     }
     if (FAILED(list->CommitList())) jump_list_signature_.clear(); // Tried again later.
+#endif
 }

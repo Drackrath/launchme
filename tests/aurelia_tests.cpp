@@ -4,10 +4,18 @@
 #include "../src/store/aurelia_stream.hpp"
 #include "../src/platform/atomic_file.hpp"
 #include "../src/platform/updater.hpp"
+#include "../src/platform/text_encoding.hpp"
 #include <Windows.h>
+#include <algorithm>
 #include <iostream>
 #include <thread>
 #include <atomic>
+#ifndef _WIN32
+#include <cstring>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <unistd.h>
+#endif
 
 #define CHECK(x) do { if (!(x)) { std::cerr << "Aurelia check " << __LINE__ << ": " << #x << '\n'; return __LINE__; } } while (false)
 using C = aurelia::Command;
@@ -43,7 +51,22 @@ int main(int argc, char** argv) {
     CHECK(aurelia::arguments(request).back() == request.text && aurelia::arguments(request)[4] == L"--");
     request.text.assign(4001, L'a'); CHECK(aurelia::arguments(request).empty());
     request = {C::play, 902}; CHECK(aurelia::arguments(request).back() == L"--steam");
+#ifdef _WIN32
     request.steam = false; CHECK(aurelia::arguments(request)[6] == L"none" && aurelia::arguments(request)[5] == L"--steam-mode");
+#else
+    // Linux: never `--windows` (no Proton); the native build or the Windows one through Aurelia's Proton.
+    request.steam = false; CHECK(aurelia::arguments(request)[5] == L"none" && aurelia::arguments(request)[4] == L"--steam-mode");
+    {
+        const auto standalone = aurelia::arguments(request);
+        CHECK(std::find(standalone.begin(), standalone.end(), L"--windows") == standalone.end());
+    }
+    request.text = L"linux";
+    CHECK(aurelia::arguments(request) == std::vector<std::wstring>({L"--json", L"play", L"902", L"--no-update", L"--platform", L"linux"}));
+    request.text = L"macos"; CHECK(aurelia::arguments(request).empty());
+    request = {C::install, 902}; CHECK(aurelia::arguments(request) == std::vector<std::wstring>({L"--json", L"install", L"902"}));
+    request.text = L"linux"; request.folder = L"/games/steam";
+    CHECK(aurelia::arguments(request) == std::vector<std::wstring>({L"--json", L"install", L"902", L"--platform", L"linux", L"--library", L"/games/steam"}));
+#endif
     request = {C::presence}; request.text = L"bogus"; CHECK(aurelia::arguments(request).empty());
     request = {C::move, 902}; request.folder = L"relative"; CHECK(aurelia::arguments(request).empty());
     CHECK(aurelia::arguments({C::uninstall, 0}).empty());
@@ -86,11 +109,14 @@ int main(int argc, char** argv) {
     CHECK(achievements.complete && achievements.total == 1 && achievements.unlocked == 1 && achievements.items[0].unlocked_at == 123);
 
     const std::string hash(64, 'a');
-    const auto release_text = R"({"tag_name":"v0.1.40","assets":[{"name":"aurelia_windows_x86_64.exe","browser_download_url":"https://github.com/Drackrath/Aurelia/releases/download/v0.1.40/aurelia_windows_x86_64.exe","size":8693760,"digest":"sha256:)" + hash + R"("}]})";
+    const auto asset = text_encoding::utf8(aurelia::asset_name); // aurelia_windows_x86_64.exe, aurelia_linux_x86_64...
+    const auto release_text = R"({"tag_name":"v0.1.40","assets":[{"name":")" + asset + R"(","browser_download_url":"https://github.com/Drackrath/Aurelia/releases/download/v0.1.40/)" + asset + R"(","size":8693760,"digest":"sha256:)" + hash + R"("}]})";
     const auto release = aurelia::parseRelease(release_text);
     CHECK(release && release->size == 8693760 && release->sha256 == hash);
     CHECK(!aurelia::parseRelease("{}") && !aurelia::parseRelease("broken"));
-    auto wrong = release_text; wrong.replace(wrong.find("windows_x86_64"), 14, "windows_arm64"); CHECK(!aurelia::parseRelease(wrong));
+    auto wrong = release_text;
+    for (size_t at; (at = wrong.find(asset)) != std::string::npos;) wrong.replace(at, asset.size(), "aurelia_macOS_arm64");
+    CHECK(!aurelia::parseRelease(wrong)); // Another system's build is never installed.
     CHECK(aurelia::allowedDownload(release->url) && !aurelia::allowedDownload(L"https://github.com.evil/Drackrath/Aurelia/releases/download/a"));
     CHECK(!aurelia::allowedDownload(L"https://github.com/other/Aurelia/releases/download/a"));
     CHECK(!aurelia::allowedDownload(L"http://release-assets.githubusercontent.com/a"));
@@ -103,13 +129,16 @@ int main(int argc, char** argv) {
     CHECK(aurelia::loadLibraryCache(root / L"cache", 76561198000000001ULL));
     CHECK(!aurelia::loadLibraryCache(root / L"cache", 76561198000000002ULL));
     CHECK(!aurelia::saveLibraryCache(root / L"cache", 0, roster));
-    std::vector<C> calls; bool shared = false, target = true, conflict = false, upload_failure = false;
+    std::vector<C> calls; bool shared = false, target = true, conflict = false, upload_failure = false, native = false;
+    std::wstring played; // The build `play` was asked for (Linux).
     aurelia::Transport workflow = [&](const aurelia::Request& r, const aurelia::Cancel&, const aurelia::Event&) {
         calls.push_back(r.command);
         auto reply = [&](std::string_view value) { return aurelia::Reply{true, false, parsed(value)}; };
         if (r.command == C::library) return shared ? reply(R"([{"app_id":902,"name":"Borrowed","is_owned":false,"is_family_shared":true}])") : aurelia::Reply{true, false, roster};
+        if (r.command == C::launch_targets && native)
+            return reply(R"({"targets":[{"id":"linux","platform":"linux","steam_mode":null,"available":true},{"platform":"windows","steam_mode":"none","available":true}]})");
         if (r.command == C::launch_targets) return target ? reply(R"({"targets":[{"platform":"windows","steam_mode":"none","available":true}]})") : reply(R"({"targets":[{"platform":"windows","steam_mode":"host","available":true}]})");
-        if (r.command == C::play) return reply(R"({"app_id":902,"status":"finished"})");
+        if (r.command == C::play) { played = r.text; return reply(R"({"app_id":902,"status":"finished"})"); }
         if (r.command == C::cloud_sync) {
             if (conflict && r.direction == aurelia::Request::Direction::down) return reply(R"({"status":"conflicts","conflicts":[{"filename":"save.dat"}]})");
             if (upload_failure && r.direction == aurelia::Request::Direction::up) return reply(R"({"status":"failed","failed":[{"filename":"save.dat"}]})");
@@ -128,14 +157,47 @@ int main(int argc, char** argv) {
     conflict = false; upload_failure = true; calls.clear();
     auto failed_upload = aurelia::launchStandalone(workflow, request, [] { return false; });
     CHECK(!failed_upload.ok && aurelia::flag(failed_upload.data, "launch_finished") && calls.size() == 5);
+#ifndef _WIN32
+    // Linux: the native build when it is installed, else the Windows build through Aurelia's Proton.
+    upload_failure = false; calls.clear();
+    CHECK(aurelia::launchStandalone(workflow, request, [] { return false; }).ok && played == L"windows");
+    native = true; target = false;
+    CHECK(aurelia::launchStandalone(workflow, request, [] { return false; }).ok && played == L"linux");
+    native = false; target = true;
+#endif
+#ifdef _WIN32
     // Minimal PE header: validates architecture, never executed.
     std::string image(4096, '\0'); IMAGE_DOS_HEADER dos{}; dos.e_magic = IMAGE_DOS_SIGNATURE; dos.e_lfanew = 128;
     memcpy(image.data(), &dos, sizeof(dos)); const DWORD sig = IMAGE_NT_SIGNATURE; memcpy(image.data() + 128, &sig, 4);
     IMAGE_FILE_HEADER header{}; header.Machine = IMAGE_FILE_MACHINE_AMD64; memcpy(image.data() + 132, &header, sizeof(header));
+#else
+    // Minimal ELF64 header of an x86-64 (or AArch64) executable: validated, never executed.
+    std::string image(4096, '\0');
+    memcpy(image.data(), "\x7f" "ELF\x02\x01\x01", 7);
+    image[16] = 2; // ET_EXEC
+#if defined(__aarch64__)
+    image[18] = static_cast<char>(183);
+#else
+    image[18] = 62;
+#endif
+    image[52] = 64; // e_ehsize
+    {
+        auto pe = image; pe[0] = 'M'; pe[1] = 'Z'; // Not an ELF: refused like a PE on Linux.
+        CHECK(atomic_file::write(root / L"pe.part", pe));
+        aurelia::Release foreign{L"v0.9.0", {}, pe.size(), updater::sha256File(root / L"pe.part")};
+        CHECK(!aurelia::publish(root / L"helper", foreign, root / L"pe.part"));
+    }
+#endif
     const auto partial = root / L"fixture.part"; CHECK(atomic_file::write(partial, image));
     aurelia::Release package{L"v1.0.0", {}, image.size(), updater::sha256File(partial)};
     CHECK(aurelia::publish(root / L"helper", package, partial));
     CHECK(aurelia::installed(root / L"helper").version == L"v1.0.0");
+#ifndef _WIN32
+    {
+        const auto exe = aurelia::installed(root / L"helper").executable;
+        CHECK(exe == root / L"helper" / L"v1.0.0" / L"aurelia" && access(exe.c_str(), X_OK) == 0);
+    }
+#endif
     CHECK(atomic_file::write(partial, "bad executable")); package.version = L"v1.0.1";
     CHECK(!aurelia::publish(root / L"helper", package, partial));
     CHECK(aurelia::installed(root / L"helper").version == L"v1.0.0"); // Failed update retains the previous install.
@@ -144,9 +206,16 @@ int main(int argc, char** argv) {
     wchar_t self[4096]{}; CHECK(GetModuleFileNameW(nullptr, self, 4096));
     aurelia::Runtime runtime{self, root / L"profile"};
     const auto pipe = aurelia::daemonEndpoint(runtime.profile);
+#ifdef _WIN32
     CHECK(pipe.starts_with(L"\\\\.\\pipe\\launchme-aurelia-") && pipe != aurelia::daemonEndpoint(root / L"other-profile"));
+#else
+    // Linux: a Unix socket in the runtime folder, named after the profile and the user.
+    CHECK(std::filesystem::path(pipe).filename().wstring().starts_with(L"launchme-aurelia-") && pipe.ends_with(L".sock") &&
+          pipe != aurelia::daemonEndpoint(root / L"other-profile") && pipe.size() < 108);
+#endif
     CHECK(pipe == aurelia::daemonEndpoint(root / L"." / L"profile"));
     // An existing endpoint without its identity marker must never invoke the CLI's broad stale-daemon fallback.
+#ifdef _WIN32
     const HANDLE server = CreateNamedPipeW(pipe.c_str(), PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED, PIPE_TYPE_BYTE, 1, 4096, 4096, 0, nullptr);
     CHECK(server != INVALID_HANDLE_VALUE);
     OVERLAPPED pending{}; pending.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
@@ -154,6 +223,30 @@ int main(int argc, char** argv) {
     auto unidentified = aurelia::invoke(runtime, {C::health}, [] { return false; });
     CHECK(!unidentified.ok);
     CancelIoEx(server, &pending); WaitForSingleObject(pending.hEvent, 1000); CloseHandle(server); CloseHandle(pending.hEvent);
+#else
+    {
+        const std::filesystem::path socket_path(pipe);
+        const int server = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+        sockaddr_un address{}; address.sun_family = AF_UNIX;
+        memcpy(address.sun_path, socket_path.c_str(), socket_path.string().size() + 1);
+        CHECK(server >= 0 && bind(server, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == 0 && listen(server, 4) == 0);
+        auto unidentified = aurelia::invoke(runtime, {C::health}, [] { return false; });
+        CHECK(!unidentified.ok);
+        // With the daemon's marker next to it, the same endpoint is accepted.
+        auto marker = socket_path; marker.replace_extension(".info");
+        CHECK(atomic_file::write(marker, R"({"pid":1,"version":"0.1.41"})"));
+        CHECK(aurelia::invoke(runtime, {C::health}, [] { return false; }).ok);
+        close(server);
+        std::error_code e; std::filesystem::remove(marker, e);
+        // A socket nothing listens on any more is left for Aurelia to replace.
+        CHECK(aurelia::invoke(runtime, {C::health}, [] { return false; }).ok);
+        std::filesystem::remove(socket_path, e);
+        // Something else at the socket's path is never handed to Aurelia (it would delete it).
+        CHECK(atomic_file::write(socket_path, "not a socket"));
+        CHECK(!aurelia::invoke(runtime, {C::health}, [] { return false; }).ok);
+        std::filesystem::remove(socket_path, e);
+    }
+#endif
     std::cout << "Aurelia native runner: query" << std::endl;
     const auto never = [] { return false; };
     auto reply = aurelia::invoke(runtime, {C::health}, never);

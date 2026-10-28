@@ -9,18 +9,31 @@
 #include "../platform/atomic_file.hpp"
 #include "../platform/diagnostics.hpp"
 #include "../platform/text_encoding.hpp"
+#ifndef _WIN32
+#include "../platform/process_spawn.hpp"
+#include "../platform/system.hpp"
+#endif
 
 #include <fstream>
 
 namespace {
 constexpr ULONGLONG first_check_ms = 30 * 1000, check_interval_ms = 6ULL * 60 * 60 * 1000, game_retry_ms = 10 * 60 * 1000;
 std::filesystem::path whatsNewFile() { return userConfigDirectory() / L"whats-new.txt"; }
+#ifdef _WIN32
 std::filesystem::path moduleFolder() {
     wchar_t module[32768]{};
     GetModuleFileNameW(nullptr, module, static_cast<DWORD>(std::size(module)));
     return std::filesystem::path(module).parent_path();
 }
+#else
+// The AppImage's folder (updater.hpp: only an AppImage updates itself), else the executable's.
+std::filesystem::path moduleFolder() {
+    if (const auto image = updater::appImage()) return image->parent_path();
+    return system_info::executablePath().parent_path();
+}
+#endif
 std::wstring megabytes(uint64_t bytes) { return std::to_wstring((bytes + 512 * 1024) / (1024 * 1024)); }
+#ifdef _WIN32
 bool restartInto(const std::filesystem::path& exe) {
     STARTUPINFOW startup{sizeof(startup)};
     PROCESS_INFORMATION process{};
@@ -29,6 +42,23 @@ bool restartInto(const std::filesystem::path& exe) {
     CloseHandle(process.hThread); CloseHandle(process.hProcess);
     return true;
 }
+#else
+// The new AppImage, in a session of its own (it outlives this process, which it waits for).
+bool restartInto(const std::filesystem::path& exe) {
+    process_spawn::Options options;
+    options.directory = exe.parent_path();
+    options.session = true;
+    pid_t pid = 0;
+    if (process_spawn::spawn({exe.string(), "--after-update=" + std::to_string(system_info::processId())}, options, pid) != 0) return false;
+    process_spawn::reapLater(pid);
+    return true;
+}
+// The file the new version is started from: the running AppImage's name, as updater::unpack stages it.
+std::filesystem::path restartTarget(const std::filesystem::path& app) {
+    if (const auto image = updater::appImage()) return app / image->filename();
+    return app / L"launchme.AppImage";
+}
+#endif
 }
 
 void Launcher::initializeUpdates() {
@@ -42,7 +72,7 @@ void Launcher::initializeUpdates() {
     if (std::filesystem::exists(file, ec)) {
         std::string content;
         { std::ifstream input(file, std::ios::binary); content.assign(std::istreambuf_iterator<char>(input), {}); }
-        DeleteFileW(file.c_str());
+        DeleteFileW(file.wstring().c_str());
         const auto newline = content.find('\n');
         const auto version = text_encoding::wideLenient(content.substr(0, newline));
         if (newline != std::string::npos && !version.empty() && version == app_version_)
@@ -152,7 +182,11 @@ void Launcher::startUpdate() {
     };
     work_.start([generation, release, app, alive, post, download = update_download_] {
         const auto folder = app / updater::work_folder;
+#ifdef _WIN32
         const auto zip = folder / (L"launchme-" + release.version + L"-win64.zip");
+#else
+        const auto zip = folder / (L"launchme-" + release.version + L"-x86_64.AppImage"); // The package is the AppImage.
+#endif
         const std::filesystem::path part = zip.wstring() + L".part";
         std::wstring error;
         std::vector<std::filesystem::path> files;
@@ -169,13 +203,13 @@ void Launcher::startUpdate() {
         else if (!(download ? download(release, part, progress) :
                    httpDownload(release.package_url, part, release.package_size, [alive] { return !alive->load(); }, progress, updater::allowedDownload) == DownloadError::none))
             error = tr(L"Nie udało się pobrać paczki z GitHuba.");
-        else if (updater::sha256File(part) != release.sha256) { error = tr(L"Pobrana paczka jest uszkodzona (inna suma SHA-256)."); DeleteFileW(part.c_str()); }
+        else if (updater::sha256File(part) != release.sha256) { error = tr(L"Pobrana paczka jest uszkodzona (inna suma SHA-256)."); DeleteFileW(part.wstring().c_str()); }
         else {
-            MoveFileExW(part.c_str(), zip.c_str(), MOVEFILE_REPLACE_EXISTING);
+            MoveFileExW(part.wstring().c_str(), zip.wstring().c_str(), MOVEFILE_REPLACE_EXISTING);
             std::wstring detail;
             if (auto unpacked = updater::unpack(zip, folder / L"staging", detail)) files = std::move(*unpacked);
             else error = tr(L"Nie udało się rozpakować paczki: ") + detail;
-            DeleteFileW(zip.c_str());
+            DeleteFileW(zip.wstring().c_str());
         }
         post([generation, error, files](Launcher& launcher) { launcher.updateStaged(generation, error, files); });
     });
@@ -229,9 +263,13 @@ void Launcher::installUpdate() {
     // Its changes, for the new version's first start.
     atomic_file::write(whatsNewFile(), text_encoding::utf8Lenient(release.version + L"\n" + release.notes));
     const std::function<bool(const std::filesystem::path&)> restart = update_restart_ ? update_restart_ : std::function<bool(const std::filesystem::path&)>(restartInto);
+#ifdef _WIN32
     if (!restart(app / L"launchme.exe")) {
+#else
+    if (!restart(restartTarget(app))) {
+#endif
         updater::rollback(app, update_.files);
-        DeleteFileW(whatsNewFile().c_str());
+        DeleteFileW(whatsNewFile().wstring().c_str());
         fail(tr(L"Nie można uruchomić nowej wersji; przywrócono poprzednią."));
         return;
     }

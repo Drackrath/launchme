@@ -11,7 +11,17 @@
 
 namespace aurelia {
 inline constexpr wchar_t latest_url[] = L"https://api.github.com/repos/Drackrath/Aurelia/releases/latest";
+// The release asset for this system and the name it is installed under (<root>/<release>/<name>).
+#ifdef _WIN32
 inline constexpr wchar_t asset_name[] = L"aurelia_windows_x86_64.exe";
+inline constexpr wchar_t executable_name[] = L"aurelia_windows_x86_64.exe";
+#elif defined(__aarch64__)
+inline constexpr wchar_t asset_name[] = L"aurelia_linux_arm64";
+inline constexpr wchar_t executable_name[] = L"aurelia";
+#else
+inline constexpr wchar_t asset_name[] = L"aurelia_linux_x86_64";
+inline constexpr wchar_t executable_name[] = L"aurelia";
+#endif
 using Cancel = std::function<bool()>;
 using Event = std::function<void(const json::Value&)>;
 enum class Command {
@@ -26,6 +36,9 @@ struct Request {
     Command command = Command::health;
     uint32_t app = 0, depot = 0;
     uint64_t id = 0; // SteamID, manifest ID or Workshop ID; never a floating-point conversion.
+    // Free text of the command (chat message, branch, presence, cloud resolution). Linux, install
+    // and play: the build, "linux" (native) or "windows" (through Aurelia's Proton/Wine); empty:
+    // install a native build when the game has one, play what launchStandalone selected.
     std::wstring text;
     std::filesystem::path folder;
     bool steam = true;

@@ -12,8 +12,13 @@
 //   on stderr is a log line.
 // * The profile folder holds everything (DPAPI-protected tokens, the WebView2 data of the sign-in
 //   window, the synced library); nothing is written next to the EXE or into the user's keychain.
+//
+// Linux (launchme-xbox, shipped next to Launchme): the same commands and answers. The tokens are
+// 0600 files in the 0700 profile, the sign-in window is GTK 4 + WebKitGTK 6.0, and `run` takes the
+// Wine/Proton command Launchme built for the game after `--`:
+//   launchme-xbox --profile <dir> run --dir <game> [--market <m>] [--file-map yes] -- <runner...> <Game.exe>
 
-// No console window: Launchme starts it hidden with pipes, and un stands in for the game.
+// No console window: Launchme starts it hidden with pipes, and `run` stands in for the game.
 #![windows_subsystem = "windows"]
 
 mod config;
@@ -21,12 +26,15 @@ mod install;
 mod launch;
 mod library;
 mod license;
+#[cfg(windows)]
+mod login;
+#[cfg(target_os = "linux")]
+#[path = "login_linux.rs"]
 mod login;
 mod output;
 mod package;
 mod store;
 mod tokens;
-
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -38,6 +46,9 @@ struct Arguments {
     profile: PathBuf,
     command: String,
     options: Vec<(String, String)>,
+    // Everything after "--" (Linux `run`: the Wine/Proton command line for the game).
+    #[cfg_attr(windows, allow(dead_code))]
+    trailing: Vec<String>,
 }
 
 impl Arguments {
@@ -52,13 +63,18 @@ impl Arguments {
     }
 }
 
-// --profile <dir> <command> [--key value]... Values never start with "--".
+// --profile <dir> <command> [--key value]... [-- trailing...] Values never start with "--".
 fn parse(args: Vec<String>) -> Result<Arguments, Failure> {
     let mut profile = None;
     let mut command = None;
     let mut options = Vec::new();
+    let mut trailing = Vec::new();
     let mut it = args.into_iter().skip(1);
     while let Some(arg) = it.next() {
+        if arg == "--" {
+            trailing.extend(it.by_ref());
+            break;
+        }
         if let Some(name) = arg.strip_prefix("--") {
             let value = it
                 .next()
@@ -83,6 +99,7 @@ fn parse(args: Vec<String>) -> Result<Arguments, Failure> {
         profile,
         command,
         options,
+        trailing,
     })
 }
 
@@ -96,6 +113,14 @@ fn client() -> reqwest::Client {
 async fn run(args: Arguments) -> Outcome {
     std::fs::create_dir_all(&args.profile)
         .map_err(|e| Failure::new("storage", format!("profile folder: {e}")))?;
+    // Linux: the profile holds the account's tokens; it is the user's alone even when the helper
+    // is started without Launchme (which creates it so already).
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&args.profile, std::fs::Permissions::from_mode(0o700))
+            .map_err(|e| Failure::new("storage", format!("profile folder: {e}")))?;
+    }
     let tokens = Arc::new(store::token_manager(&args.profile));
     let client = client();
     match args.command.as_str() {
@@ -133,12 +158,26 @@ async fn run(args: Arguments) -> Outcome {
             )
             .await
         }
+        #[cfg(windows)]
         "run" => {
             launch::run(
                 &client,
                 &tokens,
                 &PathBuf::from(args.required("dir")?),
                 args.option("market").unwrap_or("neutral"),
+            )
+            .await
+        }
+        #[cfg(not(windows))]
+        "run" => {
+            launch::run(
+                &client,
+                &tokens,
+                &PathBuf::from(args.required("dir")?),
+                args.option("market").unwrap_or("neutral"),
+                &args.profile,
+                &args.trailing,
+                args.option("file-map") == Some("yes"),
             )
             .await
         }

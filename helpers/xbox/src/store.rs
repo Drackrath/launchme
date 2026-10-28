@@ -1,6 +1,9 @@
 // Persistent token tier for Xodus' TokenManager: one file per key in <profile>\tokens, each
 // encrypted with DPAPI for the current Windows user (Xodus' default on Windows would be a plain
 // keyring file). Short-lived XSTS tokens stay in Xodus' in-memory tier.
+// Linux: <profile>/tokens/<key>.token, readable by the user alone (0600 in a 0700 folder, inside
+// Launchme's 0700 profile), as Launchme keeps the other stores' sessions; no desktop keyring, so
+// the helper also works where none answers (Steam Deck's Game Mode).
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -30,8 +33,37 @@ impl DpapiBackend {
         } else {
             key.bytes().map(|b| format!("{b:02x}")).collect()
         };
-        self.folder.join(format!("{name}.dpapi"))
+        self.folder.join(format!("{name}.{EXTENSION}"))
     }
+}
+
+#[cfg(windows)]
+const EXTENSION: &str = "dpapi";
+#[cfg(not(windows))]
+const EXTENSION: &str = "token";
+
+#[cfg(windows)]
+fn write_private(folder: &Path, part: &Path, sealed: &[u8]) -> std::io::Result<()> {
+    std::fs::create_dir_all(folder)?;
+    std::fs::write(part, sealed)
+}
+
+// The folder and every file in it are the user's alone, from creation on (no window with
+// broader permissions).
+#[cfg(unix)]
+fn write_private(folder: &Path, part: &Path, sealed: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(folder)?;
+    std::fs::set_permissions(folder, std::fs::Permissions::from_mode(0o700))?;
+    let _ = std::fs::remove_file(part);
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(part)?;
+    file.write_all(sealed)?;
+    file.sync_all()
 }
 
 impl TokenBackend for DpapiBackend {
@@ -44,11 +76,10 @@ impl TokenBackend for DpapiBackend {
     }
 
     fn set(&self, key: &str, value: &[u8]) -> Result<(), TokenStoreError> {
-        std::fs::create_dir_all(&self.folder)?;
         let sealed = dpapi::protect(value)?;
         let path = self.path(key);
         let part = path.with_extension("part");
-        std::fs::write(&part, sealed)?;
+        write_private(&self.folder, &part, &sealed)?;
         std::fs::rename(&part, &path)?;
         Ok(())
     }
@@ -146,9 +177,19 @@ mod tests {
         let profile = std::env::temp_dir().join(format!("launchme-xbox-store-{}", std::process::id()));
         let backend = DpapiBackend::new(&profile);
         backend.set("user-tokens", b"secret value").unwrap();
-        let raw = std::fs::read(profile.join("tokens").join("user-tokens.dpapi")).unwrap();
+        let file = profile.join("tokens").join(format!("user-tokens.{EXTENSION}"));
+        let raw = std::fs::read(&file).unwrap();
         #[cfg(windows)]
         assert!(!raw.windows(6).any(|w| w == b"secret"));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(raw, b"secret value");
+            assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
+            assert_eq!(std::fs::metadata(profile.join("tokens")).unwrap().permissions().mode() & 0o777, 0o700);
+            backend.set("user-tokens", b"secret value").unwrap(); // Replacing keeps it private.
+            assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
+        }
         assert_eq!(backend.get("user-tokens").unwrap().as_deref(), Some(&b"secret value"[..]));
         assert_eq!(backend.get("http://x/y").unwrap(), None);
         backend.remove("user-tokens").unwrap();
@@ -158,7 +199,7 @@ mod tests {
     }
 }
 
-// Linux/macOS builds (the later Xodus targets) keep plain files inside the private profile.
+// Linux/macOS builds keep the values in the user's private files (write_private).
 #[cfg(not(windows))]
 mod dpapi {
     pub fn protect(data: &[u8]) -> std::io::Result<Vec<u8>> {

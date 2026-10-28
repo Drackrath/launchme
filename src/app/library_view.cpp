@@ -182,7 +182,7 @@ void Launcher::initializeLibraryPreferences() {
         // build understands are kept, the original is set aside, and history works again.
         if (auto salvaged = salvageLibraryState(file)) {
             const auto aside = file.parent_path() / L"library-state.damaged.ini";
-            if (CopyFileW(file.c_str(), aside.c_str(), FALSE)) {
+            if (CopyFileW(file.wstring().c_str(), aside.wstring().c_str(), FALSE)) {
                 saved = std::move(salvaged->state);
                 library_state_dirty_ = true;
                 showNotification(NotificationKind::error, tr(L"Historia biblioteki była uszkodzona"),

@@ -5,10 +5,35 @@
 #include <algorithm>
 #include <shlobj.h>
 #include <shellapi.h>
+#ifndef _WIN32
+#include <gio/gio.h>
+#endif
 
 using namespace plugins::wire;
 namespace {
 uint64_t pluginTime() { return gog::nowSeconds(); }
+#ifndef _WIN32
+// The file manager shows the file selected (org.freedesktop.FileManager1.ShowItems, as Explorer's
+// SHOpenFolderAndSelectItems); without one, the desktop opens its folder.
+bool revealDownload(HWND window, const std::filesystem::path& path) {
+    std::error_code error;
+    if (!std::filesystem::exists(path, error)) return false;
+    const bool folder = std::filesystem::is_directory(path, error);
+    if (!folder)
+        if (GDBusConnection* bus = g_bus_get_sync(G_BUS_TYPE_SESSION, nullptr, nullptr)) {
+            gchar* uri = g_filename_to_uri(path.c_str(), nullptr, nullptr);
+            const gchar* uris[] = {uri, nullptr};
+            GVariant* reply = uri ? g_dbus_connection_call_sync(bus, "org.freedesktop.FileManager1", "/org/freedesktop/FileManager1",
+                                                                "org.freedesktop.FileManager1", "ShowItems", g_variant_new("(^ass)", uris, ""),
+                                                                nullptr, G_DBUS_CALL_FLAGS_NONE, 3000, nullptr, nullptr) : nullptr;
+            g_free(uri);
+            g_object_unref(bus);
+            if (reply) { g_variant_unref(reply); return true; }
+        }
+    const auto shown = folder ? path : path.parent_path();
+    return reinterpret_cast<INT_PTR>(ShellExecuteW(window, L"open", shown.wstring().c_str(), nullptr, nullptr, SW_SHOWNORMAL)) > 32;
+}
+#else
 bool revealDownload(HWND window, const std::filesystem::path& path) {
     const auto attributes = GetFileAttributesW(path.c_str());
     if (attributes == INVALID_FILE_ATTRIBUTES) return false;
@@ -18,6 +43,7 @@ bool revealDownload(HWND window, const std::filesystem::path& path) {
     const auto result = SHOpenFolderAndSelectItems(item, 0, nullptr, 0);
     CoTaskMemFree(item); return SUCCEEDED(result);
 }
+#endif
 std::filesystem::path bundledPlugins() {
     wchar_t file[32768]; const auto size = GetModuleFileNameW(nullptr, file, static_cast<DWORD>(std::size(file)));
     return std::filesystem::path(std::wstring(file, size)).parent_path() / L"plugin-packages";
@@ -39,7 +65,7 @@ void Launcher::initializePlugins() {
             std::vector<std::filesystem::path> packages;
             std::error_code missing;
             for (const auto& entry : std::filesystem::directory_iterator(bundle, missing))
-                if (entry.is_regular_file() && _wcsicmp(entry.path().extension().c_str(), L".zip") == 0) packages.push_back(entry.path());
+                if (entry.is_regular_file() && _wcsicmp(entry.path().extension().wstring().c_str(), L".zip") == 0) packages.push_back(entry.path());
             std::sort(packages.begin(), packages.end());
             for (const auto& package : packages) manager.ensureBundled(text_encoding::utf8(package.stem().wstring()), package);
         } catch (const std::exception& error) { initial->error = error.what(); }

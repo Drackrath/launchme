@@ -121,7 +121,7 @@ std::vector<std::filesystem::path> ownVideos(const std::filesystem::path& folder
             std::error_code file;
             if (!item.is_regular_file(file) || item.path().filename() == video_manifest::file_name) continue;
             auto relative = item.path().lexically_relative(folder);
-            if (std::none_of(entries.begin(), entries.end(), [&](const auto& entry) { return _wcsicmp(entry.c_str(), relative.c_str()) == 0; }))
+            if (std::none_of(entries.begin(), entries.end(), [&](const auto& entry) { return _wcsicmp(entry.wstring().c_str(), relative.wstring().c_str()) == 0; }))
                 entries.push_back(std::move(relative));
         }
     // Each video''s ".none"/".part" companions go with it.

@@ -1,7 +1,5 @@
 #pragma once
-#ifdef _WIN32
-#include <Windows.h>
-#endif
+#include <Windows.h> // Linux: src/linux/win32.
 #include <cstdint>
 
 // Premultiplied BGRA backing store for small/event-driven transparent windows.

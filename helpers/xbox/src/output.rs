@@ -78,9 +78,17 @@ pub fn alert(message: &str) {
     unsafe { MessageBoxW(std::ptr::null_mut(), text.as_ptr(), title.as_ptr(), MB_OK | MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND) };
 }
 
+// Linux: the log line, and a desktop notification when a notification daemon answers.
 #[cfg(not(windows))]
 pub fn alert(message: &str) {
     log(message);
+    let _ = std::process::Command::new("notify-send")
+        .args(["--app-name=Launchme", "--icon=dialog-error", "Launchme · Xbox"])
+        .arg(format!("The game could not start. {message}"))
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
 }
 
 pub fn finish(outcome: Outcome) -> i32 {

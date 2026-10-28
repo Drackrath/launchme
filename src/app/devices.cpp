@@ -1,7 +1,9 @@
 #include "launcher.hpp"
 #include "../model/controller_pictures.hpp"
 #include <cmath>
+#ifdef _WIN32
 #include <winrt/base.h>
+#endif
 
 // Census is independent of the active input pad and the Controllers panel: idle
 // pads present at startup count too. WGI/HID enumeration stays off the UI thread.
@@ -10,8 +12,10 @@ void Launcher::initializeControllerMonitor() {
     const auto refresh = controller_rescan_;
     const auto hwnd = hwnd_;
     work_.start([alive, refresh, hwnd, read = read_controllers_] {
+#ifdef _WIN32
         winrt::init_apartment();
         struct Apartment { ~Apartment() { winrt::uninit_apartment(); } } apartment;
+#endif
         std::vector<devices::Controller> previous;
         bool first = true;
         int followups = 0;
@@ -34,7 +38,13 @@ void Launcher::initializeControllerMonitor() {
             // after it arrived, so a change is looked at again after 1 and 3 s; the batteries of
             // connected pads are read again every 30 s.
             const DWORD timeout = followups == 2 ? 1000 : followups == 1 ? 2000 : previous.empty() ? INFINITE : 30000;
+#ifdef _WIN32
             const DWORD waited = WaitForSingleObject(refresh->event, timeout);
+#else
+            ChangeWatch sleep; // No sources: only the wake (an eventfd) ends it early.
+            sleep.wake(refresh->event);
+            const DWORD waited = sleep.wait(timeout) == ChangeWatch::Result::woken ? WAIT_OBJECT_0 : WAIT_TIMEOUT;
+#endif
             if (!alive->load()) return;
             if (waited == WAIT_OBJECT_0) followups = 2;
             else if (followups > 0) --followups;
@@ -49,8 +59,10 @@ void Launcher::requestControllerPicture(devices::Picture picture) {
     const auto alive = alive_;
     const auto hwnd = hwnd_;
     if (!work_.start([alive, hwnd, picture] {
+#ifdef _WIN32
         winrt::init_apartment();
         struct Apartment { ~Apartment() { winrt::uninit_apartment(); } } apartment;
+#endif
         auto message = std::make_unique<ControllersMessage>();
         message->image = picture;
         message->bytes = controllerPicture(picture, userConfigDirectory() / L"controllers");

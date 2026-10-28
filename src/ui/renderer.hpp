@@ -181,7 +181,7 @@ public:
     bool videoShown() const { return video_bitmap_ != nullptr; }
     bool marqueeActive() const { return marquee_active_; } // The last frame had a gliding name (fadingLine): paint the next one too.
     float videoFade() const; // 0..1: the playing video's 600 ms fade-in (0 without one).
-    // The playing video cover-fitted into ect (clipped to clip when given), faded in; false when none shows.
+    // The playing video cover-fitted into `rect` (clipped to clip when given), faded in; false when none shows.
     bool drawVideoIn(D2D1_RECT_F rect, ID2D1Geometry* clip, float opacity);
     void setFriendAvatar(uint64_t id, std::vector<uint8_t> pixels);
     void clearFriendAvatars();

@@ -5,8 +5,17 @@
 #include "../platform/text_encoding.hpp"
 #include "../platform/updater.hpp"
 
+#ifdef _WIN32
 #include <Windows.h>
 #include <sddl.h>
+#else
+#include "../library/xdg_paths.hpp"
+#include "../platform/atomic_file.hpp"
+#include "../platform/system.hpp"
+#include <cstdlib>
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 
 #include <algorithm>
 #include <atomic>
@@ -27,9 +36,11 @@ using text_encoding::utf8;
 using text_encoding::wide;
 using text_encoding::wideLenient;
 
+#ifdef _WIN32
 // The helper is published with Launchme's releases (tools/build-xbox-helper.ps1 prints both values).
 constexpr auto helper_digest = "2069fd6578280bfeaf018bb5c5c1805f248e5bcc22b095ebbd49729cc826fd4b";
 constexpr auto helper_url = L"https://github.com/uxandai/launchme/releases/download/xbox-helper-v0.1.0/launchme-xbox-0.1.0.exe";
+#endif
 constexpr std::wstring_view marker_name = L".launchme-xbox.json";
 constexpr std::wstring_view header_name = L".xodus-streaming.msixvc";
 
@@ -45,12 +56,16 @@ std::string readText(const std::filesystem::path& path, size_t limit = 32 * 1024
 }
 bool writeText(const std::filesystem::path& path, std::string_view text) {
     std::error_code ec; std::filesystem::create_directories(path.parent_path(), ec);
-    const std::filesystem::path part = path.native() + L".part";
+    const std::filesystem::path part = path.wstring() + L".part";
     {
         std::ofstream out(part, std::ios::binary | std::ios::trunc);
         if (!out || !out.write(text.data(), static_cast<std::streamsize>(text.size()))) return false;
     }
+#ifdef _WIN32
     return MoveFileExW(part.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != FALSE;
+#else
+    return atomic_file::replace(part, path);
+#endif
 }
 bool regular(const std::filesystem::path& path) { std::error_code ec; return std::filesystem::is_regular_file(path, ec); }
 bool folder(const std::filesystem::path& path) { std::error_code ec; return std::filesystem::is_directory(path, ec); }
@@ -63,6 +78,7 @@ bool httpsArt(const std::string& url) {
     return url.starts_with("https://") && url.size() < 2048 && url.find_first_of(" \"\r\n\t") == std::string::npos;
 }
 // A path inside `root` named by a relative part of an untrusted file; a reparse point must not lead out.
+#ifdef _WIN32
 std::filesystem::path childPath(const std::filesystem::path& root, std::wstring relative) {
     std::replace(relative.begin(), relative.end(), L'/', L'\\');
     const std::filesystem::path part(relative);
@@ -76,6 +92,63 @@ std::filesystem::path childPath(const std::filesystem::path& root, std::wstring 
     for (; r != canonical_root.end(); ++r, ++p) if (p == canonical.end() || _wcsicmp(r->c_str(), p->c_str()) != 0) return {};
     return full;
 }
+#else
+// Linux: the package names Windows paths ("Bin\Game.exe"); the separators become '/'.
+std::filesystem::path childPath(const std::filesystem::path& root, std::wstring relative) {
+    std::replace(relative.begin(), relative.end(), L'\\', L'/');
+    const std::filesystem::path part(relative);
+    if (!root.is_absolute() || part.empty() || part.is_absolute() || part.has_root_name() || part.has_root_directory()) return {};
+    for (const auto& segment : part) if (segment == L".." || segment == L"." || segment.wstring().find(L':') != std::wstring::npos) return {};
+    const auto full = root / part;
+    std::error_code ec;
+    const auto canonical_root = std::filesystem::weakly_canonical(root, ec); if (ec) return {};
+    const auto canonical = std::filesystem::weakly_canonical(full, ec); if (ec) return {};
+    auto r = canonical_root.begin(), p = canonical.begin();
+    for (; r != canonical_root.end(); ++r, ++p) if (p == canonical.end() || *r != *p) return {};
+    return full;
+}
+#endif
+#ifndef _WIN32
+// Linux: the profile holds the account's tokens (0600 files of the helper): this user's alone,
+// 0700, owned by them, not a symlink.
+bool privateDirectory(const std::filesystem::path& path) {
+    std::error_code ec; std::filesystem::create_directories(path, ec); if (ec) return false;
+    struct stat status{};
+    if (::lstat(path.c_str(), &status) != 0 || !S_ISDIR(status.st_mode) || status.st_uid != ::getuid()) return false;
+    return (status.st_mode & 07777) == 0700 || ::chmod(path.c_str(), 0700) == 0;
+}
+// Not downloaded on Linux: launchme-xbox is shipped next to the launcher (tools/build-xbox-helper.sh).
+std::filesystem::path prepareNative(const std::filesystem::path& config, bool, const Cancel&, const std::function<void(uint64_t)>&) {
+    const auto exe = helperPath(config);
+    return xdg_paths::executableFile(exe) ? exe : std::filesystem::path{};
+}
+helper_process::Result invokeNative(const std::filesystem::path& exe, const std::filesystem::path& config, const std::vector<std::wstring>& arguments,
+                                    const Cancel& cancel, const std::function<void(std::string_view)>& line) {
+    const auto profile = profileDirectory(config);
+    if (!privateDirectory(profile)) return {};
+    std::vector<std::wstring> full{L"--profile", profile.wstring()};
+    full.insert(full.end(), arguments.begin(), arguments.end());
+    return helper_process::run(exe, profile, full, {}, cancel, line);
+}
+// The user's locale (LC_ALL, LC_MESSAGES, LANG): "pl_PL.UTF-8" is the language "pl" and the territory "PL".
+std::pair<std::wstring, std::wstring> localeParts() {
+    for (const char* name : {"LC_ALL", "LC_MESSAGES", "LANG"}) {
+        const char* value = std::getenv(name);
+        if (!value || !*value) continue;
+        std::string locale(value);
+        locale = locale.substr(0, locale.find_first_of(".@"));
+        const auto underscore = locale.find('_');
+        const auto language = locale.substr(0, underscore);
+        const auto territory = underscore == std::string::npos ? std::string{} : locale.substr(underscore + 1);
+        const auto letters = [](const std::string& text, size_t low, size_t high, bool upper) {
+            return text.size() >= low && text.size() <= high && std::all_of(text.begin(), text.end(), [&](char c) { return upper ? (c >= 'A' && c <= 'Z') : (c >= 'a' && c <= 'z'); });
+        };
+        if (!letters(language, 2, 3, false)) return {};
+        return {wide(language), letters(territory, 2, 2, true) ? wide(territory) : std::wstring{}};
+    }
+    return {};
+}
+#else
 // The profile holds the account's sealed tokens: readable by this user and SYSTEM only.
 bool privateDirectory(const std::filesystem::path& path) {
     std::error_code ec; std::filesystem::create_directories(path, ec); if (ec) return false;
@@ -115,6 +188,7 @@ helper_process::Result invokeNative(const std::filesystem::path& exe, const std:
     full.insert(full.end(), arguments.begin(), arguments.end());
     return helper_process::run(exe, profile, full, {}, cancel, line);
 }
+#endif
 std::filesystem::path accountPath(const std::filesystem::path& config) { return profileDirectory(config) / L"account.json"; }
 std::filesystem::path installsPath(const std::filesystem::path& config) { return profileDirectory(config) / L"installs.json"; }
 std::vector<OwnInstall> readInstalls(const std::filesystem::path& config) { return parseInstalls(readText(installsPath(config), 4 * 1024 * 1024)); }
@@ -125,18 +199,28 @@ std::filesystem::path verifiedExecutable(const OwnInstall& install) {
 std::wstring markerTitle(const std::filesystem::path& directory) {
     const auto root = json::parse(readText(directory / marker_name, 256 * 1024));
     auto name = root ? wideLenient(field(*root, "display_name")) : std::wstring{};
-    if (name.empty() || name.size() > 512) name = directory.filename().native();
+    if (name.empty() || name.size() > 512) name = directory.filename().wstring();
     return name;
 }
 } // namespace
 
 std::filesystem::path profileDirectory(const std::filesystem::path& config) { return config / L"xbox"; }
 std::filesystem::path libraryPath(const std::filesystem::path& config) { return profileDirectory(config) / L"library.json"; }
+#ifdef _WIN32
 std::filesystem::path helperPath(const std::filesystem::path& config) { return config / L"tools" / (L"launchme-xbox-" + std::wstring(helper_version) + L".exe"); }
 bool helperInstalled(const std::filesystem::path& config) {
     std::error_code ec; const auto exe = helperPath(config);
     return regular(exe) && std::filesystem::file_size(exe, ec) == helper_bytes;
 }
+#else
+// Linux: next to the launcher (the AppImage ships it); LAUNCHME_XBOX_HELPER names another build.
+std::filesystem::path helperPath(const std::filesystem::path&) {
+    if (const auto chosen = xdg_paths::variable(L"LAUNCHME_XBOX_HELPER"); !chosen.empty()) return chosen;
+    const auto launcher = system_info::executablePath();
+    return launcher.empty() ? std::filesystem::path{} : launcher.parent_path() / "launchme-xbox";
+}
+bool helperInstalled(const std::filesystem::path& config) { return xdg_paths::executableFile(helperPath(config)); }
+#endif
 
 bool validProductId(std::string_view id) { return token(id, 9, 16); }
 bool validFamilyName(std::string_view family) {
@@ -157,6 +241,7 @@ std::wstring folderName(std::wstring_view title, std::string_view product) {
     return name;
 }
 
+#ifdef _WIN32
 std::wstring market() {
     wchar_t geo[16]{};
     if (GetUserDefaultGeoName(geo, static_cast<int>(std::size(geo))) == 3 && std::iswalpha(geo[0]) && std::iswalpha(geo[1]))
@@ -171,6 +256,17 @@ std::wstring language() {
     }
     return L"en-US";
 }
+#else
+std::wstring market() {
+    const auto [lang, region] = localeParts();
+    return region.empty() ? L"US" : region;
+}
+std::wstring language() {
+    const auto [lang, region] = localeParts();
+    if (lang.empty()) return L"en-US";
+    return region.empty() ? lang : lang + L'-' + region;
+}
+#endif
 
 std::optional<Result> parseResult(std::string_view output) {
     // The answer is the last line that is a JSON object.
@@ -249,7 +345,7 @@ std::string serializeInstalls(const std::vector<OwnInstall>& installs) {
         auto entry = json::object();
         entry.properties["product_id"] = json::string(install.product);
         entry.properties["source_id"] = json::string(install.source_id);
-        entry.properties["directory"] = json::string(utf8(install.directory.native()));
+        entry.properties["directory"] = json::string(utf8(install.directory.wstring()));
         root.elements.push_back(std::move(entry));
     }
     return json::serialize(root);
@@ -259,7 +355,13 @@ std::filesystem::path markerExecutable(std::string_view marker_json, const std::
     const auto root = json::parse(marker_json);
     if (!root || root->type != json::Value::Type::object || field(*root, "product_id") != product) return {};
     const auto exe = childPath(directory, wide(field(*root, "executable")));
+#ifdef _WIN32
     if (exe.empty() || !regular(exe) || _wcsicmp(exe.extension().c_str(), L".exe") != 0) return {};
+#else
+    auto extension = exe.extension().wstring();
+    std::transform(extension.begin(), extension.end(), extension.begin(), [](wchar_t c) { return static_cast<wchar_t>(std::towlower(c)); });
+    if (exe.empty() || !regular(exe) || extension != L".exe") return {};
+#endif
     return exe;
 }
 
@@ -267,6 +369,7 @@ bool ownInstall(const Game& game) {
     return game.source == GameSource::xbox && game.installed && game.install_directory.is_absolute() && regular(game.install_directory / marker_name);
 }
 
+#ifdef _WIN32
 GameAction runAction(const std::filesystem::path& config, const std::filesystem::path& directory) {
     GameAction action{helperPath(config).native(), {}, directory, ActionKind::play};
     for (const auto& part : std::vector<std::wstring>{L"--profile", profileDirectory(config).native(), L"run", L"--dir", directory.native(), L"--market", market()}) {
@@ -281,6 +384,37 @@ GameAction xboxAppInstall(const std::string& product, bool xbox_app) {
     if (xbox_app) return {L"msxbox://game/?productId=" + wide(product), {}, {}, ActionKind::install};
     return {L"ms-windows-store://pdp/?ProductId=" + wide(product), {}, {}, ActionKind::open_client};
 }
+#else
+namespace {
+std::vector<std::wstring> runArguments(const std::filesystem::path& config, const std::filesystem::path& directory) {
+    return {L"--profile", profileDirectory(config).wstring(), L"run", L"--dir", directory.wstring(), L"--market", market()};
+}
+// GameAction::wrapper, when the launcher's model has it: a native program the Linux runner hands
+// the whole Wine/Proton command it built for the action's Windows target to (appended after it).
+template <class Action> bool setWrapper(Action& action, std::vector<std::wstring> wrapper) {
+    if constexpr (requires { action.wrapper = wrapper; }) { action.wrapper = std::move(wrapper); return true; }
+    else return false;
+}
+}
+GameAction runAction(const std::filesystem::path& config, const std::filesystem::path& directory) {
+    GameAction action{helperPath(config).wstring(), {}, directory, ActionKind::play};
+    for (const auto& part : runArguments(config, directory)) {
+        if (!action.arguments.empty()) action.arguments += L' ';
+        action.arguments += command_line::quoteArgument(part);
+    }
+    return action;
+}
+GameAction runAction(const std::filesystem::path& config, const std::filesystem::path& directory, const std::filesystem::path& executable) {
+    GameAction action{executable.wstring(), {}, directory, ActionKind::play};
+    auto wrapper = runArguments(config, directory);
+    wrapper.insert(wrapper.begin(), helperPath(config).wstring());
+    wrapper.push_back(L"--");
+    return setWrapper(action, std::move(wrapper)) ? action : runAction(config, directory);
+}
+
+// No Xbox app or Microsoft Store on Linux: account games install only through the helper.
+GameAction xboxAppInstall(const std::string&, bool) { return {}; }
+#endif
 
 std::vector<Game> parseLibrary(std::string_view library_json, const std::vector<OwnInstall>& installs, const std::string& account,
                                const std::filesystem::path& config) {
@@ -325,7 +459,11 @@ std::vector<Game> parseLibrary(std::string_view library_json, const std::vector<
         game.installed = true;
         game.install_directory = install.directory;
         game.executable = exe;
+#ifdef _WIN32
         game.play_action = runAction(config, install.directory);
+#else
+        game.play_action = runAction(config, install.directory, exe);
+#endif
     }
     return games;
 }
@@ -413,7 +551,7 @@ class HelperService final : public Service {
     }
     // `library`: the helper writes the file only after a complete sync.
     Failure sync(const std::filesystem::path& exe, const Cancel& cancel) {
-        const auto result = call(exe, {L"library", L"--out", libraryPath(config_).native(), L"--market", market(), L"--language", language()}, cancel);
+        const auto result = call(exe, {L"library", L"--out", libraryPath(config_).wstring(), L"--market", market(), L"--language", language()}, cancel);
         if (result.ok) return Failure::none;
         if (result.error == "signed_out") signOutLocally(); // The session expired: sign in again.
         return failureOf(result);
@@ -436,7 +574,7 @@ class HelperService final : public Service {
         if (exe.empty()) { progress(gog::InstallState::error, 0, 0, gog::InstallError::installer); return; }
         std::error_code ec; std::filesystem::create_directories(request.install_directory, ec);
         if (ec) { progress(gog::InstallState::error, 0, 0, gog::InstallError::storage); return; }
-        const auto result = call(exe, {L"install", L"--product", wide(game.xbox_product), L"--dest", request.install_directory.native(), L"--market", market()}, cancel,
+        const auto result = call(exe, {L"install", L"--product", wide(game.xbox_product), L"--dest", request.install_directory.wstring(), L"--market", market()}, cancel,
             [&](std::string_view line) {
                 const auto step = parseProgress(line);
                 if (!step) return;

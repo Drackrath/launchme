@@ -11,6 +11,11 @@
 #include <iostream>
 #include <mutex>
 #include <thread>
+#ifndef _WIN32
+#include <cstdlib>
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 
 #define CHECK(x) do { if (!(x)) { std::cerr << "Xbox check " << __LINE__ << ": " << #x << '\n'; return __LINE__; } } while (false)
 
@@ -38,12 +43,26 @@ std::wstring option(const std::vector<std::wstring>& args, std::wstring_view nam
     for (size_t i = 0; i + 1 < args.size(); ++i) if (args[i] == name) return args[i + 1];
     return {};
 }
+#ifndef _WIN32
+// Linux: the run action's wrapper when the launcher's GameAction has one (see runAction).
+template<class Action> std::vector<std::wstring> wrapperOf(const Action& action) {
+    if constexpr (requires { action.wrapper.front(); }) return {action.wrapper.begin(), action.wrapper.end()};
+    else return {};
+}
+bool script(const std::filesystem::path& file, std::string_view body) {
+    return write(file, "#!/bin/sh\n" + std::string(body)) && chmod(file.c_str(), 0755) == 0;
+}
+#endif
 }
 
 int main() {
     using namespace xbox_account;
+#ifdef _WIN32
     wchar_t temp[MAX_PATH]{}; GetTempPathW(MAX_PATH, temp);
     const auto root = std::filesystem::path(temp) / (L"launchme-xbox-test-" + std::to_wstring(GetCurrentProcessId()));
+#else
+    const auto root = std::filesystem::temp_directory_path() / (L"launchme-xbox-test-" + std::to_wstring(GetCurrentProcessId()));
+#endif
     std::error_code ec; std::filesystem::remove_all(root, ec); std::filesystem::create_directories(root, ec);
     struct Cleanup { std::filesystem::path p; ~Cleanup() { std::error_code e; std::filesystem::remove_all(p, e); } } cleanup{root};
 
@@ -52,6 +71,16 @@ int main() {
     CHECK(validFamilyName(family) && !validFamilyName("NoHash") && !validFamilyName("Bad Name_x") && !validFamilyName("_x"));
     CHECK(folderName(L"Moonlit: Archive\u2122 ", owned) == L"Moonlit Archive" && folderName(L"???", owned) == L"9NBLGGH4R315");
     CHECK(market().size() == 2 && !language().empty());
+#ifndef _WIN32
+    {
+        // Linux: the Store's market and language from the user's locale.
+        const char* before = getenv("LC_ALL"); const std::string saved = before ? before : "";
+        setenv("LC_ALL", "pl_PL.UTF-8", 1); CHECK(market() == L"PL" && language() == L"pl-PL");
+        setenv("LC_ALL", "pt_BR@euro", 1); CHECK(market() == L"BR" && language() == L"pt-BR");
+        setenv("LC_ALL", "C.UTF-8", 1); CHECK(market() == L"US" && language() == L"en-US");
+        if (before) setenv("LC_ALL", saved.c_str(), 1); else unsetenv("LC_ALL");
+    }
+#endif
     {
         const auto ok = parseResult("log line\n{\"ok\":true,\"username\":\"pat@example.com\",\"puid\":\"0123ABCD\"}\r\n");
         CHECK(ok && ok->ok && ok->username == "pat@example.com" && ok->puid == "0123ABCD");
@@ -94,18 +123,37 @@ int main() {
               games[0].store_logo_art == "https://store-images.s-microsoft.com/logo.png");
         CHECK(games[1].source_id == pass && !games[1].xbox_own_install && games[1].store_tall_art == "https://store-images.s-microsoft.com/box.png" &&
               games[1].store_wide_art.empty());
+#ifdef _WIN32
         CHECK(games[0].install_action.target == L"ms-windows-store://pdp/?ProductId=9NBLGGH4R315");
+        CHECK(xboxAppInstall(owned, true).target == L"msxbox://game/?productId=9NBLGGH4R315" && !xboxAppInstall("<x>", true));
+#else
+        // No Xbox app or Microsoft Store on Linux: nothing to hand the install to.
+        CHECK(!games[0].install_action && !xboxAppInstall(owned, true) && !xboxAppInstall(owned, false));
+#endif
         CHECK(parseLibrary(library(), {}, {}, config).empty()); // Signed out: no account games.
         CHECK(parseLibrary("[", {}, "a", config).empty() && parseLibrary("{}", {}, "a", config).empty());
-        CHECK(xboxAppInstall(owned, true).target == L"msxbox://game/?productId=9NBLGGH4R315" && !xboxAppInstall("<x>", true));
     }
     // Graj of a game the helper installed runs the helper, not the (encrypted) game EXE.
     {
         const auto action = runAction(config, game_dir);
-        CHECK(action.target == helperPath(config).native() && action.kind == ActionKind::play && action.working_directory == game_dir);
-        CHECK(action.arguments.find(L"run") != std::wstring::npos && action.arguments.find(L"\"" + game_dir.native() + L"\"") != std::wstring::npos &&
+        CHECK(action.target == helperPath(config).wstring() && action.kind == ActionKind::play && action.working_directory == game_dir);
+        CHECK(action.arguments.find(L"run") != std::wstring::npos && action.arguments.find(L"\"" + game_dir.wstring() + L"\"") != std::wstring::npos &&
               action.arguments.find(L"--profile") != std::wstring::npos);
     }
+#ifndef _WIN32
+    // Linux: the game's EXE is the target the launcher's Wine/Proton runner builds its command for,
+    // and the helper wraps that command (`run ... --`); without GameAction::wrapper, the helper itself.
+    {
+        const auto exe = game_dir / L"Bin" / L"Game.exe";
+        const auto action = runAction(config, game_dir, exe);
+        const auto wrapper = wrapperOf(action);
+        if (!wrapper.empty()) {
+            CHECK(action.target == exe.wstring() && action.working_directory == game_dir && action.arguments.empty());
+            CHECK(wrapper.front() == helperPath(config).wstring() && wrapper.back() == L"--" && option(wrapper, L"--dir") == game_dir.wstring() &&
+                  option(wrapper, L"--profile") == profileDirectory(config).wstring() && std::find(wrapper.begin(), wrapper.end(), L"run") != wrapper.end());
+        } else CHECK(action.target == helperPath(config).wstring() && action.arguments == runAction(config, game_dir).arguments);
+    }
+#endif
 
     // Merge: an Xbox app installation of the same package keeps its entry and gains the account's art;
     // the others install through the Xbox app when it is there.
@@ -172,7 +220,7 @@ int main() {
         {
             std::lock_guard lock(calls_mutex);
             const auto sync = std::find_if(calls.begin(), calls.end(), [](const auto& a) { return !a.empty() && a[0] == L"library"; });
-            CHECK(sync != calls.end() && option(*sync, L"--out") == libraryPath(config).native() && option(*sync, L"--market").size() == 2);
+            CHECK(sync != calls.end() && option(*sync, L"--out") == libraryPath(config).wstring() && option(*sync, L"--market").size() == 2);
         }
         // Install: only an account game the helper supports, into the chosen folder, progress in bytes, verified.
         auto games = readProfile(config).games;
@@ -191,8 +239,15 @@ int main() {
         {
             const auto profile = readProfile(config);
             CHECK(profile.account && profile.games.size() == 2 && profile.games[0].installed && profile.games[0].install_directory == request.install_directory);
+#ifdef _WIN32
             CHECK(profile.games[0].executable == request.install_directory / L"Bin" / L"Game.exe" &&
                   profile.games[0].play_action.target == helperPath(config).native());
+#else
+            const auto& play = profile.games[0].play_action;
+            CHECK(profile.games[0].executable == request.install_directory / L"Bin" / L"Game.exe" &&
+                  (wrapperOf(play).empty() ? play.target == helperPath(config).wstring() :
+                   play.target == profile.games[0].executable.wstring() && wrapperOf(play).front() == helperPath(config).wstring()));
+#endif
             Game copy = profile.games[0];
             CHECK(ownInstall(copy));
         }
@@ -225,6 +280,46 @@ int main() {
         std::lock_guard lock(calls_mutex);
         CHECK(std::any_of(calls.begin(), calls.end(), [](const auto& a) { return a.size() == 1 && a[0] == L"logout"; }));
     }
+#ifndef _WIN32
+    // Linux: the real helper path and process with a fake launchme-xbox (a shell script): the helper
+    // is the one next to the launcher (here LAUNCHME_XBOX_HELPER), never downloaded, and runs with
+    // its private 0700 profile.
+    {
+        const auto fake = root / L"bin" / L"launchme-xbox";
+        const auto fixture = root / L"library-fixture.json";
+        CHECK(write(fixture, library()));
+        CHECK(script(fake,
+            "[ \"$1\" = --profile ] || exit 9\nprofile=\"$2\"; command=\"$3\"; shift 3; out=\n"
+            "while [ $# -gt 1 ]; do [ \"$1\" = --out ] && out=\"$2\"; shift 2; done\n"
+            "echo '{\"progress\":{\"stage\":\"x\",\"done\":0,\"total\":0}}' >&2\n"
+            "case \"$command\" in\n"
+            "  login) echo '{\"ok\":true,\"signed_in\":true,\"username\":\"pat@example.com\",\"puid\":\"0123ABCD\"}' ;;\n"
+            "  library) cp \"" + fixture.string() + "\" \"$out\" && echo '{\"ok\":true,\"games\":2}' ;;\n"
+            "  logout) echo '{\"ok\":true,\"signed_in\":false}' ;;\n"
+            "  *) echo '{\"ok\":false,\"error\":\"usage\"}'; exit 2 ;;\n"
+            "esac\n"));
+        const auto native_config = root / L"native";
+        setenv("LAUNCHME_XBOX_HELPER", fake.c_str(), 1);
+        CHECK(helperPath(native_config) == fake && helperInstalled(native_config));
+        CHECK(nativeOperations().prepare(native_config, true, [] { return false; }, {}) == fake);
+        const auto status = nativeOperations().invoke(fake, native_config, {L"status"}, [] { return false; }, {});
+        CHECK(status.started && !status.ok && parseResult(status.output) && parseResult(status.output)->error == "usage");
+        struct stat mode{};
+        CHECK(stat(profileDirectory(native_config).c_str(), &mode) == 0 && (mode.st_mode & 0777) == 0700);
+        {
+            auto service = makeService(native_config);
+            std::optional<Snapshot> snapshot;
+            service->submit(Command::connect);
+            CHECK(wait([&] { if (auto s = service->take()) snapshot = std::move(s); return snapshot && snapshot->state == State::connected; }));
+            CHECK(snapshot->helper && snapshot->account == "0123ABCD" && snapshot->games == 2);
+            service->submit(Command::logout);
+            CHECK(wait([&] { if (auto s = service->take()) snapshot = std::move(s); return snapshot && snapshot->account.empty() && !service->busy(); }));
+        }
+        setenv("LAUNCHME_XBOX_HELPER", (root / L"bin" / L"missing").c_str(), 1);
+        CHECK(!helperInstalled(native_config) && nativeOperations().prepare(native_config, true, [] { return false; }, {}).empty());
+        unsetenv("LAUNCHME_XBOX_HELPER");
+    }
+#endif
     // Status texts for every state exist (no empty status in Ustawienia).
     for (const auto state : {State::disconnected, State::preparing, State::signing_in, State::syncing, State::connected, State::error}) {
         Snapshot s; s.state = state; CHECK(!statusText(s).empty());

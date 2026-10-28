@@ -1,7 +1,11 @@
 #include "launcher.hpp"
 #include "../platform/text_encoding.hpp"
 #include <shlobj.h>
+#ifdef _WIN32
 #include <shobjidl.h>
+#else
+#include "../platform/file_dialog.hpp"
+#endif
 #include <algorithm>
 
 namespace {
@@ -11,6 +15,9 @@ std::filesystem::path knownFolder(REFKNOWNFOLDERID id) {
     std::filesystem::path result(path); CoTaskMemFree(path); return result;
 }
 std::filesystem::path pickFolder(HWND owner, const wchar_t* title, const std::filesystem::path& initial) {
+#ifndef _WIN32
+    return pickPath(owner, true, title ? title : L"", {}, {}, false, initial); // The desktop's folder dialog (a portal on Wayland).
+#else
     Microsoft::WRL::ComPtr<IFileOpenDialog> dialog;
     if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(dialog.GetAddressOf())))) return {};
     DWORD options = 0; dialog->GetOptions(&options);
@@ -23,6 +30,7 @@ std::filesystem::path pickFolder(HWND owner, const wchar_t* title, const std::fi
     PWSTR path = nullptr;
     if (FAILED(dialog->GetResult(result.GetAddressOf())) || FAILED(result->GetDisplayName(SIGDN_FILESYSPATH, &path))) return {};
     std::filesystem::path selected(path); CoTaskMemFree(path); return selected;
+#endif
 }
 }
 void Launcher::openGogInstall(const Game& game) {

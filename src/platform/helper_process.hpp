@@ -1,7 +1,8 @@
 #pragma once
-// A command-line helper Launchme downloaded itself (Nile for Amazon Games): started hidden in a
-// kill-on-close job with NUL as its input, its standard output kept (up to 8 MiB) and its error
-// stream handed over line by line (progress). Cancellation ends the whole job.
+// A command-line helper Launchme downloaded itself (Nile for Amazon Games): started hidden with no
+// input (NUL, /dev/null), its standard output kept (up to 8 MiB) and its error stream handed over
+// line by line (progress). Cancellation ends all of it: on Windows a kill-on-close job, on Linux
+// the helper's own session and process group.
 #include <filesystem>
 #include <functional>
 #include <string>
@@ -18,7 +19,7 @@ struct Result {
 };
 using Environment = std::vector<std::pair<std::wstring, std::wstring>>;
 // Inherits Launchme's environment; `environment` replaces or adds variables (names compared
-// case-insensitively). Worker threads only: it waits for the helper.
+// case-insensitively on Windows, exactly on Linux). Worker threads only: it waits for the helper.
 Result run(const std::filesystem::path& executable, const std::filesystem::path& working_directory,
            const std::vector<std::wstring>& arguments, const Environment& environment,
            const std::function<bool()>& cancel, const std::function<void(std::string_view)>& error_line = {});

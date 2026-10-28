@@ -83,8 +83,13 @@ struct State {
             if (path.empty()) { if (root() && best < 0) best = i; continue; }
             const auto prefix = path.wstring(), current_folder = folder.wstring();
             if (current_folder.size() < prefix.size() || prefix.size() <= best_length) continue;
+#ifdef _WIN32 // Paths ignore case on Windows.
             if (_wcsnicmp(current_folder.c_str(), prefix.c_str(), prefix.size()) != 0) continue;
-            if (current_folder.size() > prefix.size() && current_folder[prefix.size()] != L'\\' && prefix.back() != L'\\') continue;
+#else
+            if (current_folder.compare(0, prefix.size(), prefix) != 0) continue;
+#endif
+            constexpr wchar_t separator = std::filesystem::path::preferred_separator;
+            if (current_folder.size() > prefix.size() && current_folder[prefix.size()] != separator && prefix.back() != separator) continue;
             best = i; best_length = prefix.size();
         }
         return best;

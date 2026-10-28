@@ -86,8 +86,19 @@ void launches(const std::filesystem::path& root) {
     check(executeGameAction(nullptr, {(root / "missing.sh").wstring(), {}, {}, ActionKind::play}) == launch_error::file_missing, "missing file");
     check(executeGameAction(nullptr, {(root / "gone" / "game.sh").wstring(), {}, {}, ActionKind::play}) == launch_error::path_missing, "missing folder");
     check(executeGameAction(nullptr, {script.wstring(), {}, root / "gone", ActionKind::play}) == launch_error::path_missing, "missing working folder");
+    // Windows programs run through umu/Proton/Wine (tests/wine_runner_tests.cpp); with none
+    // installed (an empty home, data folder and PATH) there is nothing to handle them.
     std::ofstream(root / "game.exe") << "MZ";
-    check(executeGameAction(nullptr, {(root / "game.exe").wstring(), {}, {}, ActionKind::play}) == launch_error::no_handler, "Windows program needs Wine");
+    {
+        const auto saved = [](const char* name) { const char* value = std::getenv(name); return value ? std::optional<std::string>(value) : std::nullopt; };
+        const auto path = saved("PATH"), home = saved("HOME"), config = saved("LAUNCHME_CONFIG_DIR"), data = saved("XDG_DATA_HOME"), steam = saved("STEAM_DIR");
+        std::filesystem::create_directories(root / "empty");
+        for (const auto* name : {"PATH", "HOME", "LAUNCHME_CONFIG_DIR", "XDG_DATA_HOME"}) ::setenv(name, (root / "empty").c_str(), 1);
+        ::unsetenv("STEAM_DIR");
+        check(executeGameAction(nullptr, {(root / "game.exe").wstring(), {}, {}, ActionKind::play}) == launch_error::no_handler, "Windows program needs Wine");
+        const auto restore = [](const char* name, const std::optional<std::string>& value) { if (value) ::setenv(name, value->c_str(), 1); else ::unsetenv(name); };
+        restore("PATH", path); restore("HOME", home); restore("LAUNCHME_CONFIG_DIR", config); restore("XDG_DATA_HOME", data); restore("STEAM_DIR", steam);
+    }
     check(executeGameAction(nullptr, {L"launchme-no-such-program-xyz", {}, {}, ActionKind::play}) == launch_error::file_missing, "program not in PATH");
     check(executeGameAction(nullptr, {}) == launch_error::other && takeLaunchedProcess() == 0, "empty action");
 }

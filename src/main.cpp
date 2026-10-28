@@ -9,15 +9,37 @@
 
 #include <memory>
 #include <string>
+#ifndef _WIN32
+#include "linux/window/window_system.hpp"
+#include "platform/text_encoding.hpp"
+#include <cerrno>
+#include <chrono>
+#include <cstdlib>
+#include <future>
+#include <thread>
+#include <fcntl.h>
+#include <poll.h>
+#include <signal.h>
+#include <sys/eventfd.h>
+#include <sys/file.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/syscall.h>
+#include <sys/un.h>
+#include <unistd.h>
+#endif
 
 namespace {
 // WM_COPYDATA from a second launchme.exe started by a Jump List entry (src/app/jump_list.cpp),
 // or by a plain second start ("show": the running launcher comes to the front instead).
 constexpr ULONG_PTR jump_copy_data = 0x4C4D4A50;
 HWND main_window = nullptr;
+#ifdef _WIN32
 // GUID_CONSOLE_DISPLAY_STATE (WinNT.h), defined here so no GUID library is needed.
 constexpr GUID console_display_state{0x6fe69556, 0x704a, 0x47a0, {0x8f, 0x24, 0xc2, 0x8d, 0x93, 0x6f, 0xda, 0x47}};
+#endif
 constexpr WPARAM DBT_DEVNODES_CHANGED_VALUE = 0x0007; // Dbt.h: a device was added or removed.
+#ifdef _WIN32
 
 // EVENT_SYSTEM_FOREGROUND for every process but ours: a game that starts outside the launcher
 // takes the foreground, so this replaces a periodic process scan (Launcher::foregroundChanged).
@@ -57,6 +79,7 @@ HANDLE singleInstance(const std::filesystem::path& data_folder, const std::wstri
     CloseHandle(mutex);
     return INVALID_HANDLE_VALUE; // It neither answers nor ends: start rather than leave the user with nothing.
 }
+#endif
 
 LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
     auto* app = reinterpret_cast<Launcher*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
@@ -93,12 +116,14 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpara
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(instance.release()));
         return 0;
     }
+#ifdef _WIN32
     case WM_INPUT:
         if (app) app->rawControllerInput(reinterpret_cast<HRAWINPUT>(lparam));
         break; // DefWindowProc releases foreground Raw Input resources.
     case WM_INPUT_DEVICE_CHANGE:
         if (app) app->controllerDeviceChanged(reinterpret_cast<HANDLE>(lparam));
         return 0;
+#endif
     case WM_SIZE:
         if (app) {
             app->resize();
@@ -229,11 +254,13 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpara
         break;
     case WM_POWERBROADCAST:
         if (app && wparam == PBT_APMRESUMEAUTOMATIC) app->resumedFromSleep();
+#ifdef _WIN32
         if (app && wparam == PBT_POWERSETTINGCHANGE && lparam) {
             const auto* setting = reinterpret_cast<const POWERBROADCAST_SETTING*>(lparam);
             if (IsEqualGUID(setting->PowerSetting, console_display_state) && setting->DataLength >= sizeof(DWORD))
                 app->displayPower(*reinterpret_cast<const DWORD*>(setting->Data) != 0); // 0 off, 1 on, 2 dimmed.
         }
+#endif
         return TRUE;
     case WM_XBUTTONUP:
         // The mouse's Back button: what Esc does on every screen.
@@ -456,6 +483,7 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpara
 }
 } // namespace
 
+#ifdef _WIN32
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show_command) {
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     // A Jump List entry (--jump=<command>): a running launcher takes it and this process ends; else it
@@ -586,3 +614,253 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show_command) {
     CoUninitialize();
     return static_cast<int>(message.wParam);
 }
+#else
+namespace {
+// One launcher per data folder, as the Windows mutex makes it: an flock(2) on a lock file, and a
+// Unix socket on which the running launcher takes a second start's command (--jump=, or "show":
+// it comes to the front), delivered to its window as the WM_COPYDATA a second launchme.exe sends.
+// Both live in $XDG_RUNTIME_DIR (the user's own 0700 folder), else in the data folder.
+class SingleInstance {
+public:
+    SingleInstance() = default;
+    SingleInstance(const SingleInstance&) = delete;
+    SingleInstance& operator=(const SingleInstance&) = delete;
+    ~SingleInstance() {
+        if (thread_.joinable()) {
+            const uint64_t one = 1;
+            [[maybe_unused]] const auto written = ::write(stop_, &one, sizeof(one));
+            thread_.join();
+        }
+        if (listener_ >= 0) { ::close(listener_); ::unlink(socket_path_.c_str()); }
+        if (stop_ >= 0) ::close(stop_);
+        if (lock_ >= 0) ::close(lock_); // Releases the lock; the file stays for the next start.
+    }
+    // false: the running launcher took `command` (this process ends). true: this one continues,
+    // owning the lock (or without it when the other neither answers nor ends).
+    bool acquire(const std::filesystem::path& data_folder, const std::string& command) {
+        std::error_code error;
+        std::filesystem::path folder = data_folder;
+        if (const char* runtime = std::getenv("XDG_RUNTIME_DIR"); runtime && *runtime == '/' && std::filesystem::is_directory(runtime, error))
+            folder = runtime;
+        else std::filesystem::create_directories(folder, error);
+        wchar_t id[32]{};
+        swprintf_s(id, L"%016zx", std::hash<std::wstring>{}(data_folder.lexically_normal().wstring()));
+        lock_path_ = folder / (L"launchme-" + std::wstring(id) + L".lock");
+        socket_path_ = folder / (L"launchme-" + std::wstring(id) + L".socket");
+        if (lock()) return true;
+        // The other launcher may still be starting (no socket yet) or closing (the lock goes with
+        // its process): hand it the command, or take the lock once it is free.
+        for (int attempt = 0; attempt < 100; ++attempt) {
+            if (deliver(command.empty() ? std::string("show") : command)) return false;
+            Sleep(100);
+            if (lock()) return true;
+        }
+        return true; // It neither answers nor ends: start rather than leave the user with nothing.
+    }
+    // Once the window exists: second starts are answered from here on.
+    void serve() {
+        if (lock_ < 0 || socket_path_.native().size() >= sizeof(sockaddr_un::sun_path)) return;
+        ::unlink(socket_path_.c_str()); // A crashed launcher's.
+        listener_ = ::socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+        sockaddr_un address{};
+        address.sun_family = AF_UNIX;
+        std::memcpy(address.sun_path, socket_path_.c_str(), socket_path_.native().size());
+        const mode_t mask = ::umask(0077);
+        const bool bound = listener_ >= 0 && ::bind(listener_, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) == 0;
+        ::umask(mask);
+        if (!bound || ::listen(listener_, 4) != 0 || (stop_ = eventfd(0, EFD_CLOEXEC)) < 0) {
+            if (listener_ >= 0) ::close(listener_);
+            listener_ = -1;
+            return;
+        }
+        thread_ = std::thread([this] { answer(); });
+    }
+private:
+    std::filesystem::path lock_path_, socket_path_;
+    int lock_ = -1, listener_ = -1, stop_ = -1;
+    std::thread thread_;
+
+    bool lock() {
+        const int file = ::open(lock_path_.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+        if (file < 0) return false;
+        if (::flock(file, LOCK_EX | LOCK_NB) == 0) { lock_ = file; return true; }
+        ::close(file);
+        return false;
+    }
+    // The running launcher's answer to `command`: true when its window took it.
+    bool deliver(const std::string& command) const {
+        if (socket_path_.native().size() >= sizeof(sockaddr_un::sun_path)) return false;
+        const int connection = ::socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+        if (connection < 0) return false;
+        sockaddr_un address{};
+        address.sun_family = AF_UNIX;
+        std::memcpy(address.sun_path, socket_path_.c_str(), socket_path_.native().size());
+        const timeval timeout{3, 0};
+        ::setsockopt(connection, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+        ::setsockopt(connection, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+        bool accepted = false;
+        if (::connect(connection, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) == 0 &&
+            ::send(connection, command.data(), command.size(), MSG_NOSIGNAL) == static_cast<ssize_t>(command.size())) {
+            ::shutdown(connection, SHUT_WR);
+            char reply = 0;
+            accepted = ::recv(connection, &reply, 1, 0) == 1 && reply == '1';
+        }
+        ::close(connection);
+        return accepted;
+    }
+    void answer() {
+        while (true) {
+            pollfd items[2]{{listener_, POLLIN, 0}, {stop_, POLLIN, 0}};
+            if (::poll(items, 2, -1) < 0) { if (errno == EINTR) continue; return; }
+            if (items[1].revents) return;
+            if (!(items[0].revents & POLLIN)) continue;
+            const int client = ::accept4(listener_, nullptr, nullptr, SOCK_CLOEXEC);
+            if (client < 0) continue;
+            // This user's own starts only (the data folder's socket may be reachable by others).
+            ucred peer{};
+            socklen_t size = sizeof(peer);
+            if (::getsockopt(client, SOL_SOCKET, SO_PEERCRED, &peer, &size) != 0 || peer.uid != ::getuid()) { ::close(client); continue; }
+            const timeval timeout{2, 0};
+            ::setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+            std::string text;
+            char buffer[1024];
+            for (ssize_t got; text.size() <= 4096 && (got = ::recv(client, buffer, sizeof(buffer), 0)) > 0;) text.append(buffer, static_cast<size_t>(got));
+            bool accepted = false;
+            if (!text.empty() && text.size() <= 4096) {
+                auto done = std::make_shared<std::promise<bool>>();
+                auto result = done->get_future();
+                lm_window::post([command = text_encoding::wideLenient(text), done] {
+                    bool taken = false;
+                    if (main_window && IsWindow(main_window)) {
+                        std::wstring copy = command;
+                        COPYDATASTRUCT data{jump_copy_data, static_cast<DWORD>((copy.size() + 1) * sizeof(wchar_t)), copy.data()};
+                        taken = SendMessageW(main_window, WM_COPYDATA, 0, reinterpret_cast<LPARAM>(&data)) != 0;
+                    }
+                    done->set_value(taken);
+                });
+                accepted = result.wait_for(std::chrono::seconds(2)) == std::future_status::ready && result.get();
+            }
+            ::send(client, accepted ? "1" : "0", 1, MSG_NOSIGNAL);
+            ::close(client);
+        }
+    }
+};
+
+// Started by an update (src/app/updates.cpp): the previous version, process `pid`, closes first
+// (up to 30 s), so this one takes the single-instance lock.
+void waitForExit(pid_t pid) {
+    if (pid <= 0) return;
+#ifdef SYS_pidfd_open
+    if (const int process = static_cast<int>(::syscall(SYS_pidfd_open, pid, 0)); process >= 0) {
+        pollfd item{process, POLLIN, 0};
+        while (::poll(&item, 1, 30000) < 0 && errno == EINTR) {}
+        ::close(process);
+        return;
+    }
+#endif
+    for (int i = 0; i < 300 && (::kill(pid, 0) == 0 || errno == EPERM); ++i) Sleep(100);
+}
+} // namespace
+
+int main(int argc, char** argv) {
+    // A second start (--jump=<command>): a running launcher takes it and this process ends; else it
+    // waits in this one until its library is ready.
+    std::wstring jump;
+    std::filesystem::path companion_copy;
+    bool start_minimized = false;
+    pid_t updated_from = 0;
+    for (int i = 1; i < argc; ++i) {
+        const std::string_view argument(argv[i]);
+        if (argument.starts_with("--jump=")) jump = text_encoding::wideLenient(argument.substr(7));
+        else if (argument.starts_with("--after-update=")) updated_from = static_cast<pid_t>(std::strtol(argv[i] + 15, nullptr, 10));
+        else if (argument == "--minimized") start_minimized = true;
+        else if (argument == "--companion-copy" && i + 1 < argc) companion_copy = std::filesystem::path(argv[++i]);
+    }
+    if (companion_copy.empty()) {
+        wchar_t module[32768]{}; GetModuleFileNameW(nullptr, module, 32768);
+        const auto beside = std::filesystem::path(module).parent_path();
+        std::error_code ec;
+        if (std::filesystem::is_regular_file(beside / L"backup.json", ec)) companion_copy = beside;
+    }
+    if (!companion_copy.empty()) {
+        std::error_code ec; companion_copy = std::filesystem::weakly_canonical(companion_copy, ec);
+        const auto restored = ec ? companion::backup::Result{} : companion::backup::openCopy(companion_copy);
+        if (!restored.ok || !SetEnvironmentVariableW(L"LAUNCHME_CONFIG_DIR", restored.path.wstring().c_str())) {
+            MessageBoxW(nullptr, restored.error.empty() ? L"Cannot open companion backup." : restored.error.c_str(), L"Launchme — companion backup", MB_ICONERROR | MB_OK);
+            return 1;
+        }
+    }
+    waitForExit(updated_from);
+    const auto data_folder = userConfigDirectory();
+    diagnostics::install(data_folder);
+    SingleInstance instance;
+    if (!instance.acquire(data_folder, text_encoding::utf8Lenient(jump))) return 0; // The running launcher came to the front (or took the command).
+    // A start that fails says why (and logs it) instead of ending without a word.
+    const auto startupFailure = [](const wchar_t* what, const std::string& detail) {
+        std::wstring text = what;
+        if (!detail.empty()) text += L" (" + text_encoding::wideLenient(detail) + L")";
+        diagnostics::log("error", std::wstring_view(text));
+        std::fprintf(stderr, "launchme: %s\n", text_encoding::utf8Lenient(text).c_str());
+        MessageBoxW(nullptr, text.c_str(), L"Launchme", MB_ICONERROR | MB_OK);
+        return 1;
+    };
+    // SDL's video, events and gamepads on this (the main) thread: Wayland or X11.
+    if (std::string error; !lm_window::start(error)) return startupFailure(L"Launchme cannot start: no display (SDL video)", error);
+    if (const HRESULT com = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED); FAILED(com))
+        return startupFailure(L"Launchme cannot start: COM initialization failed", {});
+    WNDCLASSEXW wc{sizeof(wc)};
+    wc.style = CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS;
+    wc.lpfnWndProc = windowProc;
+    wc.hInstance = GetModuleHandleW(nullptr);
+    wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    wc.lpszClassName = L"LaunchmeNativeWindow";
+    if (!RegisterClassExW(&wc)) { CoUninitialize(); return startupFailure(L"Launchme cannot start: window class registration failed", {}); }
+    const int width = GetSystemMetrics(SM_CXSCREEN), height = GetSystemMetrics(SM_CYSCREEN);
+    HWND hwnd = CreateWindowExW(0, wc.lpszClassName, L"launchme", WS_POPUP | WS_SYSMENU | WS_MINIMIZEBOX,
+                                0, 0, width, height, nullptr, nullptr, wc.hInstance, nullptr);
+    if (!hwnd) {
+        const auto detail = lm_window::lastError();
+        CoUninitialize();
+        // Launcher::initialize logged which part failed (graphics, mostly).
+        return startupFailure(L"Launchme cannot start: the window or its graphics could not be created. See launchme.log in the data folder",
+                              detail);
+    }
+    main_window = hwnd;
+    instance.serve();
+    const auto* launcher = reinterpret_cast<Launcher*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+    // The desktop window (Launcher::applyWindowMode set its style and place): its own top bar.
+    if (launcher && launcher->desktopMode()) SetWindowPos(hwnd, nullptr, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    // --minimized (autostart, Uruchamiaj z systemem): ready, without taking the screen.
+    ShowWindow(hwnd, start_minimized ? SW_SHOWMINNOACTIVE : launcher && launcher->startMaximized() ? SW_SHOWMAXIMIZED : SW_SHOW);
+    UpdateWindow(hwnd);
+    if (auto* app = reinterpret_cast<Launcher*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA)); app && !jump.empty()) app->jumpCommand(jump);
+    MSG message{};
+    FrameClock frame_clock;
+    bool running = true;
+    while (running) {
+        for (int batch = 0; batch < 64 && PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE); ++batch) {
+            if (message.message == WM_QUIT) { running = false; break; }
+            TranslateMessage(&message); DispatchMessageW(&message);
+        }
+        if (!running) break;
+        auto* active = reinterpret_cast<Launcher*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+        // Nobody watches a switched-off display; the screensaver's slow pans need no 144 Hz.
+        frame_clock.limit(active && active->displayOff() ? 5 : active && active->screensaverActive() ? 30 : 240);
+        frame_clock.update(active ? active->frameWindow() : hwnd);
+        if (frame_clock.ready()) {
+            frame_clock.consume();
+            if (auto* app = reinterpret_cast<Launcher*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA))) {
+                app->setFrameRate(frame_clock.targetHz(), frame_clock.refreshHz());
+                app->tick();
+                app->updateFrame();
+            }
+        }
+        frame_clock.wait();
+    }
+    main_window = nullptr;
+    if (IsWindow(hwnd)) DestroyWindow(hwnd); // A quit that did not come through WM_DESTROY.
+    CoUninitialize();
+    lm_window::stop();
+    return static_cast<int>(message.wParam);
+}
+#endif

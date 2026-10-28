@@ -10,6 +10,11 @@
 // default; with "Instalacja przez Launchme" (experimental) the helper streams a GDK title's MSIXVC
 // package into a folder and Graj runs it through the helper, which asks for a fresh license,
 // decrypts the package's encrypted files for the session and seals them again afterwards.
+//
+// Linux: the helper is not downloaded but shipped next to the launcher (tools/build-xbox-helper.sh);
+// its profile (<config>/xbox, 0700) keeps the tokens in 0600 files and the sign-in window is
+// WebKitGTK. There is no Xbox app: account games install only through the helper, and they run
+// through the launcher's Wine/Proton runner with the helper wrapping its command (runAction).
 #include "../model/game.hpp"
 #include "../platform/helper_process.hpp"
 #include "gog_install.hpp" // The shared install progress/modal DTOs.
@@ -30,8 +35,9 @@ inline constexpr uint64_t helper_bytes = 11705856;
 
 std::filesystem::path profileDirectory(const std::filesystem::path& config); // <config>\xbox
 std::filesystem::path libraryPath(const std::filesystem::path& config);      // The helper's synced library.
-std::filesystem::path helperPath(const std::filesystem::path& config);       // <config>\tools\launchme-xbox-<version>.exe
-bool helperInstalled(const std::filesystem::path& config);                   // Present with the pinned size (hashed when used).
+// <config>\tools\launchme-xbox-<version>.exe; Linux: launchme-xbox next to the launcher, or $LAUNCHME_XBOX_HELPER.
+std::filesystem::path helperPath(const std::filesystem::path& config);
+bool helperInstalled(const std::filesystem::path& config); // Present with the pinned size (hashed when used); Linux: executable.
 
 bool validProductId(std::string_view id);      // Store BigId, e.g. 9NBLGGH4R315.
 bool validFamilyName(std::string_view family); // Package family name: Publisher.Name_publisherhash.
@@ -72,7 +78,17 @@ std::vector<Game> parseLibrary(std::string_view library_json, const std::vector<
                                const std::filesystem::path& config);
 // The helper started for Graj of a game it installed.
 GameAction runAction(const std::filesystem::path& config, const std::filesystem::path& directory);
+#ifndef _WIN32
+// Linux, Graj of a game the helper installed: the game's (encrypted) executable is the target, so
+// the launcher's Wine/Proton runner chooses the compatibility tool, prefix and options as for any
+// Windows game, and `launchme-xbox --profile <dir> run --dir <game> --market <m> --` wraps that
+// command (GameAction::wrapper): a fresh license, the encrypted files decrypted for the session,
+// xgameruntime.dll, then the files sealed again. A model without `wrapper` gets runAction(config,
+// directory) instead: the helper itself, which then runs the game with $WINE or wine from PATH.
+GameAction runAction(const std::filesystem::path& config, const std::filesystem::path& directory, const std::filesystem::path& executable);
+#endif
 // Install through the Xbox app (its product page; the Microsoft Store when the app is missing).
+// Linux has neither: empty.
 GameAction xboxAppInstall(const std::string& product, bool xbox_app);
 
 struct Profile {

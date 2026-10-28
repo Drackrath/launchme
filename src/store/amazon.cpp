@@ -5,8 +5,14 @@
 #include "../platform/text_encoding.hpp"
 #include "../platform/updater.hpp"
 
+#ifdef _WIN32
 #include <Windows.h>
 #include <sddl.h>
+#else
+#include "../platform/atomic_file.hpp"
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 
 #include <algorithm>
 #include <atomic>
@@ -26,8 +32,16 @@ namespace {
 using text_encoding::utf8;
 using text_encoding::wideLenient;
 
+#ifdef _WIN32
 constexpr auto helper_digest = "6531790c59f78cea4a8743bf0582d5afda7fb887f5c143391d7339ad0f42ab88";
 constexpr auto helper_url = L"https://github.com/imLinguin/nile/releases/download/v1.2.0/nile_windows_x86_64.exe";
+#elif defined(__aarch64__)
+constexpr auto helper_digest = "197859c629c47e4e4d7ed1d2a290b7bef1e778f891ff8ca42ba65dbb020ba751";
+constexpr auto helper_url = L"https://github.com/imLinguin/nile/releases/download/v1.2.0/nile_linux_arm64";
+#else
+constexpr auto helper_digest = "d73519514df9d52c50c6feec629373cc3a0d9504e087b6c7372a8ca8a95e7bfe";
+constexpr auto helper_url = L"https://github.com/imLinguin/nile/releases/download/v1.2.0/nile_linux_x86_64";
+#endif
 
 std::string field(const json::Value& value, const char* key) { const auto* p = value.get(key); return p ? p->stringOr() : std::string{}; }
 const json::Value* child(const json::Value* value, const char* key) { return value ? value->get(key) : nullptr; }
@@ -50,6 +64,7 @@ bool httpsArt(const std::string& url) {
     return url.starts_with("https://") && url.size() < 2048 && url.find_first_of(" \"\r\n\t") == std::string::npos;
 }
 // A path inside `root` named by a relative part of an untrusted file; a reparse point must not lead out.
+#ifdef _WIN32
 std::filesystem::path childPath(const std::filesystem::path& root, std::wstring relative) {
     std::replace(relative.begin(), relative.end(), L'/', L'\\');
     const std::filesystem::path part(relative);
@@ -63,6 +78,22 @@ std::filesystem::path childPath(const std::filesystem::path& root, std::wstring 
     for (; r != canonical_root.end(); ++r, ++p) if (p == canonical.end() || _wcsicmp(r->c_str(), p->c_str()) != 0) return {};
     return full;
 }
+#else
+// Linux: fuel.json names Windows paths ("bin\Game.exe"); the separators become '/', as in Nile.
+std::filesystem::path childPath(const std::filesystem::path& root, std::wstring relative) {
+    std::replace(relative.begin(), relative.end(), L'\\', L'/');
+    const std::filesystem::path part(relative);
+    if (!root.is_absolute() || part.empty() || part.is_absolute() || part.has_root_name() || part.has_root_directory()) return {};
+    for (const auto& segment : part) if (segment == L".." || segment.wstring().find(L':') != std::wstring::npos) return {};
+    const auto full = root / part;
+    std::error_code ec;
+    const auto canonical_root = std::filesystem::weakly_canonical(root, ec); if (ec) return {};
+    const auto canonical = std::filesystem::weakly_canonical(full, ec); if (ec) return {};
+    auto r = canonical_root.begin(), p = canonical.begin();
+    for (; r != canonical_root.end(); ++r, ++p) if (p == canonical.end() || *r != *p) return {};
+    return full;
+}
+#endif
 // JSON5 as fuel.json allows it: comments and trailing commas removed outside strings.
 std::string plainJson(std::string_view text) {
     std::string out; out.reserve(text.size());
@@ -97,6 +128,41 @@ std::string percentDecode(std::string_view text) {
     }
     return out;
 }
+#ifndef _WIN32
+// Linux: the profile (Nile's tokens) is this user's alone: 0700, owned by them, not a symlink.
+bool privateDirectory(const std::filesystem::path& path) {
+    std::error_code ec; std::filesystem::create_directories(path, ec); if (ec) return false;
+    struct stat status{};
+    if (::lstat(path.c_str(), &status) != 0 || !S_ISDIR(status.st_mode) || status.st_uid != ::getuid()) return false;
+    return (status.st_mode & 07777) == 0700 || ::chmod(path.c_str(), 0700) == 0;
+}
+std::filesystem::path prepareNative(const std::filesystem::path& config, bool download, const Cancel& cancel, const std::function<void(uint64_t)>& progress) {
+    const auto exe = helperPath(config);
+    std::error_code ec;
+    if (regular(exe) && std::filesystem::file_size(exe, ec) == helper_bytes && updater::sha256File(exe) == helper_digest) {
+        if (::access(exe.c_str(), X_OK) != 0) ::chmod(exe.c_str(), 0755);
+        return exe;
+    }
+    if (!download || cancel()) return {};
+    std::filesystem::create_directories(exe.parent_path(), ec); if (ec) return {};
+    const std::filesystem::path part = exe.wstring() + L".part";
+    const auto error = httpDownload(helper_url, part, helper_bytes, cancel, progress, [](std::wstring_view url) {
+        return url.starts_with(L"https://github.com/imLinguin/nile/releases/download/v1.2.0/") ||
+               url.starts_with(L"https://release-assets.githubusercontent.com/") || url.starts_with(L"https://objects.githubusercontent.com/");
+    });
+    if (error != DownloadError::none || cancel()) return {};
+    if (updater::sha256File(part) != helper_digest) { std::filesystem::remove(part, ec); return {}; }
+    if (::chmod(part.c_str(), 0755) != 0 || !atomic_file::replace(part, exe)) return {};
+    return exe;
+}
+helper_process::Result invokeNative(const std::filesystem::path& exe, const std::filesystem::path& config, const std::vector<std::wstring>& arguments,
+                                    const Cancel& cancel, const std::function<void(std::string_view)>& line) {
+    const auto profile = profileDirectory(config);
+    if (!privateDirectory(profile)) return {};
+    return helper_process::run(exe, profile, arguments,
+        {{L"NILE_CONFIG_PATH", profile.wstring()}, {L"PYTHONIOENCODING", L"utf-8"}, {L"PYTHONUTF8", L"1"}}, cancel, line);
+}
+#else
 bool privateDirectory(const std::filesystem::path& path) {
     std::error_code ec; std::filesystem::create_directories(path, ec); if (ec) return false;
     HANDLE token_handle = nullptr; if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token_handle)) return false;
@@ -134,6 +200,7 @@ helper_process::Result invokeNative(const std::filesystem::path& exe, const std:
     return helper_process::run(exe, profile, arguments,
         {{L"NILE_CONFIG_PATH", profile.native()}, {L"PYTHONIOENCODING", L"utf-8"}, {L"PYTHONUTF8", L"1"}}, cancel, line);
 }
+#endif
 std::map<std::string, std::filesystem::path> installedPaths(std::string_view installed_json) {
     std::map<std::string, std::filesystem::path> result;
     const auto installed = json::parse(installed_json, 8 * 1024 * 1024);
@@ -149,7 +216,11 @@ std::map<std::string, std::filesystem::path> installedPaths(std::string_view ins
 
 std::filesystem::path profileDirectory(const std::filesystem::path& config) { return config / L"amazon"; }
 std::filesystem::path nileDirectory(const std::filesystem::path& config) { return profileDirectory(config) / L"nile"; }
+#ifdef _WIN32
 std::filesystem::path helperPath(const std::filesystem::path& config) { return config / L"tools" / (L"nile-" + std::wstring(helper_version) + L".exe"); }
+#else
+std::filesystem::path helperPath(const std::filesystem::path& config) { return config / L"tools" / (L"nile-" + std::wstring(helper_version)); }
+#endif
 bool helperInstalled(const std::filesystem::path& config) {
     std::error_code ec; const auto exe = helperPath(config);
     return regular(exe) && std::filesystem::file_size(exe, ec) == helper_bytes;
@@ -218,7 +289,7 @@ std::optional<GameAction> fuelAction(std::string_view fuel, const std::filesyste
     const auto command = text_encoding::wide(field(*main, "Command"));
     const auto executable = childPath(install, command);
     if (executable.empty() || !regular(executable)) return {};
-    GameAction action{executable.native(), {}, executable.parent_path(), ActionKind::play};
+    GameAction action{executable.wstring(), {}, executable.parent_path(), ActionKind::play};
     action.working_directory = install;
     if (const auto override_dir = text_encoding::wide(field(*main, "WorkingSubdirOverride")); !override_dir.empty()) {
         const auto directory = childPath(install, override_dir);
@@ -267,8 +338,8 @@ std::vector<Game> parseLibrary(std::string_view library_json, std::string_view i
                 const auto sku = field(*product, "sku");
                 // As `nile launch`: the SDK's folders, the entitlement and the account's display name.
                 action->environment = {
-                    {L"FUEL_DIR", (sdk / L"Legacy").native()},
-                    {L"AMAZON_GAMES_SDK_PATH", (sdk / L"AmazonGamesSDK").native()},
+                    {L"FUEL_DIR", (sdk / L"Legacy").wstring()},
+                    {L"AMAZON_GAMES_SDK_PATH", (sdk / L"AmazonGamesSDK").wstring()},
                     {L"AMAZON_GAMES_FUEL_ENTITLEMENT_ID", token(entitlement_id, 1, 160, "-_.") ? wideLenient(entitlement_id) : std::wstring{}},
                     {L"AMAZON_GAMES_FUEL_PRODUCT_SKU", token(sku, 1, 160, "-_.") ? wideLenient(sku) : std::wstring{}},
                     {L"AMAZON_GAMES_FUEL_DISPLAY_NAME", display_name},
@@ -382,7 +453,7 @@ class NileService final : public Service {
         std::error_code ec; std::filesystem::create_directories(request.install_directory, ec);
         if (ec) { progress(work.generation, gog::InstallState::error, 0, 0, gog::InstallError::storage); return; }
         progress(work.generation, gog::InstallState::downloading);
-        const auto result = operations_.invoke(exe, config_, {L"install", text_encoding::wide(game.source_id), L"--path", request.install_directory.native()}, cancel,
+        const auto result = operations_.invoke(exe, config_, {L"install", text_encoding::wide(game.source_id), L"--path", request.install_directory.wstring()}, cancel,
             [&](std::string_view line) { if (const auto bytes = progressBytes(line)) progress(work.generation, gog::InstallState::downloading, bytes->first, bytes->second); });
         if (cancel()) { progress(work.generation, gog::InstallState::cancelled); return; }
         if (!result.ok) { progress(work.generation, gog::InstallState::error, 0, 0, gog::InstallError::network); return; }

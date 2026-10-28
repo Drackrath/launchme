@@ -5,7 +5,7 @@
 // package header so the next update downloads only changed files.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -164,7 +164,7 @@ pub async fn run(
                 if first_error.lock().map(|e| e.is_some()).unwrap_or(true) {
                     return;
                 }
-                let relative = PathBuf::from(name.replace('/', "\\").trim_start_matches('\\'));
+                let relative = crate::config::package_relative(&name);
                 if relative
                     .components()
                     .any(|c| !matches!(c, std::path::Component::Normal(_)))

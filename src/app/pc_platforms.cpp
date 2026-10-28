@@ -5,6 +5,11 @@
 #include "../store/xbox_account.hpp"
 #include "../library/ubisoft_catalog.hpp"
 #include "../platform/text_encoding.hpp"
+#ifndef _WIN32
+#include "../library/heroic.hpp"
+#include "../library/lutris.hpp"
+#include "../library/xdg_paths.hpp"
+#endif
 #include <algorithm>
 #include <map>
 
@@ -113,6 +118,20 @@ void Launcher::startPcWatcher() {
         watch.wake(wake->event);
         const auto build = [&] {
             watch.clear();
+#ifndef _WIN32
+            // Linux: the launchers' own files (Heroic and its legendary/gogdl/nile, Lutris' database,
+            // Prism Launcher's instances) and Launchme's installs; Steam is watched by its library worker.
+            (void)environment;
+            for (const auto& folder : heroic::configFolders()) {
+                watch.directory(folder / L"store_cache");
+                watch.directory(folder / L"GamesConfig");
+                watch.directory(folder / L"legendaryConfig" / L"legendary");
+                watch.directory(folder / L"gog_store");
+            }
+            for (const auto& database : lutris::databases()) watch.directory(database.parent_path());
+            for (const auto* data : {L"PrismLauncher", L"PolyMC", L"multimc"}) watch.directory(xdg_paths::dataHome() / data / L"instances");
+            watch.directory(xdg_paths::configHome() / L"legendary");
+#else
             for (const REGSAM view : {KEY_WOW64_64KEY, KEY_WOW64_32KEY}) {
                 watch.registry(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall", view);
                 watch.registry(HKEY_LOCAL_MACHINE, L"SOFTWARE\\GOG.com\\Games", view);
@@ -133,6 +152,7 @@ void Launcher::startPcWatcher() {
                 watch.directory(roaming / L"PrismLauncher" / L"instances");
                 watch.directory(roaming / L"PolyMC" / L"instances");
             }
+#endif
             watch.directory(config / L"libraries");
             watch.directory(config / L"installed" / L"gog");
             watch.directory(config / L"installed" / L"epic");

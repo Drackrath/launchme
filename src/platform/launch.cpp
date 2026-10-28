@@ -10,6 +10,8 @@
 #else
 #include "process_spawn.hpp"
 #include "text_encoding.hpp"
+#include "wine_runner.hpp"
+#include "../library/launch_options_store.hpp"
 #include <algorithm>
 #include <cerrno>
 #include <cwctype>
@@ -70,12 +72,22 @@ std::wstring lowerExtension(const std::filesystem::path& file) {
     return extension;
 }
 
+// The action's own variables (Amazon's SDK, ...) on top of Launchme's environment; null (inherit)
+// when it has none.
+std::optional<std::vector<std::string>> actionEnvironment(const GameAction& action) {
+    if (action.environment.empty()) return std::nullopt;
+    wine_runner::Plan variables;
+    for (const auto& [name, value] : action.environment)
+        if (!name.empty() && name.find(L'=') == std::wstring::npos) variables.environment.emplace_back(utf8(name), utf8(value));
+    return wine_runner::environmentBlock(variables, wine_runner::currentEnvironment());
+}
+
 // Hands a link, file or folder to the desktop (xdg-open), which picks the program. Waits briefly
 // for its verdict, as ShellExecuteEx does with NOASYNC: a link nothing handles fails here.
-INT_PTR openWithDesktop(const std::string& target) {
+INT_PTR openWithDesktop(const std::string& target, const std::vector<std::string>* environment = nullptr) {
     pid_t pid = 0;
     process_spawn::Options options;
-    options.search = true; options.session = true;
+    options.search = true; options.session = true; options.environment = environment;
     const int error = process_spawn::spawn({"xdg-open", target}, options, pid);
     if (error == ENOENT) return launch_error::no_handler;
     if (error) return spawnError(error);
@@ -90,13 +102,44 @@ INT_PTR openWithDesktop(const std::string& target) {
 }
 
 // A helper that passes the target on (steam, gio): started unless the helper is missing.
-INT_PTR handOver(const std::vector<std::string>& arguments, const std::filesystem::path& directory) {
+INT_PTR handOver(const std::vector<std::string>& arguments, const std::filesystem::path& directory,
+                 const std::vector<std::string>* environment = nullptr) {
     pid_t pid = 0;
     process_spawn::Options options;
-    options.search = true; options.session = true; options.directory = directory;
+    options.search = true; options.session = true; options.directory = directory; options.environment = environment;
     const int error = process_spawn::spawn(arguments, options, pid);
     if (error) return error == ENOENT ? launch_error::no_handler : spawnError(error);
     process_spawn::reapLater(pid);
+    return 33;
+}
+
+bool windowsProgram(const std::wstring& extension) {
+    for (const auto* windows : {L".exe", L".bat", L".cmd", L".com", L".msi", L".lnk"})
+        if (extension == windows) return true;
+    return false;
+}
+
+// A Windows program through umu-launcher, Proton or Wine (wine_runner.hpp) with the game's options
+// (GameAction::compat; without them the defaults in the shared "default" prefix). The runner (or
+// the script around it) leads the session that the launch job follows.
+INT_PTR startWindowsProgram(const GameAction& action, const std::filesystem::path& file, const std::vector<std::string>& arguments,
+                            const std::filesystem::path& directory) {
+    wine_runner::Request request;
+    request.program = file;
+    request.arguments = arguments;
+    request.working_directory = directory;
+    for (const auto& [name, value] : action.environment)
+        if (!name.empty() && name.find(L'=') == std::wstring::npos) request.environment.emplace_back(utf8(name), utf8(value));
+    request.launch = action.compat ? *action.compat : launch_options_store::defaultCompatLaunch();
+    if (action.kind != ActionKind::play) request.purpose = wine_runner::Purpose::tool; // Installers and clients: no wrappers.
+    request = wine_runner::resolveShortcut(std::move(request));
+    const auto plan = wine_runner::plan(request, wine_runner::context(request.launch));
+    if (!plan.error.empty()) return launch_error::no_handler; // No Proton, Wine or umu-launcher installed.
+    pid_t process = 0;
+    const int error = wine_runner::start(plan, process);
+    if (error) return error == ENOENT ? launch_error::no_handler : spawnError(error);
+    process_spawn::reapLater(process);
+    launched_process = process;
     return 33;
 }
 #endif
@@ -174,14 +217,16 @@ INT_PTR executeGameAction(HWND window, const GameAction& action) {
     const auto& directory = action.working_directory;
     std::error_code ec;
     if (!directory.empty() && !std::filesystem::is_directory(directory, ec)) return launch_error::path_missing;
+    const auto environment = actionEnvironment(action);
+    const auto* variables = environment ? &*environment : nullptr;
     if (link(target)) {
         // The steam command hands the link to a running client (or starts it with the link);
         // without it (Flatpak) the desktop's steam:// handler does the same.
         if (target.starts_with(L"steam:")) {
-            const auto result = handOver({"steam", utf8(target)}, {});
+            const auto result = handOver({"steam", utf8(target)}, {}, variables);
             if (result != launch_error::no_handler) return result;
         }
-        return openWithDesktop(utf8(target));
+        return openWithDesktop(utf8(target), variables);
     }
     const auto arguments = splitArguments(utf8(action.arguments));
     std::filesystem::path file(target);
@@ -193,17 +238,17 @@ INT_PTR executeGameAction(HWND window, const GameAction& action) {
             std::error_code parent;
             return std::filesystem::is_directory(file.parent_path(), parent) ? launch_error::file_missing : launch_error::path_missing;
         }
-        if (std::filesystem::is_directory(status)) return openWithDesktop(file.string());
+        if (std::filesystem::is_directory(status)) return openWithDesktop(file.string(), variables);
     }
     const auto extension = lowerExtension(file);
-    // Windows programs need Wine or Proton, which this build does not set up.
-    for (const auto* windows : {L".exe", L".bat", L".cmd", L".com", L".msi", L".lnk"})
-        if (extension == windows) return launch_error::no_handler;
+    // Windows programs: umu-launcher, Proton or Wine with the game's options. A bare name
+    // ("notepad.exe") is one of the prefix's own programs.
+    if (windowsProgram(extension)) return startWindowsProgram(action, bare ? std::filesystem::path(utf8(target)) : file, arguments, directory);
     // An application's .desktop entry: gio runs its Exec line.
     if (extension == L".desktop") {
         std::vector<std::string> line{"gio", "launch", file.string()};
         line.insert(line.end(), arguments.begin(), arguments.end());
-        return handOver(line, directory);
+        return handOver(line, directory, variables);
     }
     std::vector<std::string> line;
     bool interpreter = false;
@@ -211,12 +256,12 @@ INT_PTR executeGameAction(HWND window, const GameAction& action) {
     else if (bare || ::access(file.c_str(), X_OK) == 0) line = {bare ? utf8(target) : file.string()};
     // A shell script without its executable bit still runs, as Windows runs a .bat.
     else if (extension == L".sh") line = {"/bin/sh", file.string()};
-    else return openWithDesktop(file.string()); // A document, picture or ROM: its default program.
+    else return openWithDesktop(file.string(), variables); // A document, picture or ROM: its default program.
     line.insert(line.end(), arguments.begin(), arguments.end());
     pid_t process = 0;
     process_spawn::Options options;
     // Its own session: the launch job (game_activity.hpp) follows the game's processes by it.
-    options.search = bare || interpreter; options.session = true; options.directory = directory;
+    options.search = bare || interpreter; options.session = true; options.directory = directory; options.environment = variables;
     const int error = process_spawn::spawn(line, options, process);
     // The file is there, so a missing file is its interpreter (pwsh, a #! line).
     if (error == ENOENT) return bare ? launch_error::file_missing : launch_error::no_handler;

@@ -61,11 +61,29 @@ std::vector<std::wstring> arguments(const Request& r) {
     case C::chat_live: if (!r.id) return {}; add({L"chat", L"open", id}); break;
     case C::downloads: add({L"install", L"list"}); break;
     case C::cancel_install: add({L"install", L"stop", app}); break;
+#ifdef _WIN32
     case C::install: add({L"install", app, L"--platform", L"windows"}); if (!r.folder.empty()) add({L"--library", r.folder.native()}); break;
+#else
+    case C::install:
+        add({L"install", app});
+        if (r.text == L"linux" || r.text == L"windows") add({L"--platform", r.text}); else if (!r.text.empty()) return {};
+        if (!r.folder.empty()) add({L"--library", r.folder.wstring()});
+        break;
+#endif
     case C::update: add({L"update", app}); break;
     case C::verify: add({L"verify", app}); break;
     case C::uninstall: add({L"uninstall", app}); break;
+#ifdef _WIN32
     case C::play: add({L"play", app, L"--windows", L"--no-update"}); if (r.steam) add({L"--steam"}); else add({L"--steam-mode", L"none", L"--platform", L"windows"}); break;
+#else
+    // Linux: no `--windows` (it would skip Proton); a Windows build runs through Aurelia's own
+    // Proton/Wine, the native build directly.
+    case C::play:
+        add({L"play", app, L"--no-update"});
+        if (r.text == L"linux") add({L"--platform", L"linux"}); else if (!r.text.empty() && r.text != L"windows") return {};
+        if (r.steam) add({L"--steam"}); else if (r.text != L"linux") add({L"--steam-mode", L"none", L"--platform", L"windows"});
+        break;
+#endif
     case C::launch_targets: add({L"launch-targets", app}); break;
     case C::running: add({L"running"}); break;
     case C::stop: add({L"stop", app}); if (r.force) add({L"--force"}); break;
@@ -86,7 +104,7 @@ std::vector<std::wstring> arguments(const Request& r) {
     case C::downgrade: if (!r.depot || !r.id) return {}; add({L"downgrade", app, L"--depot", std::to_wstring(r.depot), L"--manifest", id}); break;
     case C::branches: add({L"branches", app}); break;
     case C::set_branch: if (r.text.empty() || r.text.size() > 128) return {}; add({L"set-branch", app, L"--", r.text}); break;
-    case C::move: if (!r.folder.is_absolute()) return {}; add({L"move", app, r.folder.native()}); break;
+    case C::move: if (!r.folder.is_absolute()) return {}; add({L"move", app, r.folder.wstring()}); break;
     case C::workshop_browse: add({L"workshop", L"browse", app}); break;
     case C::workshop_status: add({L"workshop", L"status", app}); break;
     case C::workshop_install: if (!r.id) return {}; add({L"workshop", L"install", id}); break;

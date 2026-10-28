@@ -1,5 +1,8 @@
 #include "launcher.hpp"
 #include "../platform/game_activity.hpp"
+#ifndef _WIN32
+#include "../library/steam_registry.hpp"
+#endif
 
 #include <algorithm>
 #include <cwctype>
@@ -34,7 +37,7 @@ void Launcher::initializeGameSessions() {
                     // Started here as a program or script: its process tree also proves the game
                     // running, and its end ends a session path telemetry could not judge.
                     if (tracked.job && activity != GameActivity::running) {
-                        const auto launched = readLaunchJob(tracked.job.get());
+                        const auto launched = readLaunchJob(tracked.job);
                         if (launched == GameActivity::running || activity == GameActivity::unknown) activity = launched;
                     }
                     message->activities.emplace_back(key, activity);
@@ -63,7 +66,12 @@ void Launcher::initializeGameSessions() {
     work_.start([alive = alive_, queue = running_scan_, wake = steam_apps_wake_] {
         ChangeWatch watch;
         watch.wake(wake->event);
+#ifdef _WIN32
         const auto arm = [&] { watch.clear(); watch.registry(HKEY_CURRENT_USER, L"Software\\Valve\\Steam\\Apps"); };
+#else
+        // Steam keeps Apps/<id>/Running in ~/.steam/registry.vdf, rewritten as games start and end.
+        const auto arm = [&] { watch.clear(); watch.directory(steam_registry::file().parent_path()); };
+#endif
         arm();
         while (alive->load()) {
             // The key appears when Steam first runs a game; look for it again every few minutes until then.
@@ -374,6 +382,11 @@ void Launcher::returnFromGame() {
     // Only from what a game leaves behind: a store client, the desktop, or nothing. A browser or
     // any other program the user switched to keeps the screen.
     if (foreground) {
+#ifndef _WIN32
+        // Linux: the display server names only the launcher's own windows (another one of them,
+        // a sign-in page say, has the user's attention); other programs answer nullptr.
+        return;
+#else
         wchar_t name[256]{};
         const bool desktop = GetClassNameW(foreground, name, static_cast<int>(std::size(name))) &&
             (std::wstring_view(name) == L"Progman" || std::wstring_view(name) == L"WorkerW" || std::wstring_view(name) == L"Shell_TrayWnd");
@@ -393,6 +406,7 @@ void Launcher::returnFromGame() {
                 if (std::find(std::begin(clients), std::end(clients), file) == std::end(clients)) return;
             }
         }
+#endif
     }
     bringToFront();
 }

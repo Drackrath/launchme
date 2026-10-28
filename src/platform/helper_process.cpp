@@ -1,4 +1,5 @@
 #include "helper_process.hpp"
+#ifdef _WIN32
 #include "command_line.hpp"
 
 #include <Windows.h>
@@ -114,3 +115,139 @@ Result run(const std::filesystem::path& executable, const std::filesystem::path&
     return result;
 }
 }
+#else
+// Linux: posix_spawn (process_spawn) in a session of its own, so cancelling ends the helper's whole
+// process group; stdout and stderr through non-blocking pipes read with poll(2).
+#include "process_spawn.hpp"
+#include "text_encoding.hpp"
+
+#include <algorithm>
+#include <cerrno>
+#include <csignal>
+#include <cstring>
+#include <fcntl.h>
+#include <poll.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
+extern char** environ;
+
+namespace helper_process {
+namespace {
+struct Descriptor {
+    int fd = -1;
+    Descriptor() = default;
+    Descriptor(const Descriptor&) = delete;
+    Descriptor& operator=(const Descriptor&) = delete;
+    ~Descriptor() { reset(); }
+    void reset() { if (fd >= 0) ::close(fd); fd = -1; }
+};
+// Close-on-exec on both ends: no other child of Launchme may hold the helper's pipes open.
+bool pipeOf(Descriptor& read_end, Descriptor& write_end) {
+    int fds[2];
+    if (::pipe2(fds, O_CLOEXEC) != 0) return false;
+    read_end.fd = fds[0]; write_end.fd = fds[1];
+    return ::fcntl(read_end.fd, F_SETFL, ::fcntl(read_end.fd, F_GETFL) | O_NONBLOCK) == 0;
+}
+std::vector<std::string> environmentOf(const Environment& overrides) {
+    std::vector<std::pair<std::string, std::string>> extra;
+    for (const auto& [name, value] : overrides) {
+        if (name.empty() || name.find(L'=') != std::wstring::npos) continue;
+        extra.emplace_back(text_encoding::utf8Lenient(name), text_encoding::utf8Lenient(value));
+    }
+    std::vector<std::string> block;
+    for (char** entry = environ; entry && *entry; ++entry) {
+        const std::string_view line(*entry);
+        const auto at = line.find('=');
+        if (at == 0 || at == std::string_view::npos) continue;
+        const auto name = line.substr(0, at);
+        if (std::none_of(extra.begin(), extra.end(), [&](const auto& e) { return e.first == name; })) block.emplace_back(line);
+    }
+    for (const auto& [name, value] : extra) {
+        if (value.find('\0') != std::string::npos) continue;
+        block.push_back(name + '=' + value);
+    }
+    return block;
+}
+}
+
+Result run(const std::filesystem::path& executable, const std::filesystem::path& working_directory,
+           const std::vector<std::wstring>& arguments, const Environment& environment,
+           const std::function<bool()>& cancel, const std::function<void(std::string_view)>& error_line) {
+    Result result;
+    const auto cancelled = [&] { return cancel && cancel(); };
+    if (cancelled() || !executable.is_absolute()) return result;
+    Descriptor out_read, out_write, err_read, err_write;
+    if (!pipeOf(out_read, out_write) || !pipeOf(err_read, err_write)) return result;
+    std::vector<std::string> argv{executable.string()};
+    for (const auto& argument : arguments) {
+        auto text = text_encoding::utf8Lenient(argument);
+        if (text.find('\0') != std::string::npos) return result;
+        argv.push_back(std::move(text));
+    }
+    const auto block = environmentOf(environment);
+    process_spawn::Options options;
+    options.directory = working_directory;
+    options.session = true; // Its own process group: cancellation reaches whatever it started.
+    options.output = out_write.fd; options.error = err_write.fd;
+    options.environment = &block;
+    pid_t pid = 0;
+    if (process_spawn::spawn(argv, options, pid) != 0) return result;
+    result.started = true;
+    out_write.reset(); err_write.reset();
+
+    std::string pending; bool overflow = false;
+    const auto line = [&](std::string_view chunk) {
+        if (!error_line) return;
+        pending.append(chunk);
+        for (size_t end; (end = pending.find_first_of("\r\n")) != std::string::npos;) {
+            if (end) error_line(std::string_view(pending).substr(0, end));
+            pending.erase(0, end + 1);
+        }
+        if (pending.size() > 65536) pending.clear();
+    };
+    // Everything readable now; false once the pipe reached its end.
+    const auto drain = [&](Descriptor& pipe, bool output) {
+        while (pipe.fd >= 0) {
+            char buffer[16384];
+            const ssize_t received = ::read(pipe.fd, buffer, sizeof(buffer));
+            if (received < 0 && errno == EINTR) continue;
+            if (received < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) return;
+            if (received <= 0) { pipe.reset(); return; }
+            if (!output) line({buffer, static_cast<size_t>(received)});
+            else if (result.output.size() + static_cast<size_t>(received) > 8 * 1024 * 1024) overflow = true;
+            else result.output.append(buffer, static_cast<size_t>(received));
+        }
+    };
+    for (;;) {
+        pollfd fds[2]{{out_read.fd, POLLIN, 0}, {err_read.fd, POLLIN, 0}};
+        if (out_read.fd >= 0 || err_read.fd >= 0) ::poll(fds, 2, 40);
+        else ::usleep(40 * 1000);
+        drain(out_read, true); drain(err_read, false);
+        if (cancelled() || overflow) {
+            process_spawn::killGroup(pid);
+            result.output.clear();
+            return result;
+        }
+        // Exited, but not reaped yet: its process group stays addressable for the cleanup below.
+        siginfo_t info{};
+        const int waited = ::waitid(P_PID, static_cast<id_t>(pid), &info, WEXITED | WNOHANG | WNOWAIT);
+        if (waited == 0 && info.si_pid == pid) break;
+        if (waited < 0 && errno != EINTR) break;
+    }
+    // The helper ended; what it wrote before is still in the pipes (a child it left running may
+    // keep them open, so nothing waits for their end). Like the Windows job, what it left in its
+    // process group ends with it.
+    drain(out_read, true); drain(err_read, false);
+    ::kill(-pid, SIGKILL);
+    int status = 0;
+    pid_t reaped;
+    while ((reaped = ::waitpid(pid, &status, 0)) < 0 && errno == EINTR) {}
+    if (error_line && !pending.empty()) error_line(pending);
+    if (overflow) { result.output.clear(); return result; }
+    result.exit_code = reaped != pid ? 1 : WIFEXITED(status) ? WEXITSTATUS(status) : 128 + (WIFSIGNALED(status) ? WTERMSIG(status) : 0);
+    result.ok = reaped == pid && result.exit_code == 0 && !cancelled();
+    return result;
+}
+}
+#endif

@@ -5,6 +5,8 @@
 #include "../src/artwork/cover_cache.hpp"
 #include "../src/artwork/platform_logo.hpp"
 
+#include <Windows.h> // Linux: tests/linux_compat (GetCurrentProcessId, GetEnvironmentVariableW).
+
 #include <filesystem>
 #include <fstream>
 #include <iostream>

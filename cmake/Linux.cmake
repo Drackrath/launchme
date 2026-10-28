@@ -1,6 +1,6 @@
 # Linux build (docs/linux-port.md). Included from the top-level CMakeLists.txt instead of the
-# Windows build: the shared core (library scanning, stores, network, companion, i18n) and the
-# tests that cover it. The launcher window, renderer and web view are not ported yet.
+# Windows build: the shared core (library scanning, stores, network, companion, i18n), the tests
+# that cover it and the launcher itself (cmake/LinuxApp.cmake).
 
 include(FetchContent)
 # Strict ISO C++: GNU mode predefines the macro `unix`, which the companion code uses as a name.
@@ -14,8 +14,6 @@ pkg_check_modules(LIBSECRET REQUIRED IMPORTED_TARGET libsecret-1)
 find_package(CURL REQUIRED)
 find_path(SDL3_INCLUDE_DIR SDL3/SDL.h REQUIRED)
 find_library(SDL3_LIBRARY NAMES SDL3 REQUIRED)
-find_path(SDL3_TTF_INCLUDE_DIR SDL3_ttf/SDL_ttf.h REQUIRED)
-find_library(SDL3_TTF_LIBRARY NAMES SDL3_ttf REQUIRED)
 
 set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
@@ -158,8 +156,30 @@ set(LAUNCHME_LINUX_IMAGE_SOURCES
     src/net/glance.cpp
 )
 # Codecs: libpng, libjpeg-turbo, libwebp. Feeds: expat (in place of XmlLite).
-pkg_check_modules(LAUNCHME_IMAGE_LIBS REQUIRED IMPORTED_TARGET libpng libturbojpeg libwebp expat)
+pkg_check_modules(LAUNCHME_IMAGE_LIBS REQUIRED IMPORTED_TARGET libpng libwebp expat)
 list(APPEND LAUNCHME_CORE_LIBS PkgConfig::LAUNCHME_IMAGE_LIBS)
+# TurboJPEG 3 (tj3* API): the system's when it is new enough (Arch, Fedora, SteamOS), else the pinned
+# release built statically (Ubuntu 24.04 and Debian 12 ship 2.1).
+pkg_check_modules(LAUNCHME_TURBOJPEG IMPORTED_TARGET libturbojpeg>=3.0)
+if(LAUNCHME_TURBOJPEG_FOUND)
+    list(APPEND LAUNCHME_CORE_LIBS PkgConfig::LAUNCHME_TURBOJPEG)
+else()
+    include(ExternalProject)
+    set(LAUNCHME_TURBOJPEG_PREFIX "${CMAKE_BINARY_DIR}/turbojpeg")
+    ExternalProject_Add(launchme_turbojpeg_build
+        URL https://github.com/libjpeg-turbo/libjpeg-turbo/releases/download/3.1.2/libjpeg-turbo-3.1.2.tar.gz
+        URL_HASH SHA256=8f0012234b464ce50890c490f18194f913a7b1f4e6a03d6644179fa0f867d0cf
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+        CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=${LAUNCHME_TURBOJPEG_PREFIX} -DCMAKE_INSTALL_LIBDIR=lib
+            -DENABLE_SHARED=OFF -DENABLE_STATIC=ON -DWITH_TURBOJPEG=ON -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+        BUILD_BYPRODUCTS "${LAUNCHME_TURBOJPEG_PREFIX}/lib/libturbojpeg.a")
+    file(MAKE_DIRECTORY "${LAUNCHME_TURBOJPEG_PREFIX}/include")
+    add_library(launchme_turbojpeg STATIC IMPORTED GLOBAL)
+    set_target_properties(launchme_turbojpeg PROPERTIES IMPORTED_LOCATION "${LAUNCHME_TURBOJPEG_PREFIX}/lib/libturbojpeg.a"
+        INTERFACE_INCLUDE_DIRECTORIES "${LAUNCHME_TURBOJPEG_PREFIX}/include")
+    add_dependencies(launchme_turbojpeg launchme_turbojpeg_build)
+    list(APPEND LAUNCHME_CORE_LIBS launchme_turbojpeg)
+endif()
 
 # Sockets, folders and files.
 set(LAUNCHME_LINUX_FILES_SOURCES
@@ -261,13 +281,8 @@ target_link_libraries(launchme_core PUBLIC ${LAUNCHME_CORE_LIBS})
 get_target_property(miniz_includes miniz INTERFACE_INCLUDE_DIRECTORIES)
 set_target_properties(miniz PROPERTIES INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${miniz_includes}")
 
-add_executable(launchme src/linux/main.cpp src/platform/sdl_window.cpp)
-launchme_target_defaults(launchme)
-target_include_directories(launchme PRIVATE "${SDL3_INCLUDE_DIR}" "${SDL3_TTF_INCLUDE_DIR}")
-target_link_libraries(launchme PRIVATE launchme_core "${SDL3_LIBRARY}" "${SDL3_TTF_LIBRARY}")
-# Companion: ONNX Runtime and the model next to it ($ORIGIN), her pictures inside (as companion.rc on Windows).
-companion_embedding_assets(launchme)
-target_link_libraries(launchme PRIVATE launchme_companion_resources)
+# The launcher itself: window, input, renderer and every screen (phase 3).
+include(cmake/LinuxApp.cmake)
 
 # Same signature as the Windows build's helper (the WIN32 flag is ignored).
 function(launchme_executable name)
@@ -286,9 +301,6 @@ function(launchme_executable name)
 endfunction()
 
 if(BUILD_TESTING)
-    launchme_executable(platform_sdl_window_tests TEST platform_sdl_window_events
-        SOURCES tests/platform_sdl_window_tests.cpp src/platform/sdl_window.cpp
-        LIBS "${SDL3_LIBRARY}")
     launchme_executable(game_fps_tests TEST game_fps_history_and_overlay_bar SOURCES tests/game_fps_tests.cpp)
     launchme_executable(failure_cache_tests TEST persistent_artwork_failure_cache SOURCES tests/failure_cache_tests.cpp)
     launchme_executable(controller_models_tests TEST controller_picture_classification SOURCES tests/controller_models_tests.cpp)
@@ -383,3 +395,8 @@ if(BUILD_TESTING)
     launchme_executable(device_live_test SOURCES tests/device_live_test_linux.cpp)
 
 endif()
+
+# Linux areas built on the app (each in its own file).
+include(cmake/linux/Stores.cmake)
+include(cmake/linux/Wine.cmake)
+include(cmake/linux/Browser.cmake)

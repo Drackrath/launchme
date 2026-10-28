@@ -1,0 +1,13 @@
+#pragma once
+// Linux only: the DXGI pixel formats Direct2D bitmaps name (src/linux/gfx, Cairo).
+enum DXGI_FORMAT : unsigned {
+    DXGI_FORMAT_UNKNOWN = 0,
+    DXGI_FORMAT_R8G8B8A8_UNORM = 28,
+    DXGI_FORMAT_R8G8B8A8_UNORM_SRGB = 29,
+    DXGI_FORMAT_A8_UNORM = 65,
+    DXGI_FORMAT_BC1_UNORM = 71,
+    DXGI_FORMAT_BC3_UNORM = 77,
+    DXGI_FORMAT_B8G8R8A8_UNORM = 87,
+    DXGI_FORMAT_B8G8R8X8_UNORM = 88,
+    DXGI_FORMAT_B8G8R8A8_UNORM_SRGB = 91,
+};

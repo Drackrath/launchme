@@ -690,6 +690,16 @@ GameActivity readLaunchJob(HANDLE job) {
 }
 #endif
 
+#ifdef _WIN32
+LaunchJob ownLaunchJob(HANDLE job) { return job ? LaunchJob(job, CloseHandle) : LaunchJob{}; }
+GameActivity readLaunchJob(const LaunchJob& job) { return job ? readLaunchJob(static_cast<HANDLE>(job.get())) : GameActivity::unknown; }
+void closeLaunchedProcess(HANDLE process) { if (process) CloseHandle(process); }
+#else
+LaunchJob ownLaunchJob(HANDLE job) { return job > 0 ? std::make_shared<HANDLE>(job) : LaunchJob{}; }
+GameActivity readLaunchJob(const LaunchJob& job) { return job ? readLaunchJob(*static_cast<const HANDLE*>(job.get())) : GameActivity::unknown; }
+void closeLaunchedProcess(HANDLE) {}
+#endif
+
 std::vector<size_t> findRunningGames(const std::vector<Game>& candidates) {
     std::vector<size_t> running;
 #ifdef _WIN32

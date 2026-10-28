@@ -3,6 +3,7 @@
 // the UI thread, so every chat request is a RemoteMessage there), the character choice and her
 // Launchfeed (read from disk on the server's thread). No game is ever started from here.
 #include "launcher.hpp"
+#include "../platform/embedded_resources.hpp"
 #include "../net/companion_characters.hpp"
 #include "../net/companion_feed.hpp"
 #include "../net/http.hpp"
@@ -24,13 +25,9 @@ std::string color(const companion::Character& character) {
     return out;
 }
 std::optional<std::string_view> resource(int id) {
-    const HMODULE module = GetModuleHandleW(nullptr);
-    const HRSRC found = FindResourceW(module, MAKEINTRESOURCEW(id), RT_RCDATA);
-    const HGLOBAL handle = found ? LoadResource(module, found) : nullptr;
-    const auto* bytes = handle ? static_cast<const char*>(LockResource(handle)) : nullptr;
-    const DWORD size = found ? SizeofResource(module, found) : 0;
-    if (!bytes || !size) return std::nullopt;
-    return std::string_view(bytes, size);
+    const auto bytes = embedded_resources::find(id);
+    if (!bytes || bytes->empty()) return std::nullopt;
+    return std::string_view(reinterpret_cast<const char*>(bytes->data()), bytes->size());
 }
 std::string imageType(std::string_view bytes) {
     if (bytes.starts_with("\x89PNG")) return "image/png";

@@ -10,6 +10,14 @@
 
 #include <algorithm>
 #include <cmath>
+#ifndef _WIN32
+#include "../linux/window/window_system.hpp"
+#include "../platform/atomic_file.hpp"
+#include "../platform/system.hpp"
+#include "../platform/updater.hpp"
+#include <cstdlib>
+#include <fstream>
+#endif
 
 namespace {
 float ease(float seconds, float speed) { return 1.0f - std::exp(-seconds * speed); }
@@ -45,6 +53,42 @@ bool Launcher::applyAutostart(bool enabled) {
 #ifdef LAUNCHME_UI_TEST
     (void)enabled;
     return true; // Tests never change what starts with Windows.
+#elif !defined(_WIN32)
+    // The desktop's autostart entry ($XDG_CONFIG_HOME/autostart, XDG Autostart), started minimized.
+    const char* config = std::getenv("XDG_CONFIG_HOME");
+    const char* home = std::getenv("HOME");
+    std::filesystem::path folder = config && *config == '/' ? std::filesystem::path(config) :
+                                   home && *home ? std::filesystem::path(home) / ".config" : std::filesystem::path{};
+    if (folder.empty()) return false;
+    folder /= "autostart";
+    const auto file = folder / "launchme.desktop";
+    std::error_code error;
+    if (!enabled) { std::filesystem::remove(file, error); return !error; }
+    // The AppImage itself when run as one (its mount point changes with every start).
+    const auto program = updater::appImage().value_or(system_info::executablePath());
+    if (program.empty()) return false;
+    // Exec's quoting (Desktop Entry Specification): ", `, $ and \ escaped (\ twice, as the string
+    // escape applies first), % doubled.
+    std::string exec = "\"";
+    for (const char c : program.string()) {
+        if (c == '\\') exec += "\\\\\\\\";
+        else if (c == '"' || c == '`' || c == '$') { exec += '\\'; exec += c; }
+        else if (c == '%') exec += "%%";
+        else exec += c;
+    }
+    exec += "\" --minimized";
+    std::filesystem::create_directories(folder, error);
+    const auto staged = folder / ".launchme.desktop.new";
+    {
+        std::ofstream out(staged, std::ios::binary | std::ios::trunc);
+        out << "[Desktop Entry]\nType=Application\nName=launchme\nComment=Console-style game launcher\n"
+            << "Exec=" << exec << "\nIcon=io.github.uxandai.launchme\nTerminal=false\nCategories=Game;\n"
+            << "X-GNOME-Autostart-enabled=true\n";
+        if (!out.flush()) { out.close(); std::filesystem::remove(staged, error); return false; }
+    }
+    if (atomic_file::replace(staged, file)) return true;
+    std::filesystem::remove(staged, error);
+    return false;
 #else
     HKEY key = nullptr;
     if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, nullptr, 0,
@@ -210,7 +254,11 @@ bool Launcher::initialize(HWND hwnd) {
         onAudio(std::unique_ptr<AudioMessage>(reinterpret_cast<AudioMessage*>(ready_audio.lParam)));
     runtime_started_ = true;
     volume_monitor_.start(work_);
+#ifdef _WIN32
     controller_input_.initialize(hwnd);
+#else
+    controller_input_.initialize(lm_window::sdlWindow(hwnd)); // SDL's window: the Steam Controller's focus check.
+#endif
     controller_input_.steamController(settings_.steam_controller);
     configureGameOverlay();
     initializeControllerMonitor();

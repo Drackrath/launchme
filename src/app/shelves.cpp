@@ -429,12 +429,13 @@ void Launcher::rebuildCards(bool preserve_background) {
     if (xmbActive()) { rebuildXmb(false, preserve_background); return; }
     if (flixActive()) { rebuildFlix(preserve_background); return; }
     if (metroActive()) { rebuildMetro(preserve_background); return; }
-    // The same home shelf, library or console page rebuilt while on screen (the startup Steam rescan,
+    // The same home shelf, library, console page or search rebuilt while on screen (the startup Steam rescan,
     // the PC scan, store syncs, resolved names, the game index learning studios, the restored
     // bookmark): unchanged cards keep their decoded art, position and fade, and the focus stays on its
     // game, instead of the whole view entering again. Other screens rebuild from scratch.
     const auto shelf_id = screen_ == ScreenMode::shelves && category_ < categories_.size() ? categories_[category_].id :
         (screen_ == ScreenMode::library || screen_ == ScreenMode::platform_games) ? "screen:" + std::to_string(static_cast<int>(screen_)) + ':' + libraryScope() :
+        screen_ == ScreenMode::search ? "screen:search:" + text_encoding::utf8(search_shown_query_) :
         std::string{};
     // A view's look decides which artwork its slots hold: another view or tile shape starts afresh.
     auto presentation = screen_ == ScreenMode::library ? libraryOptions() : library_view::Options{};

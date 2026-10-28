@@ -22,11 +22,21 @@ uuid = { version = "1.25.0", features = ["v4"] }
 url = "2.5.8"
 fs2 = "0.4.3"
 roxmltree = "0.20"
+
+# The sign-in window: WebView2 through wry/tao on Windows.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Cryptography", "Win32_System_Memory", "Win32_UI_WindowsAndMessaging"] }
 tao = "0.37.0"
 wry = "0.56.1"
 
-[target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Cryptography", "Win32_System_Memory", "Win32_UI_WindowsAndMessaging"] }
+# Linux: the sign-in window is GTK 4 + WebKitGTK 6.0 (the WebKit the launcher's own browser uses);
+# libc for memfd_create and signals in `run`. webkit6 0.6 names gtk4's Accessible, which gtk4 0.11
+# exposes only with its GTK 4.10 API.
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk4 = { version = "0.11", features = ["v4_10"] }
+webkit6 = "0.6"
+soup3 = "0.9"
+libc = "0.2"
 
 # Same as the Xodus workspace: its MSIXVC reader needs the patched ntfs crate.
 [patch.crates-io]

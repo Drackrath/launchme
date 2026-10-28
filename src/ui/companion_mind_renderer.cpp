@@ -5,6 +5,7 @@
 // thoughts are masked there like spoilers until the player shows one (Pokaż). Geometry:
 // companion_ui::Layout (companion_view.hpp); the nodes and her telemetry: src/app/companion.cpp.
 #include "renderer.hpp"
+#include "../net/companion_memory.hpp"
 
 #include <array>
 #include <cmath>

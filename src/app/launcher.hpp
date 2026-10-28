@@ -749,7 +749,9 @@ public:
     void onIdentify(std::unique_ptr<IdentifyMessage> message);
     void focusLibraryControls();
     void setFrameRate(int target, int refresh) { target_hz_ = target; refresh_hz_ = refresh; }
+#ifdef _WIN32
     void controllerDeviceChanged(HANDLE device) { controller_input_.deviceChanged(device); controller_rescan_->request(); }
+#endif
     // WM_DEVICECHANGE: a device arrived or left (a Bluetooth headset, a pad Raw Input misses).
     void devicesChanged() { controller_rescan_->request(); headphones_rescan_->request(); }
     bool devicesOpen() const { return screen_ == ScreenMode::devices; }
@@ -759,7 +761,9 @@ public:
             device_state_.selected < static_cast<int>(device_state_.rows.size()) &&
             device_state_.rows[device_state_.selected].kind == device_ui::Kind::volume;
     }
+#ifdef _WIN32
     void rawControllerInput(HRAWINPUT input) { controller_input_.rawInput(input); }
+#endif
     // Experimental quick resume (src/app/quick_resume.cpp).
     // WM_CLOSE: true while confirming suspended games or playing the exit animation.
     bool requestClose();
@@ -2212,6 +2216,7 @@ private:
     // Wakes the PC store watcher (shutdown); it rescans only after a store's data changed.
     std::shared_ptr<WakeSignal> pc_watch_wake_ = std::make_shared<WakeSignal>();
     std::vector<Game> search_results_;
+    std::wstring search_shown_query_; // The query search_results_ answer: another one starts from the top.
     std::vector<std::wstring> category_titles_;
     Category private_category_; // Title follows the language in buildShelves().
     LruCache<CachedArt, CachedArtBytes> art_{art_budget};

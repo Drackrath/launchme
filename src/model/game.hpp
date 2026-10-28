@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <array>
 #include <utility>
@@ -24,6 +25,8 @@ enum class GameKind { steam, all, platform, back, nonsteam, store, catalog, pc_p
 enum class GameVisibility { public_game, hidden, private_game };
 enum class ActionKind { play, install, open_client };
 
+struct CompatLaunch; // src/model/launch_options.hpp
+
 struct GameAction {
     std::wstring target;
     std::wstring arguments;
@@ -35,6 +38,10 @@ struct GameAction {
     // Variables the started process gets on top of Launchme's own (Amazon Games: its SDK and
     // entitlement, src/store/amazon.cpp); empty for nearly every action.
     std::vector<std::pair<std::wstring, std::wstring>> environment;
+    // Linux: the game a Windows program (.exe, .msi, .bat, .lnk) belongs to and its Wine/Proton
+    // options (launch_options_store::compatLaunch); null runs it with the defaults in the shared
+    // "default" prefix. Ignored for every other target and on Windows.
+    std::shared_ptr<const CompatLaunch> compat;
     explicit operator bool() const { return !target.empty(); }
 };
 

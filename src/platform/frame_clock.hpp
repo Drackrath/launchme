@@ -1,7 +1,5 @@
 #pragma once
-#ifdef _WIN32
-#include <Windows.h>
-#endif
+#include <Windows.h> // Linux: src/linux/win32 (HWND).
 #include <algorithm>
 
 // Absolute deadlines avoid accumulating timer/paint rounding at 60/120/144 Hz.
@@ -39,7 +37,9 @@ public:
     int targetHz() const { return schedule_.hz(); }
     int refreshHz() const { return refresh_hz_; }
 private:
+#ifdef _WIN32
     HANDLE timer_ = nullptr;
+#endif
     FrameSchedule schedule_;
     double next_probe_ = 0;
     int refresh_hz_ = 0;

@@ -4,7 +4,11 @@
 #include "launcher.hpp"
 #include "../platform/text_encoding.hpp"
 #include <algorithm>
+#ifdef _WIN32
 #include <shlobj.h>
+#else
+#include "../library/xdg_paths.hpp"
+#endif
 
 void Launcher::initializeXbox() {
     if (!xbox_service_) xbox_service_ = xbox_account::makeService(userConfigDirectory());
@@ -76,10 +80,16 @@ void Launcher::openXboxInstall(const Game& game) {
     dismissMenu(); closeQuick(); closeFriends(); closeCategoryMenu(); cancelEnterHold();
     if (other || gog_install_ui_.snapshot.state == gog::InstallState::none) {
         gog_install_ui_ = {}; gog_install_ui_.game = game;
+        auto& request = gog_install_ui_.request; request.product = game.source_id;
+#ifdef _WIN32
         PWSTR path = nullptr; std::filesystem::path root = userConfigDirectory();
         if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Profile, 0, nullptr, &path))) { root = path; CoTaskMemFree(path); }
-        auto& request = gog_install_ui_.request; request.product = game.source_id;
         request.install_directory = root / L"Games" / (L"Xbox-" + xbox_account::folderName(game.name, game.xbox_product));
+#else
+        // Linux: ~/Games/Xbox/<title>.
+        auto root = xdg_paths::home(); if (root.empty()) root = userConfigDirectory();
+        request.install_directory = root / L"Games" / L"Xbox" / xbox_account::folderName(game.name, game.xbox_product);
+#endif
         request.owner_window = reinterpret_cast<uintptr_t>(hwnd_);
         gog_install_ui_.snapshot.product = game.source_id; gog_install_ui_.snapshot.state = gog::InstallState::ready;
         gog_install_ui_.row = 1;

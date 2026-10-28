@@ -49,7 +49,7 @@ void Launcher::openFileBrowser(Request request, std::function<void(const std::fi
         // generic one); Tryb TV's picker stays for the pad.
         cancelEnterHold();
         const auto initial = request.initial.empty() ? settings_.file_browser_folder : request.initial;
-        const auto picked = request.native ? request.wstring() :
+        const auto picked = request.native ? request.native() :
             pickPath(hwnd_, request.mode == file_browser::Mode::folder, request.title, request.extensions, request.filter_label,
                      request.all_files_option, initial);
         mouse_transition_until_ = GetTickCount64() + GetDoubleClickTime(); // Its closing click stays in the dialog.
@@ -133,11 +133,15 @@ void Launcher::fileBrowserOpenFolder(const std::filesystem::path& folder_in, con
             Entry entry;
             entry.kind = Kind::drive;
             entry.path = drive.root;
+#ifdef _WIN32
             const auto letter = drive.root.wstring().substr(0, 2);
+#else
+            const auto letter = drive.root.wstring(); // "/", the home folder, a mount point.
+#endif
             entry.name = drive.label.empty() ? letter : drive.label + L" (" + letter + L")";
-            if (drive.type == DRIVE_REMOVABLE) entry.detail = tr(L"Dysk wymienny");
-            else if (drive.type == DRIVE_CDROM) entry.detail = tr(L"Napęd optyczny");
-            else if (drive.type == DRIVE_REMOTE) entry.detail = tr(L"Dysk sieciowy");
+            if (drive.type == file_listing::drive_removable) entry.detail = tr(L"Dysk wymienny");
+            else if (drive.type == file_listing::drive_optical) entry.detail = tr(L"Napęd optyczny");
+            else if (drive.type == file_listing::drive_remote) entry.detail = tr(L"Dysk sieciowy");
             else if (drive.total) entry.detail = sizeText(drive.free) + tr(L" wolne z ") + sizeText(drive.total);
             ui.entries.push_back(std::move(entry));
         }

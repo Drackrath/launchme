@@ -188,7 +188,7 @@ void Launcher::openSearch() {
     screen_ = ScreenMode::search;
     grid_back_focus_ = false;
     search_query_.clear(); search_after_ = 0;
-    search_results_.clear();
+    search_results_.clear(); search_shown_query_.clear();
     search_dirty_ = false;
     grid_scroll_ = 0;
     closeQuick();
@@ -419,7 +419,10 @@ void Launcher::updateSearch() {
     versions_ = versions::Index(public_library_);
     grouped_library_ = versions_.collapse(public_library_, library_state_.preferred_versions, library_state_.first_seen);
     search_results_ = searchPublicGames(grouped_library_, search_query_, private_shelf_);
-    grid_scroll_ = 0;
+    // A typed change starts from the top; a rebuild in the background (scans, resolved names, art)
+    // keeps the cards, the scroll and the focus on its game (rebuildCards keys them by the query).
+    if (search_query_ != search_shown_query_) grid_scroll_ = 0;
+    search_shown_query_ = search_query_;
     rebuildCards(false);
 }
 
@@ -1033,10 +1036,10 @@ void Launcher::finishLaunch() {
     // The started program's process, when Windows reports one (a link handed to a running
     // client has none): its process tree follows the session (scripts, .lnk, launcher stubs).
     std::shared_ptr<void> job;
-    if (const HANDLE process = execute_ == executeGameAction ? takeLaunchedProcess() : nullptr) {
+    if (const HANDLE process = execute_ == executeGameAction ? takeLaunchedProcess() : HANDLE{}) {
         if (result > 32 && action.kind == ActionKind::play)
-            if (const HANDLE created = launchJob(process)) job = std::shared_ptr<void>(created, CloseHandle);
-        CloseHandle(process);
+            if (const HANDLE created = launchJob(process)) job = ownLaunchJob(created);
+        closeLaunchedProcess(process);
     }
     if (result <= 32) {
         stopLaunchAnimation();
