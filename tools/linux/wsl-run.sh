@@ -20,6 +20,11 @@ else
   export SDL_VIDEO_DRIVER=${DRIVER:-x11}
 fi
 export LAUNCHME_CONFIG_DIR=$HOME/lm/data
+# FAKE_STEAM=1: the made-up library of wsl-fake-steam.sh (covers, heroes, logos; no real Steam).
+if [ "$FAKE_STEAM" = "1" ]; then
+  [ -d $HOME/lm/fakesteam/steamapps ] || bash /mnt/c/Users/pogor/Desktop/Work/launchme/tools/linux/wsl-fake-steam.sh >/dev/null
+  export STEAM_DIR=$HOME/lm/fakesteam
+fi
 [ "$FRESH" = "1" ] && rm -rf $LAUNCHME_CONFIG_DIR
 mkdir -p $LAUNCHME_CONFIG_DIR
 if [ ! -f $LAUNCHME_CONFIG_DIR/settings.ini ] || [ -n "$MODE" ]; then
