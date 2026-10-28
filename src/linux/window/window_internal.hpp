@@ -25,6 +25,8 @@ struct WindowClass {
     HCURSOR cursor = nullptr;
 };
 
+struct GpuWindow; // gpu.cpp: the window's frame surface and swapchain.
+
 struct Window {
     std::shared_ptr<WindowClass> type;
     WNDPROC procedure = nullptr;
@@ -34,9 +36,7 @@ struct Window {
     HWND parent = nullptr;
     SDL_Window* sdl = nullptr;
     SDL_WindowID id = 0;
-    SDL_Renderer* renderer = nullptr;
-    SDL_Texture* texture = nullptr;
-    int texture_width = 0, texture_height = 0;
+    GpuWindow* gpu = nullptr;
     bool invalid = true, enabled = true, accept_files = false;
     bool custom_frame = false;   // The launcher draws its caption (desktop mode): SDL hit testing.
     bool fullscreen = false;     // WS_POPUP covering a display: SDL full screen on it.

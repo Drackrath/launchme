@@ -1,11 +1,15 @@
-// DirectWrite fonts on fontconfig and HarfBuzz: the per-thread Pango context, family names
-// (Windows families the launcher asks for map to installed Linux stand-ins), the system and
+// DirectWrite fonts on Skia's fontconfig font manager: each thread's font collection, family
+// names (Windows families the launcher asks for map to installed Linux stand-ins), the system and
 // file-built collections, and font metrics in design units.
 #include "dwrite_internal.hpp"
 
+#include "include/core/SkFontMetrics.h"
+#include "include/core/SkTypeface.h"
+#include "include/ports/SkFontMgr_fontconfig.h"
+#include "include/ports/SkFontScanner_FreeType.h"
+#include "modules/skparagraph/include/TypefaceFontProvider.h"
+
 #include <fontconfig/fontconfig.h>
-#include <hb-ot.h>
-#include <hb.h>
 
 #include <algorithm>
 #include <atomic>
@@ -21,21 +25,10 @@
 
 namespace lm_dwrite {
 namespace {
-// Bumped when font files are registered: each thread then starts a new context (a new font map
-// reads fontconfig's fonts again).
-std::atomic<unsigned> font_generation{0};
-
-struct ThreadContext {
-    PangoContext* context = nullptr;
-    unsigned generation = 0;
-    ~ThreadContext() { if (context) g_object_unref(context); }
-};
-
-std::string fold(const std::string& name) {
-    gchar* folded = g_utf8_casefold(name.c_str(), -1);
-    std::string result(folded);
-    g_free(folded);
-    return result;
+// ASCII case folding: family names DirectWrite compares ignoring case.
+std::string fold(std::string name) {
+    for (char& c : name) if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+    return name;
 }
 
 // Windows families and their stand-ins, tried in order after the family itself. The last of
@@ -57,7 +50,7 @@ constexpr const Alias& default_alias = aliases[0];
 const Alias* aliasOf(const std::string& folded) {
     for (const auto& alias : aliases)
         for (const char* name : alias.names)
-            if (!g_ascii_strcasecmp(name, folded.c_str())) return &alias;
+            if (fold(name) == folded) return &alias;
     return nullptr;
 }
 
@@ -98,40 +91,82 @@ std::string resolveSystem(const std::string& family) {
     return result;
 }
 
-// Design-unit metrics of the font fontconfig picks for the family and style.
+// fontconfig's fonts, shared by every thread (Skia's font managers are thread-safe).
+const sk_sp<SkFontMgr>& fontManager() {
+    static const sk_sp<SkFontMgr> manager = SkFontMgr_New_FontConfig(nullptr, SkFontScanner_Make_FreeType());
+    return manager;
+}
+
+// Application fonts (files of IDWriteFontSet collections): their typefaces and family names.
+struct AppFonts {
+    std::mutex mutex;
+    std::set<std::string> files;
+    std::vector<sk_sp<SkTypeface>> typefaces;
+    std::atomic<unsigned> generation{0};
+};
+AppFonts& appFonts() { static AppFonts fonts; return fonts; }
+
+// Every family name a typeface answers to (typographic and legacy, every language).
+std::vector<std::string> familiesOf(const SkTypeface& typeface) {
+    std::vector<std::string> names;
+    SkString name;
+    typeface.getFamilyName(&name);
+    if (!name.isEmpty()) names.emplace_back(name.c_str());
+    if (SkTypeface::LocalizedStrings* strings = typeface.createFamilyNameIterator()) {
+        SkTypeface::LocalizedString localized;
+        while (strings->next(&localized))
+            if (!localized.fString.isEmpty() && std::find(names.begin(), names.end(), localized.fString.c_str()) == names.end())
+                names.emplace_back(localized.fString.c_str());
+        strings->unref();
+    }
+    return names;
+}
+
+sk_sp<SkTypeface> matchTypeface(const std::string& family, SkFontStyle style) {
+    {
+        auto& fonts = appFonts();
+        std::lock_guard lock(fonts.mutex);
+        const std::string key = fold(family);
+        sk_sp<SkTypeface> best;
+        int best_distance = std::numeric_limits<int>::max();
+        for (const auto& typeface : fonts.typefaces) {
+            const auto names = familiesOf(*typeface);
+            if (std::none_of(names.begin(), names.end(), [&](const std::string& name) { return fold(name) == key; })) continue;
+            const SkFontStyle own = typeface->fontStyle();
+            const int distance = std::abs(own.weight() - style.weight()) + (own.slant() != style.slant()) * 1000 + std::abs(own.width() - style.width()) * 100;
+            if (distance < best_distance) { best = typeface; best_distance = distance; }
+        }
+        if (best) return best;
+    }
+    if (auto typeface = fontManager()->matchFamilyStyle(family.c_str(), style)) return typeface;
+    return fontManager()->legacyMakeTypeface(nullptr, style);
+}
+
+// Design-unit metrics of the font matched for the family and style.
 bool fontMetrics(const std::string& family, DWRITE_FONT_WEIGHT weight, DWRITE_FONT_STYLE style, DWRITE_FONT_STRETCH stretch,
                  DWRITE_FONT_METRICS& metrics) {
-    PangoFontDescription* description = describeFont(family, weight, style, stretch, 16);
-    PangoFont* font = pango_context_load_font(threadContext(), description);
-    pango_font_description_free(description);
-    if (!font) return false;
-    hb_font_t* sized = pango_font_get_hb_font(font);
-    hb_face_t* face = sized ? hb_font_get_face(sized) : nullptr;
-    if (face) {
-        hb_font_t* units = hb_font_create(face); // Scaled to design units.
-        const auto get = [&](hb_ot_metrics_tag_t tag) {
-            hb_position_t value = 0;
-            hb_ot_metrics_get_position(units, tag, &value);
-            return value;
-        };
-        const auto u16 = [](long value) { return static_cast<UINT16>(std::clamp<long>(value, 0, std::numeric_limits<UINT16>::max())); };
-        const auto i16 = [](long value) {
-            return static_cast<INT16>(std::clamp<long>(value, std::numeric_limits<INT16>::min(), std::numeric_limits<INT16>::max()));
-        };
-        metrics.designUnitsPerEm = u16(hb_face_get_upem(face));
-        metrics.ascent = u16(get(HB_OT_METRICS_TAG_HORIZONTAL_ASCENDER));
-        metrics.descent = u16(-get(HB_OT_METRICS_TAG_HORIZONTAL_DESCENDER));
-        metrics.lineGap = i16(get(HB_OT_METRICS_TAG_HORIZONTAL_LINE_GAP));
-        metrics.capHeight = u16(get(HB_OT_METRICS_TAG_CAP_HEIGHT));
-        metrics.xHeight = u16(get(HB_OT_METRICS_TAG_X_HEIGHT));
-        metrics.underlinePosition = i16(get(HB_OT_METRICS_TAG_UNDERLINE_OFFSET));
-        metrics.underlineThickness = u16(get(HB_OT_METRICS_TAG_UNDERLINE_SIZE));
-        metrics.strikethroughPosition = i16(get(HB_OT_METRICS_TAG_STRIKEOUT_OFFSET));
-        metrics.strikethroughThickness = u16(get(HB_OT_METRICS_TAG_STRIKEOUT_SIZE));
-        hb_font_destroy(units);
-    }
-    g_object_unref(font);
-    return face != nullptr;
+    const sk_sp<SkTypeface> typeface = matchTypeface(family, fontStyle(weight, style, stretch));
+    const int units = typeface ? typeface->getUnitsPerEm() : 0;
+    if (units <= 0) return false;
+    const SkFont font(typeface, static_cast<SkScalar>(units));
+    SkFontMetrics m;
+    font.getMetrics(&m);
+    const auto u16 = [](double value) { return static_cast<UINT16>(std::clamp<long>(std::lround(value), 0, std::numeric_limits<UINT16>::max())); };
+    const auto i16 = [](double value) {
+        return static_cast<INT16>(std::clamp<long>(std::lround(value), std::numeric_limits<INT16>::min(), std::numeric_limits<INT16>::max()));
+    };
+    metrics.designUnitsPerEm = u16(units);
+    metrics.ascent = u16(-m.fAscent);
+    metrics.descent = u16(m.fDescent);
+    metrics.lineGap = i16(m.fLeading);
+    metrics.capHeight = u16(std::abs(m.fCapHeight));
+    metrics.xHeight = u16(std::abs(m.fXHeight));
+    SkScalar value = 0;
+    metrics.underlinePosition = i16(m.hasUnderlinePosition(&value) ? -value : -units / 10.0); // DirectWrite: negative below the baseline.
+    metrics.underlineThickness = u16(m.hasUnderlineThickness(&value) ? value : units / 20.0);
+    metrics.strikethroughPosition = i16(m.hasStrikeoutPosition(&value) ? -value : units / 4.0);
+    metrics.strikethroughThickness = u16(m.hasStrikeoutThickness(&value) ? value : units / 20.0);
+    return true;
 }
 
 class MatchedFont final : public lm_com::Object<IDWriteFont> {
@@ -142,7 +177,7 @@ private:
     DWRITE_FONT_METRICS metrics_;
 };
 
-// A collection's family, named as fontconfig knows it.
+// A collection's family, named as the font manager knows it.
 class FontFamily final : public lm_com::Object<IDWriteFontFamily> {
 public:
     explicit FontFamily(std::string family) : family_(std::move(family)) {}
@@ -239,50 +274,41 @@ public:
 private:
     std::vector<ComPtr<FontFaceReference>> faces_;
 };
-
-// The families fontconfig lists for a registered file (typographic and legacy names alike).
-void addFamiliesOf(const std::string& path, std::vector<std::string>& families) {
-    FcPattern* pattern = FcPatternCreate();
-    FcPatternAddString(pattern, FC_FILE, reinterpret_cast<const FcChar8*>(path.c_str()));
-    FcObjectSet* objects = FcObjectSetBuild(FC_FAMILY, nullptr);
-    if (FcFontSet* fonts = FcFontList(nullptr, pattern, objects)) {
-        for (int i = 0; i < fonts->nfont; ++i) {
-            FcChar8* name = nullptr;
-            for (int n = 0; FcPatternGetString(fonts->fonts[i], FC_FAMILY, n, &name) == FcResultMatch; ++n) {
-                const std::string family(reinterpret_cast<const char*>(name));
-                if (std::find(families.begin(), families.end(), family) == families.end()) families.push_back(family);
-            }
-        }
-        FcFontSetDestroy(fonts);
-    }
-    FcObjectSetDestroy(objects);
-    FcPatternDestroy(pattern);
-}
 } // namespace
 
-PangoContext* threadContext() {
-    thread_local ThreadContext current;
-    const unsigned generation = font_generation.load(std::memory_order_acquire);
-    if (!current.context || current.generation != generation) {
-        PangoFontMap* map = pango_cairo_font_map_new();
-        PangoContext* context = pango_font_map_create_context(map);
-        g_object_unref(map); // The context holds it.
-        // Absolute sizes in DIPs; outlines and advances unhinted, positions unrounded: widths
-        // measured here are the widths drawn at any scale.
-        pango_cairo_context_set_resolution(context, 96);
-        cairo_font_options_t* options = cairo_font_options_create();
-        cairo_font_options_set_antialias(options, CAIRO_ANTIALIAS_GRAY);
-        cairo_font_options_set_hint_style(options, CAIRO_HINT_STYLE_NONE);
-        cairo_font_options_set_hint_metrics(options, CAIRO_HINT_METRICS_OFF);
-        pango_cairo_context_set_font_options(context, options);
-        cairo_font_options_destroy(options);
-        pango_context_set_round_glyph_positions(context, FALSE);
-        pango_context_set_base_dir(context, PANGO_DIRECTION_LTR);
-        if (current.context) g_object_unref(current.context);
-        current.context = context;
+const sk_sp<textlayout::FontCollection>& threadFontCollection() {
+    struct Current {
+        sk_sp<textlayout::FontCollection> collection;
+        unsigned generation = std::numeric_limits<unsigned>::max();
+    };
+    thread_local Current current;
+    auto& fonts = appFonts();
+    const unsigned generation = fonts.generation.load(std::memory_order_acquire);
+    if (!current.collection || current.generation != generation) {
+        auto collection = sk_make_sp<textlayout::FontCollection>();
+        collection->setDefaultFontManager(fontManager());
+        {
+            std::lock_guard lock(fonts.mutex);
+            if (!fonts.typefaces.empty()) {
+                auto provider = sk_make_sp<textlayout::TypefaceFontProvider>();
+                for (const auto& typeface : fonts.typefaces)
+                    for (const auto& family : familiesOf(*typeface)) provider->registerTypeface(typeface, SkString(family.c_str()));
+                collection->setAssetFontManager(std::move(provider));
+            }
+        }
+        collection->enableFontFallback();
+        current.collection = std::move(collection);
         current.generation = generation;
     }
-    return current.context;
+    return current.collection;
+}
+
+SkFontStyle fontStyle(DWRITE_FONT_WEIGHT weight, DWRITE_FONT_STYLE style, DWRITE_FONT_STRETCH stretch) {
+    // DirectWrite's weights and widths are both OpenType's scales.
+    const bool known = stretch >= DWRITE_FONT_STRETCH_ULTRA_CONDENSED && stretch <= DWRITE_FONT_STRETCH_ULTRA_EXPANDED;
+    return SkFontStyle(std::clamp(static_cast<int>(weight), 100, 1000), known ? static_cast<int>(stretch) : SkFontStyle::kNormal_Width,
+                       style == DWRITE_FONT_STYLE_ITALIC ? SkFontStyle::kItalic_Slant
+                       : style == DWRITE_FONT_STYLE_OBLIQUE ? SkFontStyle::kOblique_Slant : SkFontStyle::kUpright_Slant);
 }
 
 void appendUtf8(std::string& out, char32_t c) {
@@ -323,21 +349,6 @@ IDWriteFontCollection* systemFontCollection() {
     return collection;
 }
 
-PangoFontDescription* describeFont(const std::string& family, DWRITE_FONT_WEIGHT weight, DWRITE_FONT_STYLE style,
-                                   DWRITE_FONT_STRETCH stretch, float size) {
-    PangoFontDescription* description = pango_font_description_new();
-    pango_font_description_set_family(description, family.c_str());
-    // DirectWrite's and Pango's weights are both the OpenType scale.
-    pango_font_description_set_weight(description, static_cast<PangoWeight>(std::clamp(static_cast<int>(weight), 100, 1000)));
-    pango_font_description_set_style(description, style == DWRITE_FONT_STYLE_ITALIC    ? PANGO_STYLE_ITALIC
-                                                  : style == DWRITE_FONT_STYLE_OBLIQUE ? PANGO_STYLE_OBLIQUE
-                                                                                       : PANGO_STYLE_NORMAL);
-    const bool known = stretch >= DWRITE_FONT_STRETCH_ULTRA_CONDENSED && stretch <= DWRITE_FONT_STRETCH_ULTRA_EXPANDED;
-    pango_font_description_set_stretch(description, known ? static_cast<PangoStretch>(stretch - 1) : PANGO_STRETCH_NORMAL);
-    pango_font_description_set_absolute_size(description, size * PANGO_SCALE);
-    return description;
-}
-
 HRESULT createFontFaceReference(std::string path, IDWriteFontFaceReference** reference) {
     if (!reference) return E_POINTER;
     *reference = nullptr;
@@ -352,26 +363,29 @@ HRESULT createFontSetBuilder(IDWriteFontSetBuilder** builder) {
     return S_OK;
 }
 
+// Every face of each file becomes an application font (once per file); the collection lists
+// their families.
 HRESULT createFontCollection(IDWriteFontSet* set, IDWriteFontCollection1** collection) {
     if (!collection) return E_POINTER;
     *collection = nullptr;
     const auto* own = dynamic_cast<const FontSet*>(set);
     if (!own) return E_INVALIDARG;
     std::vector<std::string> families;
+    auto& fonts = appFonts();
     {
-        static std::mutex mutex;
-        static std::set<std::string> registered;
-        std::lock_guard lock(mutex);
+        std::lock_guard lock(fonts.mutex);
         bool added = false;
         for (const auto& face : own->faces) {
-            if (!registered.count(face->path)) {
-                if (!FcConfigAppFontAddFile(nullptr, reinterpret_cast<const FcChar8*>(face->path.c_str()))) continue;
-                registered.insert(face->path);
-                added = true;
+            const bool fresh = fonts.files.insert(face->path).second;
+            for (int index = 0; index < 64; ++index) {
+                sk_sp<SkTypeface> typeface = fontManager()->makeFromFile(face->path.c_str(), index);
+                if (!typeface) break;
+                for (auto& family : familiesOf(*typeface))
+                    if (std::find(families.begin(), families.end(), family) == families.end()) families.push_back(std::move(family));
+                if (fresh) { fonts.typefaces.push_back(std::move(typeface)); added = true; }
             }
-            addFamiliesOf(face->path, families);
         }
-        if (added) font_generation.fetch_add(1, std::memory_order_release);
+        if (added) fonts.generation.fetch_add(1, std::memory_order_release);
     }
     *collection = new FontCollection(false, families);
     return S_OK;

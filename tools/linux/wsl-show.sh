@@ -3,7 +3,8 @@
 # MODE=tv|desktop
 export DISPLAY=${DISPLAY:-:0} WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-wayland-0}
 [ -S "$XDG_RUNTIME_DIR/wayland-0" ] || export XDG_RUNTIME_DIR=/mnt/wslg/runtime-dir
-export SDL_VIDEO_DRIVER=${DRIVER:-wayland}
+# X11 (XWayland): WSLg's Wayland shows GPU frames ~30x slower (src/linux/window/window.cpp).
+export SDL_VIDEO_DRIVER=${DRIVER:-x11}
 export LAUNCHME_CONFIG_DIR=$HOME/lm/data
 mkdir -p "$LAUNCHME_CONFIG_DIR"
 if [ ! -f "$LAUNCHME_CONFIG_DIR/settings.ini" ]; then

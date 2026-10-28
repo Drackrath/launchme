@@ -1,8 +1,16 @@
-// DirectWrite text layouts on Pango. Pango breaks lines, shapes and picks fonts; this file adds
-// what DirectWrite does differently: alignment within the maximum width (also without wrapping),
-// trailing whitespace outside the aligned width, line spacing, paragraph alignment, trimming of
-// text below the box at its last visible line, and positions counted in wchar_t units.
+// DirectWrite text layouts on SkParagraph. SkParagraph shapes, picks fonts, breaks lines and
+// trims with "…"; this file adds what DirectWrite does differently: alignment within the maximum
+// width (also without wrapping), trailing whitespace outside the aligned width, line spacing,
+// paragraph alignment, trimming of text below the box at its last visible line, and positions
+// counted in wchar_t units. The glyphs are gathered once per layout as text blobs, split where a
+// drawing effect or an underline changes.
 #include "dwrite_internal.hpp"
+
+#include "include/core/SkFontMetrics.h"
+#include "modules/skparagraph/include/ParagraphBuilder.h"
+#include "modules/skparagraph/include/ParagraphStyle.h"
+#include "modules/skparagraph/include/TextStyle.h"
+#include "modules/skunicode/include/SkUnicode_icu.h"
 
 #include <algorithm>
 #include <cmath>
@@ -10,38 +18,40 @@
 
 namespace lm_dwrite {
 namespace {
-constexpr float unit = 1.0f / PANGO_SCALE;
-constexpr char sign[] = "\u2026";
-constexpr uint32_t sign_bytes = sizeof(sign) - 1;
+constexpr float unbounded_width = 100000;
 
-bool ellipsized(const PangoLayoutLine* line) {
-    for (const GSList* run = line->runs; run; run = run->next)
-        if (static_cast<const PangoGlyphItem*>(run->data)->item->analysis.flags & PANGO_ANALYSIS_FLAG_IS_ELLIPSIS) return true;
-    return false;
+const sk_sp<SkUnicode>& threadUnicode() {
+    thread_local const sk_sp<SkUnicode> unicode = SkUnicodes::ICU::Make();
+    return unicode;
 }
+
+bool space(wchar_t c) { return c == L' ' || c == L'\t' || c == L'\n' || c == L'\r' || c == 0x2028 || c == 0x2029 || c == 0x00A0 || c == 0x3000; }
 } // namespace
 
 TextLayout::TextLayout(const FormatState& format, const WCHAR* text, UINT32 length, float maxWidth, float maxHeight)
     : FormatBase(format.font(), format.paragraph()), text_(text, length), max_width_(maxWidth), max_height_(maxHeight) {
     utf8_.reserve(length);
     offsets_.reserve(length + 1);
+    utf16_.reserve(length + 1);
+    uint32_t units = 0;
     for (UINT32 i = 0; i < length; ++i) {
         offsets_.push_back(static_cast<uint32_t>(utf8_.size()));
+        utf16_.push_back(units);
         char32_t c = static_cast<char32_t>(text_[i]);
         // A UTF-16 pair (some of the launcher's strings carry them): one code point; its low half
         // is an empty character at the code point's start.
         if (c >= 0xD800 && c < 0xDC00 && i + 1 < length && text_[i + 1] >= 0xDC00 && text_[i + 1] < 0xE000) {
             c = 0x10000 + ((c - 0xD800) << 10) + (static_cast<char32_t>(text_[i + 1]) - 0xDC00);
             offsets_.push_back(offsets_.back());
+            utf16_.push_back(units);
             ++i;
         }
-        appendUtf8(utf8_, c ? c : 0x2060); // Pango's text ends at NUL: an invisible word joiner instead.
+        if (c > 0x10FFFF || (c >= 0xD800 && c < 0xE000)) c = 0xFFFD;
+        units += c >= 0x10000 ? 2 : 1;
+        appendUtf8(utf8_, c ? c : 0x2060); // A NUL would end the text: an invisible word joiner instead.
     }
     offsets_.push_back(static_cast<uint32_t>(utf8_.size()));
-}
-
-TextLayout::~TextLayout() {
-    if (pango_) g_object_unref(pango_);
+    utf16_.push_back(units);
 }
 
 HRESULT TextLayout::create(const WCHAR* text, UINT32 length, IDWriteTextFormat* format, FLOAT maxWidth, FLOAT maxHeight,
@@ -64,6 +74,7 @@ HRESULT TextLayout::style(DWRITE_TEXT_RANGE range, bool relayout, Apply apply) {
     if (styles_.empty()) styles_.assign(length, CharStyle{font_->size, font_->weight});
     for (UINT32 i = range.startPosition; i < end; ++i) apply(styles_[i]);
     if (relayout) dirty_ = true;
+    else restyled_ = true;
     return S_OK;
 }
 
@@ -92,7 +103,7 @@ HRESULT TextLayout::SetDrawingEffect(IUnknown* drawingEffect, DWRITE_TEXT_RANGE 
     return style(textRange, false, [&](CharStyle& style) { style.effect = drawingEffect; });
 }
 
-// Pango spaces letters evenly on both sides: leading and trailing spacing become their sum.
+// SkParagraph spaces letters after each one: leading and trailing spacing become their sum.
 HRESULT TextLayout::SetCharacterSpacing(FLOAT leadingSpacing, FLOAT trailingSpacing, FLOAT minimumAdvanceWidth, DWRITE_TEXT_RANGE textRange) {
     if (!(minimumAdvanceWidth >= 0)) return E_INVALIDARG;
     return style(textRange, true, [&](CharStyle& style) { style.spacing = leadingSpacing + trailingSpacing; });
@@ -100,114 +111,167 @@ HRESULT TextLayout::SetCharacterSpacing(FLOAT leadingSpacing, FLOAT trailingSpac
 
 // ---- Layout -------------------------------------------------------------------------------
 
-UINT32 TextLayout::characterAt(uint32_t byte) const {
-    if (byte >= cut_) return shown_;
-    return static_cast<UINT32>(std::lower_bound(offsets_.begin(), offsets_.end(), byte) - offsets_.begin());
+UINT32 TextLayout::characterOfUtf8(size_t byte) const {
+    const auto it = std::lower_bound(offsets_.begin(), offsets_.end(), static_cast<uint32_t>(byte));
+    if (it != offsets_.end() && *it == byte) return static_cast<UINT32>(it - offsets_.begin());
+    return static_cast<UINT32>(std::max<std::ptrdiff_t>(0, it - offsets_.begin() - 1));
 }
 
-const CharStyle* TextLayout::styleAt(uint32_t byte) const {
-    if (styles_.empty() || !shown_) return nullptr;
-    return &styles_[std::min(characterAt(byte), shown_ - 1)]; // The sign continues the text before it.
+UINT32 TextLayout::characterOfUtf16(size_t unit) const {
+    const auto it = std::lower_bound(utf16_.begin(), utf16_.end(), static_cast<uint32_t>(unit));
+    if (it != utf16_.end() && *it == unit) return static_cast<UINT32>(it - utf16_.begin());
+    return static_cast<UINT32>(std::max<std::ptrdiff_t>(0, it - utf16_.begin() - 1));
 }
 
-PangoAttrList* TextLayout::attributes(bool cut) const {
-    PangoAttrList* list = pango_attr_list_new();
-    const uint32_t end = cut ? cut_ + sign_bytes : cut_;
-    const auto add = [&](PangoAttribute* attribute, uint32_t from, uint32_t to) {
-        attribute->start_index = from;
-        attribute->end_index = to;
-        pango_attr_list_insert(list, attribute);
-    };
-    if (font_->language) add(pango_attr_language_new(font_->language), 0, end);
-    if (styles_.empty()) return list;
-    for (UINT32 first = 0; first < shown_;) {
-        UINT32 last = first + 1;
-        while (last < shown_ && styles_[last] == styles_[first]) ++last;
-        const uint32_t from = offsets_[first], to = last == shown_ ? end : offsets_[last];
-        const CharStyle& style = styles_[first];
-        if (style.size != font_->size) add(pango_attr_size_new_absolute(static_cast<int>(std::lround(style.size * PANGO_SCALE))), from, to);
-        if (style.weight != font_->weight) add(pango_attr_weight_new(static_cast<PangoWeight>(style.weight)), from, to);
-        if (style.spacing != 0) add(pango_attr_letter_spacing_new(static_cast<int>(std::lround(style.spacing * PANGO_SCALE))), from, to);
-        first = last;
-    }
-    return list;
-}
+float TextLayout::layoutWidth() const { return std::isfinite(max_width_) && max_width_ < unbounded_width ? max_width_ : unbounded_width; }
 
-void TextLayout::configure(bool cut, int height) {
-    const Paragraph& paragraph = paragraph_;
-    const bool wraps = paragraph.wrapping != DWRITE_WORD_WRAPPING_NO_WRAP, trims = paragraph.trims();
-    if (cut) {
-        const std::string text = utf8_.substr(0, cut_) + sign;
-        pango_layout_set_text(pango_, text.data(), static_cast<int>(text.size()));
+std::unique_ptr<textlayout::Paragraph> TextLayout::build(size_t max_lines, bool ellipsis) const {
+    textlayout::TextStyle base;
+    base.setFontFamilies({SkString(font_->resolved.c_str())});
+    base.setFontSize(font_->size);
+    base.setFontStyle(fontStyle(font_->weight, font_->style, font_->stretch));
+    if (!font_->locale.empty()) base.setLocale(SkString(font_->locale.c_str()));
+    base.setFontEdging(SkFont::Edging::kAntiAlias);
+    base.setSubpixel(true);
+    base.setFontHinting(SkFontHinting::kNone);
+    textlayout::ParagraphStyle style;
+    style.setTextStyle(base);
+    style.setTextDirection(textlayout::TextDirection::kLtr);
+    style.setTextAlign(paragraph_.alignment == DWRITE_TEXT_ALIGNMENT_JUSTIFIED ? textlayout::TextAlign::kJustify : textlayout::TextAlign::kLeft);
+    style.turnHintingOff();
+    style.setApplyRoundingHack(false);
+    style.setReplaceTabCharacters(true);
+    if (max_lines) style.setMaxLines(max_lines);
+    if (ellipsis) style.setEllipsis(std::u16string(u"\u2026"));
+    auto builder = textlayout::ParagraphBuilder::make(style, collection_, threadUnicode());
+    builder->pushStyle(base);
+    if (styles_.empty()) {
+        builder->addText(utf8_.data(), utf8_.size());
     } else {
-        pango_layout_set_text(pango_, utf8_.data(), static_cast<int>(utf8_.size()));
+        const auto length = static_cast<UINT32>(text_.size());
+        for (UINT32 first = 0; first < length;) {
+            UINT32 last = first + 1;
+            const CharStyle& own = styles_[first];
+            while (last < length && styles_[last].size == own.size && styles_[last].weight == own.weight && styles_[last].spacing == own.spacing) ++last;
+            textlayout::TextStyle part = base;
+            part.setFontSize(own.size);
+            part.setFontStyle(fontStyle(own.weight, font_->style, font_->stretch));
+            part.setLetterSpacing(own.spacing);
+            builder->pushStyle(part);
+            builder->addText(utf8_.data() + offsets_[first], offsets_[last] - offsets_[first]);
+            builder->pop();
+            first = last;
+        }
     }
-    pango_layout_set_font_description(pango_, font_->description.get());
-    PangoAttrList* list = attributes(cut);
-    pango_layout_set_attributes(pango_, list);
-    pango_attr_list_unref(list);
-    // Pango wraps and trims within the width; the alignment is placed by measure().
-    const double width = static_cast<double>(max_width_) * PANGO_SCALE;
-    pango_layout_set_width(pango_, (wraps || trims) && width < 1e9 ? static_cast<int>(std::lround(width)) : -1);
-    pango_layout_set_wrap(pango_, paragraph.wrapping == DWRITE_WORD_WRAPPING_WHOLE_WORD  ? PANGO_WRAP_WORD
-                                  : paragraph.wrapping == DWRITE_WORD_WRAPPING_CHARACTER ? PANGO_WRAP_CHAR
-                                                                                         : PANGO_WRAP_WORD_CHAR);
-    pango_layout_set_justify(pango_, paragraph.alignment == DWRITE_TEXT_ALIGNMENT_JUSTIFIED);
-    // Unwrapped text trims each line at the width; wrapped text only at its last visible line.
-    pango_layout_set_ellipsize(pango_, trims && (!wraps || cut) ? PANGO_ELLIPSIZE_END : PANGO_ELLIPSIZE_NONE);
-    pango_layout_set_height(pango_, wraps ? height : -1);
-    if (utf8_.find('\t') != std::string::npos) {
-        PangoTabArray* tabs = pango_tab_array_new_with_positions(1, FALSE, PANGO_TAB_LEFT,
-                                                                 static_cast<int>(std::lround(GetIncrementalTabStop() * PANGO_SCALE)));
-        pango_layout_set_tabs(pango_, tabs);
-        pango_tab_array_free(tabs);
-    }
+    return builder->Build();
 }
 
-// Pango always has a line, also for empty text.
-void TextLayout::measure() {
+void TextLayout::layOut() {
+    const auto& collection = threadFontCollection();
+    if (collection != collection_) {
+        collection_ = collection;
+        dirty_ = true;
+    }
+    if (!dirty_) {
+        if (restyled_ && laid_) collectRuns(*laid_);
+        restyled_ = false;
+        return;
+    }
+    dirty_ = restyled_ = false;
+    const bool wraps = paragraph_.wrapping != DWRITE_WORD_WRAPPING_NO_WRAP, trims = paragraph_.trims();
+    std::unique_ptr<textlayout::Paragraph> laid;
+    if (!wraps) {
+        // Each line at the width, trimmed when it is longer; untrimmed lines run on.
+        const bool cut = trims && std::isfinite(max_width_) && max_width_ < unbounded_width;
+        laid = build(0, cut);
+        laid->layout(cut ? max_width_ : unbounded_width);
+    } else {
+        laid = build(0, false);
+        laid->layout(layoutWidth());
+        // With trimming, text below the box goes: the last line that fits (at least the first)
+        // ends in the sign.
+        if (trims && std::isfinite(max_height_) && laid->lineNumber() >= 2) {
+            measure(*laid);
+            size_t fit = 1;
+            float bottom = lines_[0].height;
+            while (fit < lines_.size() && bottom + lines_[fit].height <= max_height_ + 0.001f) bottom += lines_[fit++].height;
+            if (fit < lines_.size()) {
+                laid = build(fit, true);
+                laid->layout(layoutWidth());
+            }
+        }
+    }
+    laid_ = std::move(laid);
+    measure(*laid_);
+    collectRuns(*laid_);
+}
+
+// SkParagraph always has a line, also for empty text.
+void TextLayout::measure(textlayout::Paragraph& paragraph) {
+    std::vector<textlayout::LineMetrics> metrics;
+    paragraph.getLineMetrics(metrics);
     lines_.clear();
+    const auto length = static_cast<UINT32>(text_.size());
+    if (metrics.empty()) {
+        textlayout::LineMetrics empty;
+        const float size = font_->size;
+        empty.fAscent = size * 0.9;
+        empty.fDescent = size * 0.25;
+        empty.fBaseline = empty.fAscent;
+        empty.fEndIndex = empty.fEndExcludingWhitespaces = empty.fEndIncludingNewline = utf16_.back();
+        metrics.push_back(empty);
+    }
     float top = 0;
-    for (const GSList* item = pango_layout_get_lines_readonly(pango_); item; item = item->next) {
+    for (size_t i = 0; i < metrics.size(); ++i) {
+        const auto& m = metrics[i];
         Line line;
-        line.pango = static_cast<PangoLayoutLine*>(item->data);
-        PangoRectangle logical;
-        pango_layout_line_get_extents(line.pango, nullptr, &logical);
-        const float natural = logical.height * unit, ascent = -logical.y * unit;
+        const float ascent = static_cast<float>(m.fAscent), descent = static_cast<float>(m.fDescent), natural = ascent + descent;
         switch (paragraph_.spacing_method) {
         case DWRITE_LINE_SPACING_METHOD_UNIFORM: line.height = paragraph_.spacing; line.baseline = paragraph_.baseline; break;
         case DWRITE_LINE_SPACING_METHOD_PROPORTIONAL: line.height = natural * paragraph_.spacing; line.baseline = ascent * paragraph_.baseline; break;
         default: line.height = natural; line.baseline = ascent; break;
         }
-        line.pango_height = logical.height;
-        line.full_width = (logical.x + logical.width) * unit;
         line.top = top;
         top += line.height;
-        line.first = characterAt(line.pango->start_index);
-        line.trimmed = ellipsized(line.pango);
+        line.first = std::min(characterOfUtf16(m.fStartIndex), length);
+        const UINT32 end_text = std::min(characterOfUtf16(m.fEndIndex), length);
+        const UINT32 end_line = std::min(std::max(characterOfUtf16(m.fEndIncludingNewline), end_text), length);
+        UINT32 end_kept = std::min(characterOfUtf16(m.fEndExcludingWhitespaces), end_text);
+        while (end_kept > line.first && space(text_[end_kept - 1])) --end_kept;
+        line.length = end_line > line.first ? end_line - line.first : 0;
+        line.newline = end_line - end_text;
+        line.trailing = end_line - std::max(end_kept, line.first); // DirectWrite counts the newline as whitespace.
+        line.width = static_cast<float>(m.fWidth);
+        line.full_width = line.width;
+        if (end_kept < end_text) {
+            // The trailing whitespace's extent (outside the aligned width).
+            for (const auto& box : paragraph.getRectsForRange(utf16_[end_kept], utf16_[end_text], textlayout::RectHeightStyle::kTight,
+                                                              textlayout::RectWidthStyle::kTight))
+                line.full_width = std::max(line.full_width, box.rect.right() - static_cast<float>(m.fLeft));
+        }
+        line.sk_left = static_cast<float>(m.fLeft);
+        line.sk_baseline = static_cast<float>(m.fBaseline);
+        line.sk_top = line.sk_baseline - ascent;
+        line.sk_bottom = line.sk_baseline + descent;
         lines_.push_back(line);
     }
-    std::vector<Segment> whitespace;
+    // Lines continue each other: a line ends where the next starts.
+    for (size_t i = 0; i + 1 < lines_.size(); ++i)
+        if (lines_[i + 1].first >= lines_[i].first) lines_[i].length = lines_[i + 1].first - lines_[i].first;
+    shown_ = lines_.empty() ? 0 : std::min(length, lines_.back().first + lines_.back().length);
+    if (paragraph.didExceedMaxLines() || (paragraph_.wrapping == DWRITE_WORD_WRAPPING_NO_WRAP && shown_ < length && paragraph_.trims()))
+        lines_.back().trimmed = true;
+    if (!lines_.empty() && paragraph_.trims() && shown_ < length) lines_.back().trimmed = true;
+
     float width = 0, full_width = 0, left = std::numeric_limits<float>::max();
-    for (size_t i = 0; i < lines_.size(); ++i) {
-        Line& line = lines_[i];
-        const UINT32 next = i + 1 < lines_.size() ? lines_[i + 1].first : shown_;
-        const UINT32 content = std::clamp(characterAt(line.pango->start_index + line.pango->length), line.first, next);
-        line.length = next - line.first;
-        line.newline = next - content;
-        UINT32 kept = content;
-        while (kept > line.first && g_unichar_isspace(static_cast<gunichar>(text_[kept - 1]))) --kept;
-        line.trailing = content - kept + line.newline; // DirectWrite counts the newline as whitespace.
-        line.width = line.full_width;
-        if (kept < content && !line.trimmed) {
-            whitespace.clear();
-            segments(line, kept, content, whitespace);
-            for (const Segment& part : whitespace) line.width -= (part.x1 - part.x0) * unit;
-            line.width = std::max(0.0f, line.width);
-        }
+    for (Line& line : lines_) {
         // Aligned within the maximum width without the trailing whitespace, as DirectWrite does.
-        const float room = std::isfinite(max_width_) ? max_width_ - line.width : 0;
-        line.left = paragraph_.alignment == DWRITE_TEXT_ALIGNMENT_TRAILING ? room : paragraph_.alignment == DWRITE_TEXT_ALIGNMENT_CENTER ? room / 2 : 0;
+        if (paragraph_.alignment == DWRITE_TEXT_ALIGNMENT_JUSTIFIED) {
+            line.left = line.sk_left;
+        } else {
+            const float room = std::isfinite(max_width_) ? max_width_ - line.width : 0;
+            line.left = paragraph_.alignment == DWRITE_TEXT_ALIGNMENT_TRAILING ? room : paragraph_.alignment == DWRITE_TEXT_ALIGNMENT_CENTER ? room / 2 : 0;
+        }
         left = std::min(left, line.left);
         width = std::max(width, line.width);
         full_width = std::max(full_width, line.full_width);
@@ -217,91 +281,62 @@ void TextLayout::measure() {
     metrics_ = {left, offset, width, full_width, top, max_width_, max_height_, 1, static_cast<UINT32>(lines_.size())};
 }
 
-void TextLayout::layOut() {
-    PangoContext* context = threadContext();
-    if (context != context_) {
-        if (pango_) g_object_unref(pango_);
-        pango_ = pango_layout_new(context);
-        pango_layout_set_auto_dir(pango_, FALSE);
-        context_ = context;
-        dirty_ = true;
-    }
-    if (!dirty_) return;
-    dirty_ = false;
-    cut_ = static_cast<uint32_t>(utf8_.size());
-    shown_ = static_cast<UINT32>(text_.size());
-    configure(false, -1);
-    measure();
-    // With trimming, text below the box goes: the last line that fits (at least the first) ends
-    // in the sign, after its last visible character.
-    if (!paragraph_.trims() || !std::isfinite(max_height_) || lines_.size() < 2) return;
-    size_t fit = 1;
-    float bottom = lines_[0].height;
-    int height = lines_[0].pango_height;
-    while (fit < lines_.size() && bottom + lines_[fit].height <= max_height_ + 0.001f) {
-        bottom += lines_[fit].height;
-        height += lines_[fit].pango_height;
-        ++fit;
-    }
-    if (fit == lines_.size()) return;
-    const Line& last = lines_[fit - 1];
-    shown_ = last.first + last.length - last.trailing;
-    cut_ = offsets_[shown_];
-    configure(true, height + PANGO_SCALE / 2);
-    measure();
-    lines_.back().trimmed = true;
+// SkParagraph's glyph runs moved to this layout's line places, cut where the drawing style changes.
+void TextLayout::collectRuns(textlayout::Paragraph& paragraph) {
+    runs_.clear();
+    const auto length = static_cast<UINT32>(text_.size());
+    const auto styleAt = [&](uint32_t byte, int line) -> UINT32 {
+        if (styles_.empty() || !length) return 0;
+        UINT32 at = byte <= utf8_.size() ? characterOfUtf8(byte) : length;
+        // The sign (and anything past the shown text) continues the text before it.
+        const UINT32 line_end = line < static_cast<int>(lines_.size()) ? lines_[line].first + lines_[line].length : shown_;
+        if (at >= std::max<UINT32>(1, std::min(shown_, line_end)) || at >= length) at = std::min(shown_, line_end) ? std::min(shown_, line_end) - 1 : 0;
+        return std::min(at, length - 1);
+    };
+    const auto sameInk = [&](UINT32 a, UINT32 b) {
+        return styles_.empty() || (styles_[a].effect.Get() == styles_[b].effect.Get() && styles_[a].underline == styles_[b].underline);
+    };
+    paragraph.visit([&](int number, const textlayout::Paragraph::VisitorInfo* info) {
+        if (!info || number < 0 || number >= static_cast<int>(lines_.size()) || info->count <= 0) return;
+        const Line& line = lines_[number];
+        const float dx = line.left - line.sk_left, dy = metrics_.top + line.top + line.baseline - line.sk_baseline;
+        for (int i = 0; i < info->count;) {
+            const UINT32 style = styleAt(info->utf8Starts[i], number);
+            int j = i + 1;
+            while (j < info->count && sameInk(styleAt(info->utf8Starts[j], number), style)) ++j;
+            SkTextBlobBuilder builder;
+            const auto& buffer = builder.allocRunPos(info->font, j - i);
+            for (int k = i; k < j; ++k) {
+                buffer.glyphs[k - i] = info->glyphs[k];
+                buffer.points()[k - i] = {info->origin.x() + info->positions[k].x() + dx, info->origin.y() + info->positions[k].y() + dy};
+            }
+            Run run{builder.make(), style, !styles_.empty() && styles_[style].underline, {}};
+            if (run.underline) {
+                SkFontMetrics font;
+                info->font.getMetrics(&font);
+                SkScalar position = 0, thickness = 0;
+                if (!font.hasUnderlinePosition(&position)) position = info->font.getSize() * 0.1f;
+                if (!font.hasUnderlineThickness(&thickness) || thickness <= 0) thickness = std::max(1.0f, info->font.getSize() / 16);
+                SkScalar last = 0;
+                info->font.getWidths({&info->glyphs[j - 1], 1}, {&last, 1});
+                const float x0 = info->origin.x() + info->positions[i].x() + dx;
+                const float x1 = info->origin.x() + info->positions[j - 1].x() + dx + last;
+                const float y = info->origin.y() + dy + position;
+                run.underline_rect = SkRect::MakeLTRB(x0, y, x1, y + thickness);
+            }
+            if (run.blob) runs_.push_back(std::move(run));
+            i = j;
+        }
+    });
+}
+
+int TextLayout::lineAtSkiaY(float y) const {
+    for (size_t i = 0; i < lines_.size(); ++i)
+        if (y < lines_[i].sk_bottom || i + 1 == lines_.size()) return static_cast<int>(i);
+    return 0;
 }
 
 // ---- Measuring ----------------------------------------------------------------------------
-
-void TextLayout::segments(const Line& line, UINT32 first, UINT32 end, std::vector<Segment>& out) const {
-    const size_t start = out.size();
-    const UINT32 content = line.first + line.length - line.newline;
-    const uint32_t from = offsets_[std::min(first, shown_)], to = offsets_[std::min(std::min(end, content), shown_)];
-    const char* text = pango_layout_get_text(pango_);
-    int x = 0;
-    for (const GSList* item = line.pango->runs; item; item = item->next) {
-        auto* run = static_cast<PangoGlyphItem*>(item->data);
-        PangoItem* piece = run->item;
-        const int width = pango_glyph_string_get_width(run->glyphs);
-        const uint32_t begin = static_cast<uint32_t>(piece->offset), stop = begin + static_cast<uint32_t>(piece->length);
-        const uint32_t a = std::max(from, begin), b = std::min(to, stop);
-        if (a < b) {
-            const UINT32 level = piece->analysis.level, at = characterAt(a), length = characterAt(b) - at;
-            if (piece->analysis.flags & PANGO_ANALYSIS_FLAG_IS_ELLIPSIS) {
-                out.push_back({at, length, x, x + width, level, true}); // Characters the sign stands for.
-            } else {
-                int x0 = 0, x1 = level % 2 ? 0 : width;
-                pango_glyph_string_index_to_x(run->glyphs, text + begin, piece->length, &piece->analysis, static_cast<int>(a - begin), FALSE, &x0);
-                if (b < stop)
-                    pango_glyph_string_index_to_x(run->glyphs, text + begin, piece->length, &piece->analysis, static_cast<int>(b - begin), FALSE, &x1);
-                out.push_back({at, length, x + std::min(x0, x1), x + std::max(x0, x1), level, false});
-            }
-        }
-        x += width;
-    }
-    // The newline: no width, at the line's end.
-    if (end > content && first < line.first + line.length) {
-        const UINT32 at = std::max(first, content);
-        out.push_back({at, std::min(end, line.first + line.length) - at, x, x, 0, false});
-    }
-    // Pieces continuing each other (runs split by font fallback) are one rectangle.
-    size_t kept = start;
-    for (size_t i = start; i < out.size(); ++i) {
-        if (kept > start) {
-            Segment& previous = out[kept - 1];
-            const Segment& next = out[i];
-            if (previous.first + previous.length == next.first && previous.x1 == next.x0 && previous.level == next.level &&
-                previous.trimmed == next.trimmed) {
-                previous.length += next.length;
-                previous.x1 = next.x1;
-                continue;
-            }
-        }
-        out[kept++] = out[i];
-    }
-    out.resize(kept);
-}
 
 HRESULT TextLayout::GetMetrics(DWRITE_TEXT_METRICS* textMetrics) {
     if (!textMetrics) return E_INVALIDARG;
@@ -322,8 +357,8 @@ HRESULT TextLayout::GetLineMetrics(DWRITE_LINE_METRICS* lineMetrics, UINT32 maxL
     return maxLineCount < count ? E_NOT_SUFFICIENT_BUFFER : S_OK;
 }
 
-// One rectangle per line (per direction run) of the range; characters trimmed below the box
-// are one trimmed, empty rectangle after the sign.
+// One rectangle per line of the range; characters trimmed below the box (or past the sign) are
+// one trimmed, empty rectangle after the line's end.
 HRESULT TextLayout::HitTestTextRange(UINT32 textPosition, UINT32 textLength, FLOAT originX, FLOAT originY,
                                      DWRITE_HIT_TEST_METRICS* hitTestMetrics, UINT32 maxHitTestMetricsCount, UINT32* actualHitTestMetricsCount) {
     if (!actualHitTestMetricsCount || (maxHitTestMetricsCount && !hitTestMetrics)) return E_INVALIDARG;
@@ -331,18 +366,24 @@ HRESULT TextLayout::HitTestTextRange(UINT32 textPosition, UINT32 textLength, FLO
     layOut();
     const UINT32 end = textPosition + std::min(textLength, std::numeric_limits<UINT32>::max() - textPosition);
     std::vector<DWRITE_HIT_TEST_METRICS> hits;
-    std::vector<Segment> parts;
-    for (const Line& line : lines_) {
-        const UINT32 first = std::max(textPosition, line.first), last = std::min(end, line.first + line.length);
+    for (size_t index = 0; index < lines_.size(); ++index) {
+        const Line& line = lines_[index];
+        const UINT32 first = std::max(textPosition, line.first), last = std::min({end, line.first + line.length, shown_});
         if (first >= last) continue;
-        parts.clear();
-        segments(line, first, last, parts);
-        const float x = originX + line.left, y = originY + metrics_.top + line.top;
-        for (const Segment& part : parts)
-            hits.push_back({part.first, part.length, x + part.x0 * unit, y, (part.x1 - part.x0) * unit, line.height, part.level, TRUE, part.trimmed});
+        const float x = originX + line.left - line.sk_left, y = originY + metrics_.top + line.top;
+        // The characters' boxes on this line, as one rectangle.
+        float left = std::numeric_limits<float>::max(), right = -std::numeric_limits<float>::max();
+        for (const auto& box : laid_->getRectsForRange(utf16_[first], utf16_[last], textlayout::RectHeightStyle::kMax,
+                                                            textlayout::RectWidthStyle::kTight)) {
+            if (lineAtSkiaY(box.rect.centerY()) != static_cast<int>(index)) continue;
+            left = std::min(left, box.rect.left());
+            right = std::max(right, box.rect.right());
+        }
+        if (left > right) left = right = line.sk_left + (first >= line.first + line.length - line.trailing ? line.full_width : 0);
+        hits.push_back({first, last - first, x + left, y, right - left, line.height, 0, TRUE, FALSE});
     }
     const auto length = static_cast<UINT32>(text_.size());
-    if (end > shown_ && textPosition < length) {
+    if (end > shown_ && textPosition < length && !lines_.empty()) {
         const Line& line = lines_.back();
         const UINT32 first = std::max(textPosition, shown_);
         hits.push_back({first, std::min(end, length) - first, originX + line.left + line.full_width, originY + metrics_.top + line.top, 0,

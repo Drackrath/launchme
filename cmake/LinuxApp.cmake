@@ -1,10 +1,25 @@
 # Linux: the launcher's window, input, renderer and screens (docs/linux-port.md, phase 3), built
 # from the same src/app and src/ui sources as Windows. Their Windows surface (src/linux/win32) is
-# implemented by real ports: Direct2D on Cairo, DirectWrite on Pango, WIC on image_codec
-# (src/linux/gfx) and the window manager on SDL3 (src/linux/window).
+# implemented by real ports: Direct2D on Skia (GPU: Vulkan, else OpenGL), DirectWrite on
+# SkParagraph, WIC on image_codec (src/linux/gfx) and the window manager on SDL3 (src/linux/window).
 include(cmake/Sources.cmake)
 
-pkg_check_modules(LAUNCHME_GFX REQUIRED IMPORTED_TARGET cairo pangocairo fontconfig harfbuzz)
+# Skia, built from source by tools/linux/build-skia.sh (static libraries, linked in).
+set(LAUNCHME_SKIA_DIR "$ENV{HOME}/skia" CACHE PATH "Skia checkout built by tools/linux/build-skia.sh")
+set(LAUNCHME_SKIA_OUT "${LAUNCHME_SKIA_DIR}/out/Release")
+if(NOT EXISTS "${LAUNCHME_SKIA_OUT}/libskia.a" OR NOT EXISTS "${LAUNCHME_SKIA_OUT}/client_defines.txt")
+    message(FATAL_ERROR "Skia not found in ${LAUNCHME_SKIA_DIR}: run tools/linux/build-skia.sh (or set LAUNCHME_SKIA_DIR)")
+endif()
+file(STRINGS "${LAUNCHME_SKIA_OUT}/client_defines.txt" LAUNCHME_SKIA_DEFINES)
+pkg_check_modules(LAUNCHME_SKIA_DEPS REQUIRED IMPORTED_TARGET fontconfig freetype2 harfbuzz harfbuzz-subset icu-uc icu-i18n)
+add_library(launchme_skia INTERFACE)
+target_include_directories(launchme_skia SYSTEM INTERFACE "${LAUNCHME_SKIA_DIR}" "${LAUNCHME_SKIA_DIR}/include/third_party/vulkan"
+    "${LAUNCHME_SKIA_DIR}/third_party/externals/vulkanmemoryallocator/include")
+target_compile_definitions(launchme_skia INTERFACE ${LAUNCHME_SKIA_DEFINES} SK_USE_INTERNAL_VULKAN_HEADERS)
+target_link_libraries(launchme_skia INTERFACE
+    "${LAUNCHME_SKIA_OUT}/libskparagraph.a" "${LAUNCHME_SKIA_OUT}/libskshaper.a" "${LAUNCHME_SKIA_OUT}/libskunicode_icu.a"
+    "${LAUNCHME_SKIA_OUT}/libskunicode_core.a" "${LAUNCHME_SKIA_OUT}/libpathops.a" "${LAUNCHME_SKIA_OUT}/libskia.a" "${LAUNCHME_SKIA_OUT}/libskcms.a"
+    PkgConfig::LAUNCHME_SKIA_DEPS dl pthread)
 
 set(LAUNCHME_WIN32_INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/src/linux/win32" "${CMAKE_CURRENT_SOURCE_DIR}/src/linux/win32/lower")
 
@@ -14,7 +29,8 @@ file(GLOB LAUNCHME_GFX_SOURCES CONFIGURE_DEPENDS
 add_library(launchme_gfx STATIC ${LAUNCHME_GFX_SOURCES})
 launchme_target_defaults(launchme_gfx)
 target_include_directories(launchme_gfx PUBLIC ${LAUNCHME_WIN32_INCLUDES})
-target_link_libraries(launchme_gfx PUBLIC PkgConfig::LAUNCHME_GFX launchme_core)
+# Skia's headers stay in the ports; its libraries still reach every program linking them.
+target_link_libraries(launchme_gfx PUBLIC launchme_core PRIVATE launchme_skia)
 
 # The window manager, input, clipboard, timers and the shell calls, on SDL3.
 file(GLOB LAUNCHME_WINDOW_SOURCES CONFIGURE_DEPENDS src/linux/window/*.cpp)
@@ -22,7 +38,7 @@ add_library(launchme_window STATIC ${LAUNCHME_WINDOW_SOURCES})
 launchme_target_defaults(launchme_window)
 target_include_directories(launchme_window PUBLIC ${LAUNCHME_WIN32_INCLUDES})
 target_include_directories(launchme_window PRIVATE "${SDL3_INCLUDE_DIR}")
-target_link_libraries(launchme_window PUBLIC launchme_gfx "${SDL3_LIBRARY}")
+target_link_libraries(launchme_window PUBLIC launchme_gfx "${SDL3_LIBRARY}" PRIVATE launchme_skia)
 
 # Every app and UI source the Windows build compiles, but the Windows-only ones, which have Linux
 # counterparts listed after them.

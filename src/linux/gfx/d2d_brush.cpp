@@ -1,40 +1,42 @@
-// Direct2D brushes as Cairo patterns. A brush is defined in the render target's world space
-// mapped by its own transform; while drawing, Cairo's user space is that world space, so a
-// pattern's matrix is the inverse of the brush transform.
+// Direct2D brushes as Skia paints. A brush lies in the render target's world space mapped by its
+// own transform: the shader's local matrix is the brush transform, the canvas matrix the world
+// transform. Shaders are kept until a property changes; the opacity is the paint's alpha.
 #include "d2d_internal.hpp"
+
+#include "include/core/SkColorSpace.h"
+#include "include/effects/SkGradient.h"
+#include "include/gpu/ganesh/GrDirectContext.h"
+#include "include/gpu/ganesh/GrRecordingContext.h"
 
 #include <algorithm>
 
 namespace lm_d2d {
 namespace {
-cairo_extend_t extendFor(D2D1_EXTEND_MODE mode) {
+SkTileMode tileFor(D2D1_EXTEND_MODE mode) {
     switch (mode) {
-    case D2D1_EXTEND_MODE_WRAP: return CAIRO_EXTEND_REPEAT;
-    case D2D1_EXTEND_MODE_MIRROR: return CAIRO_EXTEND_REFLECT;
-    default: return CAIRO_EXTEND_PAD;
+    case D2D1_EXTEND_MODE_WRAP: return SkTileMode::kRepeat;
+    case D2D1_EXTEND_MODE_MIRROR: return SkTileMode::kMirror;
+    default: return SkTileMode::kClamp;
     }
 }
-
-Pattern transparent() { return Pattern(cairo_pattern_create_rgba(0, 0, 0, 0)); }
 
 template <class Interface>
 class BrushObject : public lm_com::Object<Interface>, public Brush {
 public:
     void STDMETHODCALLTYPE SetOpacity(FLOAT opacity) override { opacity_ = opacity; }
-    void STDMETHODCALLTYPE SetTransform(const D2D1_MATRIX_3X2_F* transform) override { if (transform) transform_ = *transform; }
+    void STDMETHODCALLTYPE SetTransform(const D2D1_MATRIX_3X2_F* transform) override {
+        if (transform) { transform_ = *transform; shader_.reset(); }
+    }
     FLOAT STDMETHODCALLTYPE GetOpacity() const override { return opacity_; }
     void STDMETHODCALLTYPE GetTransform(D2D1_MATRIX_3X2_F* transform) const override { if (transform) *transform = transform_; }
 protected:
     explicit BrushObject(const D2D1_BRUSH_PROPERTIES* properties) {
         if (properties) { opacity_ = properties->opacity; transform_ = properties->transform; }
     }
-    // World space to the brush's own space; false for a degenerate transform (nothing painted).
-    bool toBrush(cairo_matrix_t& matrix) const {
-        matrix = toCairo(transform_);
-        return cairo_matrix_invert(&matrix) == CAIRO_STATUS_SUCCESS;
-    }
+    float alpha(float extra) const { return std::clamp(opacity_ * extra, 0.0f, 1.0f); }
     float opacity_ = 1;
     D2D1_MATRIX_3X2_F transform_ = D2D1::IdentityMatrix();
+    mutable sk_sp<SkShader> shader_; // Reset by any setter that changes it.
 };
 
 class SolidColorBrush final : public BrushObject<ID2D1SolidColorBrush> {
@@ -42,8 +44,10 @@ public:
     SolidColorBrush(const D2D1_COLOR_F& color, const D2D1_BRUSH_PROPERTIES* properties) : BrushObject(properties), color_(color) {}
     void STDMETHODCALLTYPE SetColor(const D2D1_COLOR_F* color) override { if (color) color_ = *color; }
     D2D1_COLOR_F STDMETHODCALLTYPE GetColor() const override { return color_; }
-    Paint paint(double extra) const override {
-        return {Pattern(cairo_pattern_create_rgba(color_.r, color_.g, color_.b, std::clamp(color_.a * opacity_ * extra, 0.0, 1.0)))};
+    void paint(SkPaint& paint, GrDirectContext*, float extra) const override {
+        paint.setShader(nullptr);
+        paint.setColor4f({std::clamp(color_.r, 0.0f, 1.0f), std::clamp(color_.g, 0.0f, 1.0f), std::clamp(color_.b, 0.0f, 1.0f),
+                          std::clamp(color_.a, 0.0f, 1.0f) * alpha(extra)});
     }
 private:
     D2D1_COLOR_F color_;
@@ -51,125 +55,124 @@ private:
 
 class GradientStopCollection final : public lm_com::Object<ID2D1GradientStopCollection> {
 public:
-    GradientStopCollection(std::vector<D2D1_GRADIENT_STOP> stops, D2D1_EXTEND_MODE extend) : stops_(std::move(stops)), extend_(extend) {
-        std::stable_sort(stops_.begin(), stops_.end(), [](const auto& a, const auto& b) { return a.position < b.position; });
+    GradientStopCollection(std::vector<D2D1_GRADIENT_STOP> stops, D2D1_EXTEND_MODE extend) : extend_(extend) {
+        std::stable_sort(stops.begin(), stops.end(), [](const auto& a, const auto& b) { return a.position < b.position; });
+        for (const auto& stop : stops) {
+            colors_.push_back({std::clamp(stop.color.r, 0.0f, 1.0f), std::clamp(stop.color.g, 0.0f, 1.0f),
+                               std::clamp(stop.color.b, 0.0f, 1.0f), std::clamp(stop.color.a, 0.0f, 1.0f)});
+            positions_.push_back(std::clamp(stop.position, 0.0f, 1.0f));
+        }
     }
-    UINT32 STDMETHODCALLTYPE GetGradientStopCount() const override { return static_cast<UINT32>(stops_.size()); }
-    // The stops (straight colours, interpolated by Cairo) and extend mode, at `alpha`.
-    void fill(cairo_pattern_t* pattern, double alpha) const {
-        for (const auto& stop : stops_)
-            cairo_pattern_add_color_stop_rgba(pattern, stop.position, stop.color.r, stop.color.g, stop.color.b,
-                                              std::clamp(stop.color.a * alpha, 0.0, 1.0));
-        cairo_pattern_set_extend(pattern, extendFor(extend_));
+    UINT32 STDMETHODCALLTYPE GetGradientStopCount() const override { return static_cast<UINT32>(colors_.size()); }
+    // Interpolated in premultiplied colour, as Direct2D does (no dark fringe toward transparent stops).
+    SkGradient gradient() const {
+        return SkGradient(SkGradient::Colors(colors_, positions_, tileFor(extend_)),
+                          SkGradient::Interpolation{SkGradient::Interpolation::InPremul::kYes});
     }
-    // Clamped and fully transparent past the last stop: nothing shows outside the gradient's extent.
-    bool fadesOut() const { return extend_ == D2D1_EXTEND_MODE_CLAMP && (stops_.empty() || stops_.back().color.a <= 0.0f); }
+    SkColor4f last() const { return colors_.empty() ? SkColors::kTransparent : colors_.back(); }
 private:
-    std::vector<D2D1_GRADIENT_STOP> stops_;
+    std::vector<SkColor4f> colors_;
+    std::vector<float> positions_;
     D2D1_EXTEND_MODE extend_;
 };
+
+// A gradient's shader, or its last colour when the gradient is degenerate.
+void shaderPaint(SkPaint& paint, const sk_sp<SkShader>& shader, const GradientStopCollection& stops, float alpha) {
+    if (shader) {
+        paint.setShader(shader);
+        paint.setColor4f({0, 0, 0, alpha});
+    } else {
+        SkColor4f color = stops.last();
+        color.fA *= alpha;
+        paint.setShader(nullptr);
+        paint.setColor4f(color);
+    }
+}
 
 class LinearGradientBrush final : public BrushObject<ID2D1LinearGradientBrush> {
 public:
     LinearGradientBrush(const D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES& gradient, const D2D1_BRUSH_PROPERTIES* properties,
                         ComPtr<GradientStopCollection> stops)
         : BrushObject(properties), gradient_(gradient), stops_(std::move(stops)) {}
-    void STDMETHODCALLTYPE SetStartPoint(D2D1_POINT_2F point) override { gradient_.startPoint = point; }
-    void STDMETHODCALLTYPE SetEndPoint(D2D1_POINT_2F point) override { gradient_.endPoint = point; }
+    void STDMETHODCALLTYPE SetStartPoint(D2D1_POINT_2F point) override { gradient_.startPoint = point; shader_.reset(); }
+    void STDMETHODCALLTYPE SetEndPoint(D2D1_POINT_2F point) override { gradient_.endPoint = point; shader_.reset(); }
     D2D1_POINT_2F STDMETHODCALLTYPE GetStartPoint() const override { return gradient_.startPoint; }
     D2D1_POINT_2F STDMETHODCALLTYPE GetEndPoint() const override { return gradient_.endPoint; }
-    Paint paint(double extra) const override {
-        cairo_matrix_t matrix;
-        if (!toBrush(matrix)) return {transparent()};
-        Pattern pattern(cairo_pattern_create_linear(gradient_.startPoint.x, gradient_.startPoint.y, gradient_.endPoint.x, gradient_.endPoint.y));
-        stops_->fill(pattern.get(), opacity_ * extra);
-        cairo_pattern_set_matrix(pattern.get(), &matrix);
-        return {std::move(pattern)};
+    void paint(SkPaint& paint, GrDirectContext*, float extra) const override {
+        if (!shader_) {
+            const SkPoint points[2] = {{gradient_.startPoint.x, gradient_.startPoint.y}, {gradient_.endPoint.x, gradient_.endPoint.y}};
+            const SkMatrix local = toSk(transform_);
+            if (points[0] != points[1]) shader_ = SkShaders::LinearGradient(points, stops_->gradient(), &local);
+        }
+        shaderPaint(paint, shader_, *stops_.Get(), alpha(extra));
     }
 private:
     D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES gradient_;
     ComPtr<GradientStopCollection> stops_;
 };
 
-// An elliptical gradient: drawn as a circular one of radius 1 in a space scaled by the radii,
-// the focus at the origin offset.
+// An elliptical gradient: a circular one of radius 1 in a space scaled by the radii around the
+// centre; an origin offset is the focus of a two-point conical gradient.
 class RadialGradientBrush final : public BrushObject<ID2D1RadialGradientBrush> {
 public:
     RadialGradientBrush(const D2D1_RADIAL_GRADIENT_BRUSH_PROPERTIES& gradient, const D2D1_BRUSH_PROPERTIES* properties,
                         ComPtr<GradientStopCollection> stops)
         : BrushObject(properties), gradient_(gradient), stops_(std::move(stops)) {}
-    void STDMETHODCALLTYPE SetCenter(D2D1_POINT_2F center) override { gradient_.center = center; }
-    void STDMETHODCALLTYPE SetGradientOriginOffset(D2D1_POINT_2F offset) override { gradient_.gradientOriginOffset = offset; }
-    void STDMETHODCALLTYPE SetRadiusX(FLOAT radius) override { gradient_.radiusX = radius; }
-    void STDMETHODCALLTYPE SetRadiusY(FLOAT radius) override { gradient_.radiusY = radius; }
+    void STDMETHODCALLTYPE SetCenter(D2D1_POINT_2F center) override { gradient_.center = center; shader_.reset(); }
+    void STDMETHODCALLTYPE SetGradientOriginOffset(D2D1_POINT_2F offset) override { gradient_.gradientOriginOffset = offset; shader_.reset(); }
+    void STDMETHODCALLTYPE SetRadiusX(FLOAT radius) override { gradient_.radiusX = radius; shader_.reset(); }
+    void STDMETHODCALLTYPE SetRadiusY(FLOAT radius) override { gradient_.radiusY = radius; shader_.reset(); }
     D2D1_POINT_2F STDMETHODCALLTYPE GetCenter() const override { return gradient_.center; }
     D2D1_POINT_2F STDMETHODCALLTYPE GetGradientOriginOffset() const override { return gradient_.gradientOriginOffset; }
     FLOAT STDMETHODCALLTYPE GetRadiusX() const override { return gradient_.radiusX; }
     FLOAT STDMETHODCALLTYPE GetRadiusY() const override { return gradient_.radiusY; }
-    Paint paint(double extra) const override {
-        cairo_matrix_t matrix;
-        const double rx = std::max(std::abs(gradient_.radiusX), 1e-6f), ry = std::max(std::abs(gradient_.radiusY), 1e-6f);
-        if (!toBrush(matrix)) return {transparent()};
-        cairo_matrix_t unit;
-        cairo_matrix_init_translate(&unit, -gradient_.center.x, -gradient_.center.y);
-        cairo_matrix_t scale;
-        cairo_matrix_init_scale(&scale, 1 / rx, 1 / ry);
-        matrix = multiply(multiply(matrix, unit), scale);
-        Pattern pattern(cairo_pattern_create_radial(gradient_.gradientOriginOffset.x / rx, gradient_.gradientOriginOffset.y / ry, 0, 0, 0, 1));
-        stops_->fill(pattern.get(), opacity_ * extra);
-        cairo_pattern_set_matrix(pattern.get(), &matrix);
-        Paint result{std::move(pattern)};
-        if (stops_->fadesOut()) {
-            // The ellipse's box in world space (the brush transform maps its corners).
-            const double xs[] = {gradient_.center.x - rx, gradient_.center.x + rx}, ys[] = {gradient_.center.y - ry, gradient_.center.y + ry};
-            const cairo_matrix_t world = toCairo(transform_);
-            result.bounded = true;
-            result.left = result.top = 1e300; result.right = result.bottom = -1e300;
-            for (const double x : xs) for (const double y : ys) {
-                double px = x, py = y;
-                cairo_matrix_transform_point(&world, &px, &py);
-                result.left = std::min(result.left, px); result.right = std::max(result.right, px);
-                result.top = std::min(result.top, py); result.bottom = std::max(result.bottom, py);
-            }
+    void paint(SkPaint& paint, GrDirectContext*, float extra) const override {
+        const float rx = std::abs(gradient_.radiusX), ry = std::abs(gradient_.radiusY);
+        if (rx < 1e-6f || ry < 1e-6f) { paint.setShader(nullptr); paint.setColor4f(SkColors::kTransparent); return; }
+        if (!shader_) {
+            SkMatrix local = toSk(transform_);
+            local.preTranslate(gradient_.center.x, gradient_.center.y);
+            local.preScale(rx, ry);
+            const SkPoint focus{gradient_.gradientOriginOffset.x / rx, gradient_.gradientOriginOffset.y / ry};
+            shader_ = focus.isZero() ? SkShaders::RadialGradient({0, 0}, 1, stops_->gradient(), &local)
+                                     : SkShaders::TwoPointConicalGradient(focus, 0, {0, 0}, 1, stops_->gradient(), &local);
         }
-        return result;
+        shaderPaint(paint, shader_, *stops_.Get(), alpha(extra));
     }
 private:
     D2D1_RADIAL_GRADIENT_BRUSH_PROPERTIES gradient_;
     ComPtr<GradientStopCollection> stops_;
 };
 
-// The bitmap tiles its DIP space. Cairo has one extend mode for both axes: X's applies (the
-// launcher always sets both alike).
+// The bitmap tiles its DIP space with an extend mode per axis.
 class BitmapBrush final : public BrushObject<ID2D1BitmapBrush> {
 public:
     BitmapBrush(ComPtr<Bitmap> bitmap, const D2D1_BITMAP_BRUSH_PROPERTIES* bitmapProperties, const D2D1_BRUSH_PROPERTIES* properties)
         : BrushObject(properties), bitmap_(std::move(bitmap)) {
         if (bitmapProperties) {
             extend_x_ = bitmapProperties->extendModeX;
+            extend_y_ = bitmapProperties->extendModeY;
             interpolation_ = bitmapProperties->interpolationMode;
         }
     }
     void STDMETHODCALLTYPE SetExtendModeX(D2D1_EXTEND_MODE mode) override { extend_x_ = mode; }
-    void STDMETHODCALLTYPE SetExtendModeY(D2D1_EXTEND_MODE) override {}
+    void STDMETHODCALLTYPE SetExtendModeY(D2D1_EXTEND_MODE mode) override { extend_y_ = mode; }
     void STDMETHODCALLTYPE SetInterpolationMode(D2D1_BITMAP_INTERPOLATION_MODE mode) override { interpolation_ = mode; }
     void STDMETHODCALLTYPE SetBitmap(ID2D1Bitmap* bitmap) override { bitmap_ = Bitmap::from(bitmap); }
-    Paint paint(double extra) const override {
-        cairo_matrix_t matrix;
-        if (!bitmap_ || !toBrush(matrix)) return {transparent()};
-        cairo_matrix_t pixels;
-        cairo_matrix_init_scale(&pixels, bitmap_->scaleX(), bitmap_->scaleY());
-        matrix = multiply(matrix, pixels);
-        Pattern pattern(cairo_pattern_create_for_surface(bitmap_->surface()));
-        cairo_pattern_set_matrix(pattern.get(), &matrix);
-        cairo_pattern_set_extend(pattern.get(), extendFor(extend_x_));
-        cairo_pattern_set_filter(pattern.get(), filterFor(interpolation_ == D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR ?
-                                                          D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR : D2D1_INTERPOLATION_MODE_LINEAR));
-        return {std::move(pattern), opacity_ * extra};
+    // Made per draw: the bitmap's pixels may have changed (a render target's).
+    void paint(SkPaint& paint, GrDirectContext* gpu, float extra) const override {
+        sk_sp<SkImage> image = bitmap_ ? bitmap_->image(gpu) : nullptr;
+        if (!image) { paint.setShader(nullptr); paint.setColor4f(SkColors::kTransparent); return; }
+        SkMatrix local = toSk(transform_);
+        local.preScale(static_cast<float>(1 / bitmap_->scaleX()), static_cast<float>(1 / bitmap_->scaleY()));
+        const SkSamplingOptions sampling(interpolation_ == D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR ? SkFilterMode::kNearest
+                                                                                                            : SkFilterMode::kLinear);
+        paint.setShader(image->makeShader(tileFor(extend_x_), tileFor(extend_y_), sampling, &local));
+        paint.setColor4f({0, 0, 0, alpha(extra)});
     }
 private:
     ComPtr<Bitmap> bitmap_;
-    D2D1_EXTEND_MODE extend_x_ = D2D1_EXTEND_MODE_CLAMP;
+    D2D1_EXTEND_MODE extend_x_ = D2D1_EXTEND_MODE_CLAMP, extend_y_ = D2D1_EXTEND_MODE_CLAMP;
     D2D1_BITMAP_INTERPOLATION_MODE interpolation_ = D2D1_BITMAP_INTERPOLATION_MODE_LINEAR;
 };
 
@@ -216,22 +219,11 @@ HRESULT createBitmapBrush(ID2D1Bitmap* bitmap, const D2D1_BITMAP_BRUSH_PROPERTIE
 } // namespace lm_d2d
 
 namespace lm_gfx {
-// The text's user space may be moved from the world space the brush was set up in: the world
-// transform the render target left on the context (user data) maps between them.
-bool applyBrush(cairo_t* context, IUnknown* brush) {
+bool brushPaint(IUnknown* brush, SkCanvas* canvas, SkPaint& paint) {
     const auto* own = lm_d2d::Brush::from(brush);
     if (!own) return false;
-    auto paint = own->paint(1);
-    if (const auto* world = static_cast<const cairo_matrix_t*>(cairo_get_user_data(context, lm_d2d::worldKey()))) {
-        cairo_matrix_t current, to_world = *world, pattern;
-        cairo_get_matrix(context, &current);
-        if (cairo_matrix_invert(&to_world) == CAIRO_STATUS_SUCCESS) {
-            cairo_pattern_get_matrix(paint.pattern.get(), &pattern);
-            const cairo_matrix_t mapped = lm_d2d::multiply(lm_d2d::multiply(current, to_world), pattern);
-            cairo_pattern_set_matrix(paint.pattern.get(), &mapped);
-        }
-    }
-    cairo_set_source(context, paint.pattern.get());
+    GrRecordingContext* recording = canvas ? canvas->recordingContext() : nullptr;
+    own->paint(paint, recording ? recording->asDirectContext() : nullptr, 1);
     return true;
 }
 } // namespace lm_gfx

@@ -2,7 +2,7 @@
 // painting and presentation, placement, focus, capture and monitors. Input translation is in
 // events.cpp; the clipboard, cursor, shell and dialogs in shell.cpp.
 #include "window_internal.hpp"
-#include "../gfx/gfx_internal.hpp"
+#include "gpu.hpp"
 #include "../../platform/text_encoding.hpp"
 
 #include <algorithm>
@@ -72,12 +72,6 @@ SDL_DisplayID displayFilledBy(const RECT& rect) {
     }
     SDL_free(displays);
     return found;
-}
-
-void releaseSurface(Window* target) {
-    if (target->texture) SDL_DestroyTexture(target->texture);
-    target->texture = nullptr;
-    target->texture_width = target->texture_height = 0;
 }
 
 SDL_HitTestResult hitTest(SDL_Window* sdl, const SDL_Point* area, void*) {
@@ -183,9 +177,14 @@ HWND CreateWindowExW(DWORD ex_style, const wchar_t* class_name, const wchar_t* t
     SDL_SetBooleanProperty(properties, SDL_PROP_WINDOW_CREATE_BORDERLESS_BOOLEAN, (style & WS_CAPTION) == 0);
     SDL_SetBooleanProperty(properties, SDL_PROP_WINDOW_CREATE_ALWAYS_ON_TOP_BOOLEAN, (ex_style & WS_EX_TOPMOST) != 0);
     SDL_SetBooleanProperty(properties, SDL_PROP_WINDOW_CREATE_UTILITY_BOOLEAN, (ex_style & WS_EX_TOOLWINDOW) != 0);
+    // Drawn on the GPU: the window is made for Vulkan or OpenGL (gpu.cpp).
+    const SDL_WindowFlags gpu_flags = gpu::windowFlags();
+    SDL_SetBooleanProperty(properties, SDL_PROP_WINDOW_CREATE_VULKAN_BOOLEAN, (gpu_flags & SDL_WINDOW_VULKAN) != 0);
+    SDL_SetBooleanProperty(properties, SDL_PROP_WINDOW_CREATE_OPENGL_BOOLEAN, (gpu_flags & SDL_WINDOW_OPENGL) != 0);
     created->sdl = SDL_CreateWindowWithProperties(properties);
     SDL_DestroyProperties(properties);
     if (!created->sdl) { delete created; return nullptr; }
+    gpu::created(created);
     created->id = SDL_GetWindowID(created->sdl);
     {
         std::lock_guard lock(s.windows_mutex);
@@ -219,8 +218,7 @@ BOOL DestroyWindow(HWND handle) {
     std::erase_if(s.input, [&](const MSG& message) { return message.hwnd == handle; });
     if (s.capture == handle) s.capture = nullptr;
     if (s.focus == handle) s.focus = nullptr;
-    releaseSurface(target);
-    if (target->renderer) SDL_DestroyRenderer(target->renderer);
+    gpu::release(target);
     if (target->sdl) SDL_DestroyWindow(target->sdl);
     delete target;
     return TRUE;
@@ -730,37 +728,6 @@ BOOL GetUpdateRect(HWND handle, RECT* rect, BOOL) {
     return TRUE;
 }
 
-namespace lm_gfx {
-void windowPixelSize(HWND handle, UINT32& width, UINT32& height) {
-    width = height = 0;
-    Window* target = window(handle);
-    if (!target) return;
-    int w = 0, h = 0;
-    SDL_GetWindowSizeInPixels(target->sdl, &w, &h);
-    width = static_cast<UINT32>(std::max(0, w));
-    height = static_cast<UINT32>(std::max(0, h));
-}
-
-// The frame goes straight into the window's own buffer (wl_shm on Wayland, XShm on X11): a CPU-drawn
-// frame never passes through OpenGL, whose upload is the slowest path in WSL and on software GL.
-bool presentWindow(HWND handle, const uint8_t* pixels, UINT32 width, UINT32 height, UINT32 stride) {
-    Window* target = window(handle);
-    if (!target || !pixels || !width || !height) return false;
-    SDL_Surface* surface = SDL_GetWindowSurface(target->sdl);
-    if (!surface || !surface->pixels) return false;
-    const int rows = std::min<int>(surface->h, static_cast<int>(height));
-    const size_t bytes = static_cast<size_t>(std::min<int>(surface->w, static_cast<int>(width))) * 4;
-    if (surface->format == SDL_PIXELFORMAT_ARGB8888 || surface->format == SDL_PIXELFORMAT_XRGB8888) {
-        if (static_cast<UINT32>(surface->pitch) == stride && bytes == stride) std::memcpy(surface->pixels, pixels, static_cast<size_t>(rows) * stride);
-        else for (int y = 0; y < rows; ++y) std::memcpy(static_cast<uint8_t*>(surface->pixels) + static_cast<size_t>(y) * surface->pitch, pixels + static_cast<size_t>(y) * stride, bytes);
-    } else {
-        SDL_ConvertPixels(std::min<int>(surface->w, static_cast<int>(width)), rows, SDL_PIXELFORMAT_ARGB8888, pixels, static_cast<int>(stride),
-                          surface->format, surface->pixels, surface->pitch);
-    }
-    return SDL_UpdateWindowSurface(target->sdl);
-}
-}
-
 // ---- Timers --------------------------------------------------------------------------------
 
 UINT_PTR SetTimer(HWND handle, UINT_PTR id, UINT elapse, TIMERPROC procedure) {
@@ -914,8 +881,13 @@ bool start(std::string& error) {
     SDL_SetHint(SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH, "1");
     // Pads keep their state current while a game has the focus (ControllerInput reads them).
     SDL_SetHintWithPriority(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1", SDL_HINT_DEFAULT);
-    // WSL: Mesa picks llvmpipe (OpenGL on the CPU) unless told to use the GPU through D3D12.
-    if (!std::getenv("GALLIUM_DRIVER") && access("/usr/lib/wsl/lib/libd3d12.so", R_OK) == 0) setenv("GALLIUM_DRIVER", "d3d12", 0);
+    // WSL: Mesa picks llvmpipe (OpenGL on the CPU) unless told to use the GPU through D3D12, and
+    // WSLg's Wayland takes a GPU frame through a copy of a quarter second; its X server (XWayland)
+    // shows the same frame in a few milliseconds.
+    if (access("/usr/lib/wsl/lib/libd3d12.so", R_OK) == 0) {
+        if (!std::getenv("GALLIUM_DRIVER")) setenv("GALLIUM_DRIVER", "d3d12", 0);
+        if (!std::getenv("SDL_VIDEO_DRIVER") && std::getenv("DISPLAY")) SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "x11");
+    }
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS)) { error = SDL_GetError(); return false; }
     // Gamepads on the thread that pumps events (their hotplug becomes WM_DEVICECHANGE); a machine
     // without joystick support still starts.
@@ -944,6 +916,7 @@ void stop() {
     auto& s = state();
     if (!s.started) return;
     s.started = false;
+    gpu::shutdown();
     if (s.gamepads) SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
     s.gamepads = false;
     SDL_QuitSubSystem(SDL_INIT_VIDEO | SDL_INIT_EVENTS);

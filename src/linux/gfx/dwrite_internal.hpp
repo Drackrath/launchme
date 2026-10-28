@@ -1,13 +1,21 @@
 #pragma once
-// Linux only: the DirectWrite port's private types, shared by dwrite_*.cpp. Pango lays text out
-// (HarfBuzz shapes it, fontconfig picks fonts and fallbacks) in a per-thread PangoContext that
-// measures unhinted, unrounded positions in DIPs, so a layout measures the same under any
-// transform it is drawn with. Pango works in UTF-8; the API counts wchar_t (UTF-32) units.
+// Linux only: the DirectWrite port's private types, shared by dwrite_*.cpp. SkParagraph lays text
+// out (HarfBuzz shapes it, ICU breaks lines, fontconfig picks fonts and fallbacks) with unhinted,
+// unrounded positions in DIPs, so a layout measures the same under any transform it is drawn
+// with. This port then places the lines as DirectWrite does (alignment without trailing
+// whitespace, line spacing, paragraph alignment, trimming) and draws the glyphs itself, a
+// drawing effect's brush per range. SkParagraph counts UTF-8 and UTF-16 units; the API counts
+// wchar_t (UTF-32) units.
 #include "gfx_internal.hpp"
 #include "../win32/dwrite_3.h"
 #include "../win32/wrl/client.h"
 
-#include <pango/pangocairo.h>
+#include "include/core/SkFont.h"
+#include "include/core/SkFontMgr.h"
+#include "include/core/SkFontStyle.h"
+#include "include/core/SkTextBlob.h"
+#include "modules/skparagraph/include/FontCollection.h"
+#include "modules/skparagraph/include/Paragraph.h"
 
 #include <memory>
 #include <string>
@@ -15,23 +23,23 @@
 
 namespace lm_dwrite {
 using Microsoft::WRL::ComPtr;
+namespace textlayout = skia::textlayout;
 
-// ---- Pango and fonts (dwrite_fonts.cpp) ---------------------------------------------------
+// ---- Fonts (dwrite_fonts.cpp) -------------------------------------------------------------
 
-// The calling thread's context (Pango objects are not thread-safe). Replaced when font files
-// are registered; layouts built in an older context lay themselves out again.
-PangoContext* threadContext();
+// The calling thread's font collection (fontconfig's fonts, the registered application fonts,
+// fallback on). Replaced when font files are registered: layouts built with an older one lay
+// themselves out again.
+const sk_sp<textlayout::FontCollection>& threadFontCollection();
 
-// The fontconfig family to ask for `family` (DirectWrite matches family names ignoring case):
-// the collection's own family, an installed one, or the Linux stand-in for a Windows family.
+// The family to ask for `family` (DirectWrite matches family names ignoring case): the
+// collection's own family, an installed one, or the Linux stand-in for a Windows family.
 std::string resolveFamily(const std::wstring& family, IDWriteFontCollection* collection);
 // The system collection (not AddRef'd): installed families and the aliased Windows ones.
 IDWriteFontCollection* systemFontCollection();
-PangoFontDescription* describeFont(const std::string& family, DWRITE_FONT_WEIGHT weight, DWRITE_FONT_STYLE style,
-                                   DWRITE_FONT_STRETCH stretch, float size);
+SkFontStyle fontStyle(DWRITE_FONT_WEIGHT weight, DWRITE_FONT_STYLE style, DWRITE_FONT_STRETCH stretch);
 
-// IDWriteFactory3's font sets: files registered with fontconfig as application fonts (every
-// face of a file).
+// IDWriteFactory3's font sets: files loaded as application fonts (every face of a file).
 HRESULT createFontFaceReference(std::string path, IDWriteFontFaceReference** reference);
 HRESULT createFontSetBuilder(IDWriteFontSetBuilder** builder);
 HRESULT createFontCollection(IDWriteFontSet* set, IDWriteFontCollection1** collection);
@@ -42,8 +50,6 @@ std::string toUtf8(const std::wstring& text);
 
 // ---- Formats (dwrite_factory.cpp) ---------------------------------------------------------
 
-struct DescriptionDeleter { void operator()(PangoFontDescription* d) const { pango_font_description_free(d); } };
-
 // A format's font, fixed at CreateTextFormat and shared by the layouts made from it.
 struct FontSpec {
     std::wstring family;
@@ -52,8 +58,8 @@ struct FontSpec {
     DWRITE_FONT_STYLE style;
     DWRITE_FONT_STRETCH stretch;
     float size;
-    PangoLanguage* language; // Null for an empty locale.
-    std::unique_ptr<PangoFontDescription, DescriptionDeleter> description;
+    std::string resolved; // The family asked of the font collection.
+    std::string locale;   // BCP 47; empty for none.
 };
 
 struct Paragraph {
@@ -75,10 +81,13 @@ public:
     static const FormatState* from(IDWriteTextFormat* format);
     const std::shared_ptr<const FontSpec>& font() const { return font_; }
     const Paragraph& paragraph() const { return paragraph_; }
+    // Changes with every paragraph setter (DrawText's layout cache).
+    uint64_t revision() const { return revision_; }
 protected:
     FormatState(std::shared_ptr<const FontSpec> font, Paragraph paragraph) : font_(std::move(font)), paragraph_(std::move(paragraph)) {}
     std::shared_ptr<const FontSpec> font_;
     Paragraph paragraph_;
+    uint64_t revision_ = 0;
 };
 
 // IDWriteTextFormat's methods, for formats and layouts; `changed` follows each paragraph setter.
@@ -107,6 +116,8 @@ public:
 protected:
     using FormatState::FormatState;
     virtual void changed() {}
+private:
+    void edited() { ++revision_; changed(); }
 };
 extern template class FormatBase<IDWriteTextFormat>;
 extern template class FormatBase<IDWriteTextLayout1>;
@@ -146,59 +157,58 @@ public:
                                                DWRITE_HIT_TEST_METRICS* hitTestMetrics, UINT32 maxHitTestMetricsCount,
                                                UINT32* actualHitTestMetricsCount) override;
 
-    // Draws the layout with its box's top-left corner at (x, y), in the context's current source.
-    void draw(cairo_t* context, float x, float y);
+    // Draws the layout with its box's top-left corner at (x, y), in `paint` (drawing effects in
+    // their brushes).
+    void draw(SkCanvas* canvas, float x, float y, const SkPaint& paint);
 
 private:
     // A laid-out line. Positions are DIPs; `left` is where the line starts in the layout box
     // (its alignment), `top` is below the text's first line (before paragraph alignment).
     struct Line {
-        PangoLayoutLine* pango = nullptr; // Owned by pango_.
         UINT32 first = 0, length = 0, trailing = 0, newline = 0; // Characters.
-        int pango_height = 0;                                    // Pango's own line height (units).
         float left = 0, top = 0, height = 0, baseline = 0;
         float width = 0, full_width = 0; // Without and with trailing whitespace.
         bool trimmed = false;
+        // Where SkParagraph placed it (glyphs and boxes move from there by `left`, `top`).
+        float sk_left = 0, sk_baseline = 0, sk_top = 0, sk_bottom = 0;
     };
-    // Part of a line covering characters [first, first + length) from x0 to x1 (Pango units
-    // from the line's start).
-    struct Segment {
-        UINT32 first, length;
-        int x0, x1;
-        UINT32 level;
-        bool trimmed;
+    // Glyphs of one style, ready to draw at the layout's origin.
+    struct Run {
+        sk_sp<SkTextBlob> blob;
+        UINT32 style = 0;   // Index into styles_ (any when styles_ is empty).
+        bool underline = false;
+        SkRect underline_rect;
     };
 
     TextLayout(const FormatState& format, const WCHAR* text, UINT32 length, float maxWidth, float maxHeight);
-    ~TextLayout() override;
     void changed() override { dirty_ = true; }
 
     // Applies `apply` to each character of the range; `relayout` when it changes the layout.
     template <class Apply> HRESULT style(DWRITE_TEXT_RANGE range, bool relayout, Apply apply);
-    // Lays the text out in the calling thread's context when anything changed.
+    // Lays the text out on the calling thread's fonts when anything changed.
     void layOut();
-    // Sets the Pango layout up: the whole text, or (cut) the text up to cut_ and the sign.
-    void configure(bool cut, int height);
-    PangoAttrList* attributes(bool cut) const;
-    void measure();
-    void segments(const Line& line, UINT32 first, UINT32 end, std::vector<Segment>& out) const;
-    UINT32 characterAt(uint32_t byte) const;
-    const CharStyle* styleAt(uint32_t byte) const;
-    void drawRun(cairo_t* context, PangoGlyphItem* run, double x, double baseline, cairo_pattern_t* paint, cairo_antialias_t antialias,
-                 cairo_scaled_font_t*& installed) const;
+    std::unique_ptr<textlayout::Paragraph> build(size_t max_lines, bool ellipsis) const;
+    void measure(textlayout::Paragraph& paragraph);
+    void collectRuns(textlayout::Paragraph& paragraph);
+    UINT32 characterOfUtf8(size_t byte) const;
+    UINT32 characterOfUtf16(size_t unit) const;
+    float layoutWidth() const;
+    int lineAtSkiaY(float y) const;
 
     std::wstring text_;
     std::string utf8_;
-    std::vector<uint32_t> offsets_; // UTF-8 offset of each character, then the end.
+    std::vector<uint32_t> offsets_;  // UTF-8 offset of each character, then the end.
+    std::vector<uint32_t> utf16_;    // UTF-16 offset of each character, then the end.
     float max_width_, max_height_;
-    std::vector<CharStyle> styles_; // One per character; empty until a range setter runs.
+    std::vector<CharStyle> styles_;  // One per character; empty until a range setter runs.
+    bool restyled_ = false;          // Effects or underlines changed: runs again, no new layout.
 
-    PangoContext* context_ = nullptr; // The thread context pango_ was laid out in.
-    PangoLayout* pango_ = nullptr;
+    sk_sp<textlayout::FontCollection> collection_; // The fonts it was laid out with.
+    std::unique_ptr<textlayout::Paragraph> laid_; // SkParagraph's layout.
     bool dirty_ = true;
-    uint32_t cut_ = 0; // Bytes of utf8_ laid out (followed by the sign when trimmed below the box).
-    UINT32 shown_ = 0; // Characters laid out.
+    UINT32 shown_ = 0; // Characters laid out (before trimmed text).
     std::vector<Line> lines_;
+    std::vector<Run> runs_;
     DWRITE_TEXT_METRICS metrics_{};
 };
 } // namespace lm_dwrite

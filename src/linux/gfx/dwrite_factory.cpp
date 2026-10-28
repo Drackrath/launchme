@@ -11,7 +11,7 @@ template <class Interface>
 HRESULT FormatBase<Interface>::SetTextAlignment(DWRITE_TEXT_ALIGNMENT textAlignment) {
     if (static_cast<unsigned>(textAlignment) > DWRITE_TEXT_ALIGNMENT_JUSTIFIED) return E_INVALIDARG;
     paragraph_.alignment = textAlignment;
-    changed();
+    edited();
     return S_OK;
 }
 
@@ -19,7 +19,7 @@ template <class Interface>
 HRESULT FormatBase<Interface>::SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT paragraphAlignment) {
     if (static_cast<unsigned>(paragraphAlignment) > DWRITE_PARAGRAPH_ALIGNMENT_CENTER) return E_INVALIDARG;
     paragraph_.vertical = paragraphAlignment;
-    changed();
+    edited();
     return S_OK;
 }
 
@@ -27,7 +27,7 @@ template <class Interface>
 HRESULT FormatBase<Interface>::SetWordWrapping(DWRITE_WORD_WRAPPING wordWrapping) {
     if (static_cast<unsigned>(wordWrapping) > DWRITE_WORD_WRAPPING_CHARACTER) return E_INVALIDARG;
     paragraph_.wrapping = wordWrapping;
-    changed();
+    edited();
     return S_OK;
 }
 
@@ -36,7 +36,7 @@ HRESULT FormatBase<Interface>::SetTrimming(const DWRITE_TRIMMING* trimmingOption
     if (!trimmingOptions || static_cast<unsigned>(trimmingOptions->granularity) > DWRITE_TRIMMING_GRANULARITY_WORD) return E_INVALIDARG;
     paragraph_.trimming = *trimmingOptions;
     paragraph_.sign = trimmingSign;
-    changed();
+    edited();
     return S_OK;
 }
 
@@ -46,7 +46,7 @@ HRESULT FormatBase<Interface>::SetLineSpacing(DWRITE_LINE_SPACING_METHOD lineSpa
     paragraph_.spacing_method = lineSpacingMethod;
     paragraph_.spacing = lineSpacing;
     paragraph_.baseline = baseline;
-    changed();
+    edited();
     return S_OK;
 }
 
@@ -120,8 +120,8 @@ public:
         font->style = fontStyle;
         font->stretch = fontStretch;
         font->size = fontSize;
-        font->language = localeName && *localeName ? pango_language_from_string(toUtf8(localeName).c_str()) : nullptr;
-        font->description.reset(describeFont(resolveFamily(font->family, font->collection.Get()), fontWeight, fontStyle, fontStretch, fontSize));
+        font->resolved = resolveFamily(font->family, font->collection.Get());
+        font->locale = localeName ? toUtf8(localeName) : std::string{};
         *textFormat = new TextFormat(std::move(font), Paragraph{});
         return S_OK;
     }

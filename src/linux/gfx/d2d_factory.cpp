@@ -1,17 +1,19 @@
 // The Direct2D factory: geometries, stroke styles and render targets.
 #include "d2d_internal.hpp"
 
+#include "include/effects/SkDashPathEffect.h"
+
 #include <algorithm>
 #include <numeric>
 
 namespace lm_d2d {
 namespace {
-cairo_line_cap_t capFor(D2D1_CAP_STYLE cap) {
+SkPaint::Cap capFor(D2D1_CAP_STYLE cap) {
     switch (cap) {
-    case D2D1_CAP_STYLE_SQUARE: return CAIRO_LINE_CAP_SQUARE;
+    case D2D1_CAP_STYLE_SQUARE: return SkPaint::kSquare_Cap;
     case D2D1_CAP_STYLE_ROUND:
-    case D2D1_CAP_STYLE_TRIANGLE: return CAIRO_LINE_CAP_ROUND; // Cairo has no pointed cap; round reaches as far.
-    default: return CAIRO_LINE_CAP_BUTT;
+    case D2D1_CAP_STYLE_TRIANGLE: return SkPaint::kRound_Cap; // Skia has no pointed cap; round reaches as far.
+    default: return SkPaint::kButt_Cap;
     }
 }
 
@@ -68,41 +70,45 @@ StrokeStyle::StrokeStyle(const D2D1_STROKE_STYLE_PROPERTIES& properties, const F
     case D2D1_DASH_STYLE_CUSTOM: dashes_.assign(dashes, dashes + count); break;
     default: break;
     }
-    // Cairo refuses (and stops drawing on) negative or all-zero dashes: solid instead.
-    if (std::any_of(dashes_.begin(), dashes_.end(), [](double dash) { return dash < 0; }) ||
-        std::accumulate(dashes_.begin(), dashes_.end(), 0.0) <= 0)
+    // Negative or all-zero dashes: solid. An odd list repeats (dash and gap swap on the second pass).
+    if (std::any_of(dashes_.begin(), dashes_.end(), [](float dash) { return dash < 0; }) ||
+        std::accumulate(dashes_.begin(), dashes_.end(), 0.0f) <= 0)
         dashes_.clear();
+    if (dashes_.size() % 2) { const auto copy = dashes_; dashes_.insert(dashes_.end(), copy.begin(), copy.end()); }
 }
 
 const StrokeStyle* StrokeStyle::from(ID2D1StrokeStyle* style) { return dynamic_cast<const StrokeStyle*>(style); }
 
-// Direct2D's miter limit is in half stroke widths, Cairo's in stroke widths. A plain MITER join
-// clips long miters on Direct2D; Cairo bevels them.
-void StrokeStyle::apply(cairo_t* context, double width) const {
+// Direct2D's miter limit is in half stroke widths, Skia's in stroke widths. A plain MITER join
+// clips long miters on Direct2D; Skia bevels them.
+void StrokeStyle::apply(SkPaint& paint, float width) const {
     const bool dashed = !dashes_.empty();
-    cairo_set_line_cap(context, capFor(dashed ? properties_.dashCap : properties_.startCap));
+    paint.setStyle(SkPaint::kStroke_Style);
+    paint.setStrokeWidth(width);
+    paint.setStrokeCap(capFor(dashed ? properties_.dashCap : properties_.startCap));
     switch (properties_.lineJoin) {
-    case D2D1_LINE_JOIN_BEVEL: cairo_set_line_join(context, CAIRO_LINE_JOIN_BEVEL); break;
-    case D2D1_LINE_JOIN_ROUND: cairo_set_line_join(context, CAIRO_LINE_JOIN_ROUND); break;
-    default: cairo_set_line_join(context, CAIRO_LINE_JOIN_MITER); break;
+    case D2D1_LINE_JOIN_BEVEL: paint.setStrokeJoin(SkPaint::kBevel_Join); break;
+    case D2D1_LINE_JOIN_ROUND: paint.setStrokeJoin(SkPaint::kRound_Join); break;
+    default: paint.setStrokeJoin(SkPaint::kMiter_Join); break;
     }
-    cairo_set_miter_limit(context, std::max(1.0f, properties_.miterLimit) * 0.5);
-    if (!dashed || width <= 0) { cairo_set_dash(context, nullptr, 0, 0); return; }
-    // Cairo's image stroker drops zero-length dashes; Direct2D draws them as dots with round or
-    // square dash caps: a hair-length dash, taken from the gap after it.
-    std::vector<double> lengths;
-    for (const double dash : dashes_) lengths.push_back(dash * width);
-    const double hair = width * 0.01;
+    paint.setStrokeMiter(std::max(1.0f, properties_.miterLimit) * 0.5f);
+    if (!dashed || width <= 0) return;
+    // Zero-length dashes are dots with round or square dash caps: a hair-length dash, taken from
+    // the gap after it, so every stroker draws them.
+    std::vector<SkScalar> lengths;
+    for (const float dash : dashes_) lengths.push_back(dash * width);
+    const float hair = width * 0.01f;
     for (size_t i = 0; i + 1 < lengths.size() && properties_.dashCap != D2D1_CAP_STYLE_FLAT; i += 2)
-        if (lengths[i] == 0) { lengths[i] = hair; lengths[i + 1] = std::max(0.0, lengths[i + 1] - hair); }
-    cairo_set_dash(context, lengths.data(), static_cast<int>(lengths.size()), properties_.dashOffset * width);
+        if (lengths[i] == 0) { lengths[i] = hair; lengths[i + 1] = std::max(0.0f, lengths[i + 1] - hair); }
+    paint.setPathEffect(SkDashPathEffect::Make(lengths, properties_.dashOffset * width));
 }
 
-void applyDefaultStroke(cairo_t* context) {
-    cairo_set_line_cap(context, CAIRO_LINE_CAP_BUTT);
-    cairo_set_line_join(context, CAIRO_LINE_JOIN_MITER);
-    cairo_set_miter_limit(context, 5); // Direct2D's 10 half widths.
-    cairo_set_dash(context, nullptr, 0, 0);
+void applyDefaultStroke(SkPaint& paint, float width) {
+    paint.setStyle(SkPaint::kStroke_Style);
+    paint.setStrokeWidth(width);
+    paint.setStrokeCap(SkPaint::kButt_Cap);
+    paint.setStrokeJoin(SkPaint::kMiter_Join);
+    paint.setStrokeMiter(5); // Direct2D's 10 half widths.
 }
 } // namespace lm_d2d
 
