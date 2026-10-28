@@ -48,7 +48,8 @@ to the host, is shared with Guide and requires no changes on the DLL side.
 
 `tools/build.ps1` builds the modules, packs the ZIPs and publishes the finished Runtime to `build/vs`.
 The CMake working directory is `build/temp/vs`. Changing only the manifest also refreshes the package.
-The `Runtime` install component contains the EXE, the HowLongToBeat ZIP and the miniz/PresentMon/WebView2 licenses.
+The `Runtime` install component contains the EXE, launchme's `LICENSE.txt` (GPL-3.0-or-later), the HowLongToBeat
+ZIP and the miniz/PresentMon/WebView2 licenses.
 A custom plugin added to the build via `launchme_plugin(... COMPONENT <name>)` goes into a separate component.
 
 ## How to create a new plugin

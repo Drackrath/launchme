@@ -590,6 +590,8 @@ file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/companion.rc" CONTENT "${LAUN
 set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/companion.rc" PROPERTIES OBJECT_DEPENDS "${LAUNCHME_COMPANION_SPRITES};${LAUNCHME_RES_DIR}/remote/index.html")
 target_sources(launchme PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/companion.rc")
 install(TARGETS launchme RUNTIME DESTINATION . COMPONENT Runtime)
+# GPL-3.0-or-later: the license text travels with every copy of the program.
+install(FILES LICENSE DESTINATION . RENAME LICENSE.txt COMPONENT Runtime)
 add_custom_target(launchme_audio ALL
     COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/assets"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${LAUNCHME_RES_DIR}/HorizonsTheme.mp3" "${LAUNCHME_RES_DIR}/ExploratorySilenceTheme.mp3" "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/assets/"

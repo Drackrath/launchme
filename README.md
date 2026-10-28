@@ -1,4 +1,4 @@
-# launchme
+![launchme](docs/branding/readme-banner.svg)
 
 **[Changelog](changelog/)** · **[Download](../../releases/latest)**
 
@@ -60,24 +60,33 @@ Settings → System → Help → **Open folder** (the version row) opens it.
   entrance, frosted glass, button colour themes and several focus-outline styles. In Flix, resting
   on a game for a few seconds unfolds its poster into a wide card with its background, logo and facts,
   pushing the neighbouring tiles aside.
+- **Made for a pad**: XInput, DualSense, DualShock 4 and generic HID pads, an on-screen keyboard, and a bottom
+  bar with Search, All games, plugins, Downloads, Controllers, Sound, Widgets, Settings and Power. Keyboard and
+  mouse work everywhere too. Paired Bluetooth pads stay listed, greyed, while Bluetooth is off.
 - **Launch screen**: starting a game shows its background, slowly zooming in, with its logo until the game's
-  window shows, then fades away behind it (`Esc` / B hides it).
-- **Desktop window mode** with a sidebar, search and a details pane; switch with `F11` or from the power menu.
-  The sidebar folds to its icons (the button by the logo) and the details pane is as wide as you drag
-  its edge (double-click it for the default).
+  window shows, then fades away behind it.
+- **Desktop window mode** with a sidebar, search and a details pane; switch between it and full screen from
+  the power menu. The sidebar folds to its icons (the button by the logo) and the details pane is as wide as
+  you drag its edge (double-click it for the default).
 - **Library views**: grid (squares, posters or landscape tiles), list, cinematic, detailed, poster,
   coverflow, a shelf of game cases (their spines carry the name and the platform) and novelty
-  cartridge/floppy views; sorting, filters, search and remembered positions. With game videos on, the
-  video plays in List+'s picture, in Cinematic's focused tile and in the desktop window's details pane;
-  PC games from other stores play the Steam trailer of the same game.
-- **Steam accounts and installs**: Play on a game installed by another remembered Steam account switches
-  Steam to that account first; Install picks the Steam library (with its free space) in Launchme's own
-  dialog. Both can be turned off in Settings → Library → Launching.
+  cartridge/floppy views; sorting, filters, search, *Recently added* by the store's acquisition date and
+  remembered positions. With game videos on, the video plays in List+'s picture, in Cinematic's focused tile
+  and in the desktop window's details pane; PC games from other stores play the Steam trailer of the same game.
+  Games you hide, and Steam's hidden and private games, stay out of sight until you show them.
+- **Playing**: Play on a game installed by another remembered Steam account switches Steam to that account
+  first, and a Steam game can be tied to one account (game menu → *Steam account*); Install picks the Steam
+  library (with its free space) in Launchme's own dialog. While a game runs, *Close game* sits next to Play.
+  Account switching and the install dialog can be turned off in Settings → Library → Launching.
+- **Downloads**: Steam, GOG, Epic, Battle.net, Amazon Games and Aurelia installs show their phase and percent on
+  the game's Play button and in one *Downloads* list; a game preloaded ahead of its release waits there as
+  *Preloaded* until the release day.
 - **Stores**: local installs of every store above, Steam collections synced with the running client,
   GOG and Epic account libraries (Epic installs through Legendary, no Epic launcher needed), Amazon Games
   through the optional, separately downloaded Nile helper ([guide](docs/AMAZON_GAMES.md)),
   EA and Battle.net libraries imported from their store pages (no EA app needed: sign in on ea.com,
-  paste the token page), Ubisoft from the signed-in client, and MultiMC / Prism Launcher instances as games.
+  paste the token page), Ubisoft from the signed-in client, DRM-free folders, and MultiMC / Prism Launcher
+  instances as games. Every platform, Steam included, can be switched off.
 - **Extended Aurelia integration** (Windows, optional, off by default): install/update the latest x64 helper
   from Settings → Library → Steam → *Manage Aurelia*. It manages only the games you choose (or all, by default)
   and adds managed Steam downloads, cloud-save status and conflict
@@ -90,7 +99,7 @@ Settings → System → Help → **Open folder** (the version row) opens it.
   Games added by hand (and DRM-free folders) fall back to the same game's Steam store art; Settings → Library →
   *Manually added games* → **Covers** fetches all their missing covers at once. Missing art downloads in the background, covers and
   posters first. To fetch it now: Settings → Media & data → *Download missing covers*, or in the desktop
-  window select games (`Ctrl+A`, `Ctrl`/`Shift`+click) and pick *Download artwork again* or *Download missing covers…*.
+  window select several games and pick *Download artwork again* or *Download missing covers…*.
 - **Details**: Steam metadata, playtime (also for non-Steam games, Epic's and Prism's counts, or your own value from
   *Edit metadata*, in both modes), achievements, Steam and RAWG ratings,
   versions of the same game across stores, uninstall from the game menu (Steam's own dialog, GOG games
@@ -104,10 +113,11 @@ Settings → System → Help → **Open folder** (the version row) opens it.
 - **Tarot** (optional, off by default): a short card reading — 5 to 8 questions drawn as tarot cards (buy something
   new or play what you own, genre, era, mood, company, length…) — that ends with up to three games, from your
   library or to buy on Steam.
-- **AI companion** (optional): a chat character that knows your library, with an optional voice and photo feed
-  and a local semantic memory (a small multilingual model on the CPU, no service) — see [AI companion](#ai-companion).
+- **AI companion** (optional): a chat character that knows your library, with an optional voice and photo feed,
+  a local semantic memory (a small multilingual model on the CPU, no service) and a relationship that grows with
+  your conversations — see [AI companion](#ai-companion).
 - **Publishers and developers**: rows of their logos on the TV home (a board of all of them, then a studio's games),
-  folded sections in the desktop window, links in the details pane, and search by studio (also `Ctrl+K`).
+  folded sections in the desktop window, links in the details pane, and search by studio.
   Games with every achievement unlocked have a gold border.
 - **Widgets drawer**: clock, Steam friends, Discord, CPU/GPU temperatures, controllers, audio and Bluetooth.
 - **Profile** (the drawer's *Profile* widget): this week's play time, games and launches with a chart, the latest
@@ -123,28 +133,9 @@ Settings → System → Help → **Open folder** (the version row) opens it.
   and artwork back (GPU memory to zero). Optional *Artwork compression (BC1)* for 8× less graphics memory.
 - **Hide to tray while playing** (Settings → Library → Launching, off by default): while a game started here runs,
   the launcher leaves the taskbar and Alt+Tab and comes back when the game closes.
-- Background music, screensaver, start with Windows, single instance, crash dumps.
-
-## Controls
-
-| Action | Keyboard | Gamepad |
-| --- | --- | --- |
-| Navigate | arrows | D-pad, left stick |
-| Select (a game: its details, or Play — Settings → Library → Default game action) | `Enter`, `Space`, double click | A |
-| Back | `Esc`, `Backspace` | B |
-| Game menu | hold `Enter`, right click | Y, hold A |
-| On-screen keyboard / search | — | X |
-| Launcher menu (tap) / power (hold) | `Home` | Guide / PS |
-| Widgets drawer (tap) / audio panel (hold) | `Tab` | Start / Options |
-| Glance | `G` | RT / R2 |
-| Tarot (when turned on) | `T` | View / Create |
-| Refresh artwork and view | `F5` | — |
-| Performance overlay | `F8` | — |
-| Full screen ↔ window | `F11` | — |
-| Hidden and private games | `Ctrl+H` | — |
-
-`↑` from the main row opens the bottom bar (Search, All games, plugins, Downloads, Controllers, Sound,
-Widgets, Settings, Power). Supported pads: XInput, DualSense, DualShock 4 and generic HID pads.
+- **Music and sound**: background music with two themes (Horizons and Exploratory Silence) or none, and
+  interface sounds that can come from your own sound folder.
+- Screensaver, start with Windows, single instance, crash dumps.
 
 ## API keys (all optional, all free)
 
@@ -203,7 +194,16 @@ manual (network, real accounts).
 
 ## License
 
-[MIT](LICENSE). Third-party licenses (miniz, PresentMon, WebView2 SDK, SuccessStory for the Achievements
+Copyright © 2026 uxandai.
+
+launchme is free software: you can redistribute it and/or modify it under the terms of the
+[GNU General Public License](LICENSE) as published by the Free Software Foundation, either version 3 of
+the License, or (at your option) any later version. It is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
+PURPOSE. The license text ships next to `launchme.exe` as `LICENSE.txt`. Releases up to 0.3.2 were
+published under the MIT License.
+
+Third-party licenses (miniz, PresentMon, WebView2 SDK, SuccessStory for the Achievements
 plugin, see [its notice](plugins/achievements/NOTICE.md)) ship in `plugin-packages/licenses/`. The publisher and
 developer logos are from HVR88's [Monochrome Gaming Logos](https://github.com/HVR88/Monochrome-Gaming-Logos)
 (their note: `assets/studios/LICENSE.txt`); the trademarks belong to their owners.
