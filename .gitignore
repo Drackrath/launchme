@@ -37,3 +37,7 @@ __pycache__/
 
 # Companion art generation scripts: kept locally, not published.
 /tools/companion_gen/
+
+# Linux packages (packaging/linux).
+/dist/
+/.flatpak-builder/
