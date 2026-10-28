@@ -9,14 +9,18 @@ Windows build is unchanged in behaviour.
 | Part | State |
 | --- | --- |
 | Build (`cmake/Linux.cmake`) | Configures with CMake + Ninja, Clang or GCC, C++20 without GNU extensions |
-| Shared core (`launchme_core`) | 71 of 124 sources build on Linux |
-| Tests | 14 CTest suites build and pass (search, Steam visibility and shortcuts, play journal, artwork LRU/retry, workers, screensaver, gestures, …) |
+| Shared core (`launchme_core`) | All shared sources build on Linux or have a Linux counterpart, except `artwork/platform_logo.cpp` (Direct2D) and the window-bound `file_dialog`, `frame_clock` and `layered_surface` (phase 3) |
+| Platform services (phase 2) | Audio (SDL3), decoding and trailers (FFmpeg), system volume (PulseAudio/PipeWire), controllers (SDL3, hidraw, BlueZ), processes (`/proc`, signals), power (logind), sensors (hwmon), memory, Discord, Steam downloads |
+| Stores | Steam (native, Flatpak, Snap), Heroic (Epic and GOG, launched through its legendary/gogdl backends with the game's Wine/Proton settings), Lutris, Prism Launcher/PolyMC/MultiMC, Battle.net in a Lutris prefix |
+| Tests | 57 CTest suites build and pass |
 | Launcher window | SDL3 library browser with keyboard/gamepad navigation and selected-game details; SDL window/input event boundary is available |
 | Renderer, web view | Not started (phases 3–4) |
 
 ## Building on Linux
 
-Packages (Arch names): `cmake ninja clang icu openssl libsecret pkgconf sdl3`.
+Packages (Arch names): `cmake ninja clang pkgconf icu openssl libsecret curl sdl3 sdl3_ttf ffmpeg libpulse
+libpng libjpeg-turbo libwebp expat sqlite systemd-libs glib2`. Optional at run time: `tesseract` (text-aware
+cover crops), `steam-devices` (udev rules for the Steam Controller's hidraw access).
 
 ```sh
 cmake -S . -B build/linux -G Ninja -DCMAKE_BUILD_TYPE=Debug
@@ -64,51 +68,28 @@ still overrides it.
 
 ## Plan
 
-### Phase 1: shared core (in progress)
+### Phases 1 and 2: shared core and platform services (done)
 
-The remaining 53 core sources, grouped by what unblocks them:
+Every shared source builds on Linux; Windows code stays behind `#ifdef _WIN32` or in `*_windows.cpp`
+files (`http_winhttp`, `image_codec_wic`, `audio_windows`, `system_audio_windows`,
+`video_player_windows`, `game_controllers_windows`, `steam_controller_windows`,
+`bluetooth_controllers_windows`, `device_service_windows`) with Linux counterparts (`http_curl`,
+`image_codec_linux`, `audio_sdl`, `flac_ffmpeg`, `video_player_ffmpeg`, `system_audio_pulse`,
+`*_linux.cpp`, `proc_fs`, `process_spawn`, `bluez`, `linux_hid`). New shared helpers: `image_codec`,
+`hashing`, `embedded_resources` (companion pictures compiled in on Linux, RCDATA on Windows),
+`pe_version` (reads `.exe` version resources without Win32). The Windows side of these moves has not
+been compiled yet.
 
-1. **HTTP**: `net/http.cpp`, `net/http_download.cpp`, `net/glance.cpp` (WinHTTP) → libcurl behind the existing
-   `net/http.hpp` interface (`http_curl.cpp`). This unblocks most store, artwork and companion tests.
-2. **Image codecs**: WIC in `artwork/text_crop.cpp`, `artwork/steamgriddb.cpp`, `artwork/screenscraper_art.cpp`,
-   `net/companion_feed.cpp` and `library/custom_games.cpp` → a small `image_codec` interface (WIC on Windows;
-   libpng, libjpeg-turbo and libwebp on Linux). `artwork/platform_logo.cpp` also draws with Direct2D and
-   waits for the renderer (phase 3).
-3. **Processes**: `platform/launch.cpp`, `store/epic_legendary.cpp`, `library/steam_accounts.cpp`
-   (`CreateProcessW`, `ShellExecuteW`) → `posix_spawn`, plus `xdg-open` for URLs and files.
-4. **Sockets**: `net/remote_server.cpp`, `platform/steam_library_sync.cpp` (Winsock) → POSIX sockets.
-5. **Files and folders**: `platform/file_listing.cpp`, `store/gog_install.cpp`, `net/companion_backup.cpp`,
-   `library/drm_free.cpp` (version resources), `library/screenscraper.cpp` and `store/gog_install_native.cpp`
-   (BCrypt hashes → OpenSSL).
-6. **Store discovery**: `library/pc_platforms.cpp` reads the registry for Epic, GOG, EA and Ubisoft. On Linux
-   the sources are different: Steam (native, Flatpak, Snap), Heroic (Epic, GOG, Amazon), Lutris, Bottles and
-   Wine prefixes. `library/steam.cpp` needs the Linux Steam roots (`~/.steam/steam`,
-   `~/.local/share/Steam`, `~/.var/app/com.valvesoftware.Steam/...`) and the `compatdata` layout.
-   `library/battlenet.cpp` and `library/multimc.cpp` (Prism Launcher on Linux) need the same treatment.
-7. **Updater**: `platform/updater.cpp` (BCrypt SHA-256, swapping a running `.exe`) → OpenSSL and an
-   AppImage-style self-replacement (phase 5).
-8. **Companion**: ONNX Runtime's Linux x64 release for `net/companion_embeddings.cpp`; generating
-   `companion_manifest.inc` in `cmake/Linux.cmake` as the Windows build does; `net/companion.cpp`.
-9. **Plugins**: `plugins/package.cpp` and `plugins/manager.cpp` load PE DLLs → ELF `.so` with `dlopen`, and
-   packages declare which systems they support.
-
-### Phase 2: platform services
-
-| Windows | Linux |
-| --- | --- |
-| XAudio2 (`platform/audio.cpp`) | SDL3 audio |
-| Media Foundation FLAC (`platform/flac.cpp`) | dr_flac or libFLAC |
-| Media Foundation video (`platform/video_player.cpp`) | FFmpeg (libavformat/libavcodec) |
-| WASAPI and endpoint volume (`system_audio`, `volume_monitor`) | PipeWire (or PulseAudio's API) |
-| XInput, HID, Bluetooth, Steam Controller (`game_controllers`, `steam_controller`, `bluetooth_controllers`, `device_service`) | SDL3 gamepad (rumble, DualSense/Steam Controller, hotplug); BlueZ over D-Bus for pairing |
-| PresentMon/ETW and window enumeration (`game_activity`, `game_overlay_monitor`) | `/proc` for running games; frame times from MangoHud's log or optional |
-| Process suspend (`process_freeze`, `process_presence`) | `SIGSTOP`/`SIGCONT`, `/proc` |
-| Power (`power.cpp`) | systemd-logind over D-Bus |
-| PDH sensors (`sensors.cpp`) | hwmon in `/sys/class/hwmon` |
-| Memory and GPU usage (`memory_usage`, `performance`) | `/proc/self/status`, `/proc/meminfo`, DRM fdinfo |
-| File dialog (`file_dialog.cpp`) | xdg-desktop-portal FileChooser (via GTK4 `GtkFileDialog`) |
-| Discord rich presence (named pipe) | `$XDG_RUNTIME_DIR/discord-ipc-0` socket |
-| Tray icon, jump list | StatusNotifierItem over D-Bus; `.desktop` actions |
+Known gaps on Linux:
+- Windows programs (`.exe`) are not run: no Wine integration outside Heroic's per-game settings. GOG
+  offline installers report that they are unavailable.
+- No FPS reading (PresentMon has no Linux equivalent); no window focus or game-window lookup (Wayland).
+- Heroic: Amazon and sideloaded games; Lutris: games without a store; Heroic's AppImage hides its
+  backends (games then launch through `heroic://`).
+- Images: GIF, TIFF, ICO, RLE BMP and animated WebP are not decoded; `.lnk` shortcuts are not resolved.
+- Flatpak Steam: the account switcher and Steam library sync expect the native layout.
+- Updates: only as an AppImage (`launchme-<version>-x86_64.AppImage` release asset with a SHA-256).
+- Some messages still name Windows (no new translation keys yet).
 
 ### Phase 3: window, input and renderer
 

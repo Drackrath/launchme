@@ -235,6 +235,7 @@ list(APPEND LAUNCHME_CORE_LIBS PkgConfig::FFMPEG PkgConfig::LIBPULSE "${SDL3_LIB
 set(LAUNCHME_LINUX_CONTROLLER_SOURCES
     src/platform/bluetooth_controllers_linux.cpp
     src/platform/bluez.cpp
+    src/platform/device_service.cpp
     src/platform/device_service_linux.cpp
     src/platform/game_controllers.cpp
     src/platform/game_controllers_linux.cpp
@@ -345,8 +346,6 @@ if(BUILD_TESTING)
     launchme_executable(steam_owned_tests TEST steam_client_owned_library SOURCES tests/steam_owned_tests.cpp)
 
     # Companion and updater:
-    # Later: companion_tests (src/platform/wav.hpp, audio), companion_feed_tests (net/companion_feed.cpp,
-    # images), companion_backup_tests (net/companion_backup.cpp, files).
     launchme_executable(updater_tests TEST updater_release_package_and_swap SOURCES tests/updater_tests.cpp)
     launchme_executable(companion_social_tests TEST companion_social_rules_history_and_plans SOURCES tests/companion_social_tests.cpp)
     launchme_executable(companion_memory_tests TEST companion_weighted_memory_and_capacity SOURCES tests/companion_memory_tests.cpp)
