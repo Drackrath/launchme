@@ -2,11 +2,20 @@
 #include "../platform/atomic_file.hpp"
 #include "../platform/text_encoding.hpp"
 #include "../platform/unicode_text.hpp"
+#include "../platform/system.hpp"
+#include "image_codec.hpp"
 
 #ifdef _WIN32
 #include <Windows.h>
-#include <wincodec.h>
-#include <wrl/client.h>
+#else
+#include <cerrno>
+#include <csignal>
+#include <fcntl.h>
+#include <poll.h>
+#include <spawn.h>
+#include <sys/wait.h>
+#include <unistd.h>
+extern char** environ;
 #endif
 
 #include <algorithm>
@@ -17,8 +26,6 @@
 #include <string>
 #include <locale>
 #include <mutex>
-
-using Microsoft::WRL::ComPtr;
 
 namespace {
 std::mutex crop_image_mutex;
@@ -66,6 +73,7 @@ float bestWindow(int length, int visible, const std::vector<Region>& regions, fl
     return best;
 }
 
+#ifdef _WIN32
 struct Handle {
     HANDLE value = INVALID_HANDLE_VALUE;
     explicit Handle(HANDLE h = INVALID_HANDLE_VALUE) : value(h) {}
@@ -128,6 +136,58 @@ std::string tesseractTsv(const std::filesystem::path& executable, const std::fil
     }
     return tsv;
 }
+#else
+std::filesystem::path tesseractExecutable() {
+    std::error_code ec;
+    if (const auto configured = system_info::environment(L"TESSERACT_EXE"); configured && !configured->empty() &&
+        std::filesystem::is_regular_file(*configured, ec)) return *configured;
+    const auto path = system_info::environment(L"PATH").value_or(L"/usr/local/bin:/usr/bin:/bin");
+    for (size_t at = 0; at <= path.size();) {
+        const auto end = std::min(path.find(L':', at), path.size());
+        const auto candidate = std::filesystem::path(path.substr(at, end - at)) / L"tesseract";
+        if (end > at && candidate.is_absolute() && std::filesystem::is_regular_file(candidate, ec) && ::access(candidate.c_str(), X_OK) == 0)
+            return candidate;
+        at = end + 1;
+    }
+    return {};
+}
+
+// Tesseract's TSV on stdout (stderr too, as on Windows), stopped after 6 s.
+std::string tesseractTsv(const std::filesystem::path& executable, const std::filesystem::path& image) {
+    int pipe_ends[2];
+    if (::pipe2(pipe_ends, O_CLOEXEC) != 0) return {};
+    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_init(&actions);
+    posix_spawn_file_actions_adddup2(&actions, pipe_ends[1], STDOUT_FILENO);
+    posix_spawn_file_actions_adddup2(&actions, pipe_ends[1], STDERR_FILENO);
+    const std::string program = executable.string(), input = image.string();
+    const char* arguments[]{program.c_str(), input.c_str(), "stdout", "-l", "eng", "--psm", "11", "tsv", nullptr};
+    pid_t child = -1;
+    const int spawned = posix_spawn(&child, program.c_str(), &actions, nullptr, const_cast<char* const*>(arguments), environ);
+    posix_spawn_file_actions_destroy(&actions);
+    ::close(pipe_ends[1]);
+    if (spawned != 0) { ::close(pipe_ends[0]); return {}; }
+    std::string tsv;
+    const auto deadline = GetTickCount64() + 6000;
+    while (tsv.size() < 2 * 1024 * 1024) {
+        const auto now = GetTickCount64();
+        if (now >= deadline) break;
+        pollfd wait{pipe_ends[0], POLLIN, 0};
+        const int ready = ::poll(&wait, 1, static_cast<int>(std::min<uint64_t>(deadline - now, 100)));
+        if (ready < 0 && errno != EINTR) break;
+        if (ready <= 0) continue;
+        char buffer[8192];
+        const ssize_t read = ::read(pipe_ends[0], buffer, sizeof(buffer));
+        if (read < 0 && errno == EINTR) continue;
+        if (read <= 0) break; // End of output: tesseract has finished.
+        tsv.append(buffer, static_cast<size_t>(read));
+    }
+    ::close(pipe_ends[0]);
+    int status = 0;
+    if (::waitpid(child, &status, WNOHANG) == 0) { ::kill(child, SIGKILL); ::waitpid(child, &status, 0); }
+    return tsv;
+}
+#endif
 
 std::vector<std::string> fields(const std::string& line) {
     std::vector<std::string> result;
@@ -201,22 +261,13 @@ namespace {
 // letters on cyan in Dave the Diver). Luminance-only OCR loses them entirely.
 // A red/blue opponent channel exposes their color contrast as grayscale text.
 bool writeColorContrast(const std::filesystem::path& image, const std::filesystem::path& output) {
-    const HRESULT apartment = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    if (FAILED(apartment) && apartment != RPC_E_CHANGED_MODE) return false;
-    struct Apartment { HRESULT result; ~Apartment() { if (SUCCEEDED(result)) CoUninitialize(); } } com{apartment};
-    ComPtr<IWICImagingFactory> factory;
-    ComPtr<IWICBitmapDecoder> decoder;
-    ComPtr<IWICBitmapFrameDecode> frame;
-    ComPtr<IWICFormatConverter> converter;
-    UINT width = 0, height = 0;
-    if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(factory.GetAddressOf()))) ||
-        FAILED(factory->CreateDecoderFromFilename(image.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnLoad, decoder.GetAddressOf())) ||
-        FAILED(decoder->GetFrame(0, frame.GetAddressOf())) || FAILED(frame->GetSize(&width, &height)) ||
-        !width || !height || width > 4096 || height > 4096 ||
-        FAILED(factory->CreateFormatConverter(converter.GetAddressOf())) ||
-        FAILED(converter->Initialize(frame.Get(), GUID_WICPixelFormat32bppBGRA, WICBitmapDitherTypeNone, nullptr, 0, WICBitmapPaletteTypeCustom))) return false;
-    std::vector<uint8_t> rgba(static_cast<size_t>(width) * height * 4);
-    if (FAILED(converter->CopyPixels(nullptr, width * 4, static_cast<UINT>(rgba.size()), rgba.data()))) return false;
+    const auto decoded = image_codec::decodeFile(image, [](const image_codec::Info& info) -> std::optional<image_codec::Size> {
+        if (info.width > 4096 || info.height > 4096) return {};
+        return image_codec::Size{info.width, info.height};
+    });
+    if (!decoded) return false;
+    const uint32_t width = decoded->width, height = decoded->height;
+    const auto& rgba = decoded->pixels; // BGRA: blue minus red below.
     std::vector<uint8_t> gray(static_cast<size_t>(width) * height);
     for (size_t i = 0; i < gray.size(); ++i)
         gray[i] = static_cast<uint8_t>(std::clamp(128 + static_cast<int>(rgba[i * 4]) - rgba[i * 4 + 2], 0, 255));
@@ -226,21 +277,17 @@ bool writeColorContrast(const std::filesystem::path& image, const std::filesyste
     return file.good();
 }
 
+unsigned long threadId() {
+#ifdef _WIN32
+    return GetCurrentThreadId();
+#else
+    return static_cast<unsigned long>(::gettid());
+#endif
+}
+
 std::pair<int, int> imageSize(const std::filesystem::path& file) {
-    const HRESULT apartment = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    if (FAILED(apartment) && apartment != RPC_E_CHANGED_MODE) return {0, 0};
-    ComPtr<IWICImagingFactory> factory;
-    ComPtr<IWICBitmapDecoder> decoder;
-    ComPtr<IWICBitmapFrameDecode> frame;
-    UINT width = 0, height = 0;
-    if (SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
-                                   IID_PPV_ARGS(factory.GetAddressOf()))) &&
-        SUCCEEDED(factory->CreateDecoderFromFilename(file.c_str(), nullptr, GENERIC_READ,
-                                                     WICDecodeMetadataCacheOnLoad, decoder.GetAddressOf())) &&
-        SUCCEEDED(decoder->GetFrame(0, frame.GetAddressOf()))) frame->GetSize(&width, &height);
-    frame.Reset(); decoder.Reset(); factory.Reset();
-    if (SUCCEEDED(apartment)) CoUninitialize();
-    return {static_cast<int>(width), static_cast<int>(height)};
+    const auto info = image_codec::probeFile(file);
+    return info ? std::pair{static_cast<int>(info->width), static_cast<int>(info->height)} : std::pair{0, 0};
 }
 } // namespace
 
@@ -294,7 +341,7 @@ CropFocus cachedAutomaticCrop(const std::filesystem::path& image, const std::fil
         words = parseCropWords(tesseractTsv(executable, image), title);
         const auto matched = [](const auto& items) { return std::any_of(items.begin(), items.end(), [](const auto& word) { return word.title_match; }); };
         if (!matched(words)) {
-            const auto contrast = metadata.wstring() + L".ocr." + std::to_wstring(GetCurrentProcessId()) + L'.' + std::to_wstring(GetCurrentThreadId()) + L".pgm";
+            const auto contrast = metadata.wstring() + L".ocr." + std::to_wstring(system_info::processId()) + L'.' + std::to_wstring(threadId()) + L".pgm";
             struct Cleanup { std::filesystem::path path; ~Cleanup() { std::error_code error; std::filesystem::remove(path, error); } } cleanup{contrast};
             if (writeColorContrast(image, contrast)) {
                 auto colored = parseCropWords(tesseractTsv(executable, contrast), title);

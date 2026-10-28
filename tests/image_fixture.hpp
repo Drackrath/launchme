@@ -1,7 +1,21 @@
 #pragma once
 #include <Windows.h>
+#ifdef _WIN32
 #include <wincodec.h>
 #include <wrl/client.h>
+#else
+// The fixtures through image_codec (libpng, libjpeg-turbo). COM exists only on Windows: the
+// tests' apartment calls do nothing here.
+#include "../src/artwork/image_codec.hpp"
+using INT = int;
+using HRESULT = long;
+struct WICRect { INT X, Y, Width, Height; };
+enum { COINIT_MULTITHREADED = 0, COINIT_APARTMENTTHREADED = 2 };
+inline HRESULT CoInitializeEx(void*, DWORD) { return 0; }
+inline void CoUninitialize() {}
+#define SUCCEEDED(result) (static_cast<HRESULT>(result) >= 0)
+#define FAILED(result) (static_cast<HRESULT>(result) < 0)
+#endif
 #include <algorithm>
 #include <vector>
 #include <cstdint>
@@ -9,12 +23,6 @@
 
 inline std::vector<uint8_t> pngFixture(uint8_t tint = 40, UINT width = 32, UINT height = 32, bool transparent = false,
                                      std::optional<WICRect> ink = {}) {
-    using Microsoft::WRL::ComPtr;
-    ComPtr<IWICImagingFactory> factory;
-    ComPtr<IWICBitmap> bitmap;
-    ComPtr<IStream> stream;
-    ComPtr<IWICBitmapEncoder> encoder;
-    ComPtr<IWICBitmapFrameEncode> frame;
     std::vector<uint8_t> pixels(static_cast<size_t>(width) * height * 4);
     for (size_t i = 0; i < pixels.size(); i += 4) {
         pixels[i] = static_cast<uint8_t>((i / 4) % 32 * 7);
@@ -24,6 +32,17 @@ inline std::vector<uint8_t> pngFixture(uint8_t tint = 40, UINT width = 32, UINT 
         pixels[i + 3] = ink ? (x >= ink->X && x < ink->X + ink->Width && y >= ink->Y && y < ink->Y + ink->Height ? 255 : 0) :
             transparent && (i / 4) % width < width / 4 ? 0 : 255;
     }
+#ifndef _WIN32
+    auto result = image_codec::encodePng({image_codec::Format::png, width, height, std::move(pixels)});
+    // libpng packs small fixtures tighter than WIC: stay above ScreenScraper's 128-byte minimum.
+    if (!result.empty() && result.size() <= 128) result.resize(256, 0);
+#else
+    using Microsoft::WRL::ComPtr;
+    ComPtr<IWICImagingFactory> factory;
+    ComPtr<IWICBitmap> bitmap;
+    ComPtr<IStream> stream;
+    ComPtr<IWICBitmapEncoder> encoder;
+    ComPtr<IWICBitmapFrameEncode> frame;
     WICPixelFormatGUID format = GUID_WICPixelFormat32bppBGRA;
     if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(factory.GetAddressOf()))) ||
         FAILED(factory->CreateBitmapFromMemory(width, height, format, width * 4, static_cast<UINT>(pixels.size()), pixels.data(), bitmap.GetAddressOf())) ||
@@ -40,6 +59,7 @@ inline std::vector<uint8_t> pngFixture(uint8_t tint = 40, UINT width = 32, UINT 
     if (!data) return {};
     std::vector<uint8_t> result(data, data + stats.cbSize.QuadPart);
     GlobalUnlock(memory);
+#endif
     if (result.size() < 128) result.resize(128, 0);
     return result;
 }
@@ -47,7 +67,6 @@ inline std::vector<uint8_t> pngFixture(uint8_t tint = 40, UINT width = 32, UINT 
 // A photographic-sized JPEG (gradients, shapes and grain, ~100–200 KB at 600×900) for benchmarks;
 // `seed` varies the picture so equal sizes still decode as distinct images.
 inline std::vector<uint8_t> jpegFixture(UINT width, UINT height, uint32_t seed, float quality = 0.9f) {
-    using Microsoft::WRL::ComPtr;
     std::vector<uint8_t> pixels(static_cast<size_t>(width) * height * 3);
     uint32_t state = seed * 2654435761u + 12345u;
     const auto next = [&] { state ^= state << 13; state ^= state >> 17; state ^= state << 5; return state; };
@@ -63,6 +82,12 @@ inline std::vector<uint8_t> jpegFixture(UINT width, UINT height, uint32_t seed, 
             p[1] = channel(0.25f + 0.5f * v * (1 - hue));
             p[2] = channel(block ? 0.3f : 0.15f + 0.6f * (1 - u) * v);
         }
+#ifndef _WIN32
+    std::vector<uint8_t> bgra(static_cast<size_t>(width) * height * 4, 255);
+    for (size_t i = 0, j = 0; i < pixels.size(); i += 3, j += 4) std::copy_n(&pixels[i], 3, &bgra[j]);
+    return image_codec::encodeJpeg({image_codec::Format::jpeg, width, height, std::move(bgra)}, quality);
+#else
+    using Microsoft::WRL::ComPtr;
     ComPtr<IWICImagingFactory> factory;
     ComPtr<IWICBitmap> bitmap;
     ComPtr<IStream> stream;
@@ -89,4 +114,5 @@ inline std::vector<uint8_t> jpegFixture(UINT width, UINT height, uint32_t seed, 
     std::vector<uint8_t> result(data, data + stats.cbSize.QuadPart);
     GlobalUnlock(memory);
     return result;
+#endif
 }

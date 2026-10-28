@@ -1,7 +1,10 @@
 #include "../src/net/glance.hpp"
 #include "../src/platform/atomic_file.hpp"
+#include "../src/platform/system.hpp"
 #include <iostream>
+#ifdef _WIN32
 #include <objbase.h>
+#endif
 #include "image_fixture.hpp"
 #include <chrono>
 #include <algorithm>
@@ -206,8 +209,8 @@ int main(int argc, char** argv) {
     if (glance::parseUpcomingSearch(searchPage("<html>Sign in</html>",100)) || glance::parseUpcomingSearch("{}")) return 44;
     const auto empty_search=glance::parseUpcomingSearch(searchPage("",0));
     if (!empty_search || !empty_search->items.empty()) return 45;
-    SYSTEMTIME now{}; GetLocalTime(&now);
-    const auto today=std::chrono::sys_days(std::chrono::year(now.wYear)/now.wMonth/now.wDay);
+    const auto now=system_info::localTime();
+    const auto today=std::chrono::sys_days(std::chrono::year(now.year)/now.month/now.day);
     const auto future_html=searchRow(31,"Later",dateText(today+std::chrono::days(10)))+searchRow(32,"First",dateText(today+std::chrono::days(2)))+
         searchRow(33,"Quarter","Q4 2099")+searchRow(34,"Unknown","Coming soon")+searchRow(35,"Past",dateText(today-std::chrono::days(1)))+
         searchRow(36,"Too late",dateText(today+std::chrono::days(40)));

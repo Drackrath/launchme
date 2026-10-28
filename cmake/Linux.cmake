@@ -139,7 +139,18 @@ set(LAUNCHME_LINUX_PROCESS_SOURCES
 
 # Image decoding and encoding (WIC on Windows).
 set(LAUNCHME_LINUX_IMAGE_SOURCES
+    src/artwork/image_codec_linux.cpp
+    src/artwork/image_compact.cpp
+    src/artwork/screenscraper_art.cpp
+    src/artwork/steamgriddb.cpp
+    src/artwork/text_crop.cpp
+    src/library/custom_games.cpp
+    src/net/companion_feed.cpp
+    src/net/glance.cpp
 )
+# Codecs: libpng, libjpeg-turbo, libwebp. Feeds: expat (in place of XmlLite).
+pkg_check_modules(LAUNCHME_IMAGE_LIBS REQUIRED IMPORTED_TARGET libpng libturbojpeg libwebp expat)
+list(APPEND LAUNCHME_CORE_LIBS PkgConfig::LAUNCHME_IMAGE_LIBS)
 
 # Sockets, folders and files.
 set(LAUNCHME_LINUX_FILES_SOURCES
@@ -281,6 +292,18 @@ if(BUILD_TESTING)
     # Processes:
 
     # Images:
+    launchme_executable(text_crop_tests TEST text_aware_crop SOURCES tests/text_crop_tests.cpp)
+    launchme_executable(low_memory_tests TEST low_memory_block_compression SOURCES tests/low_memory_tests.cpp)
+    launchme_executable(glance_tests TEST glance_sources_and_cache SOURCES tests/glance_tests.cpp)
+    launchme_executable(image_validation_tests TEST controller_png_transparency SOURCES tests/image_validation_tests.cpp)
+    launchme_executable(background_art_tests TEST background_art_and_trailer_match SOURCES tests/background_art_tests.cpp)
+    launchme_executable(steamgriddb_tests TEST steamgriddb_browser_and_selection SOURCES tests/steamgriddb_tests.cpp)
+    launchme_executable(identified_artwork_tests TEST rawg_identification_missing_artwork SOURCES tests/identified_artwork_tests.cpp)
+    launchme_executable(companion_feed_tests TEST companion_feed_publication_and_archive SOURCES tests/companion_feed_tests.cpp)
+    launchme_executable(download_art_tests TEST download_artwork_sources_and_cache SOURCES tests/download_art_tests.cpp)
+    launchme_executable(bulk_covers_tests TEST bulk_covers_missing_only_and_limits SOURCES tests/bulk_covers_tests.cpp)
+    # GCC's -Wdangling-pointer misreads braced lists passed by value in these tests' conditions.
+    set_source_files_properties(tests/glance_tests.cpp tests/identified_artwork_tests.cpp PROPERTIES COMPILE_OPTIONS -Wno-dangling-pointer)
 
     # Files and sockets:
 

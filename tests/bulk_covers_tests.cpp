@@ -72,7 +72,7 @@ int main() {
         return {++attempts%2 ? Result::missing : Result::failed};
     }},[&](const Progress& p){final=p; eta |= p.eta_seconds.has_value();});
     if(final.missing!=5 || final.failed!=4 || final.completed()!=9 || !eta) return 11;
-    SetEnvironmentVariableW(L"LAUNCHME_CONFIG_DIR", root.c_str());
+    SetEnvironmentVariableW(L"LAUNCHME_CONFIG_DIR", root.wstring().c_str());
     {
         // A previous pass left covers and posters; hero is only a fallback, never a completed landscape.
         const auto cache = root / L"covers";

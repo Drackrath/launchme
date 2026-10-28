@@ -141,6 +141,12 @@ namespace {
 // A Windows shortcut's target program (.lnk → .exe), so a game added as a shortcut is seen
 // running like one added as its .exe. Empty when it is not resolvable without searching.
 std::filesystem::path shortcutTarget(const std::filesystem::path& link) {
+#ifndef _WIN32
+    // .lnk files are Explorer's; elsewhere they are not resolved (the game is listed and
+    // launches through its handler, but is not tracked as a running program).
+    (void)link;
+    return {};
+#else
     const HRESULT com = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     std::filesystem::path result;
     {
@@ -157,6 +163,7 @@ std::filesystem::path shortcutTarget(const std::filesystem::path& link) {
     }
     if (SUCCEEDED(com)) CoUninitialize();
     return result.is_absolute() ? result : std::filesystem::path{};
+#endif
 }
 }
 
