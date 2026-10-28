@@ -1,0 +1,167 @@
+// launchme-xbox: Launchme's Xbox account helper, built on Xodus
+// (https://github.com/xodus-gaming/xodus, GPL-3.0). Copyright (C) the Launchme authors.
+// Licensed under the GNU General Public License v3.0 or later; parts of login.rs, install.rs and
+// license.rs follow xodus-cli's commands (GPL-3.0, the Xodus authors).
+//
+// Contract with Launchme (src/store/xbox_account.*):
+//   launchme-xbox.exe --profile <dir> <command> [options]
+// * stdout: exactly one JSON object when the command ends: {"ok":true,...} or
+//   {"ok":false,"error":"<code>","message":"..."}. Codes: usage, signed_out, cancelled, network,
+//   not_entitled, unsupported_package, not_found, storage, internal.
+// * stderr: progress as JSON lines {"progress":{"stage":"...","done":N,"total":M}}; anything else
+//   on stderr is a log line.
+// * The profile folder holds everything (DPAPI-protected tokens, the WebView2 data of the sign-in
+//   window, the synced library); nothing is written next to the EXE or into the user's keychain.
+
+// No console window: Launchme starts it hidden with pipes, and un stands in for the game.
+#![windows_subsystem = "windows"]
+
+mod config;
+mod install;
+mod launch;
+mod library;
+mod license;
+mod login;
+mod output;
+mod package;
+mod store;
+mod tokens;
+
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use output::{Failure, Outcome};
+
+pub const USER_AGENT: &str = concat!("launchme-xbox/", env!("CARGO_PKG_VERSION"));
+
+struct Arguments {
+    profile: PathBuf,
+    command: String,
+    options: Vec<(String, String)>,
+}
+
+impl Arguments {
+    fn option(&self, name: &str) -> Option<&str> {
+        self.options.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str())
+    }
+
+    fn required(&self, name: &str) -> Result<&str, Failure> {
+        self.option(name)
+            .filter(|v| !v.is_empty())
+            .ok_or_else(|| Failure::new("usage", format!("missing --{name}")))
+    }
+}
+
+// --profile <dir> <command> [--key value]... Values never start with "--".
+fn parse(args: Vec<String>) -> Result<Arguments, Failure> {
+    let mut profile = None;
+    let mut command = None;
+    let mut options = Vec::new();
+    let mut it = args.into_iter().skip(1);
+    while let Some(arg) = it.next() {
+        if let Some(name) = arg.strip_prefix("--") {
+            let value = it
+                .next()
+                .ok_or_else(|| Failure::new("usage", format!("--{name} needs a value")))?;
+            if name == "profile" {
+                profile = Some(PathBuf::from(value));
+            } else {
+                options.push((name.to_string(), value));
+            }
+        } else if command.is_none() {
+            command = Some(arg);
+        } else {
+            return Err(Failure::new("usage", format!("unexpected argument {arg}")));
+        }
+    }
+    let profile = profile.ok_or_else(|| Failure::new("usage", "missing --profile"))?;
+    if !profile.is_absolute() {
+        return Err(Failure::new("usage", "--profile must be absolute"));
+    }
+    let command = command.ok_or_else(|| Failure::new("usage", "missing command"))?;
+    Ok(Arguments {
+        profile,
+        command,
+        options,
+    })
+}
+
+fn client() -> reqwest::Client {
+    reqwest::ClientBuilder::new()
+        .user_agent(USER_AGENT)
+        .build()
+        .expect("HTTP client")
+}
+
+async fn run(args: Arguments) -> Outcome {
+    std::fs::create_dir_all(&args.profile)
+        .map_err(|e| Failure::new("storage", format!("profile folder: {e}")))?;
+    let tokens = Arc::new(store::token_manager(&args.profile));
+    let client = client();
+    match args.command.as_str() {
+        "version" => Ok(serde_json::json!({ "version": env!("CARGO_PKG_VERSION"), "xodus": "514dd56f" })),
+        "status" => tokens::status(&tokens),
+        "login" => login::run(&client, &tokens, &args.profile).await,
+        "logout" => tokens::logout(&tokens),
+        "library" => {
+            library::run(
+                &client,
+                &tokens,
+                args.option("market").unwrap_or("US"),
+                args.option("language").unwrap_or("en-US"),
+                &PathBuf::from(args.required("out")?),
+            )
+            .await
+        }
+        "install" => {
+            install::run(
+                &client,
+                &tokens,
+                args.required("product")?,
+                &PathBuf::from(args.required("dest")?),
+                args.option("market").unwrap_or("neutral"),
+                args.option("parallel").and_then(|p| p.parse().ok()).unwrap_or(4),
+            )
+            .await
+        }
+        "launch-prepare" => {
+            launch::prepare(
+                &client,
+                &tokens,
+                &PathBuf::from(args.required("dir")?),
+                args.option("market").unwrap_or("neutral"),
+            )
+            .await
+        }
+        "run" => {
+            launch::run(
+                &client,
+                &tokens,
+                &PathBuf::from(args.required("dir")?),
+                args.option("market").unwrap_or("neutral"),
+            )
+            .await
+        }
+        "launch-cleanup" => launch::cleanup(&PathBuf::from(args.required("dir")?)).await,
+        other => Err(Failure::new("usage", format!("unknown command {other}"))),
+    }
+}
+
+fn main() {
+    output::install_panic_hook();
+    let outcome = match parse(std::env::args().collect()) {
+        Err(failure) => Err(failure),
+        Ok(args) => {
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .expect("tokio runtime");
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| runtime.block_on(run(args)))) {
+                Ok(outcome) => outcome,
+                Err(_) => Err(Failure::new("internal", output::last_panic())),
+            }
+        }
+    };
+    let code = output::finish(outcome);
+    std::process::exit(code);
+}

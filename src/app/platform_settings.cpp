@@ -8,6 +8,9 @@ template<class State> bool signing(State state) {
     return state == State::preparing || state == State::signing_in || state == State::verifying;
 }
 template<class State> bool working(State state) { return signing(state) || state == State::syncing; }
+// The Xbox helper signs in in its own window: no separate verification step.
+bool xboxSigning(xbox_account::State state) { return state == xbox_account::State::preparing || state == xbox_account::State::signing_in; }
+bool xboxWorking(xbox_account::State state) { return xboxSigning(state) || state == xbox_account::State::syncing; }
 std::wstring syncedAt(uint64_t seconds) {
     if (!seconds) return {};
     const time_t time = static_cast<time_t>(seconds); tm local{}; localtime_s(&local, &time);
@@ -38,6 +41,8 @@ void Launcher::pcSettingsRows() {
         if (source == GameSource::epic)
             return epic_state_.state == epic::State::disconnected && epic_state_.failure == epic::Failure::none ? std::wstring(tr(L"Konto niepołączone")) : epic::statusText(epic_state_);
         if (source == GameSource::amazon) return amazon::statusText(amazon_state_);
+        if (source == GameSource::xbox && (xbox_state_.state != xbox_account::State::disconnected || xbox_state_.failure != xbox_account::Failure::none))
+            return xbox_account::statusText(xbox_state_);
         if (source == GameSource::ea) return ea_import_.busy ? std::wstring(tr(L"Importowanie…")) : ea_import_.awaiting ?
             std::wstring(tr(L"Oczekiwanie na dane logowania")) : ea_import_.snapshot ? library(source) : std::wstring(tr(L"Konto niepołączone"));
         return library(source);
@@ -60,6 +65,7 @@ void Launcher::pcSettingsRows() {
             if (source == GameSource::steam || source == GameSource::drmfree) continue;
             auto summary = account(source);
             if (source == GameSource::gog || source == GameSource::epic || source == GameSource::amazon ||
+                (source == GameSource::xbox && (xbox_state_.state != xbox_account::State::disconnected || xbox_state_.failure != xbox_account::Failure::none)) ||
                 (source == GameSource::ea && (!ea_import_.snapshot || ea_import_.busy || ea_import_.awaiting))) summary += L" · " + library(source);
             if (source == GameSource::battlenet && battlenet_import_.snapshot)
                 summary += L" · " + std::wstring(tr(L"Gry konta: ")) + std::to_wstring(battlenet_import_.snapshot->games.size());
@@ -143,7 +149,31 @@ void Launcher::pcSettingsRows() {
         if (connected) add({Id::amazon_logout, Control::action, tr(L"Połączenie konta"), tr(L"Usuń lokalną sesję i bibliotekę kontową."), tr(L"Wyloguj")});
         return;
     }
-    if (source == GameSource::ea) {
+    if (source == GameSource::xbox) {
+        // The Xbox app's installs need nothing; the account (and Launchme's own installs) need the
+        // Xodus-based helper, downloaded only when asked.
+        const auto& state = xbox_state_;
+        const bool busy = xboxWorking(state.state), connected = !state.account.empty();
+        Row helper{Id::xbox_helper, Control::action, tr(L"Pomocnik Xbox"),
+            state.downloading ? xbox_account::statusText(state) : state.helper ?
+                tr(L"Konto Xbox przez Xodus, wersja ") + std::wstring(xbox_account::helper_version) :
+                std::wstring(tr(L"Logowanie, biblioteka konta i Game Pass (open source, około 12 MB).")),
+            state.helper ? std::wstring(tr(L"Usuń")) : std::wstring(tr(L"Pobierz"))};
+        helper.locked = state.downloading || (state.helper && xbox_service_ && xbox_service_->busy()); add(std::move(helper));
+        add({Id::pc_connect, Control::action, tr(L"Konto"), xbox_account::statusText(state), busy ? tr(L"Anuluj") : connected ? tr(L"Zmień konto") : tr(L"Połącz")});
+        const auto sync = syncedAt(state.synced_at);
+        add({connected ? Id::xbox_refresh : Id::pc_refresh, Control::action, tr(L"Biblioteka"), library(source) + (sync.empty() ? L"" : L" · " + sync), tr(L"Odśwież")});
+        Row own{Id::xbox_own_install, Control::toggle, tr(L"Instalacja przez Launchme (eksperymentalne)"),
+            tr(L"Gry GDK pobiera pomocnik Xodus do wybranego folderu, bez aplikacji Xbox. Gra może nie wystartować bez usług Gaming Services."),
+            {}, settings_.xbox_own_install};
+        own.locked = !connected; add(std::move(own));
+        const auto prefix = std::string(sourceSlug(source)) + ':';
+        const auto excluded = std::count_if(library_state_.excluded_games.begin(), library_state_.excluded_games.end(),
+            [&](const auto& entry) { return entry.first.starts_with(prefix); });
+        add({Id::pc_excluded, Control::action, tr(L"Wykluczone gry"),
+            tr(L"Niewidoczne także w wyszukiwaniu i pod Ctrl+H.") + std::wstring(L" · ") + std::to_wstring(excluded), tr(L"Zarządzaj")});
+        if (connected) add({Id::xbox_logout, Control::action, tr(L"Połączenie konta"), tr(L"Usuń lokalną sesję i bibliotekę kontową."), tr(L"Wyloguj")});
+    } else if (source == GameSource::ea) {
         add({Id::pc_connect, Control::action, tr(L"Konto"), account(source), ea_import_.busy ? tr(L"Importowanie…") :
             ea_import_.awaiting ? tr(L"Anuluj") : ea_import_.snapshot ? tr(L"Zmień konto") : tr(L"Połącz")});
         if (ea_import_.awaiting) add({Id::ea_callback, Control::secret, tr(L"Dane logowania"),
@@ -227,6 +257,7 @@ bool Launcher::pcSettingsActivate(const Row& row) {
         if (row.source == GameSource::gog) gogCommand(working(gog_state_.state) ? gog::Command::cancel : gog::Command::connect);
         else if (row.source == GameSource::epic) epicCommand(working(epic_state_.state) ? epic::Command::cancel : epic::Command::connect);
         else if (row.source == GameSource::amazon) amazonCommand(working(amazon_state_.state) ? amazon::Command::cancel : amazon::Command::connect);
+        else if (row.source == GameSource::xbox) xboxCommand(xboxWorking(xbox_state_.state) ? xbox_account::Command::cancel : xbox_account::Command::connect);
         else if (row.source == GameSource::ea) { if (ea_import_.awaiting) cancelWebImport(row.source); else startWebImport(row.source); }
     } else if (row.id == Id::pc_excluded) openExcludedGames(row.source);
     else if (row.id == Id::pc_refresh) refreshPcLibraries();
@@ -260,6 +291,24 @@ bool Launcher::pcSettingsActivate(const Row& row) {
         }
     }
     else if (row.id == Id::amazon_refresh) amazonCommand(amazon::Command::sync);
+    else if (row.id == Id::xbox_helper) {
+        // The helper on request only: "Pobierz" fetches it, "Usuń" removes the file (the account stays signed in).
+        if (xbox_state_.downloading) return true;
+        if (!xbox_state_.helper) xboxCommand(xbox_account::Command::download);
+        else if (!xbox_service_ || !xbox_service_->busy()) {
+            std::error_code ec; std::filesystem::remove(xbox_account::helperPath(userConfigDirectory()), ec);
+            xbox_state_.helper = xbox_account::helperInstalled(userConfigDirectory());
+            buildSettingsRows(); audio_.context();
+        }
+    }
+    else if (row.id == Id::xbox_refresh) xboxCommand(xbox_account::Command::sync);
+    else if (row.id == Id::xbox_logout) xboxCommand(xbox_account::Command::logout);
+    else if (row.id == Id::xbox_own_install) {
+        if (row.locked) { navigationBoundary(); return true; }
+        // Read when Instaluj is chosen: the shelves only need their actions recomputed.
+        settings_.xbox_own_install = !settings_.xbox_own_install;
+        settingsChanged(); buildSettingsRows(); audio_.context();
+    }
     else if (row.id == Id::amazon_logout) amazonCommand(amazon::Command::logout);
     else if (row.id == Id::ea_refresh) startWebImport(GameSource::ea);
     else if (row.id == Id::ea_remove) clearWebImport(GameSource::ea);
@@ -305,5 +354,6 @@ void Launcher::cancelPlatformSignIn(GameSource source) {
     if (source == GameSource::gog && signing(gog_state_.state)) gogCommand(gog::Command::cancel);
     else if (source == GameSource::epic && signing(epic_state_.state)) epicCommand(epic::Command::cancel);
     else if (source == GameSource::amazon && signing(amazon_state_.state)) amazonCommand(amazon::Command::cancel);
+    else if (source == GameSource::xbox && xboxSigning(xbox_state_.state)) xboxCommand(xbox_account::Command::cancel);
     else if ((source == GameSource::ea || source == GameSource::battlenet) && webImport(source).awaiting) cancelWebImport(source);
 }

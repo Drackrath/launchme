@@ -7,6 +7,7 @@
 #include "exit_prompt.hpp"
 #include "../store/epic_account.hpp"
 #include "../store/amazon.hpp"
+#include "../store/xbox_account.hpp"
 
 #include <algorithm>
 #include <array>
@@ -388,7 +389,8 @@ void Renderer::drawDesktopGogInstall() {
     const auto& state = ui.snapshot;
     const auto& hover = context_->desktop_dialog_hover;
     const bool epic = gog_install_ui::helperInstall(ui.game.source), steam = ui.steam;
-    const bool amazon = ui.game.source == GameSource::amazon; // Nile reports bytes, Legendary percent.
+    const bool xbox = ui.game.source == GameSource::xbox;
+    const bool amazon = ui.game.source == GameSource::amazon || xbox; // Nile and the Xbox helper report bytes, Legendary percent.
     const auto view = desktopViewport();
     D2D1_MATRIX_3X2_F saved{};
     target_->GetTransform(&saved);
@@ -414,10 +416,10 @@ void Renderer::drawDesktopGogInstall() {
     }
     const std::array<std::wstring, 3> labels = steam ?
         std::array<std::wstring, 3>{tr(L"Biblioteka Steam"), tr(L"Okno instalacji Steam"), {}} :
-        std::array<std::wstring, 3>{amazon ? std::wstring(L"Amazon Games · Windows") : epic ? std::wstring(L"Epic Games · Windows") : std::wstring(tr(L"Język / wersja")), tr(L"Folder gry"), tr(L"Folder pobierania (tymczasowo)")};
+        std::array<std::wstring, 3>{xbox ? std::wstring(L"Xbox · Windows (Xodus)") : amazon ? std::wstring(L"Amazon Games · Windows") : epic ? std::wstring(L"Epic Games · Windows") : std::wstring(tr(L"Język / wersja")), tr(L"Folder gry"), tr(L"Folder pobierania (tymczasowo)")};
     const std::array<std::wstring, 3> values = steam ?
         std::array<std::wstring, 3>{gog_install_ui::steamLibraryText(ui), tr(L"Wybór biblioteki i instalacja w samym Steamie"), {}} :
-        std::array<std::wstring, 3>{amazon ? L"Nile " + std::wstring(amazon::helper_version) : epic ? std::wstring(L"Legendary 0.21.1") : variant, ui.request.install_directory.wstring(), ui.request.download_root.wstring()};
+        std::array<std::wstring, 3>{xbox ? L"launchme-xbox " + std::wstring(xbox_account::helper_version) : amazon ? L"Nile " + std::wstring(amazon::helper_version) : epic ? std::wstring(L"Legendary 0.21.1") : variant, ui.request.install_directory.wstring(), ui.request.download_root.wstring()};
     for (int i = 0; i < 3; ++i) {
         if ((epic || steam) && i == 2) continue;
         const Rect r{p.left + 16, y, p.right - 16, y + item_h - 8};

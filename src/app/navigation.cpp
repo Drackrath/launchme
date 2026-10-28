@@ -984,6 +984,9 @@ void Launcher::launchGame(const Game& original, bool via_steam) {
     // Amazon Games: an account title is installed through Nile; an installed one starts from its fuel.json.
     if (active.source == GameSource::amazon && !active.installed && amazonConnected() &&
         (!active.account_id.empty() || active.installation.active())) { openAmazonInstall(active); return; }
+    // Xbox: with Instalacja przez Launchme an account's GDK title is installed by the helper; otherwise
+    // (and for every other title) Instaluj opens the Xbox app.
+    if (active.source == GameSource::xbox && !active.installed && xboxConnected() && xboxOwnInstall(active)) { openXboxInstall(active); return; }
     // A Steam game to install: the library picked in Launchme's dialog (src/app/steam_install.cpp).
     if (steamInstallDialogWanted(active) && openSteamInstall(active)) return;
     const auto action = primaryGameAction(active);

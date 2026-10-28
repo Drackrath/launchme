@@ -533,11 +533,39 @@ StoreLibrary mergeAmazonLibrary(StoreLibrary native, const std::vector<Game>& ga
             present.insert(gameKey(game)).second) native.visible.push_back(game);
     return native;
 }
+StoreLibrary mergeXboxLibrary(StoreLibrary native, const std::vector<Game>& games) {
+    const bool xbox_app = std::any_of(native.clients.begin(), native.clients.end(), [](const StoreClient& client) {
+        return client.source == GameSource::xbox && !client.executable.empty();
+    });
+    std::map<std::string, size_t> present;
+    for (size_t i = 0; i < native.visible.size(); ++i) present.emplace(gameKey(native.visible[i]), i);
+    for (const auto& game : games) {
+        if (game.source != GameSource::xbox || !validStoreGameId(GameSource::xbox, game.source_id) || game.name.empty()) continue;
+        if (const auto found = present.find(gameKey(game)); found != present.end()) {
+            // The Xbox app installed it (or the account lists a game twice): the installation stays.
+            auto& local = native.visible[found->second];
+            if (local.source != GameSource::xbox) continue;
+            if (local.account_id.empty()) local.account_id = game.account_id;
+            if (local.xbox_product.empty()) local.xbox_product = game.xbox_product;
+            for (auto [mine, theirs] : {std::pair{&local.store_tall_art, &game.store_tall_art}, std::pair{&local.store_wide_art, &game.store_wide_art},
+                                        std::pair{&local.store_logo_art, &game.store_logo_art}})
+                if (mine->empty()) *mine = *theirs;
+            continue;
+        }
+        auto entry = game;
+        if (!entry.installed && !entry.xbox_product.empty())
+            entry.install_action = xbox_app ? GameAction{L"msxbox://game/?productId=" + wide(entry.xbox_product), {}, {}, ActionKind::install} :
+                                              GameAction{L"ms-windows-store://pdp/?ProductId=" + wide(entry.xbox_product), {}, {}, ActionKind::open_client};
+        present.emplace(gameKey(entry), native.visible.size());
+        native.visible.push_back(std::move(entry));
+    }
+    return native;
+}
 StoreLibrary scanPcLibraries(const std::filesystem::path& catalogs, const std::vector<Game>& gog_owned, const std::string& gog_account,
                              const std::vector<Game>& previous_battlenet, const std::vector<Game>& epic_owned,
                              const std::string& epic_account, const std::vector<Game>& epic_installed,
                              const std::vector<Game>& imported, const std::vector<std::filesystem::path>& multimc_chosen,
-                             const std::vector<Game>& amazon) {
+                             const std::vector<Game>& amazon, const std::vector<Game>& xbox) {
     auto discovery = discoverPcInstallations(multimc_chosen);
     discovery.ubisoft_names = catalogs.parent_path() / L"ubisoft" / L"names.tsv";
     // Offline GOG installers are also tracked independently of account state,
@@ -552,8 +580,8 @@ StoreLibrary scanPcLibraries(const std::filesystem::path& catalogs, const std::v
         if (directory(folder) && file(folder / (L"goggame-" + wide(id) + L".info")))
             discovery.installs.push_back({GameSource::gog, id, {}, folder});
     }
-    return mergePcLibraries(mergeAmazonLibrary(mergeImportedLibrary(mergeEpicLibrary(mergeGogLibrary(scanNativePcLibraries(discovery, previous_battlenet), gog_owned, gog_account),
-        epic_owned, epic_account, epic_installed), imported), amazon), catalogs);
+    return mergePcLibraries(mergeXboxLibrary(mergeAmazonLibrary(mergeImportedLibrary(mergeEpicLibrary(mergeGogLibrary(scanNativePcLibraries(discovery, previous_battlenet), gog_owned, gog_account),
+        epic_owned, epic_account, epic_installed), imported), amazon), xbox), catalogs);
 }
 
 GameAction connectPcClient(GameSource source, const std::vector<StoreClient>& clients) {

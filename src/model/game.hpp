@@ -76,6 +76,10 @@ struct Game {
     // client's catalog (library/battlenet_art.hpp).
     std::string store_tall_art, store_wide_art, store_logo_art;
     bool epic_managed = false;
+    // Xbox account games (store/xbox_account.hpp): the Store product ID (BigId) and whether its PC
+    // package is a GDK MSIXVC one the helper can install itself (Instalacja przez Launchme).
+    std::string xbox_product;
+    bool xbox_own_install = false;
     std::string catalog_plugin; // Catalog owner; retained when resolving to a local Steam game.
     std::string version_group; // Display-only aggregate; raw library entries retain their store identity.
     // Play time the store or launcher counted itself (MultiMC/Prism instances, a store account),

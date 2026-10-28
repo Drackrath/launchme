@@ -47,6 +47,7 @@
 #include "../store/gog_account.hpp"
 #include "../store/epic_account.hpp"
 #include "../store/amazon.hpp"
+#include "../store/xbox_account.hpp"
 #include "../store/ea_account.hpp"
 #include "../store/web_import.hpp"
 #include "../library/recent_games.hpp"
@@ -1454,6 +1455,15 @@ private:
     void openAmazonInstall(const Game& game);
     void amazonInstallAccept();
     bool amazonConnected() const { return !amazon_state_.account.empty(); }
+    // The Xbox account through Launchme's Xodus-based helper (src/app/xbox.cpp, src/store/xbox_account.hpp).
+    void initializeXbox();
+    void xboxCommand(xbox_account::Command command);
+    void pollXbox();
+    void openXboxInstall(const Game& game);
+    void xboxInstallAccept();
+    bool xboxConnected() const { return !xbox_state_.account.empty(); }
+    // Instalacja przez Launchme is on and the helper can install this account game itself.
+    bool xboxOwnInstall(const Game& game) const;
     void updateSteamInstallations(const LibraryMessage& library);
     void pollGog();
     void openGogInstall(const Game& game);
@@ -2099,6 +2109,9 @@ private:
     std::unique_ptr<amazon::Service> amazon_service_;
     amazon::Snapshot amazon_state_;
     bool amazon_enable_on_connect_ = false;
+    std::unique_ptr<xbox_account::Service> xbox_service_;
+    xbox_account::Snapshot xbox_state_;
+    bool xbox_enable_on_connect_ = false;
     gog::Snapshot gog_state_;
     gog_install_ui::State gog_install_ui_;
     std::unordered_set<std::string> completed_pc_installs_;

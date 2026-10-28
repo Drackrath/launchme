@@ -216,6 +216,9 @@ struct AppSettings {
     // Steam games start through steam.exe -silent (a Steam started for them stays in the tray) and
     // Steam gets no foreground permission; Launchme hands focus to the game window itself.
     bool steam_silent_launch = false;
+    // Xbox account games: Instaluj downloads a GDK title with Launchme's Xodus-based helper into a
+    // chosen folder (experimental) instead of handing it to the Xbox app (store/xbox_account.hpp).
+    bool xbox_own_install = false;
     // While a game started here runs, the window is hidden (no taskbar button, no Alt+Tab) and an
     // icon in the notification area stands in for it; it comes back when the game closes.
     bool hide_while_playing = false;

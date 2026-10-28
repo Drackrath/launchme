@@ -45,11 +45,15 @@ StoreLibrary mergeEpicLibrary(StoreLibrary native, const std::vector<Game>& owne
 StoreLibrary mergeImportedLibrary(StoreLibrary native, const std::vector<Game>& imported);
 // Amazon Games from Nile's files (store/amazon.hpp): the account's games, the installed ones startable.
 StoreLibrary mergeAmazonLibrary(StoreLibrary native, const std::vector<Game>& games);
+// The Xbox account's games (store/xbox_account.hpp): an Xbox app installation of the same package
+// family keeps its entry and gains the account's product and art; the rest are listed, Instaluj
+// opening the Xbox app's page (or the Microsoft Store's without the app).
+StoreLibrary mergeXboxLibrary(StoreLibrary native, const std::vector<Game>& games);
 StoreLibrary scanPcLibraries(const std::filesystem::path& catalogs, const std::vector<Game>& gog_owned = {}, const std::string& gog_account = {},
                              const std::vector<Game>& previous_battlenet = {}, const std::vector<Game>& epic_owned = {},
                              const std::string& epic_account = {}, const std::vector<Game>& epic_installed = {},
                              const std::vector<Game>& imported = {}, const std::vector<std::filesystem::path>& multimc_chosen = {},
-                             const std::vector<Game>& amazon = {});
+                             const std::vector<Game>& amazon = {}, const std::vector<Game>& xbox = {});
 GameAction connectPcClient(GameSource source, const std::vector<StoreClient>& clients);
 // How Windows itself would remove this installed game (Ustawienia → Aplikacje): the uninstall
 // entry its installer registered, matched by the store's key (GOG "<id>_is1") or by its install

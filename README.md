@@ -42,6 +42,7 @@ never next to the EXE:
 | Store accounts (GOG, Epic, EA) | `accounts\` (DPAPI) |
 | Optional Aurelia binary / isolated session | `helpers\aurelia\` / `aurelia\` |
 | Optional Nile binary / Amazon Games session | `tools\nile-1.2.0.exe` / `amazon\` |
+| Optional Xbox helper / Xbox account session | `tools\launchme-xbox-0.1.0.exe` / `xbox\` |
 | Artwork cache | `covers`, `heroes`, `logos`, `posters`, `landscapes`, `stores`, `artwork` |
 | Metadata and ratings cache | `metadata`, `ratings`, `knowledge`, `glance` |
 | Downloaded game videos | `media\` (folder can be changed in Settings → Media & data) |
@@ -78,12 +79,13 @@ Settings → System → Help → **Open folder** (the version row) opens it.
   first, and a Steam game can be tied to one account (game menu → *Steam account*); Install picks the Steam
   library (with its free space) in Launchme's own dialog. While a game runs, *Close game* sits next to Play.
   Account switching and the install dialog can be turned off in Settings → Library → Launching.
-- **Downloads**: Steam, GOG, Epic, Battle.net, Amazon Games and Aurelia installs show their phase and percent on
+- **Downloads**: Steam, GOG, Epic, Battle.net, Amazon Games, Xbox (through Launchme) and Aurelia installs show their phase and percent on
   the game's Play button and in one *Downloads* list; a game preloaded ahead of its release waits there as
   *Preloaded* until the release day.
 - **Stores**: local installs of every store above, Steam collections synced with the running client,
   GOG and Epic account libraries (Epic installs through Legendary, no Epic launcher needed), Amazon Games
-  through the optional, separately downloaded Nile helper ([guide](docs/AMAZON_GAMES.md)),
+  through the optional, separately downloaded Nile helper ([guide](docs/AMAZON_GAMES.md)), the Xbox account (bought,
+  Play Anywhere and PC Game Pass games) through Launchme's optional Xodus-based helper ([guide](docs/XBOX.md)),
   EA and Battle.net libraries imported from their store pages (no EA app needed: sign in on ea.com,
   paste the token page), Ubisoft from the signed-in client, DRM-free folders, and MultiMC / Prism Launcher
   instances as games. Every platform, Steam included, can be switched off.

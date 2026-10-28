@@ -78,12 +78,13 @@ void Launcher::gogInstallAccept() {
     auto& ui = gog_install_ui_;
     if (!ui.open) return;
     if (ui.steam) { steamInstallAccept(); InvalidateRect(hwnd_, nullptr, FALSE); return; } // src/app/steam_install.cpp
-    const bool amazon = ui.game.source == GameSource::amazon;
-    const bool epic = ui.game.source == GameSource::epic || amazon; // Both: one game folder, the helper downloads.
-    if (amazon ? !amazon_service_ : ui.game.source == GameSource::epic ? !epic_service_ : !gog_service_) return;
+    const bool amazon = ui.game.source == GameSource::amazon, xbox = ui.game.source == GameSource::xbox;
+    const bool epic = ui.game.source == GameSource::epic || amazon || xbox; // One game folder, the helper downloads.
+    if (xbox ? !xbox_service_ : amazon ? !amazon_service_ : ui.game.source == GameSource::epic ? !epic_service_ : !gog_service_) return;
     if (ui.row == 4) { gogInstallKey(VK_ESCAPE, false); return; }
     if (ui.row == 3) {
         if (amazon) { amazonInstallAccept(); InvalidateRect(hwnd_, nullptr, FALSE); return; }
+        if (xbox) { xboxInstallAccept(); InvalidateRect(hwnd_, nullptr, FALSE); return; }
         if (epic) { epicInstallAccept(); InvalidateRect(hwnd_, nullptr, FALSE); return; }
         if (ui.snapshot.state == gog::InstallState::installing) return;
         if (ui.snapshot.busy()) { gog_service_->cancelInstall(); return; }
@@ -97,7 +98,7 @@ void Launcher::gogInstallAccept() {
         if (epic && (ui.row == 0 || ui.row == 2)) return;
         if (ui.row == 0) { gogInstallKey(VK_RIGHT, false); return; }
         const bool game = ui.row == 1;
-        const std::wstring title = amazon ? tr(L"Wybierz folder nadrzędny gry — Launchme doda podfolder Amazon") :
+        const std::wstring title = xbox ? tr(L"Wybierz folder nadrzędny gry — Launchme doda podfolder Xbox") : amazon ? tr(L"Wybierz folder nadrzędny gry — Launchme doda podfolder Amazon") :
                                    epic ? tr(L"Wybierz folder nadrzędny gry — Launchme doda podfolder Epic") :
                                    game ? tr(L"Wybierz folder nadrzędny gry — Launchme doda podfolder GOG") :
                                           tr(L"Wybierz folder na pobierane części instalatora");
@@ -108,7 +109,8 @@ void Launcher::gogInstallAccept() {
         request.initial = initial;
         request.native = [this, title, initial] { return pickFolder(hwnd_, title.c_str(), initial); };
         const auto product = ui.request.product;
-        const auto subfolder = amazon ? L"Amazon-" + amazon::folderName(ui.game.name, product) :
+        const auto subfolder = xbox ? L"Xbox-" + xbox_account::folderName(ui.game.name, ui.game.xbox_product) :
+                               amazon ? L"Amazon-" + amazon::folderName(ui.game.name, product) :
                                (epic ? L"Epic-" : L"GOG-") + text_encoding::wide(product);
         openFileBrowser(std::move(request), [this, game, product, subfolder](const std::filesystem::path& folder) {
             auto& install = gog_install_ui_;

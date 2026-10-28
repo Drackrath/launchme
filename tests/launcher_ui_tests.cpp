@@ -128,6 +128,7 @@ public:
     static int profilePage(HWND window);
     static int aureliaIntegration(HWND window);
     static int amazonGames(HWND window);
+    static int xboxAccount(HWND window);
     static int studioLibraries(HWND window);
     static int updates(HWND window);
     static int gameLengths(HWND window);
@@ -1332,6 +1333,7 @@ public:
 #include "profile_ui_cases.hpp"
 #include "aurelia_ui_cases.hpp"
 #include "amazon_ui_cases.hpp"
+#include "xbox_ui_cases.hpp"
 #include "studios_ui_cases.hpp"
 #include "update_ui_cases.hpp"
 #include "companion_ui_cases.hpp"
@@ -2101,6 +2103,15 @@ int main(int argc, char** argv) {
         CoUninitialize();
         if (code) std::cerr << "Profile regression failed at checkpoint " << code << '\n';
         else std::cout << "Profile: drawer widget, week, achievements, history, platforms, keys, pad, mouse, desktop widgets, Czas gry and MultiMC passed\n";
+        return code;
+    }
+    if (argc == 2 && std::string_view(argv[1]) == "--xbox") {
+        std::filesystem::create_directories(root);
+        const auto code = window ? LauncherUiTest::xboxAccount(window) : 99;
+        if (window) DestroyWindow(window);
+        CoUninitialize();
+        if (code) std::cerr << "Xbox account UI failed at checkpoint " << code << '\n';
+        else std::cout << "Xbox account: helper offer, sign-in, Xbox app hand-off, own install dialog, uninstall and launch passed\n";
         return code;
     }
     if (argc == 2 && std::string_view(argv[1]) == "--amazon") {

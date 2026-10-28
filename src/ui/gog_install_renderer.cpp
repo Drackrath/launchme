@@ -1,6 +1,7 @@
 #include "renderer.hpp"
 #include "../store/epic_account.hpp"
 #include "../store/amazon.hpp"
+#include "../store/xbox_account.hpp"
 #include <cmath>
 
 void Renderer::drawInstallDisc(float cx, float cy, float radius, float opacity, bool moving) {
@@ -24,7 +25,8 @@ void Renderer::drawGogInstall() {
     const auto& ui = *context_->gog_install;
     const auto& state = ui.snapshot;
     const bool epic = gog_install_ui::helperInstall(ui.game.source), steam = ui.steam;
-    const bool amazon = ui.game.source == GameSource::amazon; // Nile reports bytes, Legendary percent.
+    const bool xbox = ui.game.source == GameSource::xbox;
+    const bool amazon = ui.game.source == GameSource::amazon || xbox; // Nile and the Xbox helper report bytes, Legendary percent.
     const gog_install_ui::Layout layout{viewport_.width, viewport_.height, epic || steam};
     const auto panel = layout.panel();
     const auto rect = [](settings_ui::Rect r) { return D2D1::RectF(r.left, r.top, r.right, r.bottom); };
@@ -48,11 +50,11 @@ void Renderer::drawGogInstall() {
     }
     const std::array<std::wstring, 5> labels = steam ?
         std::array<std::wstring, 5>{tr(L"Biblioteka Steam"), tr(L"Okno instalacji Steam"), {}, gog_install_ui::action(ui), tr(L"Powrót")} :
-        std::array<std::wstring, 5>{amazon ? std::wstring(L"Amazon Games · Windows") : epic ? std::wstring(L"Epic Games · Windows") : std::wstring(tr(L"Język / wersja")), tr(L"Folder gry"),
+        std::array<std::wstring, 5>{xbox ? std::wstring(L"Xbox · Windows (Xodus)") : amazon ? std::wstring(L"Amazon Games · Windows") : epic ? std::wstring(L"Epic Games · Windows") : std::wstring(tr(L"Język / wersja")), tr(L"Folder gry"),
                                     tr(L"Folder pobierania (tymczasowo)"), gog_install_ui::action(ui), tr(L"Powrót")};
     const std::array<std::wstring, 3> values = steam ?
         std::array<std::wstring, 3>{gog_install_ui::steamLibraryText(ui) + (ui.libraries.size() > 1 ? L"  ◀ ▶" : L""), tr(L"Wybór biblioteki i instalacja w samym Steamie"), {}} :
-        std::array<std::wstring, 3>{amazon ? L"Nile " + std::wstring(amazon::helper_version) : epic ? std::wstring(L"Legendary 0.21.1") : variant, ui.request.install_directory.wstring(), ui.request.download_root.wstring()};
+        std::array<std::wstring, 3>{xbox ? L"launchme-xbox " + std::wstring(xbox_account::helper_version) : amazon ? L"Nile " + std::wstring(amazon::helper_version) : epic ? std::wstring(L"Legendary 0.21.1") : variant, ui.request.install_directory.wstring(), ui.request.download_root.wstring()};
     for (int i = 0; i < 5; ++i) {
         if ((epic || steam) && i == 2) continue;
         const auto r = layout.row(i);

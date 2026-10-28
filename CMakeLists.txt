@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(launchme VERSION 0.3.2 LANGUAGES C CXX)
+project(launchme VERSION 0.3.3 LANGUAGES C CXX)
 
 if(NOT WIN32)
     message(FATAL_ERROR "This native Direct2D prototype currently targets Windows.")
@@ -223,12 +223,14 @@ set(LAUNCHME_APP_SOURCES
     src/app/gog.cpp
     src/app/epic.cpp
     src/app/amazon.cpp
+    src/app/xbox.cpp
     src/app/web_imports.cpp
     src/app/steam_install.cpp
     src/store/web_import.cpp
     src/store/ea_account.cpp
     ${LAUNCHME_EPIC_SOURCES}
     src/store/amazon.cpp
+    src/store/xbox_account.cpp
     src/app/gog_install.cpp
     src/app/my_games.cpp
     src/app/file_browser.cpp
@@ -698,6 +700,8 @@ if(BUILD_TESTING)
     launchme_executable(amazon_tests TEST amazon_nile_contracts SOURCES tests/amazon_tests.cpp)
     add_test(NAME aurelia_desktop_tv_integration COMMAND launcher_ui_tests --aurelia)
     add_test(NAME amazon_games_nile_flow COMMAND launcher_ui_tests --amazon)
+    launchme_executable(xbox_account_tests TEST xbox_account_contracts SOURCES tests/xbox_account_tests.cpp)
+    add_test(NAME xbox_account_flow COMMAND launcher_ui_tests --xbox)
     launchme_executable(companion_tests TEST companion_replies_prompts_and_rig SOURCES tests/companion_tests.cpp)
     launchme_executable(companion_social_tests TEST companion_social_rules_history_and_plans SOURCES tests/companion_social_tests.cpp)
     launchme_executable(companion_memory_tests TEST companion_weighted_memory_and_capacity SOURCES tests/companion_memory_tests.cpp)

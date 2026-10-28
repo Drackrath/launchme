@@ -2,6 +2,7 @@
 #include "../ui/grid_layout.hpp"
 #include "../store/epic_legendary.hpp"
 #include "../store/amazon.hpp"
+#include "../store/xbox_account.hpp"
 #include "../library/ubisoft_catalog.hpp"
 #include "../platform/text_encoding.hpp"
 #include <algorithm>
@@ -28,7 +29,7 @@ PcLibraryMessage readPcLibrary(const PcLibraryRequest& request, const std::funct
         if (*snapshot) imported.insert(imported.end(), (*snapshot)->games.begin(), (*snapshot)->games.end());
     const auto scan = [&] { return scanPcLibraries(root / L"libraries", request.gog_owned, request.gog_account,
         request.previous_battlenet, request.epic_owned, request.epic_account, epic::installedGames(root), imported, request.multimc,
-        amazon::readProfile(root).games); };
+        amazon::readProfile(root).games, xbox_account::readProfile(root).games); };
     if (cancel()) return message;
     message.library = scan();
     // Owned Ubisoft products are listed by title only; new titles come from the public catalogue.
@@ -137,6 +138,7 @@ void Launcher::startPcWatcher() {
             watch.directory(config / L"installed" / L"epic");
             watch.directory(config / L"epic" / L"legendary");
             watch.directory(amazon::nileDirectory(config)); // Nile's library and installs.
+            watch.directory(xbox_account::profileDirectory(config)); // The Xbox helper's library and installs.
         };
         build();
         size_t watched = watch.size();
@@ -192,6 +194,7 @@ void Launcher::uninstallGame(const Game& game) {
     if (game.epic_managed || game.source == GameSource::amazon) { ask({}); return; } // Nile deletes it too.
     if (game.source == GameSource::gog)
         if (auto silent = silentUninstallAction(uninstallAction(game, installed_programs_()))) { ask(std::move(silent)); return; }
+    if (xbox_account::ownInstall(game)) { ask({}); return; } // Installed by the Xbox helper: Launchme deletes its folder.
     if (game.source == GameSource::xbox) { // Packaged games: Windows' own Apps list removes them.
         if (execute_(hwnd_, GameAction{L"ms-settings:appsfeatures", {}, {}, ActionKind::open_client}) > 32)
             showNotification(NotificationKind::launch, game.name, tr(L"Odinstaluj w Ustawieniach Windows → Aplikacje."));
@@ -214,13 +217,15 @@ void Launcher::uninstallGame(const Game& game) {
 }
 
 void Launcher::uninstallManagedGame(const Game& game, const GameAction& silent) {
-    if (!game.epic_managed && game.source != GameSource::amazon && !silent) return;
-    work_.start([window = hwnd_, alive = alive_, game, silent, run = silent_uninstall_, root = userConfigDirectory()] {
+    const bool xbox_own = xbox_account::ownInstall(game);
+    if (!game.epic_managed && game.source != GameSource::amazon && !xbox_own && !silent) return;
+    work_.start([window = hwnd_, alive = alive_, game, silent, xbox_own, run = silent_uninstall_, root = userConfigDirectory()] {
         auto message = std::make_unique<StoreChangeMessage>();
         message->uninstalled = game.name;
         const auto cancel = [&] { return !alive->load(); };
         if (game.epic_managed) message->failed = !epic::uninstallManaged(root, game, cancel);
         else if (game.source == GameSource::amazon) message->failed = !amazon::uninstall(root, game, cancel);
+        else if (xbox_own) message->failed = !xbox_account::uninstall(root, game);
         else {
             const auto result = run(silent, window, cancel);
             if (result == UninstallResult::refused) message->uninstalled.clear(); // UAC declined: nothing to report.

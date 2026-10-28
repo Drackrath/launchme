@@ -10,9 +10,9 @@
 // game's folder (Steam: Steam's own install window), 2 the download folder (GOG only), 3 the
 // action, 4 Powrót.
 namespace gog_install_ui {
-// Epic (Legendary) and Amazon Games (Nile): a helper downloads straight into the game's folder, so
-// there is no installer and no download folder to choose.
-inline bool helperInstall(GameSource source) { return source == GameSource::epic || source == GameSource::amazon; }
+// Epic (Legendary), Amazon Games (Nile) and Xbox (launchme-xbox): a helper downloads straight into
+// the game's folder, so there is no installer and no download folder to choose.
+inline bool helperInstall(GameSource source) { return source == GameSource::epic || source == GameSource::amazon || source == GameSource::xbox; }
 struct State {
     bool open = false;
     Game game;

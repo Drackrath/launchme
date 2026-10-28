@@ -69,6 +69,8 @@ enum class Id { font, home_layout, ui_accent, accent, uninstalled, emulation, co
                    hide_while_playing, aurelia, aurelia_open, aurelia_cloud, aurelia_default,
                    // Biblioteka → Amazon Games: Nile (the helper), the sign-in address, sync and sign-out.
                    amazon_helper, amazon_callback, amazon_refresh, amazon_logout,
+                   // Biblioteka → Xbox: the Xodus-based helper, sync, sign-out and Instalacja przez Launchme.
+                   xbox_helper, xbox_refresh, xbox_logout, xbox_own_install,
                    // Biblioteka → Gry dodane ręcznie: find and download their missing covers.
                    custom_covers };
 inline bool hasOptionsButton(Id id) { return id == Id::plugin_enabled || id == Id::pc_platform; }

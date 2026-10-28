@@ -111,11 +111,13 @@ void Launcher::retryStore() {
         if ((!settings_state_.platform() || settings_state_.platform() == GameSource::gog) && !gog_state_.account.empty()) gogCommand(gog::Command::sync);
         if ((!settings_state_.platform() || settings_state_.platform() == GameSource::epic) && !epic_state_.account.empty()) epicCommand(epic::Command::sync);
         if ((!settings_state_.platform() || settings_state_.platform() == GameSource::amazon) && amazonConnected()) amazonCommand(amazon::Command::sync);
+        if ((!settings_state_.platform() || settings_state_.platform() == GameSource::xbox) && xboxConnected()) xboxCommand(xbox_account::Command::sync);
     }
     else if (screen_ == ScreenMode::library && pc_source_) {
         refreshPcLibraries(); if (pc_source_ == GameSource::gog && !gog_state_.account.empty()) gogCommand(gog::Command::sync);
         if (pc_source_ == GameSource::epic && !epic_state_.account.empty()) epicCommand(epic::Command::sync);
         if (pc_source_ == GameSource::amazon && amazonConnected()) amazonCommand(amazon::Command::sync);
+        if (pc_source_ == GameSource::xbox && xboxConnected()) xboxCommand(xbox_account::Command::sync);
     }
     else if (screen_ == ScreenMode::store && !store_loading_) searchStore();
     else if (screen_ == ScreenMode::details && !details_loading_) {
@@ -170,7 +172,7 @@ bool Launcher::actionEnabled(const Game& game) const {
     // URI action — those have none, yet the action works.
     if (effective.kind != GameKind::catalog && !effective.installed && (!effective.account_id.empty() || effective.installation.active()) &&
         ((effective.source == GameSource::gog && !gog_state_.account.empty()) || (effective.source == GameSource::epic && !epic_state_.account.empty()) ||
-         (effective.source == GameSource::amazon && amazonConnected())))
+         (effective.source == GameSource::amazon && amazonConnected()) || (xboxOwnInstall(effective) && xboxConnected())))
         return true;
     if (effective.source == GameSource::epic && effective.epic_managed) return true;
     const auto* owner = plugins_.find(game.catalog_plugin);

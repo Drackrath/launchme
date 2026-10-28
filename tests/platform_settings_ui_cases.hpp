@@ -73,7 +73,9 @@ int LauncherUiTest::pcSettings(HWND window) {
     app.settingsMove(position(GameSource::xbox) - position(GameSource::gog)); const auto parent_scroll = app.settings_state_.offset();
     if (!capture(L"pc-settings-overview-end.png")) return 2027; // The last stores with their marks (Xbox).
     app.settingsAdjust(1); app.settingsActivate();
-    if (app.settings_state_.platform() != GameSource::xbox || app.settings_rows_.size() != 2 || !select(Id::pc_client)) return 2010;
+    // Signed out: the account helper, Konto, Biblioteka, the (locked) own install, excluded games, the Xbox app.
+    if (app.settings_state_.platform() != GameSource::xbox || app.settings_rows_.size() != 6 || app.settings_rows_[0].id != Id::xbox_helper ||
+        !select(Id::pc_client)) return 2010;
     if (!capture(L"pc-settings-xbox.png")) return 2011;
     const auto client_actions = dispatched.size(); app.settingsActivate();
     if (dispatched.size() != client_actions + 1 || dispatched.back() != L"ms-windows-store://pdp/?ProductId=9MV0B5HZVK9Z") return 2024;

@@ -27,6 +27,9 @@
 launchme.log
 /crashes/
 
+# The Xbox helper's Cargo output when built outside tools/build-xbox-helper.ps1.
+/helpers/xbox/target/
+
 # Python bytecode from tools/.
 __pycache__/
 

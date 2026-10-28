@@ -176,6 +176,7 @@ AppSettings parseAppSettings(std::string_view text) {
         const auto key = trim(line.substr(0, equal));
         auto value = trim(line.substr(equal + 1));
         if (parseLookSetting(settings, key, value)) continue; // Kept apart: MSVC caps one if/else chain's depth.
+        if (key == "xbox_own_install") { if (value == "0" || value == "1") settings.xbox_own_install = value == "1"; continue; }
         if (key == "aurelia") { if (value == "0" || value == "1") settings.aurelia = value == "1"; continue; }
         if (key == "aurelia_intro_done") { if (value == "0" || value == "1") settings.aurelia_intro_done = value == "1"; continue; }
         if (key == "steam_account") { // <app id>:<SteamID64>
@@ -519,7 +520,7 @@ AppSettings parseAppSettings(std::string_view text) {
                 if (!id.empty() && id.size() < 120) {
                     if (key == "pc_platforms") {
                         if (id == "gog" || id == "battlenet" || id == "ea" || id == "ubisoft" || id == "epic" || id == "xbox" || id == "drmfree" ||
-                            id == "multimc")
+                            id == "multimc" || id == "amazon")
                             settings.enabled_pc_sources.emplace(id);
                     } else if (key == "hidden_collections") settings.hidden_collections.emplace(id);
                     else if (key == "hidden_studios") settings.hidden_studios.emplace(id);
@@ -725,6 +726,7 @@ bool saveAppSettings(const AppSettings& settings, const std::filesystem::path& f
                                  settings.hint_glyphs == AppSettings::HintGlyphs::playstation ? "playstation" :
                                  settings.hint_glyphs == AppSettings::HintGlyphs::nintendo ? "nintendo" : "auto") << '\n';
     output << "steam_silent_launch=" << settings.steam_silent_launch << '\n';
+    output << "xbox_own_install=" << settings.xbox_own_install << '\n';
     output << "hide_while_playing=" << settings.hide_while_playing << '\n';
     output << "steam_account_switch=" << settings.steam_account_switch << '\n';
     output << "steam_install_dialog=" << settings.steam_install_dialog << '\n';
@@ -789,7 +791,7 @@ bool saveAppSettings(const AppSettings& settings, const std::filesystem::path& f
     output << '\n';
     output << "pc_platforms=";
     bool first_platform = true;
-    for (const auto* source : {"drmfree", "gog", "battlenet", "ea", "ubisoft", "epic", "xbox", "multimc"}) if (settings.enabled_pc_sources.contains(source)) {
+    for (const auto* source : {"drmfree", "gog", "battlenet", "ea", "ubisoft", "epic", "xbox", "multimc", "amazon"}) if (settings.enabled_pc_sources.contains(source)) {
         if (!first_platform) output << ',';
         output << source;
         first_platform = false;

@@ -1,0 +1,39 @@
+[package]
+name = "launchme-xbox"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98.0"
+license = "GPL-3.0-or-later"
+description = "Launchme's Xbox account helper built on Xodus (sign-in, library, MSIXVC install, licensed launch)"
+publish = false
+
+# Xodus (https://github.com/xodus-gaming/xodus, GPL-3.0) is pinned to one commit: its crates are
+# not published and its API moves quickly. Bump XODUS_REV in tools/build-xbox-helper.ps1 too.
+[dependencies]
+xodus = { git = "https://github.com/xodus-gaming/xodus", rev = "514dd56f360a4bdf12f4acde5148bac5ce5f957f" }
+msixvc = { git = "https://github.com/xodus-gaming/xodus", rev = "514dd56f360a4bdf12f4acde5148bac5ce5f957f" }
+tokio = { version = "1.53.1", features = ["full"] }
+reqwest = { version = "0.13.4", features = ["json", "stream"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+chrono = "0.4.45"
+futures-util = "0.3.34"
+uuid = { version = "1.25.0", features = ["v4"] }
+url = "2.5.8"
+fs2 = "0.4.3"
+roxmltree = "0.20"
+tao = "0.37.0"
+wry = "0.56.1"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Cryptography", "Win32_System_Memory", "Win32_UI_WindowsAndMessaging"] }
+
+# Same as the Xodus workspace: its MSIXVC reader needs the patched ntfs crate.
+[patch.crates-io]
+ntfs = { git = "https://github.com/xodus-gaming/ntfs.git" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "unwind"
