@@ -71,6 +71,7 @@ int LauncherUiTest::pcSettings(HWND window) {
     app.back(); if (!overview() || app.settings_state_.row() != position(GameSource::gog)) return 2009;
     // Pad/keyboard uses Right -> cog -> Enter, and Back restores a scrolled list.
     app.settingsMove(position(GameSource::xbox) - position(GameSource::gog)); const auto parent_scroll = app.settings_state_.offset();
+    if (!capture(L"pc-settings-overview-end.png")) return 2027; // The last stores with their marks (Xbox).
     app.settingsAdjust(1); app.settingsActivate();
     if (app.settings_state_.platform() != GameSource::xbox || app.settings_rows_.size() != 2 || !select(Id::pc_client)) return 2010;
     if (!capture(L"pc-settings-xbox.png")) return 2011;
