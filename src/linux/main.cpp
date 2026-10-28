@@ -2,12 +2,15 @@
 #include <SDL3_ttf/SDL_ttf.h>
 
 #include "library/steam.hpp"
+#include "platform/frame_clock.hpp"
+#include "platform/sdl_window.hpp"
 #include "platform/text_encoding.hpp"
 
 #include <algorithm>
 #include <cstdio>
 #include <filesystem>
 #include <string>
+#include <variant>
 #include <vector>
 
 namespace {
@@ -54,26 +57,12 @@ void drawPanel(SDL_Renderer* renderer, float x, float y, float width, float heig
 }
 
 bool run() {
-    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) return reportSdlFailure("SDL initialization failed");
-    if (!TTF_Init()) {
-        SDL_Quit();
-        return reportSdlFailure("SDL_ttf initialization failed");
-    }
-
-    SDL_Window* window = SDL_CreateWindow("launchme", window_width, window_height, SDL_WINDOW_RESIZABLE);
-    if (!window) {
-        TTF_Quit();
-        SDL_Quit();
-        return reportSdlFailure("window creation failed");
-    }
-
-    SDL_Renderer* renderer = SDL_CreateRenderer(window, nullptr);
-    if (!renderer) {
-        SDL_DestroyWindow(window);
-        TTF_Quit();
-        SDL_Quit();
-        return reportSdlFailure("renderer creation failed");
-    }
+    // The window and its events through the same boundary the Launcher will use
+    // (platform/sdl_window.hpp, platform/window_events.hpp), paced by FrameClock.
+    platform::SdlWindow window({"launchme", window_width, window_height});
+    if (!window.valid()) return reportFailure("window creation failed", window.error().c_str());
+    if (!TTF_Init()) return reportSdlFailure("SDL_ttf initialization failed");
+    SDL_Renderer* renderer = window.renderer();
 
     TTF_Font* font = nullptr;
     for (const char* path : {"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
@@ -85,10 +74,7 @@ bool run() {
         const char* error = SDL_GetError();
         std::fprintf(stderr, "launchme: no usable font found (tried DejaVuSans.ttf): %s\n",
                      error && *error ? error : "unknown error");
-        SDL_DestroyRenderer(renderer);
-        SDL_DestroyWindow(window);
         TTF_Quit();
-        SDL_Quit();
         return false;
     }
 
@@ -106,37 +92,39 @@ bool run() {
     SDL_free(gamepad_ids);
 
     size_t selected = 0;
+    const auto move = [&](int amount) {
+        if (games.empty()) return;
+        selected = (selected + (amount > 0 ? 1 : games.size() - 1)) % games.size();
+    };
+    FrameClock frame_clock;
     bool running = true;
     while (running) {
-        SDL_Event event{};
-        while (SDL_PollEvent(&event)) {
-            if (event.type == SDL_EVENT_QUIT ||
-                (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_ESCAPE)) {
+        for (const platform::WindowEvent& event : window.pollEvents()) {
+            if (std::holds_alternative<platform::QuitEvent>(event) || std::holds_alternative<platform::CloseRequestEvent>(event))
                 running = false;
+            if (const auto* key = std::get_if<platform::KeyEvent>(&event); key && key->pressed) {
+                if (key->key == keys::escape) running = false;
+                else if (!key->repeat && (key->key == keys::down || key->key == keys::right)) move(1);
+                else if (!key->repeat && (key->key == keys::up || key->key == keys::left)) move(-1);
             }
-            if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && !games.empty()) {
-                if (event.key.key == SDLK_DOWN || event.key.key == SDLK_RIGHT)
-                    selected = (selected + 1) % games.size();
-                if (event.key.key == SDLK_UP || event.key.key == SDLK_LEFT)
-                    selected = (selected + games.size() - 1) % games.size();
-            }
-            if (event.type == SDL_EVENT_GAMEPAD_ADDED && !gamepad)
-                gamepad = SDL_OpenGamepad(event.gdevice.which);
-            if (event.type == SDL_EVENT_GAMEPAD_REMOVED && gamepad &&
-                SDL_GetGamepadID(gamepad) == event.gdevice.which) {
-                SDL_CloseGamepad(gamepad);
-                gamepad = nullptr;
-            }
-            if (event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && !games.empty()) {
-                if (event.gbutton.button == SDL_GAMEPAD_BUTTON_DPAD_DOWN ||
-                    event.gbutton.button == SDL_GAMEPAD_BUTTON_DPAD_RIGHT)
-                    selected = (selected + 1) % games.size();
-                if (event.gbutton.button == SDL_GAMEPAD_BUTTON_DPAD_UP ||
-                    event.gbutton.button == SDL_GAMEPAD_BUTTON_DPAD_LEFT)
-                    selected = (selected + games.size() - 1) % games.size();
-                if (event.gbutton.button == SDL_GAMEPAD_BUTTON_BACK) running = false;
+            if (const auto* pad = std::get_if<platform::GamepadEvent>(&event)) {
+                using platform::GamepadAction, platform::GamepadButton;
+                if (pad->action == GamepadAction::Connected && !gamepad) gamepad = SDL_OpenGamepad(static_cast<SDL_JoystickID>(pad->id));
+                if (pad->action == GamepadAction::Disconnected && gamepad && SDL_GetGamepadID(gamepad) == pad->id) {
+                    SDL_CloseGamepad(gamepad);
+                    gamepad = nullptr;
+                }
+                if (pad->action == GamepadAction::ButtonDown) {
+                    if (pad->button == GamepadButton::DpadDown || pad->button == GamepadButton::DpadRight) move(1);
+                    if (pad->button == GamepadButton::DpadUp || pad->button == GamepadButton::DpadLeft) move(-1);
+                    if (pad->button == GamepadButton::Back) running = false;
+                }
             }
         }
+        if (!running) break;
+        frame_clock.update(window.native());
+        if (!frame_clock.ready()) { frame_clock.wait(); continue; }
+        frame_clock.consume();
 
         SDL_SetRenderDrawColor(renderer, 14, 17, 24, SDL_ALPHA_OPAQUE);
         SDL_RenderClear(renderer);
@@ -182,10 +170,7 @@ bool run() {
     if (gamepad) SDL_CloseGamepad(gamepad);
     TTF_CloseFont(font);
     TTF_Quit();
-    SDL_DestroyRenderer(renderer);
-    SDL_DestroyWindow(window);
-    SDL_Quit();
-    return true;
+    return true; // The window and SDL end with `window`.
 }
 
 } // namespace
