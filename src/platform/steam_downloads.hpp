@@ -6,6 +6,8 @@
 #include <cstdint>
 #include <cstring>
 #include <optional>
+#include <string_view>
+#include <unordered_map>
 
 struct DownloadBytes { uint64_t done = 0, total = 0; InstallPhase phase = InstallPhase::none; };
 // The private AppManager ABI is never called blindly. Steam updates its client every week or
@@ -37,7 +39,23 @@ inline std::optional<DownloadBytes> steamUpdateCounters(std::span<const uint8_t>
     } else result.phase = state & 4 ? InstallPhase::verifying : state & (64 | 128) ? InstallPhase::staging : InstallPhase::allocating;
     return result;
 }
-// Worker-only read-only IPC. No SteamAPI_Init/AppID impersonation, injection,
+// Linux has no AppManager reads: Steam's logs/content_log.txt is followed instead. Per app it
+// keeps the last update phase ("App update changed : Running Update,Downloading,Staging,"),
+// the counters logged when an update starts or resumes ("update started : download a/b, ...,
+// stage c/d") and a pause ("state changed : ...Update Paused..." or "(Suspended)"). The
+// counters are only a starting point; appmanifest_<app>.acf has the current ones.
+class SteamContentLog {
+public:
+    void feed(std::string_view text); // Whole lines; a trailing partial line is ignored.
+    std::optional<DownloadBytes> state(uint32_t app) const;
+    void clear() { apps_.clear(); }
+private:
+    struct App { InstallPhase phase = InstallPhase::none; bool paused = false; uint64_t download_done = 0, download_total = 0, stage_done = 0, stage_total = 0; };
+    std::unordered_map<uint32_t, App> apps_;
+};
+// The BytesDownloaded/BytesToDownload (or, for staging, BytesStaged/BytesToStage) of an ACF.
+DownloadBytes steamManifestCounters(std::string_view acf, bool staging);
+// Worker-only read-only IPC (Windows; on Linux the files above, and connected() means the log is readable). No SteamAPI_Init/AppID impersonation, injection,
 // installation commands, or callbacks on the frame/UI thread.
 class SteamDownloads {
 public:
