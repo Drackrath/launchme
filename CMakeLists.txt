@@ -354,9 +354,12 @@ set(LAUNCHME_APP_SOURCES
     src/platform/system_audio_windows.cpp
     src/platform/volume_monitor.cpp
     src/platform/game_controllers.cpp
-    src/platform/bluetooth_controllers.cpp
+    src/platform/game_controllers_windows.cpp
+    src/platform/bluetooth_controllers_windows.cpp
     src/platform/steam_controller.cpp
+    src/platform/steam_controller_windows.cpp
     src/platform/device_service.cpp
+    src/platform/device_service_windows.cpp
     src/platform/user_config.cpp
     src/platform/unicode_text.cpp
     src/platform/hashing.cpp
@@ -603,13 +606,15 @@ if(BUILD_TESTING)
     launchme_executable(library_state_tests TEST library_view_state_and_sorting
         SOURCES tests/library_state_tests.cpp src/platform/library_state.cpp src/library/view_options.cpp)
     launchme_executable(device_tests TEST device_input_and_audio_transactions
-        SOURCES tests/device_tests.cpp src/platform/game_controllers.cpp src/platform/steam_controller.cpp
+        SOURCES tests/device_tests.cpp src/platform/game_controllers.cpp src/platform/game_controllers_windows.cpp
+            src/platform/steam_controller.cpp src/platform/steam_controller_windows.cpp
         LIBS windowsapp hid xinput)
     launchme_executable(controller_models_tests TEST controller_picture_classification
         SOURCES tests/controller_models_tests.cpp)
     launchme_executable(device_live_test
-        SOURCES tests/device_live_test.cpp src/platform/device_service.cpp src/platform/game_controllers.cpp
-            src/platform/steam_controller.cpp src/platform/system_audio_windows.cpp src/platform/user_config.cpp src/net/http.cpp
+        SOURCES tests/device_live_test.cpp src/platform/device_service.cpp src/platform/device_service_windows.cpp
+            src/platform/game_controllers.cpp src/platform/game_controllers_windows.cpp src/platform/steam_controller.cpp
+            src/platform/steam_controller_windows.cpp src/platform/system_audio_windows.cpp src/platform/user_config.cpp src/net/http.cpp
         LIBS windowsapp hid xinput windowscodecs winhttp shell32 ole32 propsys)
     launchme_executable(steamgriddb_tests TEST steamgriddb_browser_and_selection
         SOURCES tests/steamgriddb_tests.cpp src/artwork/steamgriddb.cpp ${LAUNCHME_COVER_SOURCES} ${LAUNCHME_WEB_SOURCES}
