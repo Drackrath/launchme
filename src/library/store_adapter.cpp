@@ -211,7 +211,8 @@ StoreLibrary scanStoreLibraries(const std::filesystem::path& directory) {
 GameAction primaryGameAction(const Game& game) {
     if (!isGame(game)) return {};
     if (game.source == GameSource::steam)
-        return {steamActionUrl(game), {}, {}, game.installation.active() ? ActionKind::open_client : game.installed ? ActionKind::play : ActionKind::install};
+        return {steamActionUrl(game), {}, {}, game.installation.active() || game.preloaded ? ActionKind::open_client :
+                                              game.installed ? ActionKind::play : ActionKind::install};
     // User-added games (src/library/custom_games.cpp): a missing file has nothing to open.
     if (localFileGame(game.source)) return game.installed ? game.play_action : GameAction{};
     const auto adapter = makeStoreAdapter(game.source);

@@ -45,7 +45,10 @@ void Launcher::loadFriends() {
         aureliaRequest({aurelia::Command::friends}, [generation](Launcher& app, aurelia::Reply reply) {
             auto message = std::make_unique<FriendsMessage>(); message->generation = generation;
             message->result = reply.ok ? aurelia::friends(reply.data) : FriendsResult{{}, reply.error};
+            auto people = message->result.friends;
             app.onFriends(std::move(message));
+            // Aurelia's roster carries no avatars: the Steam client's cache or the public profiles have them.
+            if (generation == app.friends_generation_ && !people.empty()) app.loadFriendAvatars(std::move(people), generation);
         });
         return;
     }
@@ -65,12 +68,28 @@ void Launcher::loadFriends() {
         const auto cache = coverCacheDirectory().parent_path() / L"avatars";
         for (const auto& person : people) {
             if (!alive->load() || token->load() != generation) break;
-            auto bytes = fetchFriendAvatar(person, cache);
+            auto bytes = fetchFriendAvatar(person, cache, root);
             if (bytes.empty() || !alive->load() || token->load() != generation) continue;
             auto avatar = std::make_unique<AvatarMessage>();
             avatar->id = person.id;
             avatar->generation = generation;
             avatar->bytes = std::move(bytes);
+            if (!PostMessageW(hwnd, avatar_message, 0, reinterpret_cast<LPARAM>(avatar.get()))) break;
+            avatar.release();
+        }
+    });
+}
+
+void Launcher::loadFriendAvatars(std::vector<SteamFriend> people, uint32_t generation) {
+    work_.start([alive = alive_, token = friends_token_, hwnd = hwnd_, generation, people = std::move(people), fetch = fetch_friend_avatar_] {
+        const auto cache = coverCacheDirectory().parent_path() / L"avatars";
+        const auto root = findSteamRoot();
+        for (const auto& person : people) {
+            if (!alive->load() || token->load() != generation) break;
+            auto bytes = fetch ? fetch(person) : fetchFriendAvatar(person, cache, root);
+            if (bytes.empty() || !alive->load() || token->load() != generation) continue;
+            auto avatar = std::make_unique<AvatarMessage>();
+            avatar->id = person.id; avatar->generation = generation; avatar->bytes = std::move(bytes);
             if (!PostMessageW(hwnd, avatar_message, 0, reinterpret_cast<LPARAM>(avatar.get()))) break;
             avatar.release();
         }

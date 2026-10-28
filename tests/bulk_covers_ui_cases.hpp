@@ -92,5 +92,25 @@ int LauncherUiTest::bulkCovers(HWND window) {
     landscape->generation = app.jobs_->generation.load(); landscape->revision = app.art_revisions_.at(key);
     landscape->bytes = cachedArtwork(gog, ArtworkKind::landscape, cache); app.onCover(std::move(landscape));
     if (!app.art_.peek(gameKey(gog))->landscape || *app.art_.peek(gameKey(gog))->landscape != horizontal || !app.renderer_.hasPoster(0)) return 2817;
+    // Biblioteka → Gry dodane ręcznie → Okładki: only those games, started at once (no Start step).
+    {
+        custom_games::Entry entry; entry.id = "00000000000000c1"; entry.name = L"Hand-added fixture"; entry.path = L"C:\\Games\\fixture.exe";
+        app.custom_games_ = {entry}; app.custom_library_ = {custom_games::makeGame(entry, true)};
+        auto planned = std::make_shared<std::vector<std::string>>();
+        app.bulk_ops_ = bulk_covers::Operations{
+            [planned](const Game& game, ArtworkKind) { planned->push_back(gameKey(game)); return true; },
+            [](const Game&, ArtworkKind) -> bulk_covers::Attempt { return {bulk_covers::Result::saved}; }
+        };
+        app.openSettings(); app.settings_state_.selectCategory(static_cast<int>(settings_ui::Category::library));
+        app.settings_state_.open(settings_ui::Page::custom_games); app.buildSettingsRows();
+        const auto covers = std::find_if(app.settings_rows_.begin(), app.settings_rows_.end(), [](const auto& r) { return r.id == settings_ui::Id::custom_covers; });
+        if (covers == app.settings_rows_.end() || covers - app.settings_rows_.begin() != 1) return 2818;
+        app.settings_state_.options = true; app.settings_state_.selected[app.settings_state_.category] = 1;
+        app.settingsActivate();
+        if (!app.bulkCoversOpen() || !app.bulk_ui_.started || !wait([&] { return app.bulk_ui_.progress.terminal(); }) ||
+            planned->empty() || std::any_of(planned->begin(), planned->end(), [](const auto& key) { return !key.starts_with("custom:"); })) return 2819;
+        app.bulkCoversKey(VK_ESCAPE, false);
+        if (app.bulkCoversOpen()) return 2820;
+    }
     return 0;
 }

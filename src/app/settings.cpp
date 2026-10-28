@@ -344,6 +344,12 @@ void Launcher::settingsActivate() {
     if (pluginSettingsActivate(row)) return;
     if (pcSettingsActivate(row)) return; // Also the store accounts and their sign-in codes.
     if (row.id == Id::custom_add || row.id == Id::custom_game) { openCustomEditor(row.key); return; }
+    if (row.id == Id::custom_covers) {
+        std::vector<Game> games;
+        for (const auto& game : custom_library_) if (isGame(game)) games.push_back(game);
+        openBulkCovers(std::move(games), true); // Starts at once: the row asked for exactly this.
+        return;
+    }
     if (row.id == Id::screensaver_start) { startScreensaver(); return; } // Also while it is switched off: a preview.
     if (companionSetting(row)) return; // Towarzyszka's rows (companion_settings.cpp).
     if (row.id == Id::screenscraper_test) { testScreenScraper(); return; }

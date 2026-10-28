@@ -2,6 +2,12 @@
 int LauncherUiTest::aureliaIntegration(HWND window) {
     using C = aurelia::Command; using A = aurelia_ui::Action; using P = aurelia_ui::Page;
     Launcher app; app.hwnd_ = window; app.execute_ = fakeExecute;
+    // Aurelia's roster has no avatars: they are looked up per friend (here without the network).
+    auto avatar_requests = std::make_shared<std::atomic_int>(0);
+    app.fetch_friend_avatar_ = [avatar_requests](const SteamFriend& person) {
+        if (person.avatar_url.empty()) ++*avatar_requests;
+        return std::vector<uint8_t>{};
+    };
     app.settings_.companion = app.settings_.glance = app.settings_.launch_animation = false;
     app.settings_.tour_done = true; app.settings_.aurelia = false;
     const auto settings = parseAppSettings("aurelia=1\naurelia_intro_done=1\naurelia_standalone=902\naurelia_standalone=../evil\n");
@@ -171,6 +177,7 @@ int LauncherUiTest::aureliaIntegration(HWND window) {
     // Widżety → Znajomi Steam → a friend: the conversation in the drawer, never the Steam client.
     app.toggleFriendsDrawer(); app.friends_list_ = true;
     if (!wait([&] { return !app.friends_loading_ && !app.friends_.friends.empty(); })) return 10332;
+    if (!wait([&] { return avatar_requests->load() > 0; })) return 10391;
     app.friends_cursor_ = 0; dispatched.clear(); app.friendsAccept();
     if (!wait([&] { return app.friend_chat_.live && app.friend_chat_.messages.size() == 3; }) || app.friend_chat_.name != L"Luna" ||
         !dispatched.empty() || app.aurelia_ui_.open) return 10333;

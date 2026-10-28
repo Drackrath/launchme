@@ -436,5 +436,33 @@ int main(int argc, char** argv) {
             return 29;
         }
     }
+    // A preload (another account's, before the release): downloaded, held back as not released.
+    // Listed, neither installed nor installing, its action the game's page in Steam.
+    {
+        const auto preload = root / L"preload";
+        fs::create_directories(preload / "config");
+        { std::ofstream login(preload / "config" / "loginusers.vdf");
+          login << "\"users\"\n{\n\"76561198000000042\"\n{\n\"AutoLogin\" \"1\"\n\"timestamp\" \"100\"\n}\n}\n"; }
+        fs::create_directories(preload / "steamapps");
+        { std::ofstream out(preload / "steamapps" / "appmanifest_4115450.acf");
+          out << "\"AppState\"\n{\n\"appid\" \"4115450\"\n\"name\" \"Preload fixture\"\n\"StateFlags\" \"1026\"\n\"installdir\" \"PBZ\"\n"
+              << "\"SizeOnDisk\" \"0\"\n\"buildid\" \"0\"\n\"LastOwner\" \"76561198686086405\"\n\"UpdateResult\" \"25\"\n"
+              << "\"BytesToDownload\" \"148293236640\"\n\"BytesDownloaded\" \"148293236640\"\n\"BytesToStage\" \"0\"\n\"BytesStaged\" \"0\"\n"
+              << "\"TargetBuildID\" \"26213077\"\n}\n"; }
+        const auto scanned = scanSteamLibrary(preload);
+        const auto found = std::find_if(scanned.visible.begin(), scanned.visible.end(), [](const Game& game) { return game.app_id == 4115450; });
+        if (found == scanned.visible.end() || !found->preloaded || found->installed || found->installation.active() ||
+            steamActionUrl(*found) != L"steam://nav/games/details/4115450" || std::wstring(primaryActionLabel(*found)) != L"Wstępnie pobrana") {
+            std::cerr << "A finished preload was not listed as preloaded\n";
+            return 30;
+        }
+        // Still downloading (Downloading flag, bytes missing): an ordinary download.
+        { std::ofstream out(preload / "steamapps" / "appmanifest_4115450.acf");
+          out << "\"AppState\"\n{\n\"appid\" \"4115450\"\n\"name\" \"Preload fixture\"\n\"StateFlags\" \"1049602\"\n\"SizeOnDisk\" \"0\"\n\"buildid\" \"0\"\n"
+              << "\"BytesToDownload\" \"1000\"\n\"BytesDownloaded\" \"400\"\n}\n"; }
+        const auto downloading = scanSteamLibrary(preload);
+        const auto again = std::find_if(downloading.visible.begin(), downloading.visible.end(), [](const Game& game) { return game.app_id == 4115450; });
+        if (again == downloading.visible.end() || again->preloaded || again->installation.phase != InstallPhase::downloading) return 31;
+    }
     return 0;
 }

@@ -5,6 +5,10 @@
 namespace i18n {
 namespace {
 constexpr Entry entries[] = {
+    // Manually added games: their covers; Steam preloads.
+    {L"Wyszukaj i pobierz brakujące okładki tych gier (SteamGridDB, sklep Steam).", L"Find and download the missing covers of these games (SteamGridDB, Steam store)."},
+    {L"Wstępnie pobrana", L"Preloaded"},
+    {L"Pobrana wstępnie — gotowa do gry w dniu premiery.", L"Preloaded: ready to play on the release day."},
     // Amazon Games through the optional Nile helper.
     {L"Pobieranie Nile… ", L"Downloading Nile… "},
     {L"Przygotowanie logowania Amazon…", L"Preparing the Amazon sign-in…"},

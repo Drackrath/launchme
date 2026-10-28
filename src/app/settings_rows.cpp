@@ -268,6 +268,10 @@ void Launcher::buildSettingsRows() {
             // "Gry dodane ręcznie" page: adding first, then each game with its editor (which also removes it).
             add({Id::custom_add, Control::action, tr(L"Dodaj grę"),
                 tr(L"Program, skrót lub skrypt spoza sklepów."), tr(L"Dodaj")});
+            // Their covers in one go: each title matched (SteamGridDB, else the Steam store) and only missing art fetched.
+            if (!custom_games_.empty())
+                add({Id::custom_covers, Control::action, tr(L"Okładki"),
+                    tr(L"Wyszukaj i pobierz brakujące okładki tych gier (SteamGridDB, sklep Steam)."), tr(L"Szukaj")});
             for (const auto& entry : custom_games_) {
                 std::wstring description = entry.path.filename().native();
                 if (!entry.arguments.empty()) description += L"  " + entry.arguments;

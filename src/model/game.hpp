@@ -64,6 +64,9 @@ struct Game {
     // Installed Steam game: the account it belongs to (its manifest's LastOwner, SteamID64); 0 when
     // unknown or when the signed-in account can play it (src/library/steam_accounts.hpp).
     uint64_t steam_owner = 0;
+    // Steam: a preload, the content downloaded ahead of the release (its manifest waits on "not released");
+    // neither installed nor installing, playable from the release day.
+    bool preloaded = false;
     // EGS account metadata and installations managed by Launchme/Legendary.
     std::string epic_namespace, epic_catalog, epic_partner;
     // The store's own art (https on its CDN): the tall box art, the wide one and the logo; empty when
@@ -168,6 +171,7 @@ inline std::string gameCacheKey(const Game& game) {
 
 inline const wchar_t* primaryActionLabel(const Game& game) {
     if (game.source == GameSource::battlenet && game.installation.phase == InstallPhase::unknown) return tr(L"Otwórz klienta");
+    if (game.preloaded) return tr(L"Wstępnie pobrana");
     if (game.installation.active()) return game.source == GameSource::gog ? tr(L"Instalacja GOG") :
         game.source == GameSource::epic ? tr(L"Instalacja Epic") : game.source == GameSource::amazon ? tr(L"Instalacja Amazon") :
         game.source == GameSource::battlenet ? tr(L"Instalacja Battle.net") : tr(L"Pobieranie w Steam");

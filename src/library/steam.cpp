@@ -83,7 +83,8 @@ std::optional<Game> manifest(const std::filesystem::path& path, bool& complete) 
     game.manifest_path = path;
     uint64_t state = 0;
     uint64_t size = 0;
-    uint64_t download_done = 0, download_total = 0, stage_done = 0, stage_total = 0;
+    uint64_t download_done = 0, download_total = 0, stage_done = 0, stage_total = 0, update_result = 0, build = 0;
+    bool has_build = false;
     int depth = 0; bool root = false, has_state = false;
     std::string line;
     while (std::getline(input, line)) {
@@ -105,6 +106,8 @@ std::optional<Game> manifest(const std::filesystem::path& path, bool& complete) 
         else if (key == "BytesToDownload") download_total = number(value);
         else if (key == "BytesStaged") stage_done = number(value);
         else if (key == "BytesToStage") stage_total = number(value);
+        else if (key == "UpdateResult") update_result = number(value);
+        else if (key == "buildid") { build = number(value); has_build = true; }
         else if (key == "installdir") {
             const auto directory = pathFromUtf8(value);
             if (!directory.empty() && !directory.has_root_path() &&
@@ -113,6 +116,15 @@ std::optional<Game> manifest(const std::filesystem::path& path, bool& complete) 
         }
     }
     if (depth != 0 || !root || !has_state || !game.app_id || game.name.empty()) { complete = false; return {}; }
+    // A preload: everything downloaded before the release, the update started but held back as not
+    // released yet (UpdateResult 25), nothing installed (no build). Steam itself shows it as waiting for the
+    // release, not as a download: no progress, not installed, kept in the list.
+    const bool transferring = state & (256 | 512 | 2048 | 131072 | 524288 | 1048576 | 2097152 | 4194304);
+    if (!(state & 4) && (state & 1024) && !transferring && download_total && download_done >= download_total &&
+        stage_done >= stage_total && (update_result == 25 || (has_build && !build))) {
+        game.preloaded = true; game.installed = false; game.installation = {};
+        return game.app_id == 480 || steamTool(game) ? std::nullopt : std::optional<Game>(game);
+    }
     // Steam AppState flags and byte counters describe different phases. A
     // finished download is not evidence that staging/validation has completed.
     if (!(state & 2048)) {
@@ -250,6 +262,7 @@ std::wstring steamActionUrl(const Game& game) {
     if (game.kind == GameKind::nonsteam && game.shortcut_id)
         return L"steam://rungameid/" + std::to_wstring(game.shortcut_id);
     if (game.installation.active()) return L"steam://nav/downloads";
+    if (game.preloaded) return L"steam://nav/games/details/" + std::to_wstring(game.app_id); // Its release date.
     return std::wstring(game.installed ? L"steam://rungameid/" : L"steam://install/") +
            std::to_wstring(game.app_id);
 }

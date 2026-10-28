@@ -86,7 +86,9 @@ Settings → System → Help → **Open folder** (the version row) opens it.
   DRM and Steamworks titles, may require the Steam client. See the [Aurelia guide](docs/AURELIA.md).
 - **Artwork**: SteamGridDB covers, heroes (the sharp 3840 px ones first), logos and posters with OCR-assisted cropping,
   a variant browser and *Adjust crop* for covers and backgrounds; where SteamGridDB has nothing, the store's own
-  art (Epic, Ubisoft Connect, GOG, EA, Battle.net). Epic account games use Epic's box art as their poster. Missing art downloads in the background, covers and
+  art (Epic, Ubisoft Connect, GOG, EA, Battle.net, Amazon Games). Epic account games use Epic's box art as their poster.
+  Games added by hand (and DRM-free folders) fall back to the same game's Steam store art; Settings → Library →
+  *Manually added games* → **Covers** fetches all their missing covers at once. Missing art downloads in the background, covers and
   posters first. To fetch it now: Settings → Media & data → *Download missing covers*, or in the desktop
   window select games (`Ctrl+A`, `Ctrl`/`Shift`+click) and pick *Download artwork again* or *Download missing covers…*.
 - **Details**: Steam metadata, playtime (also for non-Steam games, Epic's and Prism's counts, or your own value from

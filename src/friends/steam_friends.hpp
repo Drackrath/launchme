@@ -19,5 +19,9 @@ struct FriendsResult {
 };
 
 FriendsResult fetchSteamFriends(uint64_t steam_id);
+// A friend's avatar, cached in `cache` by SteamID. Without a URL (Aurelia's roster has none): the Steam
+// client's own avatar cache (`steam_root`\config\avatarcache), else the public profile's avatarMedium.
 std::vector<uint8_t> fetchFriendAvatar(const SteamFriend& friend_info,
-                                        const std::filesystem::path& cache);
+                                        const std::filesystem::path& cache, const std::filesystem::path& steam_root = {});
+// <avatarMedium> of a steamcommunity.com profile's ?xml=1 page; empty unless an https Steam CDN address.
+std::wstring profileAvatarUrl(std::string_view xml);

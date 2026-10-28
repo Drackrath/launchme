@@ -106,7 +106,8 @@ and a delayed file-list reply cannot erase a newer sync outcome.
 
 The friends drawer (and the desktop widgets' friends) use Aurelia's roster. Selecting a friend opens the
 conversation inside the drawer, which keeps its width; Back returns to the list. The Steam client is never
-started for it. The conversation has recent history, incoming messages, echoes from other clients and typing notifications. Messages are sent
+started for it. Aurelia's roster has no pictures: avatars come from the Steam client's own avatar cache when it is
+installed, else from the friend's public Steam profile, and are cached. The conversation has recent history, incoming messages, echoes from other clients and typing notifications. Messages are sent
 as a separate bounded command; a failed send retains the draft. **F5** reconnects a dropped conversation.
 Closing a conversation cancels its listener; late responses cannot change another conversation.
 Drafts survive closing/reconnecting within the current account's session and are cleared on account

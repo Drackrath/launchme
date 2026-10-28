@@ -191,8 +191,8 @@ void Launcher::buildShelves() {
     };
     // Steam switched off (Ustawienia → Biblioteka): none of its games, shortcuts or collections.
     const bool steam = settings_.steam_enabled;
-    if (steam) for (const auto& game : installed_library_)
-        if (!user_hidden(game) && (game.installed || game.installation.active() || settings_.show_uninstalled)) public_library_.push_back(game);
+    if (steam) for (const auto& game : installed_library_) // A preload is on disk too (Steam waits for the release).
+        if (!user_hidden(game) && (game.installed || game.installation.active() || game.preloaded || settings_.show_uninstalled)) public_library_.push_back(game);
     for (const auto& game : store_library_)
         if (!excludedGame(game) && settings_.enabled_pc_sources.contains(sourceSlug(game.source)) && !user_hidden(game) &&
             (game.installed || game.installation.active() || settings_.show_uninstalled)) public_library_.push_back(game);

@@ -151,7 +151,7 @@ std::wstring Launcher::actionLabel(const Game& game) const {
     const auto session = sessionState(effective);
     if (session == SessionState::frozen) return tr(L"Wznów");
     if (session == SessionState::running) return tr(L"Wróć");
-    if (effective.installation.active()) return primaryActionLabel(effective);
+    if (effective.installation.active() || effective.preloaded) return primaryActionLabel(effective);
     if (effective.kind == GameKind::steam && !effective.installed && add_requests_.ready(game.app_id, timestamp()))
         return tr(L"Zainstaluj");
     if (effective.kind != GameKind::catalog) return effective.installed ? tr(L"Graj") : primaryActionLabel(effective);

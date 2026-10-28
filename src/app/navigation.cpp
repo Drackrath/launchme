@@ -963,6 +963,11 @@ void Launcher::launchGame(const Game& original, bool via_steam) {
     Game active = original; active.version_group.clear();
     if (pending_launch_ || launchAnimationActive() || !isGame(active)) return;
     if (switchToGame(active)) { focusPlayedGame(gameKey(active)); return; }
+    // A preload: downloaded, not released yet; Steam installs it on the release day by itself.
+    if (active.preloaded) {
+        showNotification(NotificationKind::launch, active.name, tr(L"Pobrana wstępnie — gotowa do gry w dniu premiery."));
+        audio_.context(); return;
+    }
     if (aurelia_active_ && aurelia::validGame(active) && (aurelia_operations_.contains(active.app_id) || aurelia_playing_.contains(active.app_id))) {
         showNotification(NotificationKind::error, L"Aurelia", tr(L"Operacja dla tej gry już trwa")); return;
     }

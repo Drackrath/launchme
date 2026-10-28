@@ -93,17 +93,44 @@ FriendsResult fetchSteamFriends(uint64_t steam_id) {
     return result;
 }
 
-std::vector<uint8_t> fetchFriendAvatar(const SteamFriend& info, const std::filesystem::path& cache) {
-    if (!info.id || !info.avatar_url.starts_with(L"https://")) return {};
+std::wstring profileAvatarUrl(std::string_view xml) {
+    const auto open = xml.find("<avatarMedium>");
+    if (open == std::string_view::npos) return {};
+    auto value = xml.substr(open + 14);
+    const auto close = value.find("</avatarMedium>");
+    if (close == std::string_view::npos) return {};
+    value = value.substr(0, close);
+    if (value.starts_with("<![CDATA[") && value.ends_with("]]>")) value = value.substr(9, value.size() - 12);
+    const auto url = wide(value);
+    const bool steam_cdn = url.starts_with(L"https://avatars.steamstatic.com/") || url.starts_with(L"https://avatars.akamai.steamstatic.com/") ||
+                           url.starts_with(L"https://avatars.cloudflare.steamstatic.com/") || url.starts_with(L"https://avatars.fastly.steamstatic.com/");
+    return steam_cdn && url.size() < 512 && url.find_first_of(L" \"<>\r\n") == std::wstring::npos ? url : std::wstring{};
+}
+
+std::vector<uint8_t> fetchFriendAvatar(const SteamFriend& info, const std::filesystem::path& cache, const std::filesystem::path& steam_root) {
+    if (!info.id) return {};
     const auto path = cache / (std::to_wstring(info.id) + L".img");
-    {
-        std::ifstream input(path, std::ios::binary);
-        if (input) {
-            std::vector<uint8_t> bytes(std::istreambuf_iterator<char>{input}, {});
-            if (image(bytes)) return bytes;
+    const auto read = [](const std::filesystem::path& file) {
+        std::ifstream input(file, std::ios::binary);
+        std::vector<uint8_t> bytes;
+        if (input) bytes.assign(std::istreambuf_iterator<char>{input}, {});
+        return image(bytes) && bytes.size() <= 2 * 1024 * 1024 ? bytes : std::vector<uint8_t>{};
+    };
+    if (auto bytes = read(path); !bytes.empty()) return bytes;
+    auto url = info.avatar_url;
+    if (!url.starts_with(L"https://")) {
+        // The Steam client keeps its friends' avatars; no request at all.
+        if (!steam_root.empty()) if (auto bytes = read(steam_root / L"config" / L"avatarcache" / (std::to_wstring(info.id) + L".png")); !bytes.empty()) {
+            atomic_file::write(path, bytes);
+            return bytes;
         }
+        const auto profile = httpGet(L"https://steamcommunity.com/profiles/" + std::to_wstring(info.id) + L"/?xml=1",
+                                     L"Accept: text/xml\r\n", 256 * 1024);
+        if (profile.status != 200) return {};
+        url = profileAvatarUrl(std::string_view(reinterpret_cast<const char*>(profile.body.data()), profile.body.size()));
+        if (url.empty()) return {};
     }
-    auto bytes = httpGet(info.avatar_url, L"Accept: image/jpeg, image/png\r\n", 1024 * 1024).body;
+    auto bytes = httpGet(url, L"Accept: image/jpeg, image/png\r\n", 1024 * 1024).body;
     if (!image(bytes)) return {};
     atomic_file::write(path, bytes);
     return bytes;

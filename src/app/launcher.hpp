@@ -132,7 +132,7 @@ public:
     void onLibrary(std::unique_ptr<LibraryMessage> library);
     void onLibraryWorkerError(std::unique_ptr<LibraryWorkerErrorMessage> message);
     void onCover(std::unique_ptr<CoverMessage> cover);
-    void openBulkCovers(std::vector<Game> games = {}); // Every public game when empty.
+    void openBulkCovers(std::vector<Game> games = {}, bool start = false); // Every public game when empty; start: no Start step.
     void onBulkCovers(std::unique_ptr<BulkCoversMessage> message);
     void onSteamSync(std::unique_ptr<SteamSyncMessage> message);
     bool bulkCoversOpen() const { return bulk_ui_.open; }
@@ -1406,6 +1406,7 @@ public:
     bool dismissLaunchAnimation(std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now());
 private:
     void loadFriends();
+    void loadFriendAvatars(std::vector<SteamFriend> people, uint32_t generation); // On a worker, one message per avatar.
     void startDashboardPoll();
     void stopDashboardPoll();
     void dashboardMove(int horizontal, int vertical);
@@ -1922,6 +1923,7 @@ private:
     WebImportState ea_import_, battlenet_import_;
     std::shared_ptr<std::atomic_bool> alive_ = std::make_shared<std::atomic_bool>(true);
     std::shared_ptr<std::atomic_uint32_t> friends_token_ = std::make_shared<std::atomic_uint32_t>(0);
+    std::function<std::vector<uint8_t>(const SteamFriend&)> fetch_friend_avatar_; // Tests: no network.
     std::shared_ptr<std::atomic_uint32_t> metadata_token_ = std::make_shared<std::atomic_uint32_t>(0);
     std::shared_ptr<std::atomic_uint32_t> pc_token_ = std::make_shared<std::atomic_uint32_t>(0);
     std::shared_ptr<JobQueue> jobs_ = std::make_shared<JobQueue>();

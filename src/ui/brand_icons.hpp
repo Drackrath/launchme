@@ -1,9 +1,9 @@
 #pragma once
 
 // Small single-colour marks of stores and consoles for desktop mode's sidebar, as SVG path data in a
-// 24×24 box. Most come from Simple Icons (CC0, https://simpleicons.org); Windows, Xbox and Switch,
-// which Simple Icons no longer carries, are simple marks drawn here; Wii and Wii U are the two halves of its former
-// Wii U logo, GameCube the Wikimedia Commons logo in one colour.
+// 24×24 box. Most come from Simple Icons (CC0, https://simpleicons.org); Windows and Switch, which Simple Icons
+// no longer carries, are simple marks drawn here; Xbox and Amazon Games are their logos supplied for Launchme;
+// Wii and Wii U are the two halves of its former Wii U logo, GameCube the Wikimedia Commons logo in one colour.
 #include "../model/game.hpp"
 
 #include <d2d1.h>

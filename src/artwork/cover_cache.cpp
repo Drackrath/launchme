@@ -1,4 +1,5 @@
 #include "cover_cache.hpp"
+#include "../store/steam_app_match.hpp"
 #include "battlenet_art.hpp"
 #include "gog_art.hpp"
 #include "image_compact.hpp"
@@ -339,10 +340,32 @@ std::vector<uint8_t> artworkForGame(const Game& game, ArtworkKind kind,
         auto bytes = get(text_encoding::wide(url), false, 10 * 1024 * 1024);
         return isImage(bytes) ? bytes : std::vector<uint8_t>{};
     };
+    // Games added by hand and DRM-free folders have no store of their own: without a SteamGridDB match (or
+    // key), the same game's Steam store art, the app matched by its title (steam_app_match.hpp: keyless,
+    // only an unambiguous match, cached; the title is part of the key so a renamed game is matched again).
+    const auto steamStoreArt = [&]() -> std::vector<uint8_t> {
+        if (!localFileGame(game.source)) return {};
+        const auto title = artworkTitle(game);
+        const auto app = steamAppForTitle(title, cache.parent_path() / L"metadata",
+                                          gameCacheKey(game) + "." + std::to_string(std::hash<std::wstring>{}(title)));
+        if (!app) return {};
+        const auto files = kind == ArtworkKind::poster ? std::vector<const wchar_t*>{L"library_600x900_2x.jpg", L"library_600x900.jpg"} :
+                           kind == ArtworkKind::cover ? std::vector<const wchar_t*>{L"library_600x900_2x.jpg", L"library_600x900.jpg", L"header.jpg"} :
+                           kind == ArtworkKind::landscape ? std::vector<const wchar_t*>{L"header.jpg", L"capsule_616x353.jpg"} :
+                           kind == ArtworkKind::hero ? std::vector<const wchar_t*>{L"library_hero.jpg"} :
+                           kind == ArtworkKind::logo ? std::vector<const wchar_t*>{L"logo.png"} : std::vector<const wchar_t*>{};
+        for (const auto* name : files) {
+            auto bytes = get(L"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/" + std::to_wstring(app) + L"/" + name,
+                             false, 10 * 1024 * 1024);
+            if (isImage(bytes)) return bytes;
+        }
+        return {};
+    };
     std::vector<uint8_t> image;
     if (kind == ArtworkKind::poster && game.source == GameSource::epic) image = storeArt();
     if (!isImage(image)) image = steamGridDb();
     if (!isImage(image) && !(kind == ArtworkKind::poster && game.source == GameSource::epic)) image = storeArt();
+    if (!isImage(image)) image = steamStoreArt();
     if (!isImage(image)) return {};
     if (!atomicBytes(file, image.data(), image.size())) { retryable_artwork_error = true; return {}; }
     return image;
