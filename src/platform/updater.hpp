@@ -3,6 +3,10 @@
 // SHA-256, the package unpacked next to the running launcher and swapped in (the running EXE is
 // renamed, never overwritten, so Windows lets it go on running), then the old files removed on the
 // next start. No network or process here; src/app/updates.cpp drives it.
+// Linux: the package is the AppImage itself (launchme-<version>-x86_64.AppImage, beside the Windows
+// zip in the same release). Only a launcher running as an AppImage ($APPIMAGE) updates itself; `app`
+// is then the AppImage's folder and the one staged file is named as the running AppImage, which is
+// replaced atomically (rename(2) over it; the old copy kept as a hard link for rollback).
 #include <cstdint>
 #include <filesystem>
 #include <optional>
@@ -19,13 +23,18 @@ bool allowedDownload(std::wstring_view url);
 struct Release {
     std::wstring version;     // "0.1.8" (the tag without its "v").
     std::wstring page;        // The release's page on GitHub.
-    std::wstring package_url; // launchme-<version>-win64.zip
+    std::wstring package_url; // launchme-<version>-win64.zip (Linux: launchme-<version>-x86_64.AppImage)
     uint64_t package_size = 0;
     std::string sha256;       // Lower-case hex; from the asset's digest, else the notes' "SHA-256:" line.
     std::wstring notes;       // The changelog as plain text (sections, bullets).
 };
-// GitHub's releases/latest answer. nullopt: not a release with the Windows package and its hash.
+// GitHub's releases/latest answer. nullopt: not a release with the Windows package and its hash
+// (Linux: the AppImage and its hash, or this launcher is not running as an AppImage).
 std::optional<Release> parseRelease(std::string_view json);
+#ifndef _WIN32
+// The running AppImage ($APPIMAGE, an absolute path to a file); nullopt: not run as one, no self-update.
+std::optional<std::filesystem::path> appImage();
+#endif
 // Release notes (Markdown) as plain text: "### New" becomes "New", "- **X**" becomes "• X", links
 // keep their text; the Install section and the SHA-256 line are left out.
 std::wstring plainNotes(std::string_view markdown);
@@ -37,7 +46,8 @@ std::string sha256File(const std::filesystem::path& file);
 
 // The package unpacked into `staging` (a new folder): its "launchme/" prefix stripped, paths checked
 // (no absolute, drive or ".." parts), at most 2000 files and 1 GiB. Returns the relative paths of
-// the files, or nullopt with `error`.
+// the files, or nullopt with `error`. Linux: the package must be an x86-64 ELF executable with the
+// AppImage type 2 mark ("AI\x02"); it is staged as the running AppImage's file name.
 std::optional<std::vector<std::filesystem::path>> unpack(const std::filesystem::path& zip, const std::filesystem::path& staging, std::wstring& error);
 
 // Swaps the staged files into `app`: each existing file becomes "<name>.update-old" first (the

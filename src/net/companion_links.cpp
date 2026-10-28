@@ -50,7 +50,7 @@ std::wstring entities(std::wstring_view text) {
                     uint32_t code = 0;
                     const auto result = std::from_chars(digits.data(), digits.data() + digits.size(), code, hex ? 16 : 10);
                     if (result.ec == std::errc{} && result.ptr == digits.data() + digits.size() && code && code <= 0x10ffff && !(code >= 0xd800 && code <= 0xdfff)) {
-                        if (code <= 0xffff) out += static_cast<wchar_t>(code);
+                        if (code <= 0xffff || sizeof(wchar_t) == 4) out += static_cast<wchar_t>(code); // UTF-32 on Linux: no surrogates.
                         else { code -= 0x10000; out += static_cast<wchar_t>(0xd800 + (code >> 10)); out += static_cast<wchar_t>(0xdc00 + (code & 1023)); }
                         i = end; continue;
                     }
