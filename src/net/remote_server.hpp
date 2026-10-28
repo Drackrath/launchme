@@ -35,7 +35,7 @@ public:
     ~Server();
     Server(const Server&) = delete;
     Server& operator=(const Server&) = delete;
-    // false: the port is taken (or Winsock failed). Tests listen on 127.0.0.1 only (no firewall prompt).
+    // false: the port is taken (or Winsock/the socket API failed). Tests listen on 127.0.0.1 only (no firewall prompt).
     bool start(uint16_t port, Handler handler, bool loopback_only = false);
     void stop();                                // Waits for the connections (each polls `stopping`).
     bool running() const { return thread_.joinable(); }
@@ -46,7 +46,9 @@ private:
     void serve(uintptr_t client);
     uintptr_t listener_ = ~uintptr_t{0};
     uint16_t port_ = 0;
+#ifdef _WIN32
     bool winsock_ = false;
+#endif
     Handler handler_;
     std::atomic_bool stopping_{false};
     std::thread thread_;
