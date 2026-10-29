@@ -207,6 +207,15 @@ AppSettings parseAppSettings(std::string_view text) {
         // Outside the else-if chain below: MSVC refuses one level more of it (C1061).
         if (key == "recent_uninstalled") { if (value == "0" || value == "1") settings.recent_uninstalled = value == "1"; continue; }
         if (key == "save_backup_after_game") { if (value == "0" || value == "1") settings.save_backup_after_game = value == "1"; continue; }
+        if (key == "default_view_console" || key == "default_view_collection" || key == "default_view_studio") {
+            // library_view::View's saved numbers, 0..11 (library_view::persisted_view_count).
+            if (!value.empty() && value.size() <= 2 && std::all_of(value.begin(), value.end(), [](char c) { return c >= '0' && c <= '9'; })) {
+                const int view = value.size() == 2 ? (value[0] - '0') * 10 + (value[1] - '0') : value[0] - '0';
+                if (view < 12) (key == "default_view_console" ? settings.default_view_console :
+                                key == "default_view_collection" ? settings.default_view_collection : settings.default_view_studio) = view;
+            }
+            continue;
+        }
         if (key == "show_uninstalled" && (value == "0" || value == "1")) settings.show_uninstalled = value == "1";
         else if (key == "windowed" && (value == "0" || value == "1")) settings.windowed = value == "1";
         else if (key == "launch_tv_mode" && (value == "0" || value == "1")) settings.launch_tv_mode = value == "1";
@@ -607,6 +616,9 @@ bool saveAppSettings(const AppSettings& settings, const std::filesystem::path& f
            << "show_uninstalled=" << settings.show_uninstalled << '\n'
            << "recent_uninstalled=" << settings.recent_uninstalled << '\n'
            << "save_backup_after_game=" << settings.save_backup_after_game << '\n'
+           << "default_view_console=" << std::clamp(settings.default_view_console, 0, 11) << '\n'
+           << "default_view_collection=" << std::clamp(settings.default_view_collection, 0, 11) << '\n'
+           << "default_view_studio=" << std::clamp(settings.default_view_studio, 0, 11) << '\n'
            << "show_emulation=" << settings.show_emulation << '\n'
            << "studio_libraries=" << settings.studio_libraries << '\n'
            << "show_private=" << settings.show_private << '\n'

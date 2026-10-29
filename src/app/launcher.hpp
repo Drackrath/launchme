@@ -1142,6 +1142,9 @@ private:
     int favoriteDetailAction() const;
     int collectionsDetailAction() const;
     void collectionChanged();
+    // An own collection (local:…) goes: its games' membership, its name, its place and visibility.
+    void deleteCollection(const SteamCollection& collection);
+    void askDeleteCollection(const std::string& key); // The question first (Usuń kolekcję / Ukryj / Anuluj).
     // Szczegóły → "…" → "Ukryj" / "Pokaż": local visibility; Steam choices are account-scoped.
     // Copies: the game, or every copy of its version group; empty when any of them cannot be
     // hidden here (a Steam shortcut, a catalog entry, hidden or private in its store).
@@ -1239,6 +1242,12 @@ private:
     bool libraryControls() const;
     std::string libraryScope() const;
     library_view::Options libraryOptions() const;
+    // Settings → Interfejs → Widoki biblioteki: Tryb TV's view of a console's, a collection's or a
+    // publisher's library without a view of its own (AppSettings::default_view_*), how many have one,
+    // and the reset that makes them all follow it again. kind: "console", "collection", "studio".
+    library_view::View defaultLibraryView() const;
+    int libraryViewOverrides(std::string_view kind) const;
+    void resetLibraryViews(std::string_view kind);
     void recordLibraryGames();
     void refreshRecentGames();
     // Its time in Ostatnio grane: last played; a game not installed, when it was added (only with
@@ -2132,8 +2141,10 @@ private:
     std::optional<int> exit_prompt_; // Selected exit_prompt::Choice while asking.
     // The same three-button prompt also asks whether downloaded videos follow a new video folder.
     // remove: "Usuń z biblioteki" of a user-added game (remove_game_); its file stays on disk.
-    enum class PromptKind { exit, move_videos, uninstall, remove, restore_saves };
+    // delete_collection: an own collection's trash (Ustawienia → Biblioteka → Kolekcje); its key.
+    enum class PromptKind { exit, move_videos, uninstall, remove, restore_saves, delete_collection };
     Game remove_game_;
+    std::string delete_collection_key_;
     Game uninstall_game_; // PromptKind::uninstall: the game Launchme itself would remove (Legendary, GOG silently).
     GameAction uninstall_silent_; // ...and for a GOG game, its Inno uninstaller with the silent switches.
     // Szczegóły → … → Odinstaluj (also the game's menu): Steam's own dialog, GOG's Inno uninstaller
@@ -2409,6 +2420,7 @@ private:
     settings_ui::LayoutPreview settings_preview_;
     int settings_hover_row_ = -1;
     int settings_hover_badge_ = -1; // The row whose badge button (Row::reset) the pointer is over.
+    int settings_hover_trash_ = -1; // The collection row whose trash (Row::removable) the pointer is over.
     struct TourState {
         bool open = false;
         int step = 0;            // tour::Step.

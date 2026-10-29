@@ -105,7 +105,10 @@ enum class Id { font, home_layout, ui_accent, accent, uninstalled, emulation, co
                    // from the presets list (Row::key their DLLs) or typed in.
                    launch_search, launch_search_clear, launch_dll_preset, launch_dll_add,
                    // A game's page: winetricks and Wine programs with its own Proton or Wine and prefix.
-                   launch_tricks };
+                   launch_tricks,
+                   // Interfejs → Widoki biblioteki: Tryb TV's view of a console's, a collection's and a
+                   // publisher's library without its own; Row::reset ("views:<kind>") makes all follow it.
+                   default_view_console, default_view_collection, default_view_studio };
 inline bool hasOptionsButton(Id id) { return id == Id::plugin_enabled || id == Id::pc_platform; }
 // layout: drawn preview tiles in the row (one per home layout); Row::choice is the active one.
 // count: Row::value as a large number with a chevron; activating opens a sub-list.
@@ -291,6 +294,8 @@ struct Row {
     // (what goes back to the default) it is a button: a click, Delete or the pad's X.
     std::wstring badge;
     std::string reset;
+    // Id::collection: an own collection, its trash (after ↑ ↓) deletes it after a question.
+    bool removable = false;
     // The list a picker shows for this row: its choices, or those of the focused source tile.
     const std::vector<Choice>& pickList(int tile) const {
         if (control == Control::sources && !tiles.empty()) return tiles[std::clamp(tile, 0, static_cast<int>(tiles.size()) - 1)].choices;
@@ -588,7 +593,7 @@ struct Layout {
         switch (control) {
         case Control::slider: return right - 400;     // Value readout, then − track +.
         case Control::toggle: return right - 206;     // State label, then the switch.
-        case Control::collection: return right - 340; // State label, switch, ↑ ↓.
+        case Control::collection: return right - 392; // State label, switch, ↑ ↓, the trash.
         case Control::platform: return right - 440;   // State label, switch, then the connect button.
         case Control::layout: case Control::avatar: return contentLeft() + 24;
         case Control::count: return right - 220;      // The number, then a chevron.
@@ -615,8 +620,13 @@ struct Layout {
     }
     Rect reorder(int index, float scroll, bool down) const {
         const auto r = row(index, scroll); const float y = middle(r);
-        const float x = r.right - (down ? 68 : 120);
+        const float x = r.right - (down ? 120 : 172);
         return {x, y - 22, x + 44, y + 22};
+    }
+    // A collection row's trash, last (Row::removable; the place stays empty for a Steam collection).
+    Rect trash(int index, float scroll) const {
+        const auto r = row(index, scroll); const float y = middle(r);
+        return {r.right - 68, y - 22, r.right - 24, y + 22};
     }
     // Preview tile of a Control::layout row; option 0 is left.
     static constexpr float layout_tile = 136, layout_step = 148;
@@ -657,10 +667,12 @@ struct Layout {
     Rect connect(int index, float scroll) const {
         return actionButton(index, scroll);
     }
+    // 0 the switch, 1 ↑, 2 ↓, 3 the trash.
     Rect collectionControl(int index, float scroll, int control) const {
+        if (control == 3) return trash(index, scroll);
         if (control) return reorder(index, scroll, control == 2);
         const auto r = row(index, scroll); const float y = middle(r);
-        return {r.right - 192, y - 22, r.right - 140, y + 22};
+        return {r.right - 244, y - 22, r.right - 192, y + 22};
     }
     int hitRail(float x, float y) const {
         for (int i = 0; i < static_cast<int>(categories.size()); ++i) if (categoryRail(i).contains(x, y)) return i;

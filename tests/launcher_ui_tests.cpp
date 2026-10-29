@@ -577,6 +577,88 @@ public:
             app.buildShelves();
             if (row() >= 0) return 243;
         }
+        // An own collection: its trash after ↑ ↓ (a Steam collection has none), red with the focus, and a
+        // question first with Anuluj focused; hiding it on the home screen is the gentler answer.
+        // The desktop window's settings scrolled to a row, as Settings opened at a row does (desktop_settings.cpp).
+        const auto desktopScroll = [&](int row) {
+            const auto L = app.desktopSettingsLayout();
+            app.desktop_sheet_scroll_ = app.desktop_sheet_scroll_target_ = std::clamp(L.tops[static_cast<size_t>(row)] - 60.0f, 0.0f, L.maxScroll());
+            app.desktop_sheet_page_ = app.desktopSettingsPage(); app.desktop_sheet_row_ = row;
+        };
+        {
+            const SteamCollection own{L"Moja kolekcja", {}, "local:fixture-own"};
+            const auto key = collectionKey(app.account_, own);
+            app.library_state_.collections.names[key] = own.name;
+            app.collectionChanged(); app.buildSettingsRows();
+            const auto row = [&] {
+                for (size_t i = 0; i < app.settings_rows_.size(); ++i) if (app.settings_rows_[i].key == key) return static_cast<int>(i);
+                return -1;
+            };
+            int index = row();
+            if (index < 0 || !app.settings_rows_[index].removable || app.settings_rows_[1].removable) return 244;
+            // A Steam collection's focus stops at ↓.
+            app.settings_state_.selected[app.settings_state_.category] = 1; app.settings_state_.subcontrol = 2;
+            app.settingsAdjust(1);
+            if (app.settings_state_.subcontrol != 2) return 245;
+            app.settings_state_.selected[app.settings_state_.category] = index; app.ensureSettingVisible();
+            app.settingsAdjust(1);
+            if (app.settings_state_.subcontrol != 3) return 246;
+            if (!capture(L"settings-collection-trash.png")) return 247;
+            app.desktop_mode_ = true; app.desktop_sheet_keyboard_ = true; desktopScroll(index);
+            const bool desktop_trash = capture(L"settings-collection-trash-desktop.png");
+            app.desktop_mode_ = false;
+            if (!desktop_trash) return 248;
+            app.settingsActivate();
+            if (app.exit_prompt_ != 2 || app.prompt_kind_ != Launcher::PromptKind::delete_collection) return 249;
+            if (!capture(L"settings-collection-delete-tv.png")) return 250;
+            app.desktop_mode_ = true; const bool desktop_prompt = capture(L"settings-collection-delete-desktop.png"); app.desktop_mode_ = false;
+            if (!desktop_prompt) return 251;
+            app.exitPromptMove(-1); app.exitPromptAccept(); // Ukryj na ekranie głównym.
+            if (!app.settings_.hidden_collections.contains(key) || row() < 0 || app.exit_prompt_) return 252;
+            // Delete (and the pad's X) asks the same; Usuń kolekcję deletes it.
+            index = row(); app.settings_state_.selected[app.settings_state_.category] = index; app.settings_state_.subcontrol = 0;
+            if (!app.settingsResetFocused() || app.exit_prompt_ != 2) return 253;
+            app.exitPromptMove(-2); app.exitPromptAccept();
+            if (row() >= 0 || app.library_state_.collections.names.contains(key) || app.settings_.hidden_collections.contains(key)) return 254;
+        }
+        // Interfejs → Widoki biblioteki w trybie TV, at the very bottom: the view a console's, a collection's or a
+        // publisher's library opens in until it has its own; each row's Zresetuj gives it to all of them again.
+        {
+            using settings_ui::Id;
+            app.settings_state_.selectCategory(static_cast<int>(settings_ui::Category::appearance));
+            app.buildSettingsRows();
+            app.settings_state_.options = true;
+            const auto& rows = app.settings_rows_;
+            const int last = static_cast<int>(rows.size()) - 1;
+            if (last < 3 || rows[last - 2].id != Id::default_view_console || rows[last - 1].id != Id::default_view_collection ||
+                rows[last].id != Id::default_view_studio || rows[last - 2].section != tr(L"Widoki biblioteki w trybie TV") ||
+                rows[last - 1].reset != "views:collection" || rows[last - 1].badge.empty()) return 7101;
+            app.settings_state_.selected[app.settings_state_.category] = last - 1; app.ensureSettingVisible();
+            if (!capture(L"settings-library-views.png")) return 7102;
+            app.desktop_mode_ = true; app.desktop_sheet_keyboard_ = true; desktopScroll(last - 2);
+            const bool desktop_views = capture(L"settings-library-views-desktop.png"); app.desktop_mode_ = false;
+            if (!desktop_views) return 7103;
+            app.settingsActivate(); // The picker,
+            app.settings_state_.choice = library_view::drawerRow(library_view::View::list);
+            app.settingsActivate(); // Lista.
+            if (app.settings_.default_view_collection != static_cast<int>(library_view::View::list) || app.settings_state_.editing) return 7104;
+            // A collection without its own view opens in Lista, one with its own keeps it; Zresetuj: Lista for all, consoles keep theirs.
+            const auto category = app.library_category_;
+            app.library_category_ = "collection-3";
+            const auto scope = app.libraryScope(), console = std::to_string(app.account_) + ":console:PS2";
+            if (app.libraryOptions().view != library_view::View::list) return 7105;
+            const int collections = app.libraryViewOverrides("collection"), consoles = app.libraryViewOverrides("console");
+            app.library_state_.options[scope].view = library_view::View::cinematic;
+            app.library_state_.options[console].view = library_view::View::bookshelf;
+            if (app.libraryOptions().view != library_view::View::cinematic || app.libraryViewOverrides("collection") != collections + 1 ||
+                app.libraryViewOverrides("console") != consoles + 1) return 7106;
+            app.buildSettingsRows();
+            if (!app.settingsResetRow(app.settings_rows_[static_cast<size_t>(last - 1)])) return 7107;
+            if (app.libraryOptions().view != library_view::View::list || app.library_state_.options.contains(scope) ||
+                app.libraryViewOverrides("collection") != 0 || !app.library_state_.options.contains(console)) return 7108;
+            app.library_state_.options.erase(console);
+            app.library_category_ = category; app.settings_.default_view_collection = 0;
+        }
         // Plugins: the repository bundles HowLongToBeat. Packages built outside the repository are
         // removed first, so this flow sees the same plugin set everywhere.
         app.initializePlugins();

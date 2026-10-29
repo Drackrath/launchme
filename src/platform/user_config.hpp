@@ -196,6 +196,9 @@ struct AppSettings {
     // Search results (Szukaj): square covers, 2:3 posters or 920:430 landscape tiles.
     enum class SearchArt { square, poster, landscape };
     SearchArt search_art = SearchArt::square;
+    // Tryb TV: the view (library_view::View's saved number) of a console's, a collection's and a
+    // publisher's or developer's library until it gets its own (Interfejs → Widoki biblioteki).
+    int default_view_console = 0, default_view_collection = 0, default_view_studio = 0;
     // Metro: the pages beside the focused one stand back at 80% until they take the focus.
     bool metro_3d = false;
     enum class TileShape { squircle, rounded, square };

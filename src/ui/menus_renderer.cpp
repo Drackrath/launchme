@@ -115,9 +115,12 @@ void Renderer::drawExitPrompt() {
     drawButtonFocus(rect(layout.button(context_->picker_glide.value_or(static_cast<float>(context_->exit_prompt)))));
     for (int i = 0; i < exit_prompt::count; ++i) {
         const auto r = layout.button(static_cast<float>(i));
+        const bool focused = i == context_->exit_prompt;
+        // A destructive first answer (Usuń kolekcję) in red, darker on the white focus pill.
+        const auto ink = context_->prompt_danger && i == 0 ? (focused ? palette::dangerStrong() : palette::danger()) : buttonInk(focused ? 1.0f : 0.0f);
         textLine(context_->prompt_question.empty() ? std::wstring(tr(exit_prompt::labels[i])) : context_->prompt_labels[static_cast<size_t>(i)],
             r.left + 22, (r.top + r.bottom) * 0.5f, r.right - r.left - 44,
-            settings_body_font_.Get(), buttonInk(i == context_->exit_prompt ? 1.0f : 0.0f), DWRITE_TEXT_ALIGNMENT_CENTER);
+            settings_body_font_.Get(), ink, DWRITE_TEXT_ALIGNMENT_CENTER);
     }
 }
 

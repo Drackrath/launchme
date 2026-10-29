@@ -125,6 +125,28 @@ void Launcher::collectionChanged() {
     if (libraryDialogOpen()) rebuildCollectionDialog();
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
+// An own collection (local:…) goes: its games' membership and its name, its place in the order and its
+// visibility. Steam's collections cannot be deleted here (the dialog restores their Steam assignments).
+void Launcher::deleteCollection(const SteamCollection& collection) {
+    if (!localCollection(collection) || !library_state_readable_) return;
+    const auto scope = collectionKey(account_, collection);
+    library_state_.collections.members.erase(scope);
+    if (!library_state_.collections.creates.contains(scope)) library_state_.collections.names.erase(scope);
+    settings_.hidden_collections.erase(scope); std::erase(settings_.collection_order, scope);
+    settingsChanged();
+    collectionChanged();
+}
+// Its trash in Ustawienia → Biblioteka → Kolekcje (also Delete and the pad's X there): a question first,
+// Anuluj with the focus; hiding it on the home screen is the gentler answer.
+void Launcher::askDeleteCollection(const std::string& key) {
+    const auto found = std::find_if(settings_collections_.begin(), settings_collections_.end(),
+                                    [&](const SteamCollection& c) { return collectionKey(account_, c) == key; });
+    if (found == settings_collections_.end() || !localCollection(*found)) return;
+    delete_collection_key_ = key;
+    prompt_kind_ = PromptKind::delete_collection;
+    exit_prompt_ = 2;
+    audio_.context(); InvalidateRect(hwnd_, nullptr, FALSE);
+}
 void Launcher::openCollectionManager(std::optional<Game> game) {
     if (!library_state_readable_) { showNotification(NotificationKind::error, tr(L"Nie można odczytać historii biblioteki"), L""); return; }
     library_dialog_ = {}; library_dialog_.open = true; library_dialog_.account = account_;
@@ -312,14 +334,13 @@ void Launcher::collectionDialogAccept() {
             }
         } else if (row.key == "@delete" || row.key == "@reset") {
             if (!ui.confirm) ui.confirm = true;
-            else {
+            else if (localCollection(c)) {
+                ui.page = Page::collections; ui.focus = 0; ui.confirm = false;
+                deleteCollection(c); return;
+            } else {
                 library_state_.collections.members.erase(scope);
                 if (favoriteCollection(c)) library_state_.collections.members.erase("favorites:local");
                 if (!library_state_.collections.creates.contains(scope)) library_state_.collections.names.erase(scope);
-                if (localCollection(c)) {
-                    settings_.hidden_collections.erase(scope); std::erase(settings_.collection_order, scope);
-                    settingsChanged(); ui.page = Page::collections; ui.focus = 0;
-                }
                 ui.confirm = false; collectionChanged(); return;
             }
         }

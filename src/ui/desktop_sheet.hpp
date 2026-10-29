@@ -42,7 +42,8 @@ struct SheetHit {
     enum class Kind {
         none, close, back, nav, row, field, toggle, track, action, cog, up, down, layout, avatar, tile, tile_action,
         dropdown, dropdown_item, dialog, dialog_field, dialog_save, dialog_cancel, dialog_browse, color_track, save_status,
-        badge // A row's badge with Row::reset: back to the default.
+        badge, // A row's badge with Row::reset: back to the default.
+        trash  // An own collection's trash (Row::removable): its question.
     } kind = Kind::none;
     int index = -1, sub = -1;
     bool operator==(const SheetHit&) const = default;
@@ -237,9 +238,11 @@ struct Layout : Sheet {
     Rect track(int i, float s) const { const float y = controlY(i, s); return {right() - 64 - 200, y - 10, right() - 64, y + 10}; }
     Rect cog(int i, float s) const { const float y = controlY(i, s); return {right() - 34, y - 17, right(), y + 17}; }
     Rect reorder(int i, float s, bool down) const {
-        const float y = controlY(i, s), x = right() - (down ? 30.0f : 66.0f);
+        const float y = controlY(i, s), x = right() - (down ? 66.0f : 102.0f);
         return {x, y - 15, x + 30, y + 15};
     }
+    // A collection row's trash, last (Row::removable; the place stays empty for a Steam collection).
+    Rect trash(int i, float s) const { const float y = controlY(i, s); return {right() - 30, y - 15, right(), y + 15}; }
     // The switch of each kind of row, at its right edge.
     float toggleRight(const Row& item) const {
         if (item.control == Control::collection) return reorder(0, 0, false).left - 14;

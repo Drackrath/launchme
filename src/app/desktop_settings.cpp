@@ -315,6 +315,7 @@ SheetHit Launcher::desktopSettingsHit(float x, float y) const {
         return {L.action(index, s).contains(x, y) ? K::action : K::row, index};
     case Control::fold: return {K::row, index}; // The whole heading opens or closes its section.
     case Control::collection:
+        if (item.removable && L.trash(index, s).contains(x, y)) return {K::trash, index};
         if (L.reorder(index, s, false).contains(x, y)) return {K::up, index};
         if (L.reorder(index, s, true).contains(x, y)) return {K::down, index};
         break;
@@ -452,6 +453,7 @@ void Launcher::desktopSettingsActivate(const SheetHit& hit) {
     case K::tile: case K::tile_action: settings_state_.tile = hit.sub; settingsActivate(); return;
     case K::up: settings_state_.subcontrol = 1; settingsActivate(); return;
     case K::down: settings_state_.subcontrol = 2; settingsActivate(); return;
+    case K::trash: settings_state_.subcontrol = 3; settingsActivate(); return;
     case K::cog: case K::action:
         if (item.control == Control::platform) settings_state_.editing = true;
         settingsActivate();

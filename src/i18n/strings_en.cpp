@@ -2674,6 +2674,25 @@ constexpr Entry entries[] = {
     {L"Brak połączenia ze Steam.", L"No connection to Steam."},
     // A game borrowed from the account's Steam Family.
     {L"Udostępniona rodzinnie", L"Family shared"},
+    // Interfejs → Widoki biblioteki w trybie TV: the default view of consoles', collections' and publishers' libraries.
+    {L"Widoki biblioteki w trybie TV", L"Library views in TV mode"},
+    {L"Domyślny widok emulatorów", L"Default view of emulators"},
+    {L"Biblioteki konsol bez własnego widoku. Zresetuj: wszystkie wracają do niego.",
+     L"Consoles' libraries without a view of their own. Reset: every one goes back to it."},
+    {L"Domyślny widok kolekcji", L"Default view of collections"},
+    {L"Kolekcje Steam i własne bez własnego widoku. Zresetuj: wszystkie wracają do niego.",
+     L"Steam and own collections without a view of their own. Reset: every one goes back to it."},
+    {L"Domyślny widok wydawców", L"Default view of publishers"},
+    {L"Wydawcy i developerzy bez własnego widoku. Zresetuj: wszystkie wracają do niego.",
+     L"Publishers and developers without a view of their own. Reset: every one goes back to it."},
+    {L"Z własnym widokiem: ", L"With a view of their own: "},
+    {L"Przywrócono domyślny widok", L"The default view is back"},
+    {L"Wszystkie mają domyślny widok", L"All of them have the default view"},
+    {L"Bibliotek: ", L"Libraries: "},
+    // An own collection's trash (Ustawienia → Biblioteka → Kolekcje) and its question.
+    {L"Usunąć kolekcję?", L"Delete the collection?"},
+    {L"Ukryj na ekranie głównym", L"Hide on the home screen"},
+    {L"Usunięto kolekcję", L"Collection deleted"},
     // Entries of extras built only on this machine (local/i18n), when present.
 #if __has_include("strings_en_local.inc")
 #include "strings_en_local.inc"

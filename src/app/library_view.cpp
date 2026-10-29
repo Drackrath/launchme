@@ -12,6 +12,20 @@ namespace {
 uint64_t nowSeconds() { return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count()); }
 // Vertical moves closer than this belong to one run (a held key or stick repeats faster).
 constexpr auto fast_scroll_gap = std::chrono::milliseconds(330);
+// The kind of library a saved scope is (libraryScope: "<account>:console:PS2", "<account>:category:<id>",
+// "<account>:console:publisher:capcom"), for Interfejs → Widoki biblioteki; empty: none of them.
+std::string_view viewKind(std::string_view scope) {
+    const auto colon = scope.find(':');
+    if (colon == std::string_view::npos) return {};
+    scope.remove_prefix(colon + 1);
+    if (scope.starts_with("console:publisher:") || scope.starts_with("console:developer:")) return "studio";
+    if (scope.starts_with("console:")) return "console";
+    if (scope.starts_with("category:")) {
+        scope.remove_prefix(9);
+        return scope == "publishers" || scope == "developers" ? std::string_view{} : std::string_view("collection"); // Boards of logos.
+    }
+    return {};
+}
 }
 bool Launcher::libraryControls() const { return screen_ == ScreenMode::library || screen_ == ScreenMode::platform_games; }
 library_view::View Launcher::libraryView() const { return screen_ == ScreenMode::library ? library_controls_.options.view : library_view::View::grid; }
@@ -333,7 +347,29 @@ std::string Launcher::libraryScope() const {
 library_view::Options Launcher::libraryOptions() const {
     if (studioBoard()) return {}; // The board of logos: square tiles, its own order.
     const auto found = library_state_.options.find(libraryScope());
-    return found == library_state_.options.end() ? library_view::Options{} : found->second;
+    if (found != library_state_.options.end()) return found->second;
+    library_view::Options options; options.view = defaultLibraryView(); // Not chosen for it yet: its kind's view.
+    return options;
+}
+library_view::View Launcher::defaultLibraryView() const {
+    const auto kind = viewKind(libraryScope());
+    const int saved = kind == "console" ? settings_.default_view_console : kind == "collection" ? settings_.default_view_collection :
+                      kind == "studio" ? settings_.default_view_studio : 0;
+    return library_view::viewFromPersisted(std::clamp(saved, 0, library_view::persisted_view_count - 1));
+}
+int Launcher::libraryViewOverrides(std::string_view kind) const {
+    return static_cast<int>(std::count_if(library_state_.options.begin(), library_state_.options.end(),
+                                          [&](const auto& entry) { return viewKind(entry.first) == kind; }));
+}
+// Every library of the kind loses its own view, order and filter: it follows the default view again.
+void Launcher::resetLibraryViews(std::string_view kind) {
+    if (!library_state_readable_) { showNotification(NotificationKind::error, tr(L"Nie można odczytać historii biblioteki"), L""); return; }
+    const auto removed = std::erase_if(library_state_.options, [&](const auto& entry) { return viewKind(entry.first) == kind; });
+    if (removed) library_state_dirty_ = true;
+    showNotification(NotificationKind::launch, removed ? tr(L"Przywrócono domyślny widok") : tr(L"Wszystkie mają domyślny widok"),
+                     removed ? tr(L"Bibliotek: ") + std::to_wstring(removed) : std::wstring{});
+    audio_.context();
+    if (settingsOpen()) buildSettingsRows();
 }
 void Launcher::recordLibraryGames() {
     const auto now = nowSeconds();

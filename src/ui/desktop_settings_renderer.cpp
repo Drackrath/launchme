@@ -273,6 +273,15 @@ void Renderer::drawDesktopSettings() {
                     desktopGlyph(down ? glyph::chevron_down : 0xE70E, (b.left + b.right) * 0.5f, middle(b), 10, gray(enabled ? 0.82f : 0.35f));
                     if (view.keyboard && selected && state.subcontrol == (down ? 2 : 1)) desktopFocusRing(b, 7);
                 }
+                if (item.removable) {
+                    // The trash of an own collection: red under the pointer or with the keyboard's focus; its question follows.
+                    const auto b = L.trash(i, s);
+                    const bool focused = view.keyboard && selected && state.subcontrol == 3;
+                    const bool hot = hovered(Kind::trash) > 0 || focused;
+                    if (hot) desktopFill(b, 7, palette::danger(0.16f));
+                    desktopGlyph(glyph::remove, (b.left + b.right) * 0.5f, middle(b), 12, hot ? palette::danger() : gray(0.72f));
+                    if (focused) desktopFocusRing(b, 7);
+                }
             }
             break;
         }

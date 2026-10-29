@@ -285,6 +285,26 @@ void Launcher::buildSettingsRows() {
             hints.value = hints.choices[hints.choice].label;
             add(std::move(hints));
         }
+        section(tr(L"Widoki biblioteki w trybie TV"));
+        {
+            // A console's, a collection's and a publisher's library without a view of its own; its badge
+            // (↺ Zresetuj, Delete, X) gives every one of the kind this view again (their own view, order and filter go).
+            const auto viewRow = [&](Id id, const wchar_t* title, const wchar_t* description, int saved, const char* kind) {
+                Row row{id, Control::choice, title, description};
+                for (const auto view : library_view::drawer_order) row.choices.push_back({library_view::label(view)});
+                row.choice = library_view::drawerRow(library_view::viewFromPersisted(std::clamp(saved, 0, library_view::persisted_view_count - 1)));
+                row.value = row.choices[row.choice].label;
+                if (const int own = libraryViewOverrides(kind)) row.description += L" · " + (tr(L"Z własnym widokiem: ") + std::to_wstring(own));
+                row.badge = tr(L"Zresetuj"); row.reset = std::string("views:") + kind;
+                add(std::move(row));
+            };
+            viewRow(Id::default_view_console, tr(L"Domyślny widok emulatorów"),
+                    tr(L"Biblioteki konsol bez własnego widoku. Zresetuj: wszystkie wracają do niego."), settings_.default_view_console, "console");
+            viewRow(Id::default_view_collection, tr(L"Domyślny widok kolekcji"),
+                    tr(L"Kolekcje Steam i własne bez własnego widoku. Zresetuj: wszystkie wracają do niego."), settings_.default_view_collection, "collection");
+            viewRow(Id::default_view_studio, tr(L"Domyślny widok wydawców"),
+                    tr(L"Wydawcy i developerzy bez własnego widoku. Zresetuj: wszystkie wracają do niego."), settings_.default_view_studio, "studio");
+        }
         break;
     }
 #ifndef _WIN32
@@ -342,6 +362,7 @@ void Launcher::buildSettingsRows() {
                     !emulated && !settings_.hidden_collections.contains(collectionKey(account_, collection))};
                 row.locked = emulated;
                 row.key = collectionKey(account_, collection);
+                row.removable = localCollection(collection); // Steam's own cannot be deleted from here.
                 add(std::move(row));
             }
             break;

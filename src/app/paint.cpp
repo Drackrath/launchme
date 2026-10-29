@@ -186,6 +186,7 @@ void Launcher::paint(bool overlay) {
     }
     context.settings_hover_row = settings_hover_row_;
     context.settings_hover_badge = settings_hover_badge_;
+    context.settings_hover_trash = settings_hover_trash_;
     context.settings_preview_option = settings_preview_.option;
     context.settings_preview_seconds = settings_preview_.seconds(GetTickCount64());
     context.settings_title = settingsPageTitle();
@@ -306,6 +307,16 @@ void Launcher::paint(bool overlay) {
     if (exit_prompt_ && prompt_kind_ == PromptKind::remove) {
         context.prompt_question = std::wstring(tr(L"Usunąć z biblioteki?")) + L" " + remove_game_.name;
         context.prompt_labels = {std::wstring(tr(L"Usuń z biblioteki")), std::wstring(tr(L"Edytuj grę…")), std::wstring(tr(L"Anuluj"))};
+    }
+    if (exit_prompt_ && prompt_kind_ == PromptKind::delete_collection) {
+        // An own collection's trash: delete it, or only hide (show) it on the home screen; Anuluj has the focus.
+        const auto found = std::find_if(settings_collections_.begin(), settings_collections_.end(),
+                                        [&](const SteamCollection& c) { return collectionKey(account_, c) == delete_collection_key_; });
+        context.prompt_question = std::wstring(tr(L"Usunąć kolekcję?")) + (found == settings_collections_.end() ? std::wstring{} : L" " + found->name);
+        context.prompt_labels = {std::wstring(tr(L"Usuń kolekcję")),
+                                 std::wstring(settings_.hidden_collections.contains(delete_collection_key_) ? tr(L"Pokaż na ekranie głównym") : tr(L"Ukryj na ekranie głównym")),
+                                 std::wstring(tr(L"Anuluj"))};
+        context.prompt_danger = true;
     }
     if (exit_prompt_ && prompt_kind_ == PromptKind::restore_saves) {
         context.prompt_question = std::wstring(tr(L"Przywrócić zapisy z ostatniej kopii?")) + L" " + restore_game_.name;

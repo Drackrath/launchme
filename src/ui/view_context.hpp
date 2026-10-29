@@ -230,6 +230,7 @@ struct ViewContext {
     std::wstring settings_title;
     int settings_hover_row = -1, settings_preview_option = -1;
     int settings_hover_badge = -1; // The row whose badge button (Row::reset) the pointer is over.
+    int settings_hover_trash = -1; // The collection row whose trash (Row::removable) the pointer is over.
     float settings_preview_seconds = 0;
     bool settings_save_failed = false;
     size_t secret_length = 0;
@@ -353,6 +354,7 @@ struct ViewContext {
     // Another question in the same prompt (moving videos); empty: the exit question.
     std::wstring prompt_question;
     std::array<std::wstring, 3> prompt_labels;
+    bool prompt_danger = false; // Its first answer destroys something (Usuń kolekcję): drawn red.
     float exit_progress = -1; // -1 inactive, 0..1 one-shot fade to black.
     size_t frozen_games = 0;
     int power_menu = -1; // Selected row of power_labels; -1 = closed.

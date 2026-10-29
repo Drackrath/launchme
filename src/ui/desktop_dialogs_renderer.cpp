@@ -408,7 +408,11 @@ void Renderer::drawDesktopPrompts() {
         for (int i = 0; i < exit_prompt::count; ++i) {
             const Rect r{p.left + 20 + static_cast<float>(i) * (bw + 10), by, p.left + 20 + static_cast<float>(i) * (bw + 10) + bw, by + 38};
             const auto label = context_->prompt_question.empty() ? std::wstring(tr(exit_prompt::labels[static_cast<size_t>(i)])) : context_->prompt_labels[static_cast<size_t>(i)];
-            desktopButton(r, i == 0 ? 2 : 1, hover == SheetHit{Kind::row, i} ? 1.0f : 0.0f, false, true, 0, label);
+            if (context_->prompt_danger && i == 0) {
+                // A destructive first answer (Usuń kolekcję): an outlined button with red text, never the primary one.
+                desktopButton(r, 1, hover == SheetHit{Kind::row, i} ? 1.0f : 0.0f, false, true, 0, {});
+                textLine(label, r.left + 8, (r.top + r.bottom) * 0.5f, r.right - r.left - 16, desktop_button_font_.Get(), palette::danger(), DWRITE_TEXT_ALIGNMENT_CENTER);
+            } else desktopButton(r, i == 0 ? 2 : 1, hover == SheetHit{Kind::row, i} ? 1.0f : 0.0f, false, true, 0, label);
             if (context_->exit_prompt == i) desktopFocusRing(r, 8);
             desktopModalHot({Kind::row, i}, r);
         }

@@ -122,6 +122,7 @@ void Launcher::inputHints(ViewContext& context) const {
         if (settings_state_.at(settings_ui::Page::collections) && row && row->control == settings_ui::Control::collection)
             hints.push_back({HintButton::shoulders, tr(L"Przesuń"), L"Shift ↑↓"});
         if (row && !row->reset.empty()) hints.push_back({HintButton::search, tr(L"Przywróć domyślne"), L"Del"}); // A game's own value.
+        if (row && row->removable) hints.push_back({HintButton::search, tr(L"Usuń kolekcję"), L"Del"}); // An own collection's question.
         if (row && row->control == settings_ui::Control::sources && !row->tiles.empty() &&
             row->tiles[std::clamp(settings_state_.tile, 0, static_cast<int>(row->tiles.size()) - 1)].level >= 0)
             add(HintButton::shoulders, tr(L"Głośność")); // The focused source's volume, LB/RB or PgUp/PgDn.

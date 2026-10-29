@@ -301,7 +301,7 @@ void Renderer::drawSettings() {
             const float toggle_on = i < static_cast<int>(context_->settings_toggles.size()) ?
                                     context_->settings_toggles[static_cast<size_t>(i)] : (item.checked ? 1.0f : 0.0f);
             const bool collection = item.control == Control::collection;
-            const float toggle_right = r.right - (collection ? 140.0f : 28.0f);
+            const float toggle_right = r.right - (collection ? 192.0f : 28.0f);
             // State label right-aligned next to its switch.
             stateLabel(item.checked, item.locked, toggle_right - 66, y);
             toggle(toggle_right, y, toggle_on, item.locked);
@@ -311,6 +311,23 @@ void Renderer::drawSettings() {
                 const bool later = i + 1 < static_cast<int>(rows.size()) && rows[i + 1].control == Control::collection;
                 arrow(up, false, button(up, selected && state.subcontrol == 1, hovered, earlier));
                 arrow(down, true, button(down, selected && state.subcontrol == 2, hovered, later));
+                if (item.removable) {
+                    // The trash of an own collection: red with the focus or the pointer on it; its question follows.
+                    const auto bin = layout.trash(i, scroll);
+                    const bool hot = (selected && state.subcontrol == 3) || context_->settings_hover_trash == i;
+                    const float radius = (bin.bottom - bin.top) * 0.5f;
+                    if (hot) { fill(bin, faint(palette::danger(), 0.18f), radius); outline(bin, palette::danger(), 1.5f, radius); }
+                    else button(bin, false, hovered);
+                    const auto ink = hot ? palette::danger() : gray(0.78f);
+                    const float cx = (bin.left + bin.right) * 0.5f;
+                    line(cx - 8, y - 6, cx + 8, y - 6, ink, 1.8f);          // The lid,
+                    line(cx - 3, y - 9, cx + 3, y - 9, ink, 1.8f);          // its handle,
+                    line(cx - 6, y - 4, cx - 5, y + 9, ink, 1.8f);          // the can's sides
+                    line(cx + 6, y - 4, cx + 5, y + 9, ink, 1.8f);
+                    line(cx - 5, y + 9, cx + 5, y + 9, ink, 1.8f);          // and bottom,
+                    line(cx - 2, y - 1, cx - 2, y + 6, ink, 1.4f);          // its ribs.
+                    line(cx + 2, y - 1, cx + 2, y + 6, ink, 1.4f);
+                }
                 if (selected && state.subcontrol == 0) {
                     const auto control = layout.collectionControl(i, scroll, 0);
                     outline(control, accent, 1.5f, (control.bottom - control.top) * 0.5f);

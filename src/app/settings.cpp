@@ -126,6 +126,8 @@ void Launcher::settingsMove(int amount) {
             navigationBoundary(); return;
         }
         if (settings_state_.category != previous) buildSettingsRows();
+        // The trash's column keeps to a collection that has one (a Steam collection's ends at ↓).
+        if (settings_state_.subcontrol == 3 && !settings_rows_.empty() && !settings_rows_[settings_state_.row()].removable) settings_state_.subcontrol = 2;
         ensureSettingVisible();
     }
     audio_.navigate();
@@ -244,7 +246,7 @@ void Launcher::settingsAdjust(int amount) {
         if (amount > 0) settings_state_.enter(static_cast<int>(settings_rows_.size()));
     } else if (!settings_rows_.empty() && settings_rows_[settings_state_.row()].control == Control::collection) {
         if (amount < 0 && settings_state_.subcontrol == 0) settings_state_.options = false;
-        else settings_state_.subcontrol = std::clamp(settings_state_.subcontrol + amount, 0, 2);
+        else settings_state_.subcontrol = std::clamp(settings_state_.subcontrol + amount, 0, settings_rows_[settings_state_.row()].removable ? 3 : 2);
     } else if (!settings_rows_.empty() && settings_rows_[settings_state_.row()].control == Control::layout) {
         // Left/Right pick the preview directly; Left on the first one returns to the category rail.
         const int current = settings_rows_[settings_state_.row()].choice;
@@ -439,6 +441,10 @@ void Launcher::settingsActivate() {
         }
         settingsChanged(); audio_.context(); return;
     }
+    if (row.control == Control::collection && settings_state_.subcontrol == 3) {
+        if (row.removable) askDeleteCollection(row.key);
+        return;
+    }
     if (row.control == Control::collection && settings_state_.subcontrol != 0) {
         settingsReorder(settings_state_.subcontrol == 1 ? -1 : 1);
         return;
@@ -501,6 +507,15 @@ void Launcher::settingsActivate() {
 
 // The choice picked from a row's list, applied at once.
 void Launcher::settingsChoose(const Row& row) {
+    // Interfejs → Widoki biblioteki, its choices in the view drawer's order (outside the chain below: C1061).
+    if (row.id == Id::default_view_console || row.id == Id::default_view_collection || row.id == Id::default_view_studio) {
+        auto& view = row.id == Id::default_view_console ? settings_.default_view_console :
+                     row.id == Id::default_view_collection ? settings_.default_view_collection : settings_.default_view_studio;
+        view = static_cast<int>(library_view::drawerView(settings_state_.choice));
+        settings_state_.editing = false;
+        settingsChanged();
+        return;
+    }
     const auto& choice = row.choices[settings_state_.choice];
     bool relabel = false;
     if (row.id == Id::font) settings_.font_family = choice.label;
@@ -589,6 +604,8 @@ void Launcher::settingsChoose(const Row& row) {
 // A row's badge button (Row::reset): its value back to the default (a game's option, compat_settings.cpp).
 bool Launcher::settingsResetRow(const Row& row) {
     if (row.reset.empty()) return false;
+    // Interfejs → Widoki biblioteki: every library of the kind follows the default view again.
+    if (row.reset.starts_with("views:")) { resetLibraryViews(std::string_view(row.reset).substr(6)); return true; }
 #ifndef _WIN32
     return compatResetOption(row);
 #else
@@ -599,6 +616,8 @@ bool Launcher::settingsResetRow(const Row& row) {
 bool Launcher::settingsResetFocused() {
     if (!settingsOpen() || !settings_state_.options || settings_state_.editing || editingSecret() || settings_rows_.empty()) return false;
     const auto row = settings_rows_[static_cast<size_t>(settings_state_.row())];
+    // An own collection: Delete and X ask whether to delete it (its trash).
+    if (row.id == Id::collection && row.removable) { askDeleteCollection(row.key); return true; }
     return settingsResetRow(row);
 }
 
@@ -825,7 +844,8 @@ void Launcher::settingsClick(float x, float y) {
             mouseMove(x * view.scale, y * view.scale);
         }
     } else if (row.control == Control::collection) {
-        settings_state_.subcontrol = layout.reorder(index, settings_state_.offset(), false).contains(x, y) ? 1 :
+        settings_state_.subcontrol = row.removable && layout.trash(index, settings_state_.offset()).contains(x, y) ? 3 :
+                                     layout.reorder(index, settings_state_.offset(), false).contains(x, y) ? 1 :
                                      layout.reorder(index, settings_state_.offset(), true).contains(x, y) ? 2 : 0;
         settingsActivate();
     } else if (row.control == Control::avatar) {

@@ -391,6 +391,25 @@ void Launcher::exitPromptAccept() {
         } else if (index == 1) openCustomEditor(game.source_id);
         return;
     }
+    if (prompt_kind_ == PromptKind::delete_collection) {
+        prompt_kind_ = PromptKind::exit;
+        const int index = static_cast<int>(choice); // 0 delete it, 1 hide it on (or show it again on) the home screen, 2 cancel.
+        const auto key = std::exchange(delete_collection_key_, std::string{});
+        const auto found = std::find_if(settings_collections_.begin(), settings_collections_.end(),
+                                        [&](const SteamCollection& c) { return collectionKey(account_, c) == key; });
+        if (found == settings_collections_.end() || index == 2) return;
+        const auto collection = *found;
+        if (index == 0) {
+            settings_state_.subcontrol = 0; // The next row's switch, not a trash it may not have.
+            deleteCollection(collection);
+            showNotification(NotificationKind::launch, tr(L"Usunięto kolekcję"), collection.name);
+        } else {
+            if (!settings_.hidden_collections.erase(key)) settings_.hidden_collections.insert(key);
+            settingsChanged(true);
+        }
+        audio_.context();
+        return;
+    }
     if (prompt_kind_ == PromptKind::restore_saves) {
         prompt_kind_ = PromptKind::exit;
         const int index = static_cast<int>(choice); // 0 restore, 1 back up the current saves instead, 2 cancel.
