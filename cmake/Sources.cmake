@@ -87,6 +87,7 @@ set(LAUNCHME_APP_SOURCES
     src/app/jump_list.cpp
     src/app/game_links.cpp
     src/app/compat_ratings.cpp
+    src/app/save_backups.cpp
     src/app/desktop_quick.cpp
     src/app/desktop_metadata.cpp
     src/app/desktop_text.cpp
@@ -261,6 +262,7 @@ set(LAUNCHME_APP_SOURCES
     src/library/steam_owned.cpp
     src/library/steam_accounts.cpp
     src/library/shortcuts.cpp
+    src/library/ludusavi.cpp
     src/library/esde_gamelist.cpp
     src/library/screenscraper_config.cpp
     src/library/screenscraper.cpp

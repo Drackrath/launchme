@@ -99,7 +99,9 @@ enum class Action {
     companion_settings, uninstall, launch_options, aurelia, steam_account, remove_game,
     compat_options, // Linux: the game's Proton / Wine options (Launcher::openGameCompatSettings).
     shortcuts,      // Skróty ▸: the game's shortcuts outside Launchme (Launcher::setGameShortcut).
-    shortcut_toggle // One of them (value: ShortcutPlace), checked when it exists.
+    shortcut_toggle, // One of them (value: ShortcutPlace), checked when it exists.
+    saves,          // Zapisy ▸: Ludusavi's backup and restore of the game's saves.
+    save_backup, save_restore, save_ludusavi
 };
 struct MenuItem {
     Action action = Action::none;

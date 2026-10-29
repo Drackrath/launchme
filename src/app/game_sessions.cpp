@@ -364,6 +364,9 @@ void Launcher::onGameActivity(std::unique_ptr<GameActivityMessage> message) {
     }
     if (frozen_finished) persistFrozenGames();
     for (const auto& [game, ms] : played) companionSessionEnded(game, ms);
+    // Kopie zapisów: Ludusavi backs up what the game just saved (quietly when it knows no saves).
+    if (settings_.save_backup_after_game)
+        for (const auto& [game, ms] : played) if (ms >= 60 * 1000) gameSaves(game, false, true);
     // The index learns the new play time and achievements once Steam has written them.
     for (const auto& [game, ms] : played) game_index_later_.push_back(gameKey(game));
     game_index_later_at_ = GetTickCount64() + 8000;

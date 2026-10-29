@@ -1174,6 +1174,12 @@ void Launcher::desktopOpenGameMenu(float x, float y, bool keyboard) {
             shortcuts.submenu = true;
             items.push_back(std::move(shortcuts));
         }
+        // Zapisy ▸ kopia, przywrócenie (Ludusavi).
+        if (!gameKey(game).empty()) {
+            MenuItem saves{Action::saves, tr(L"Zapisy"), {}, glyph::copy};
+            saves.submenu = true;
+            items.push_back(std::move(saves));
+        }
         if (!gameFolder(game).empty()) items.push_back({Action::folder, tr(L"Otwórz folder gry"), {}, glyph::folder_open});
         const auto plugins = pluginContext(game);
         if (!plugins.empty()) separator();
@@ -1239,6 +1245,11 @@ void Launcher::desktopOpenSubmenu(int index) {
                 item.checked = hasShortcut(games.front(), place);
                 menu.sub.push_back(std::move(item));
             }
+    } else if (menu.items[static_cast<size_t>(index)].action == Action::saves) {
+        const bool ready = !ludusaviProgram().empty();
+        menu.sub = {{Action::save_backup, tr(L"Zrób kopię zapisów"), {}, glyph::copy},
+                    {Action::save_restore, tr(L"Przywróć ostatnią kopię…"), {}, glyph::refresh},
+                    {Action::save_ludusavi, ready ? tr(L"Otwórz Ludusavi") : tr(L"Pobierz Ludusavi"), {}, ready ? glyph::open : glyph::download}};
     } else menu.sub = desktopCollectionItems(desktopGamesOf(menu.games));
     menu.sub_hover = menu.keyboard ? stepItem(menu.sub, -1, 1) : -1;
     InvalidateRect(hwnd_, nullptr, FALSE);
@@ -1431,7 +1442,10 @@ void Launcher::desktopMenuPick(const desktop_ui::MenuItem& item, bool /*from_sub
     case Action::steam_account: if (game) cycleSteamAccount(*game); return;
     case Action::launch_options: if (game) openLaunchEditor(*game); return;
     case Action::compat_options: if (game) openGameCompatSettings(*game); return;
-    case Action::shortcuts: return; // Its submenu.
+    case Action::shortcuts: case Action::saves: return; // Their submenus.
+    case Action::save_backup: if (game) gameSaves(*game, false, false); return;
+    case Action::save_restore: if (game) askRestoreSaves(*game); return;
+    case Action::save_ludusavi: openLudusavi(); return;
     case Action::shortcut_toggle: if (game) setShortcut(*game, static_cast<ShortcutPlace>(item.value), !item.checked); return;
     case Action::folder:
         if (game) if (const auto folder = gameFolder(*game); !folder.empty())

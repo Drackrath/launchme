@@ -381,6 +381,18 @@ void Launcher::buildSettingsRows() {
         add({Id::hide_while_playing, Control::toggle, tr(L"Chowaj do zasobnika podczas gry"),
             tr(L"Gdy gra działa, launcher znika z paska zadań i Alt+Tab, a jego ikona czeka w zasobniku. Wraca po zamknięciu gry."),
             {}, settings_.hide_while_playing});
+        section(tr(L"Kopie zapisów"));
+        {
+            const auto program = ludusaviProgram();
+            add({Id::save_backups, Control::toggle, tr(L"Kopia zapisów po każdej grze"),
+                 tr(L"Ludusavi kopiuje zapisy gry, gdy ją zamkniesz. Przywrócisz je z menu gry → Zapisy."), {}, settings_.save_backup_after_game});
+            Row row{Id::ludusavi, Control::action, L"Ludusavi",
+                program.empty() ? std::wstring(tr(L"Program do kopii zapisów: wie, gdzie tysiące gier trzymają zapisy (PCGamingWiki). Pobierany z GitHuba."))
+                                : tr(L"Zainstalowany: ") + program.wstring() + L"\n" + tr(L"Folder kopii i chmurę ustawisz w jego oknie."),
+                ludusavi_busy_ ? tr(L"Pobieranie…") : program.empty() ? tr(L"Pobierz") : tr(L"Otwórz")};
+            row.locked = ludusavi_busy_;
+            add(std::move(row));
+        }
         break;
     case settings_ui::Category::media: {
         if (settings_state_.at(Page::screenscraper)) {

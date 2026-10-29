@@ -1652,6 +1652,16 @@ private:
     // A game added without the editor (from an installer): saved and in the library; its id, or
     // empty when the list cannot be saved.
     std::string addCustomGame(custom_games::Entry entry);
+    // Kopie zapisów (src/app/save_backups.cpp): Ludusavi backs up or restores a game's saves; quiet: no
+    // notice unless it worked (after a game).
+    std::filesystem::path ludusaviProgram() const;
+    void installLudusavi();
+    void openLudusavi();
+    void gameSaves(const Game& game, bool restore, bool quiet);
+    void askRestoreSaves(const Game& game); // A question first: restoring overwrites the current saves.
+    std::map<std::string, std::wstring> ludusavi_titles_; // Game key → Ludusavi's title, once found.
+    bool ludusavi_busy_ = false;                          // Its download.
+    Game restore_game_;
     // Skróty (src/app/game_links.cpp): the game's shortcut on the desktop, in the Start menu (Linux:
     // the applications menu) and, on Linux, in Steam. Each starts the game through Launchme, with
     // its launch options.
@@ -2087,7 +2097,7 @@ private:
     std::optional<int> exit_prompt_; // Selected exit_prompt::Choice while asking.
     // The same three-button prompt also asks whether downloaded videos follow a new video folder.
     // remove: "Usuń z biblioteki" of a user-added game (remove_game_); its file stays on disk.
-    enum class PromptKind { exit, move_videos, uninstall, remove };
+    enum class PromptKind { exit, move_videos, uninstall, remove, restore_saves };
     Game remove_game_;
     Game uninstall_game_; // PromptKind::uninstall: the game Launchme itself would remove (Legendary, GOG silently).
     GameAction uninstall_silent_; // ...and for a GOG game, its Inno uninstaller with the silent switches.

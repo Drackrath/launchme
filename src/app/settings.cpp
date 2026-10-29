@@ -309,6 +309,7 @@ void Launcher::settingsActivate() {
     if (compatSettingsActivate(row)) return; // Proton i Wine and its pages (compat_settings.cpp).
     if (row.id == Id::compat_install_game) { compatInstallGame(); return; } // Also on Gry dodane ręcznie.
 #endif
+    if (row.id == Id::ludusavi) { if (row.locked) navigationBoundary(); else openLudusavi(); return; }
     if (row.id == Id::aurelia) { toggleAurelia(); return; }
     if (row.id == Id::aurelia_open) { openAurelia(); return; }
     if (row.id == Id::aurelia_cloud || row.id == Id::aurelia_default) { // Steam's page: what Aurelia does.
@@ -576,6 +577,8 @@ void Launcher::settingsChoose(const Row& row) {
 // A switch (or a collection's visibility). Most rebuild the shelves; visual-only switches and
 // those read later just save and repaint. Unknown rows do nothing.
 void Launcher::settingsToggle(const Row& row) {
+    // Outside the else-if chain below (MSVC's nesting limit): read after the next game.
+    if (row.id == Id::save_backups) { settings_.save_backup_after_game = !settings_.save_backup_after_game; settingsChanged(); audio_.context(); return; }
     if (row.id == Id::uninstalled) settings_.show_uninstalled = !settings_.show_uninstalled;
     else if (row.id == Id::recent_uninstalled) settings_.recent_uninstalled = !settings_.recent_uninstalled;
     else if (row.id == Id::emulation) settings_.show_emulation = !settings_.show_emulation;

@@ -45,6 +45,7 @@ struct AppSettings {
     std::unordered_set<std::string> desktop_expanded;
     bool show_uninstalled = true;
     bool recent_uninstalled = false; // Ostatnio grane also lists games not installed, by the date they were added.
+    bool save_backup_after_game = false; // Ludusavi backs up a game's saves when it closes (Kopie zapisów).
     bool show_emulation = true;
     // Steam games the account marked hidden or private appear like the others (shelves.cpp).
     bool show_private = false;

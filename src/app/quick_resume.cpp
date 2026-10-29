@@ -389,6 +389,14 @@ void Launcher::exitPromptAccept() {
         } else if (index == 1) openCustomEditor(game.source_id);
         return;
     }
+    if (prompt_kind_ == PromptKind::restore_saves) {
+        prompt_kind_ = PromptKind::exit;
+        const int index = static_cast<int>(choice); // 0 restore, 1 back up the current saves instead, 2 cancel.
+        const auto game = std::exchange(restore_game_, Game{});
+        if (index == 0) gameSaves(game, true, false);
+        else if (index == 1) gameSaves(game, false, false);
+        return;
+    }
     if (prompt_kind_ == PromptKind::move_videos) {
         prompt_kind_ = PromptKind::exit;
         const int index = static_cast<int>(choice); // 0 move them, 1 leave them where they are, 2 cancel.

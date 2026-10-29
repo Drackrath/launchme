@@ -96,7 +96,9 @@ enum class Id { font, home_layout, ui_accent, accent, uninstalled, emulation, co
                    // A Windows game's page: its ProtonDB and Steam Deck rating.
                    launch_protondb,
                    // Zgodność → Sklepy i launchery: the page, and one launcher to install (Row::key: its id).
-                   compat_stores_open, compat_store_install };
+                   compat_stores_open, compat_store_install,
+                   // Biblioteka → Kopie zapisów: Ludusavi after each game, and Ludusavi itself.
+                   save_backups, ludusavi };
 inline bool hasOptionsButton(Id id) { return id == Id::plugin_enabled || id == Id::pc_platform; }
 // layout: drawn preview tiles in the row (one per home layout); Row::choice is the active one.
 // count: Row::value as a large number with a chevron; activating opens a sub-list.

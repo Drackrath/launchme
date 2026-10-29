@@ -305,6 +305,10 @@ void Launcher::paint(bool overlay) {
         context.prompt_question = std::wstring(tr(L"Usunąć z biblioteki?")) + L" " + remove_game_.name;
         context.prompt_labels = {std::wstring(tr(L"Usuń z biblioteki")), std::wstring(tr(L"Edytuj grę…")), std::wstring(tr(L"Anuluj"))};
     }
+    if (exit_prompt_ && prompt_kind_ == PromptKind::restore_saves) {
+        context.prompt_question = std::wstring(tr(L"Przywrócić zapisy z ostatniej kopii?")) + L" " + restore_game_.name;
+        context.prompt_labels = {std::wstring(tr(L"Przywróć")), std::wstring(tr(L"Najpierw zrób kopię obecnych")), std::wstring(tr(L"Anuluj"))};
+    }
     if (exit_prompt_ && prompt_kind_ == PromptKind::move_videos) {
         const auto megabytes = std::to_wstring((video_move_bytes_ + 512 * 1024) / (1024 * 1024));
         context.prompt_question = tr(L"Przenieść pobrane filmy?");

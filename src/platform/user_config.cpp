@@ -205,6 +205,7 @@ AppSettings parseAppSettings(std::string_view text) {
         }
         // Outside the else-if chain below: MSVC refuses one level more of it (C1061).
         if (key == "recent_uninstalled") { if (value == "0" || value == "1") settings.recent_uninstalled = value == "1"; continue; }
+        if (key == "save_backup_after_game") { if (value == "0" || value == "1") settings.save_backup_after_game = value == "1"; continue; }
         if (key == "show_uninstalled" && (value == "0" || value == "1")) settings.show_uninstalled = value == "1";
         else if (key == "windowed" && (value == "0" || value == "1")) settings.windowed = value == "1";
         else if (key == "launch_tv_mode" && (value == "0" || value == "1")) settings.launch_tv_mode = value == "1";
@@ -604,6 +605,7 @@ bool saveAppSettings(const AppSettings& settings, const std::filesystem::path& f
            << "drawer_fade_fraction=" << settings.drawer.fade_fraction << '\n'
            << "show_uninstalled=" << settings.show_uninstalled << '\n'
            << "recent_uninstalled=" << settings.recent_uninstalled << '\n'
+           << "save_backup_after_game=" << settings.save_backup_after_game << '\n'
            << "show_emulation=" << settings.show_emulation << '\n'
            << "studio_libraries=" << settings.studio_libraries << '\n'
            << "show_private=" << settings.show_private << '\n'
