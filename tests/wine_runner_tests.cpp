@@ -341,8 +341,24 @@ void wrappers() {
     check(plan.argv == std::vector<std::string>{"/usr/bin/umu-run", "/games/bl3/game.exe", "-dx12"}, "missing wrappers skipped");
     check(plan.missing == std::vector<std::string>{"gamemoderun", "gamescope", "mangohud"}, "missing wrappers: " + join(plan.missing));
     for (const auto* code : {"no-tool", "no-umu", "no-wine", "no-program", "no-winetricks", "bad-verb", "gamemoderun", "mangohud", "gamescope", "dxvk",
-                             "vkd3d-proton", "dxvk-nvapi", "eac-runtime", "battleye-runtime"})
+                             "vkd3d-proton", "dxvk-nvapi", "eac-runtime", "battleye-runtime", "game-performance", "dlss-swapper", "lsfg-vk"})
         check(*wine_runner::problemText(code).polish && *wine_runner::problemText(code).english, std::string("text for ") + code);
+    // CachyOS's wrappers go first, before GameMode; lsfg-vk is variables only.
+    {
+        auto cachy = baseRequest();
+        auto& c = cachy.launch.options;
+        c.game_performance = c.dlss_swapper = c.gamemode = true;
+        c.lsfg = true; c.lsfg_multiplier = 3; c.lsfg_flow_scale = 75; c.lsfg_performance = true;
+        auto with = baseContext();
+        with.game_performance = "/usr/bin/game-performance"; with.dlss_swapper = "/usr/bin/dlss-swapper"; with.lsfg_layer = true;
+        auto cachy_plan = wine_runner::plan(cachy, with);
+        check(cachy_plan.argv == std::vector<std::string>{"/usr/bin/game-performance", "/usr/bin/dlss-swapper", "/usr/bin/gamemoderun", "/usr/bin/umu-run",
+                                                          "/games/bl3/game.exe", "-dx12"} && cachy_plan.missing.empty(), "CachyOS wrappers: " + join(cachy_plan.argv));
+        check(variable(cachy_plan, "LSFGVK_ENV") == "1" && variable(cachy_plan, "LSFGVK_MULTIPLIER") == "3" &&
+              variable(cachy_plan, "LSFGVK_FLOW_SCALE") == "0.75" && variable(cachy_plan, "LSFGVK_PERFORMANCE_MODE") == "1", "lsfg-vk variables");
+        cachy_plan = wine_runner::plan(cachy, baseContext());
+        check(cachy_plan.missing == std::vector<std::string>{"game-performance", "dlss-swapper", "lsfg-vk"}, "missing CachyOS tools: " + join(cachy_plan.missing));
+    }
     // Fullscreen, default filter: only -f.
     context = baseContext();
     o = {};
@@ -517,6 +533,7 @@ LaunchOptions everything() {
     o.dri_prime = true; o.radv_sam = true; o.radv_nggc = true; o.radv_emulate_rt = true; o.mesa_glthread = true;
     o.present_mode = LaunchOptions::PresentMode::relaxed; o.anisotropy = 8; o.mesa_shader_cache_size = "4G";
     o.gamemode = true; o.mangohud = true; o.wrapper = "strangle 60"; o.gamescope = true;
+    o.game_performance = true; o.dlss_swapper = true; o.lsfg = true; o.lsfg_multiplier = 3; o.lsfg_flow_scale = 50; o.lsfg_performance = true;
     o.gamescope_game_width = 1; o.gamescope_game_height = 2; o.gamescope_output_width = 3; o.gamescope_output_height = 4;
     o.gamescope_fps_limit = 5; o.gamescope_fps_limit_unfocused = 6; o.gamescope_window = LaunchOptions::GamescopeWindow::windowed;
     o.gamescope_filter = LaunchOptions::GamescopeFilter::pixel; o.gamescope_scaler = LaunchOptions::GamescopeScaler::stretch;
@@ -531,7 +548,7 @@ void catalog() {
     std::set<std::string> ids;
     std::set<c::Section> sections;
     for (const auto& section : c::sections()) sections.insert(section.section);
-    check(sections.size() == 7, "seven sections");
+    check(sections.size() == 8, "eight sections");
     const LaunchOptions defaults;
     for (const auto& option : c::options()) {
         check(ids.insert(option.id).second, std::string("unique option id ") + option.id);
@@ -554,8 +571,23 @@ void catalog() {
             }
         }();
         check(c::setValue(changed, option.id, other) && changed != defaults && c::value(changed, option.id) == other, std::string("set ") + option.id);
+        // A variable switch is one entry of the environment list, by design.
         for (const auto& rest : c::options())
-            if (std::string_view(rest.id) != option.id) check(c::value(changed, rest.id) == c::value(defaults, rest.id), std::string(option.id) + " aliases " + rest.id);
+            if (std::string_view(rest.id) != option.id && !(option.variable && std::string_view(rest.id) == "environment"))
+                check(c::value(changed, rest.id) == c::value(defaults, rest.id), std::string(option.id) + " aliases " + rest.id);
+    }
+    // Variable switches and choices: entries of the environment list, never JSON keys of their own.
+    {
+        LaunchOptions v;
+        check(c::setValue(v, "dxvk_low_latency", "1") && v.environment == std::vector<LaunchOptions::Variable>{{"PROTON_DXVK_LOWLATENCY", "1"}} &&
+              c::value(v, "dxvk_low_latency") == "1", "variable switch on");
+        check(c::setValue(v, "audio_driver", "pulse") && c::value(v, "audio_driver") == "pulse" && !c::setValue(v, "audio_driver", "oss"), "variable choice");
+        const auto saved = launch_options_store::toJson(v);
+        check(!saved.get("dxvk_low_latency") && !saved.get("audio_driver") && saved.get("environment"), "variables stored as the environment");
+        const auto loaded = launch_options_store::fromJson(saved);
+        check(c::value(loaded, "dxvk_low_latency") == "1" && c::value(loaded, "audio_driver") == "pulse", "variables read back");
+        check(c::setValue(v, "dxvk_low_latency", "0") && c::setValue(v, "audio_driver", "") && v.environment.empty(), "variables removed");
+        check(c::forVariable("PROTON_USE_OPTISCALER") == c::find("optiscaler") && !c::forVariable("NOT_A_SWITCH"), "variable lookup");
     }
     check(ids.size() >= 60, "every option listed: " + std::to_string(ids.size()));
     // Values each type refuses.

@@ -21,10 +21,10 @@ struct Text {
 // The active language's text (English for every language but Polish).
 const wchar_t* text(const Text& value);
 
-enum class Section { runner, proton, nvidia, mesa, wrappers, gamescope, game };
+enum class Section { runner, proton, extras, nvidia, mesa, wrappers, gamescope, game };
 struct SectionInfo {
     Section section;
-    const char* id; // "runner", "proton", "nvidia", "mesa", "wrappers", "gamescope", "game"
+    const char* id; // "runner", "proton", "extras", "nvidia", "mesa", "wrappers", "gamescope", "game"
     Text title;
 };
 std::span<const SectionInfo> sections(); // In display order.
@@ -61,9 +61,16 @@ struct Option {
     // Canonical text of the field in `options`; setValue() parses the same text.
     std::string (*get)(const Option&, const LaunchOptions&) = nullptr;
     bool (*set)(const Option&, LaunchOptions&, std::string_view) = nullptr;
+    // A switch or choice over one environment variable (LaunchOptions::environment) instead of a field:
+    // on sets `variable` to `variable_on`; a choice sets it to the chosen value ("" removes it). Kept in
+    // the environment list only: the JSON store skips these options.
+    const char* variable = nullptr;
+    const char* variable_on = "1";
 };
 std::span<const Option> options(); // In display order, grouped by section.
 const Option* find(std::string_view id);
+// The variable switch or choice that stands for an environment variable, or null.
+const Option* forVariable(std::string_view name);
 
 // The canonical text of an option (empty for an unknown id). Toggles "1"/"0", choices their value,
 // numbers decimal, environment "KEY=value" lines joined by '\n'.

@@ -41,6 +41,8 @@ struct Context {
     std::filesystem::path umu_run;          // Empty: umu-launcher is not installed.
     std::filesystem::path steam_client;     // STEAM_COMPAT_CLIENT_INSTALL_PATH for Proton without umu.
     std::filesystem::path gamemoderun, mangohud, gamescope; // Empty: not installed.
+    std::filesystem::path game_performance, dlss_swapper;   // CachyOS's wrappers; empty: not installed.
+    bool lsfg_layer = false;                // lsfg-vk's Vulkan layer is installed (system, user or Flatpak).
     std::filesystem::path shell = "/bin/sh";
     std::optional<compat_tools::Tool> dxvk, vkd3d, dxvk_nvapi; // Installed components (plain Wine).
     std::filesystem::path eac_runtime, battleye_runtime;       // Steam's runtime apps, when installed.
@@ -73,7 +75,8 @@ struct Plan {
     std::filesystem::path log_file;         // stdout and stderr; empty: the launcher's.
     bool proton_prefix = false;             // Proton directly: <prefix>/pfx → . is made before it runs.
     std::vector<std::string> missing;       // Enabled but not installed: "gamemoderun", "mangohud", "gamescope",
-                                            // "dxvk", "vkd3d-proton", "dxvk-nvapi", "eac-runtime", "battleye-runtime".
+                                            // "dxvk", "vkd3d-proton", "dxvk-nvapi", "eac-runtime", "battleye-runtime",
+                                            // "game-performance", "dlss-swapper", "lsfg-vk".
     std::string error;                      // Not runnable: "no-tool", "no-umu", "no-wine", "no-program".
 };
 Plan plan(const Request& request, const Context& context);

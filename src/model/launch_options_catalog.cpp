@@ -86,6 +86,46 @@ bool setEnvironment(const Option&, O& options, std::string_view value) {
     return true;
 }
 
+// A switch or choice stored as one environment variable (Option::variable).
+std::string getVariable(const Option& option, const O& options) {
+    for (const auto& variable : options.environment)
+        if (variable.name == option.variable) return option.type == Type::toggle ? (variable.value == option.variable_on ? "1" : "0") : variable.value;
+    return option.type == Type::toggle ? "0" : std::string{};
+}
+bool setVariable(const Option& option, O& options, std::string_view value) {
+    std::string wanted; // Empty: the variable is not set.
+    if (option.type == Type::toggle) {
+        if (value == "1" || value == "true") wanted = option.variable_on;
+        else if (value != "0" && value != "false") return false;
+    } else {
+        if (std::none_of(option.choices.begin(), option.choices.end(), [&](const Choice& choice) { return value == choice.value; })) return false;
+        wanted = std::string(value);
+    }
+    std::erase_if(options.environment, [&](const O::Variable& variable) { return variable.name == option.variable; });
+    if (wanted.empty()) return true;
+    if (options.environment.size() >= 64) return false;
+    options.environment.push_back({option.variable, std::move(wanted)});
+    return true;
+}
+constexpr Option flag(const char* id, Section section, const char* variable, const char* on, Text label, Text description, const char* sets,
+                      uint8_t runners = any, const char* depends = nullptr) {
+    Option option{id, section, Type::toggle, label, description, sets, runners};
+    option.depends_on = depends;
+    option.variable = variable;
+    option.variable_on = on;
+    option.get = &getVariable;
+    option.set = &setVariable;
+    return option;
+}
+constexpr Option variableChoice(const char* id, Section section, const char* variable, Text label, Text description, const char* sets,
+                                std::span<const Choice> choices, uint8_t runners = any) {
+    Option option{id, section, Type::choice, label, description, sets, runners, choices};
+    option.variable = variable;
+    option.get = &getVariable;
+    option.set = &setVariable;
+    return option;
+}
+
 template<bool O::*M>
 constexpr Option toggle(const char* id, Section section, Text label, Text description, const char* sets, uint8_t runners = any,
                         const char* depends = nullptr) {
@@ -177,10 +217,23 @@ constexpr Choice scaler_choices[] = {
     {"fill", {L"Wypełnij", L"Fill"}},
     {"stretch", {L"Rozciągnij", L"Stretch"}},
 };
+// Variable choices: "" leaves the variable unset.
+constexpr Choice audio_driver_choices[] = {
+    {"", {L"Automatycznie", L"Automatic"}},
+    {"pipewire", {L"PipeWire", L"PipeWire"}},
+    {"pulse", {L"PulseAudio", L"PulseAudio"}},
+    {"alsa", {L"ALSA", L"ALSA"}},
+};
+constexpr Choice xalia_choices[] = {
+    {"", {L"Automatycznie", L"Automatic"}},
+    {"1", {L"Włączona", L"On"}},
+    {"0", {L"Wyłączona", L"Off"}},
+};
 
 constexpr SectionInfo section_table[] = {
     {Section::runner, "runner", {L"Środowisko uruchamiania", L"Runner"}},
     {Section::proton, "proton", {L"Proton i Wine", L"Proton and Wine"}},
+    {Section::extras, "extras", {L"Dodatki i obejścia", L"Extras and workarounds"}},
     {Section::nvidia, "nvidia", {L"NVIDIA", L"NVIDIA"}},
     {Section::mesa, "mesa", {L"AMD i Mesa", L"AMD and Mesa"}},
     {Section::wrappers, "wrappers", {L"Wrappery", L"Wrappers"}},
@@ -306,6 +359,104 @@ constexpr Option option_table[] = {
          L"The Proton or Wine log in Launchme's logs folder (logs/wine). Slows the game: enable it only to diagnose."},
         "PROTON_LOG=1 PROTON_LOG_DIR=<config>/logs/wine/<game> UMU_LOG=1; Wine: WINEDEBUG (off: -all)"),
 
+    // Extras and workarounds: one environment variable each (Proton-CachyOS's and GE-Proton's options,
+    // github.com/CachyOS/proton-cachyos#proton-cachyos-config-options).
+    flag("dxvk_low_latency", Section::extras, "PROTON_DXVK_LOWLATENCY", "1", {L"DXVK z niskim opóźnieniem", L"Low-latency DXVK"},
+        {L"Odmiana DXVK z równiejszym tempem klatek i mniejszym opóźnieniem sterowania (Proton-CachyOS).",
+         L"A DXVK variant with steadier frame pacing and less input lag (Proton-CachyOS)."},
+        "PROTON_DXVK_LOWLATENCY=1", proton),
+    flag("vkd3d_low_latency", Section::extras, "PROTON_VKD3D_LOWLATENCY", "1", {L"VKD3D z niskim opóźnieniem (Reflex)", L"Low-latency VKD3D (Reflex)"},
+        {L"DirectX 12 z równym tempem klatek i własnym Reflexem (Proton-CachyOS).",
+         L"DirectX 12 with steady frame pacing and its own Reflex (Proton-CachyOS)."},
+        "PROTON_VKD3D_LOWLATENCY=1", proton),
+    flag("low_latency_layer", Section::extras, "LOW_LATENCY_LAYER", "1", {L"Warstwa niskiego opóźnienia", L"Low-latency layer"},
+        {L"low_latency_layer: mniejsze opóźnienie w grach Vulkan i DXVK (Proton-CachyOS).",
+         L"low_latency_layer: less latency in Vulkan and DXVK games (Proton-CachyOS)."},
+        "LOW_LATENCY_LAYER=1", proton),
+    flag("optiscaler", Section::extras, "PROTON_USE_OPTISCALER", "1", {L"OptiScaler", L"OptiScaler"},
+        {L"Wstrzykuje OptiScaler: zamiana DLSS, FSR i XeSS gry na inne skalowanie, z menu w grze (Insert). Proton-CachyOS.",
+         L"Injects OptiScaler: swaps the game's DLSS, FSR or XeSS for another upscaler, with an in-game menu (Insert). Proton-CachyOS."},
+        "PROTON_USE_OPTISCALER=1", proton),
+    flag("fsr4_indicator", Section::extras, "PROTON_FSR4_INDICATOR", "1", {L"Znak wodny FSR 4", L"FSR 4 watermark"},
+        {L"Napis FSR 4 w rogu ekranu: widać, czy ulepszenie działa.", L"The FSR 4 text in the screen's corner: shows whether the upgrade works."},
+        "PROTON_FSR4_INDICATOR=1", proton, "fsr4_upgrade"),
+    flag("mlfg", Section::extras, "PROTON_MLFG_UPGRADE", "1", {L"Generowanie klatek FSR (MLFG)", L"FSR frame generation (MLFG)"},
+        {L"Generowanie klatek FSR 4 przez uczenie maszynowe (FSR 4.0.3 i nowsze).", L"FSR 4's machine-learning frame generation (FSR 4.0.3 and newer)."},
+        "PROTON_MLFG_UPGRADE=1", proton, "fsr4_upgrade"),
+    flag("local_shader_cache", Section::extras, "PROTON_LOCAL_SHADER_CACHE", "1", {L"Własna pamięć shaderów gry", L"The game's own shader cache"},
+        {L"Shadery zapisywane osobno dla gry, jak przy wstępnym buforowaniu Steama (Proton-CachyOS).",
+         L"Shaders kept for the game on its own, as Steam's pre-caching does (Proton-CachyOS)."},
+        "PROTON_LOCAL_SHADER_CACHE=1", proton),
+    flag("media_gst", Section::extras, "PROTON_MEDIA_FORCE_GST", "1", {L"Napraw filmiki (GStreamer)", L"Fix cutscenes (GStreamer)"},
+        {L"Gdy przerywniki filmowe są czarne, pokazują pasy kolorów albo nie mają dźwięku.",
+         L"When cutscenes are black, show colour bars or have no sound."},
+        "PROTON_MEDIA_FORCE_GST=1", proton),
+    flag("no_dxgi_manager", Section::extras, "WINE_DO_NOT_CREATE_DXGI_DEVICE_MANAGER", "1", {L"Napraw filmiki (Media Foundation)", L"Fix cutscenes (Media Foundation)"},
+        {L"Obejście niepełnego IMFDXGIDeviceManager: filmiki, które się zawieszają albo migają.",
+         L"A workaround for the incomplete IMFDXGIDeviceManager: cutscenes that freeze or flicker."},
+        "WINE_DO_NOT_CREATE_DXGI_DEVICE_MANAGER=1", proton),
+    flag("dxvk_d3d8", Section::extras, "PROTON_DXVK_D3D8", "1", {L"DXVK dla Direct3D 8", L"DXVK for Direct3D 8"},
+        {L"Gry Direct3D 8 przez Vulkana zamiast WineD3D.", L"Direct3D 8 games through Vulkan instead of WineD3D."},
+        "PROTON_DXVK_D3D8=1", proton),
+    flag("d7vk", Section::extras, "PROTON_D7VK_DDRAW", "1", {L"D7VK dla DirectX 7 i starszych", L"D7VK for DirectX 7 and older"},
+        {L"DirectDraw i Direct3D 7 przez Vulkana (Proton-CachyOS).", L"DirectDraw and Direct3D 7 through Vulkan (Proton-CachyOS)."},
+        "PROTON_D7VK_DDRAW=1", proton),
+    flag("dxvk_sarek", Section::extras, "PROTON_DXVK_SAREK", "1", {L"DXVK Sarek dla starszych kart", L"DXVK Sarek for older cards"},
+        {L"DXVK dla kart z Vulkanem 1.1–1.2. Nie w grach z anti-cheatem ani sieciowych (Proton-CachyOS).",
+         L"DXVK for cards with Vulkan 1.1–1.2. Not in anti-cheat or online games (Proton-CachyOS)."},
+        "PROTON_DXVK_SAREK=1", proton),
+    flag("no_d3d11", Section::extras, "PROTON_NO_D3D11", "1", {L"Bez DirectX 11", L"No DirectX 11"},
+        {L"Gra, która umie, wybierze DirectX 9 (czasem działa lepiej).", L"A game that can picks DirectX 9 instead (sometimes it runs better)."},
+        "PROTON_NO_D3D11=1", proton),
+    flag("no_d3d10", Section::extras, "PROTON_NO_D3D10", "1", {L"Bez DirectX 10", L"No DirectX 10"},
+        {L"Gra, która umie, wybierze DirectX 9.", L"A game that can picks DirectX 9 instead."},
+        "PROTON_NO_D3D10=1", proton),
+    flag("heap_delay_free", Section::extras, "PROTON_HEAP_DELAY_FREE", "1", {L"Opóźnione zwalnianie pamięci", L"Delayed memory release"},
+        {L"Obejście błędów gier, które używają zwolnionej pamięci (losowe awarie).", L"A workaround for games that use freed memory (random crashes)."},
+        "PROTON_HEAP_DELAY_FREE=1", proton),
+    flag("dx12_ray_tracing", Section::extras, "VKD3D_CONFIG", "dxr11", {L"Ray tracing w DirectX 12", L"Ray tracing in DirectX 12"},
+        {L"Włącza DXR 1.1 w VKD3D-Proton dla gier, które same go nie wybierają.", L"Enables DXR 1.1 in VKD3D-Proton for games that do not pick it themselves."},
+        "VKD3D_CONFIG=dxr11"),
+    flag("no_wm_decoration", Section::extras, "PROTON_NO_WM_DECORATION", "1", {L"Bez ramek okien", L"No window decorations"},
+        {L"Wine rysuje ramki sam: naprawia pełny ekran bez ramki i kliknięcia przechodzące przez okno.",
+         L"Wine draws the frames itself: fixes borderless full screen and clicks passing through the window."},
+        "PROTON_NO_WM_DECORATION=1", proton),
+    flag("wine_no_wm_decoration", Section::extras, "WINE_NO_WM_DECORATION", "1", {L"Bez ramek okien", L"No window decorations"},
+        {L"Naprawia pełny ekran bez ramki i kliknięcia przechodzące przez okno (Wine-CachyOS).",
+         L"Fixes borderless full screen and clicks passing through the window (Wine-CachyOS)."},
+        "WINE_NO_WM_DECORATION=1", wine),
+    flag("integer_scaling", Section::extras, "WINE_FULLSCREEN_INTEGER_SCALING", "1", {L"Skalowanie całkowite", L"Integer scaling"},
+        {L"Ostre piksele, gdy gra w niższej rozdzielczości wypełnia pełny ekran.", L"Sharp pixels when a game at a lower resolution fills the full screen."},
+        "WINE_FULLSCREEN_INTEGER_SCALING=1"),
+    flag("wayland_frame_fix", Section::extras, "WINE_DISABLE_VULKAN_OPWR", "1", {L"Obraz o klatkę za późno (Wayland)", L"A picture one frame late (Wayland)"},
+        {L"Wyłącza rysowanie Vulkana przez inny proces, gdy obraz na Waylandzie się spóźnia.",
+         L"Turns off Vulkan's other-process rendering when the picture lags on Wayland."},
+        "WINE_DISABLE_VULKAN_OPWR=1", proton),
+    flag("kwin_hacks", Section::extras, "WINE_USE_KWIN_HACKS", "1", {L"Poprawki okien dla KDE", L"Window fixes for KDE"},
+        {L"Dla KDE Plasma starszego niż 6.4 (Wayland) i 6.6 (X11).", L"For KDE Plasma older than 6.4 (Wayland) and 6.6 (X11)."},
+        "WINE_USE_KWIN_HACKS=1", proton),
+    variableChoice("xalia", Section::extras, "PROTON_USE_XALIA", {L"Xalia (pad w menu gier)", L"Xalia (a pad in game menus)"},
+        {L"Sterowanie padem w oknach, które znają tylko mysz i klawiaturę (np. launchery gier).",
+         L"Pad control in windows made for the mouse and keyboard only (e.g. game launchers)."},
+        "PROTON_USE_XALIA=1|0", xalia_choices, proton),
+    variableChoice("audio_driver", Section::extras, "WINE_AUDIO_DRIVER", {L"Sterownik dźwięku Wine", L"Wine's audio driver"},
+        {L"Który system dźwięku Wine używa; zmiana pomaga przy trzaskach i złym przestrzennym dźwięku.",
+         L"Which sound system Wine uses; a change helps with crackling and wrong surround sound."},
+        "WINE_AUDIO_DRIVER=pipewire|pulse|alsa", audio_driver_choices),
+    flag("discord_bridge", Section::extras, "PROTON_DISCORD_BRIDGE", "1", {L"Status w Discordzie", L"Discord status"},
+        {L"Gra pokazuje się w statusie Discorda (rpc-bridge, Proton-CachyOS).", L"The game shows in your Discord status (rpc-bridge, Proton-CachyOS)."},
+        "PROTON_DISCORD_BRIDGE=1", proton),
+    flag("steam_deck", Section::extras, "SteamDeck", "1", {L"Udawaj Steam Decka", L"Pretend to be a Steam Deck"},
+        {L"Gra myśli, że działa na Steam Decku (ustawienia i pady jak na Decku).", L"The game thinks it runs on a Steam Deck (its settings and pads as on the Deck)."},
+        "SteamDeck=1"),
+    flag("wine_sdl_input", Section::extras, "WINE_PREFER_SDL_INPUT", "1", {L"Pady przez SDL", L"Pads through SDL"},
+        {L"Wine-CachyOS: gdy gra nie widzi pada.", L"Wine-CachyOS: when the game does not see the pad."},
+        "WINE_PREFER_SDL_INPUT=1", wine),
+    flag("user_sandbox", Section::extras, "WINEUSERSANDBOX", "1", {L"Foldery użytkownika osobno", L"Separate user folders"},
+        {L"Dokumenty i Obrazy prefiksu nie prowadzą do folderów domowych (Wine-CachyOS).",
+         L"The prefix's Documents and Pictures do not lead to your home folders (Wine-CachyOS)."},
+        "WINEUSERSANDBOX=1", wine),
+
     // NVIDIA.
     choice<O::Switch, &O::nvapi>("nvapi", Section::nvidia, {L"NVAPI (DLSS, Reflex)", L"NVAPI (DLSS, Reflex)"},
         {L"Biblioteka NVIDII dla DLSS i Reflex. Automatycznie: jak w Protonie (włączona na kartach NVIDIA od Protona 9).",
@@ -340,6 +491,14 @@ constexpr Option option_table[] = {
         {L"Sterownik NVIDIA przetwarza OpenGL w osobnym wątku (gry OpenGL i WineD3D).",
          L"The NVIDIA driver processes OpenGL on its own thread (OpenGL and WineD3D games)."},
         "__GL_THREADED_OPTIMIZATIONS=1"),
+    flag("vulkan_reflex", Section::nvidia, "DXVK_NVAPI_VKREFLEX", "1", {L"Reflex w grach Vulkan", L"Reflex in Vulkan games"},
+        {L"Warstwa Reflex DXVK-NVAPI dla gier Vulkan (np. Doom: The Dark Ages, Path of Exile).",
+         L"DXVK-NVAPI's Reflex layer for Vulkan games (e.g. Doom: The Dark Ages, Path of Exile)."},
+        "DXVK_NVAPI_VKREFLEX=1", proton),
+    flag("nvidia_libs", Section::nvidia, "PROTON_NVIDIA_LIBS", "1", {L"Biblioteki NVIDIA (PhysX, CUDA, NVENC)", L"NVIDIA libraries (PhysX, CUDA, NVENC)"},
+        {L"Zastępcze nvcuda, nvenc, nvml i nvoptix: sprzętowy PhysX i podobne. Tylko gdy gra ich potrzebuje (Proton-CachyOS).",
+         L"Stand-in nvcuda, nvenc, nvml and nvoptix: hardware PhysX and the like. Only when the game needs them (Proton-CachyOS)."},
+        "PROTON_NVIDIA_LIBS=1", proton),
 
     // AMD and Mesa.
     toggle<&O::dri_prime>("dri_prime", Section::mesa, {L"Mocniejsza karta (DRI_PRIME)", L"The discrete card (DRI_PRIME)"},
@@ -378,6 +537,24 @@ constexpr Option option_table[] = {
         {L"Gra w osobnym kompozytorze: skalowanie FSR lub NIS, limit klatek, stała rozdzielczość.",
          L"The game in its own compositor: FSR or NIS scaling, a frame limit, a fixed resolution."},
         "gamescope <options> --"),
+    toggle<&O::game_performance>("game_performance", Section::wrappers, {L"Profil wydajności (game-performance)", L"Performance profile (game-performance)"},
+        {L"CachyOS: na czas gry profil zasilania „wydajność” i harmonogram do gier.", L"CachyOS: the performance power profile and the gaming scheduler while the game runs."},
+        "game-performance"),
+    toggle<&O::dlss_swapper>("dlss_swapper", Section::wrappers, {L"dlss-swapper", L"dlss-swapper"},
+        {L"CachyOS: wymusza najnowszy preset DLSS.", L"CachyOS: forces the newest DLSS preset."}, "dlss-swapper"),
+    toggle<&O::lsfg>("lsfg", Section::wrappers, {L"Generowanie klatek (lsfg-vk)", L"Frame generation (lsfg-vk)"},
+        {L"Lossless Scaling na Linuksie: dodatkowe klatki w grach Vulkan i DXVK. Wymaga lsfg-vk i Lossless Scaling ze Steama.",
+         L"Lossless Scaling on Linux: extra frames in Vulkan and DXVK games. Needs lsfg-vk and Lossless Scaling from Steam."},
+        "LSFGVK_ENV=1 LSFGVK_MULTIPLIER=<n>"),
+    number<&O::lsfg_multiplier>("lsfg_multiplier", Section::wrappers, {L"Mnożnik klatek", L"Frame multiplier"},
+        {L"Ile klatek na każdą prawdziwą: 2 to podwojenie.", L"Frames for each real one: 2 doubles them."},
+        "LSFGVK_MULTIPLIER=<2-8>", 2, 8, any, "lsfg"),
+    number<&O::lsfg_flow_scale>("lsfg_flow_scale", Section::wrappers, {L"Skala przepływu (%)", L"Flow scale (%)"},
+        {L"25–100. Mniej: szybciej, ale mniej dokładny ruch. 0: domyślna lsfg-vk (100).", L"25–100. Lower: faster, but less precise motion. 0: lsfg-vk's default (100)."},
+        "LSFGVK_FLOW_SCALE=<0.25-1.0>", 0, 100, any, "lsfg"),
+    toggle<&O::lsfg_performance>("lsfg_performance", Section::wrappers, {L"Tryb wydajności lsfg-vk", L"lsfg-vk performance mode"},
+        {L"Lżejszy model: mniej obciąża kartę, kosztem jakości.", L"A lighter model: less load on the card, at some quality."},
+        "LSFGVK_PERFORMANCE_MODE=1", any, "lsfg"),
     text<&O::wrapper>("wrapper", Section::wrappers, {L"Własny wrapper", L"Custom wrapper"},
         {L"Polecenie przed grą, np. obs-gamecapture albo strangle 60 (słowa jak w powłoce).",
          L"A command before the game, e.g. obs-gamecapture or strangle 60 (shell words)."},
@@ -477,11 +654,9 @@ constexpr DllPreset dll_table[] = {
 
 // Variables often found on ProtonDB and the PCGamingWiki, beyond the switches above.
 constexpr VariablePreset variable_table[] = {
-    {"PROTON_NO_D3D11", "1", {L"Bez DirectX 11 (gra wybierze DirectX 9)", L"No DirectX 11 (the game picks DirectX 9)"}},
-    {"PROTON_HEAP_DELAY_FREE", "1", {L"Opóźnione zwalnianie pamięci (losowe awarie)", L"Delayed memory release (random crashes)"}},
-    {"VKD3D_CONFIG", "dxr11", {L"Ray tracing w DirectX 12 (VKD3D-Proton)", L"Ray tracing in DirectX 12 (VKD3D-Proton)"}},
+    // (PROTON_NO_D3D11, PROTON_HEAP_DELAY_FREE, VKD3D_CONFIG=dxr11 and SteamDeck are switches in Dodatki i obejścia.)
     {"WINE_CPU_TOPOLOGY", "4:0,1,2,3", {L"Najwyżej 4 rdzenie procesora (stare gry)", L"At most 4 CPU cores (old games)"}},
-    {"SteamDeck", "1", {L"Gra myśli, że działa na Steam Decku", L"The game thinks it runs on a Steam Deck"}},
+    {"WINEALSA_CHANNELS", "2", {L"Dźwięk stereo zamiast przestrzennego", L"Stereo instead of surround sound"}},
     {"vblank_mode", "0", {L"Bez synchronizacji pionowej OpenGL (Mesa)", L"No OpenGL vertical sync (Mesa)"}},
     {"__GL_SYNC_TO_VBLANK", "0", {L"Bez synchronizacji pionowej OpenGL (NVIDIA)", L"No OpenGL vertical sync (NVIDIA)"}},
     {"MANGOHUD_CONFIG", "fps_limit=60", {L"Limit 60 klatek w MangoHud", L"A 60 frames limit in MangoHud"}},
@@ -535,6 +710,11 @@ std::span<const Option> options() { return option_table; }
 
 const Option* find(std::string_view id) {
     for (const auto& option : option_table) if (id == option.id) return &option;
+    return nullptr;
+}
+
+const Option* forVariable(std::string_view name) {
+    for (const auto& option : option_table) if (option.variable && name == option.variable) return &option;
     return nullptr;
 }
 

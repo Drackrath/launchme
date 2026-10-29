@@ -101,10 +101,13 @@ struct Fold {
 constexpr Fold folds[] = {
     {"runner", catalog::Section::runner, trKey(L"Proton / Wine i prefiks"), trKey(L"Wersja Protona lub Wine, prefiks gry i umu-launcher.")},
     {"proton", catalog::Section::proton, trKey(L"Proton i Wine"), trKey(L"Synchronizacja, DirectX, HDR, FSR, pady, dźwięk i logi.")},
+    {"extras", catalog::Section::extras, trKey(L"Dodatki i obejścia"),
+     trKey(L"Niskie opóźnienie, OptiScaler, filmiki, stare DirectX, okna i dźwięk (Proton-CachyOS, GE-Proton).")},
     {"dll", std::nullopt, trKey(L"Biblioteki DLL"), trKey(L"Mody, ReShade i ładowarki ASI (WINEDLLOVERRIDES).")},
     {"nvidia", catalog::Section::nvidia, L"NVIDIA", trKey(L"DLSS, Reflex, laptopy z PRIME i pamięć shaderów.")},
     {"mesa", catalog::Section::mesa, trKey(L"AMD i Mesa"), trKey(L"RADV, Vulkan i OpenGL na kartach AMD i Intel.")},
-    {"wrappers", catalog::Section::wrappers, trKey(L"Nakładki i wrappery"), trKey(L"GameMode, MangoHud, gamescope i własne polecenie.")},
+    {"wrappers", catalog::Section::wrappers, trKey(L"Nakładki i wrappery"),
+     trKey(L"GameMode, MangoHud, generowanie klatek lsfg-vk, gamescope i własne polecenie.")},
     {"gamescope", catalog::Section::gamescope, L"Gamescope", trKey(L"Rozdzielczość, skalowanie i limit klatek gamescope.")},
     {"game", catalog::Section::game, trKey(L"Zmienne i argumenty"), trKey(L"Zmienne środowiska, argumenty, folder roboczy i skrypty.")},
 };
@@ -981,6 +984,11 @@ void Launcher::compatSettingsRows() {
                 if (id == "environment") {
                     for (size_t i = 0; i < options.environment.size(); ++i) {
                         const auto& variable = options.environment[i];
+                        // A switch above already shows it (Dodatki i obejścia).
+                        if (const auto* shown = catalog::forVariable(variable.name);
+                            shown && (shown->type == catalog::Type::toggle ? variable.value == shown->variable_on :
+                                      std::any_of(shown->choices.begin(), shown->choices.end(), [&](const catalog::Choice& c) { return variable.value == c.value; })))
+                            continue;
                         Row row{Id::launch_env, Control::action, wide(variable.name) + L"=" + wide(variable.value), tr(L"Zmienna środowiska tej gry."), tr(L"Usuń")};
                         row.key = std::to_string(i);
                         nested(std::move(row));

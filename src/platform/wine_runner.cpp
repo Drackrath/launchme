@@ -11,6 +11,7 @@
 #include <cctype>
 #include <cerrno>
 #include <csignal>
+#include <cstdio>
 #include <cstring>
 #include <fcntl.h>
 #include <fstream>
@@ -35,6 +36,24 @@ std::string extension(const fs::path& file) { return lowerAscii(file.extension()
 bool isFolder(const fs::path& path) { std::error_code ec; return fs::is_directory(path, ec); }
 bool isFile(const fs::path& path) { std::error_code ec; return fs::is_regular_file(path, ec); }
 void add(Environment& environment, std::string name, std::string value) { environment.emplace_back(std::move(name), std::move(value)); }
+
+// lsfg-vk's Vulkan layer: its manifest in a Vulkan layer folder (system, /usr/local, the user's), or its
+// Flatpak extension (org.freedesktop.Platform.VulkanLayer.lsfg…, for Flatpak Steam).
+bool lsfgLayerInstalled() {
+    std::vector<fs::path> folders;
+    const auto data = xdg_paths::dataHome();
+    for (const fs::path base : {fs::path("/usr/share/vulkan"), fs::path("/usr/local/share/vulkan"), fs::path("/etc/vulkan"),
+                                data.empty() ? fs::path{} : data / "vulkan"})
+        if (!base.empty()) for (const auto* kind : {"implicit_layer.d", "explicit_layer.d"}) folders.push_back(base / kind);
+    for (const fs::path runtime : {fs::path("/var/lib/flatpak/runtime"), data.empty() ? fs::path{} : data / "flatpak" / "runtime"})
+        if (!runtime.empty()) folders.push_back(runtime);
+    for (const auto& folder : folders) {
+        std::error_code ec;
+        for (fs::directory_iterator it(folder, ec), end; !ec && it != end; it.increment(ec))
+            if (lowerAscii(it->path().filename().string()).find("lsfg") != std::string::npos) return true;
+    }
+    return false;
+}
 
 // The Wine prefix inside a prefix folder: <prefix>/pfx when that is a real folder (a Proton prefix
 // made by Steam or Heroic), else the folder itself (umu's pfx → . link, or plain Wine).
@@ -252,6 +271,9 @@ Context context(const CompatLaunch& launch) {
     result.gamemoderun = xdg_paths::findProgram({L"gamemoderun"});
     result.mangohud = xdg_paths::findProgram({L"mangohud"});
     result.gamescope = xdg_paths::findProgram({L"gamescope"});
+    result.game_performance = xdg_paths::findProgram({L"game-performance"});
+    result.dlss_swapper = xdg_paths::findProgram({L"dlss-swapper"});
+    result.lsfg_layer = lsfgLayerInstalled();
     result.dxvk = compat_tools::component(tools, "DXVK");
     result.vkd3d = compat_tools::component(tools, "VKD3D-Proton");
     result.dxvk_nvapi = compat_tools::component(tools, "DXVK-NVAPI");
@@ -314,6 +336,15 @@ Plan plan(const Request& request, const Context& context) {
     if (game) {
         const auto custom = shellWords(o.wrapper);
         wrappers.insert(wrappers.end(), custom.begin(), custom.end());
+        if (o.game_performance) {
+            if (!context.game_performance.empty()) wrappers.push_back(context.game_performance.string());
+            else result.missing.push_back("game-performance");
+        }
+        if (o.dlss_swapper) {
+            if (!context.dlss_swapper.empty()) wrappers.push_back(context.dlss_swapper.string());
+            else result.missing.push_back("dlss-swapper");
+        }
+        if (o.lsfg && !context.lsfg_layer) result.missing.push_back("lsfg-vk");
         if (o.gamemode) {
             if (!context.gamemoderun.empty()) wrappers.push_back(context.gamemoderun.string());
             else result.missing.push_back("gamemoderun");
@@ -336,6 +367,17 @@ Plan plan(const Request& request, const Context& context) {
     result.environment = switches(o, result.runner, context, proton_logs, result);
     result.environment.insert(result.environment.end(), request.environment.begin(), request.environment.end());
     auto& env = result.environment;
+    // lsfg-vk's own variables (its configuration file otherwise): the game only, not the prefix tools.
+    if (game && o.lsfg) {
+        add(env, "LSFGVK_ENV", "1");
+        add(env, "LSFGVK_MULTIPLIER", std::to_string(std::clamp<uint32_t>(o.lsfg_multiplier, 2, 8)));
+        if (const auto flow = std::clamp<uint32_t>(o.lsfg_flow_scale, 25, 100); o.lsfg_flow_scale && flow != 100) {
+            char text[8]{};
+            std::snprintf(text, sizeof text, "%u.%02u", flow / 100, flow % 100);
+            add(env, "LSFGVK_FLOW_SCALE", text);
+        }
+        if (o.lsfg_performance) add(env, "LSFGVK_PERFORMANCE_MODE", "1");
+    }
     const auto install_path = !launch.install_directory.empty() ? launch.install_directory
                               : request.program.is_absolute() ? request.program.parent_path() : fs::path{};
     switch (result.runner) {
@@ -425,6 +467,9 @@ launch_options_catalog::Text problemText(std::string_view code) {
         {"dxvk-nvapi", {L"DXVK-NVAPI nie jest pobrany", L"DXVK-NVAPI is not downloaded"}},
         {"eac-runtime", {L"Brak „Proton EasyAntiCheat Runtime” w Steam", L"\"Proton EasyAntiCheat Runtime\" is not installed in Steam"}},
         {"battleye-runtime", {L"Brak „Proton BattlEye Runtime” w Steam", L"\"Proton BattlEye Runtime\" is not installed in Steam"}},
+        {"game-performance", {L"game-performance nie jest zainstalowany (CachyOS)", L"game-performance is not installed (CachyOS)"}},
+        {"dlss-swapper", {L"dlss-swapper nie jest zainstalowany (CachyOS)", L"dlss-swapper is not installed (CachyOS)"}},
+        {"lsfg-vk", {L"lsfg-vk nie jest zainstalowany", L"lsfg-vk is not installed"}},
     };
     for (const auto& [key, text] : texts) if (key == code) return text;
     return {L"", L""};

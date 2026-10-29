@@ -95,6 +95,7 @@ json::Value toJson(const LaunchOptions& options) {
     auto result = json::object();
     const LaunchOptions defaults;
     for (const auto& option : launch_options_catalog::options()) {
+        if (option.variable) continue; // Kept in the environment list.
         const auto value = option.get(option, options);
         if (value == option.get(option, defaults)) continue;
         switch (option.type) {
@@ -121,6 +122,7 @@ LaunchOptions fromJson(const json::Value& value) {
     LaunchOptions result;
     if (value.type != json::Value::Type::object) return result;
     for (const auto& option : launch_options_catalog::options()) {
+        if (option.variable) continue; // Read with the environment list.
         const auto* field = value.get(option.id);
         if (!field) continue;
         switch (option.type) {

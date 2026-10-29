@@ -99,6 +99,14 @@ struct LaunchOptions {
     bool mangohud = false;            // mangohud; inside gamescope its --mangoapp instead.
     std::string wrapper;              // A command before everything else ("obs-gamecapture"), shell words.
     bool gamescope = false;           // gamescope [options] -- (not nested inside Steam's Game Mode).
+    bool game_performance = false;    // game-performance (CachyOS: the performance power profile while it runs).
+    bool dlss_swapper = false;        // dlss-swapper (CachyOS: the newest DLSS preset).
+    // Lossless Scaling frame generation through lsfg-vk (its Vulkan layer): LSFGVK_ENV=1
+    // LSFGVK_MULTIPLIER=<n>, LSFGVK_FLOW_SCALE=<percent/100> (when not 100), LSFGVK_PERFORMANCE_MODE=1.
+    bool lsfg = false;
+    uint32_t lsfg_multiplier = 2;     // 2 … 8 frames for each real one.
+    uint32_t lsfg_flow_scale = 0;     // 25 … 100 % (lower: faster, less precise motion); 0: lsfg-vk's own (100 %).
+    bool lsfg_performance = false;
 
     // --- Gamescope ---
     uint32_t gamescope_game_width = 0, gamescope_game_height = 0;     // -w -h: the game's resolution.
