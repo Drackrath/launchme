@@ -369,6 +369,8 @@ void Launcher::buildSettingsRows() {
         section(tr(L"Widoczność"));
         add({Id::uninstalled, Control::toggle, tr(L"Niezainstalowane gry"),
             tr(L"Pokazuj je w kolekcjach i bibliotekach sklepów."), {}, settings_.show_uninstalled});
+        add({Id::recent_uninstalled, Control::toggle, tr(L"Niezainstalowane w Ostatnio granych"),
+            tr(L"Także gry bez instalacji i dodane bez pliku, według daty dodania do biblioteki."), {}, settings_.recent_uninstalled});
         add({Id::show_private, Control::toggle, tr(L"Pokaż ukryte/prywatne gry"),
             tr(L"Gry oznaczone w Steam jako ukryte lub prywatne pojawią się w kolekcjach i bibliotece."), {}, settings_.show_private});
         section(tr(L"Uruchamianie"));

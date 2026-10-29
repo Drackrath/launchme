@@ -101,7 +101,7 @@ void Launcher::buildDesktopSidebar() {
     for (const auto& game : grouped_library_) {
         if (!shown(game)) continue;
         ++all;
-        if (game.last_played) ++recent;
+        if (settings_.recent_uninstalled ? recentTime(game) != 0 : game.last_played != 0) ++recent;
     }
     const size_t favorites = desktopFavoriteGames().size();
     add(EntryKind::all, Group::library, "all", tr(L"Wszystkie gry"), all, glyph::library);
@@ -206,7 +206,8 @@ std::vector<Game> Launcher::desktopSource() const {
     switch (kind) {
     case EntryKind::all: return grouped_library_;
     case EntryKind::recent:
-        for (const auto& game : grouped_library_) if (game.last_played) games.push_back(game);
+        for (const auto& game : grouped_library_)
+            if (settings_.recent_uninstalled ? recentTime(game) != 0 : game.last_played != 0) games.push_back(game);
         return games;
     case EntryKind::favorites: return desktopFavoriteGames();
     case EntryKind::hidden:
@@ -241,6 +242,9 @@ std::vector<Game> Launcher::desktopGames() const {
     const bool include_private = private_shelf_ || (entry && !gameEntry(entry->kind));
     auto games = library_view::arrange(desktopSource(), options, library_state_.first_seen, include_private, &released);
     std::erase_if(games, [](const Game& game) { return !isGame(game); });
+    // Ostatnio grane with games not installed: those by the date they were added, among the played.
+    if (recent && settings_.recent_uninstalled)
+        std::stable_sort(games.begin(), games.end(), [&](const Game& a, const Game& b) { return recentTime(a) > recentTime(b); });
     // Search: the title, a genre/tag the game index knows ("rpg", "roguelike") or its developer or publisher.
     const auto typed = trimmed(desktop_query_);
     const auto query = foldGameTitle(typed);

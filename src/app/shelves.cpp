@@ -253,9 +253,17 @@ void Launcher::buildShelves() {
     for (const auto* game : played)
         if (game->installed && ((game->source == GameSource::steam && game->kind == GameKind::steam && completed_installs_.contains(game->app_id)) ||
             completed_pc_installs_.contains(gameKey(*game)))) pick(*game);
-    for (const auto* game : played)
-        // snitch retains uninstalled recent games too; public_library_ already respects show_uninstalled.
-        if ((game->installed || game->installation.update || snitch) && game->last_played) pick(*game);
+    if (settings_.recent_uninstalled) {
+        // With the games not installed (and added without their file): those by the date they were added.
+        std::vector<std::pair<uint64_t, const Game*>> timed;
+        for (const auto* game : played)
+            if (const auto when = recentTime(*game); when && isGame(*game) && !picked.contains(gameKey(*game))) timed.emplace_back(when, game);
+        std::stable_sort(timed.begin(), timed.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+        for (const auto& entry : timed) pick(*entry.second);
+    } else
+        for (const auto* game : played)
+            // snitch retains uninstalled recent games too; public_library_ already respects show_uninstalled.
+            if ((game->installed || game->installation.update || snitch) && game->last_played) pick(*game);
     if ((psfive || snitch) && recent.games.size() < recent_limit) {
         // The console rows stay full: installed games never played yet follow, newest additions first.
         std::vector<std::pair<uint64_t, const Game*>> added;

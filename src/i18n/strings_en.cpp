@@ -2492,6 +2492,9 @@ constexpr Entry entries[] = {
     {L"Wybierz plik gry: ", L"Choose the game's file: "},
     {L"Zaloguj się w Steamie na tym komputerze.", L"Sign in to Steam on this computer."},
     {L"Proton, Wine, prefiksy i domyślne opcje gier Windows.", L"Proton, Wine, prefixes and Windows games' default options."},
+    {L"Niezainstalowane w Ostatnio granych", L"Not installed in Recently played"},
+    {L"Także gry bez instalacji i dodane bez pliku, według daty dodania do biblioteki.",
+     L"Also games not installed and games added without their file, by the date they joined the library."},
     // A game's shortcuts outside Launchme (src/app/game_links.cpp).
     {L"Skróty", L"Shortcuts"},
     {L"Skrót na pulpicie", L"Desktop shortcut"},

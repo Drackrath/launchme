@@ -204,6 +204,7 @@ AppSettings parseAppSettings(std::string_view text) {
             continue;
         }
         if (key == "show_uninstalled" && (value == "0" || value == "1")) settings.show_uninstalled = value == "1";
+        else if (key == "recent_uninstalled" && (value == "0" || value == "1")) settings.recent_uninstalled = value == "1";
         else if (key == "windowed" && (value == "0" || value == "1")) settings.windowed = value == "1";
         else if (key == "launch_tv_mode" && (value == "0" || value == "1")) settings.launch_tv_mode = value == "1";
         else if (key == "pc_sources_detected" && (value == "0" || value == "1")) settings.pc_sources_detected = value == "1";
@@ -601,6 +602,7 @@ bool saveAppSettings(const AppSettings& settings, const std::filesystem::path& f
            << "desktop_game=" << (settings.desktop_game.find_first_of("\r\n") == std::string::npos ? settings.desktop_game : std::string()) << '\n'
            << "drawer_fade_fraction=" << settings.drawer.fade_fraction << '\n'
            << "show_uninstalled=" << settings.show_uninstalled << '\n'
+           << "recent_uninstalled=" << settings.recent_uninstalled << '\n'
            << "show_emulation=" << settings.show_emulation << '\n'
            << "studio_libraries=" << settings.studio_libraries << '\n'
            << "show_private=" << settings.show_private << '\n'

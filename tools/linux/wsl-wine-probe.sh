@@ -42,7 +42,10 @@ int main(void) {
 EOF
 mkdir -p "$HOME/Downloads"
 x86_64-w64-mingw32-gcc -O2 -o "$HOME/Downloads/setup_probe_game_1.0_(64bit).exe" "$DIR/setup.c"
+# PROBE_MISSING=1: also a game whose file is gone (not installed).
+MISSING=""
+[ "${PROBE_MISSING:-0}" = "1" ] && MISSING=',{"id":"feedfacefeedface","name":"Zeta Not Installed","path":"/nowhere/zeta.exe","arguments":"","directory":""}'
 cat > "$CONFIG/custom-games.json" <<EOF
-{"version":1,"games":[{"id":"0123456789abcdef","name":"Wine Probe","path":"$DIR/probe.exe","arguments":"out.txt -flag","directory":""}]}
+{"version":1,"games":[{"id":"0123456789abcdef","name":"Wine Probe","path":"$DIR/probe.exe","arguments":"out.txt -flag","directory":""}$MISSING]}
 EOF
 echo "probe: $DIR/probe.exe"

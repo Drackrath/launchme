@@ -1221,6 +1221,9 @@ private:
     library_view::Options libraryOptions() const;
     void recordLibraryGames();
     void refreshRecentGames();
+    // Its time in Ostatnio grane: last played; a game not installed, when it was added (only with
+    // AppSettings::recent_uninstalled, else 0: not listed).
+    uint64_t recentTime(const Game& game) const;
     void rememberPlace();
     void restorePlace();
     void saveLibraryPreferences();

@@ -577,6 +577,7 @@ void Launcher::settingsChoose(const Row& row) {
 // those read later just save and repaint. Unknown rows do nothing.
 void Launcher::settingsToggle(const Row& row) {
     if (row.id == Id::uninstalled) settings_.show_uninstalled = !settings_.show_uninstalled;
+    else if (row.id == Id::recent_uninstalled) settings_.recent_uninstalled = !settings_.recent_uninstalled;
     else if (row.id == Id::emulation) settings_.show_emulation = !settings_.show_emulation;
     else if (row.id == Id::studio_libraries) settings_.studio_libraries = !settings_.studio_libraries; // Rebuild: rows and sections.
     else if (row.id == Id::show_private) {

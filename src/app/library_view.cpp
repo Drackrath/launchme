@@ -357,6 +357,11 @@ void Launcher::recordLibraryGames() {
     for (const auto& game : public_library_) if (auto key = gameKey(game); detected.erase(key)) added.push_back(std::move(key));
     companionLibraryChanged(std::move(added));
 }
+uint64_t Launcher::recentTime(const Game& game) const {
+    if (game.installed || game.installation.active()) return game.last_played;
+    // Not installed (Niezainstalowane w Ostatnio granych): by the date it was added, never by play.
+    return settings_.recent_uninstalled ? library_view::addedTime(game, library_state_.first_seen) : 0;
+}
 void Launcher::refreshRecentGames() {
     const auto selected = cards_.empty() ? std::string{} : library_view::selectionKey(cards_[selected_].game);
     const auto category = categories_.empty() ? std::string{} : categories_[category_].id;
