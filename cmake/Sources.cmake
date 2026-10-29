@@ -287,6 +287,7 @@ set(LAUNCHME_APP_SOURCES
     src/platform/device_service.cpp
     src/platform/device_service_windows.cpp
     src/platform/user_config.cpp
+    src/platform/embedded_resources.cpp
     src/platform/unicode_text.cpp
     src/platform/hashing.cpp
     src/platform/library_state.cpp

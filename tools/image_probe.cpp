@@ -7,6 +7,9 @@
 #include "../src/platform/user_config.hpp"
 #include "../src/platform/text_encoding.hpp"
 #include <Windows.h>
+#ifdef _WIN32
+#include <objbase.h> // CoInitializeEx (Windows.h leaves COM out under WIN32_LEAN_AND_MEAN).
+#endif
 #include <fstream>
 #include <iostream>
 #include <regex>
