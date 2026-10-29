@@ -86,6 +86,7 @@ set(LAUNCHME_APP_SOURCES
     src/app/desktop_window.cpp
     src/app/jump_list.cpp
     src/app/game_links.cpp
+    src/app/compat_ratings.cpp
     src/app/desktop_quick.cpp
     src/app/desktop_metadata.cpp
     src/app/desktop_text.cpp
@@ -107,6 +108,7 @@ set(LAUNCHME_APP_SOURCES
     src/ui/companion_feed_renderer.cpp
     src/ui/companion_marks.cpp
     src/net/glance.cpp
+    src/net/protondb.cpp
     src/net/steam_upcoming.cpp
     src/net/companion.cpp
     src/net/companion_events.cpp

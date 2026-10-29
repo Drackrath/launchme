@@ -315,6 +315,9 @@ if(BUILD_TESTING)
         LIBS advapi32)
     launchme_executable(failure_cache_tests TEST persistent_artwork_failure_cache
         SOURCES tests/failure_cache_tests.cpp src/artwork/failure_cache.cpp)
+    launchme_executable(protondb_tests TEST protondb_and_steam_deck_ratings
+        SOURCES tests/protondb_tests.cpp src/net/protondb.cpp ${LAUNCHME_WEB_SOURCES}
+        LIBS winhttp shell32 ole32)
     launchme_executable(library_state_tests TEST library_view_state_and_sorting
         SOURCES tests/library_state_tests.cpp src/platform/library_state.cpp src/library/view_options.cpp)
     launchme_executable(device_tests TEST device_input_and_audio_transactions

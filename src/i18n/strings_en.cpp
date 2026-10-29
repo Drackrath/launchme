@@ -2495,6 +2495,8 @@ constexpr Entry entries[] = {
     {L"Niezainstalowane w Ostatnio granych", L"Not installed in Recently played"},
     {L"Także gry bez instalacji i dodane bez pliku, według daty dodania do biblioteki.",
      L"Also games not installed and games added without their file, by the date they joined the library."},
+    {L"Ocena graczy i Valve: jak gra działa przez Protona i na Steam Decku.",
+     L"Players' and Valve's rating: how the game runs through Proton and on the Steam Deck."},
     {L"Dodatki i obejścia", L"Extras and workarounds"},
     {L"Niskie opóźnienie, OptiScaler, filmiki, stare DirectX, okna i dźwięk (Proton-CachyOS, GE-Proton).",
      L"Low latency, OptiScaler, cutscenes, old DirectX, windows and sound (Proton-CachyOS, GE-Proton)."},

@@ -92,7 +92,9 @@ enum class Id { font, home_layout, ui_accent, accent, uninstalled, emulation, co
                    // Zgodność: a game from a Windows installer; a game's shortcuts in Steam, on the desktop, in the menu.
                    compat_install_game, launch_steam, launch_shortcut_desktop, launch_shortcut_menu, launch_log,
                    // Biblioteka → Widoczność: not installed games in Ostatnio grane.
-                   recent_uninstalled };
+                   recent_uninstalled,
+                   // A Windows game's page: its ProtonDB and Steam Deck rating.
+                   launch_protondb };
 inline bool hasOptionsButton(Id id) { return id == Id::plugin_enabled || id == Id::pc_platform; }
 // layout: drawn preview tiles in the row (one per home layout); Row::choice is the active one.
 // count: Row::value as a large number with a chevron; activating opens a sub-list.

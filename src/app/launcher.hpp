@@ -51,6 +51,7 @@
 #include "../store/ea_account.hpp"
 #include "../store/web_import.hpp"
 #include "../library/recent_games.hpp"
+#include "../net/protondb.hpp"
 #include "../model/game_details.hpp"
 #include "../model/game_session.hpp"
 #include "../platform/game_activity.hpp"
@@ -1207,6 +1208,11 @@ private:
     std::wstring ratingUrl() const;
     int ratingDetailAction() const;
     void openRatingSource();
+    // Linux (src/app/compat_ratings.cpp): ProtonDB's tier and the Steam Deck rating of a Steam game or
+    // a Windows game umu-database knows, once fetched (asked for on a worker the first time; cached
+    // for three days); empty until then and on Windows. openProtonDb opens the game's ProtonDB page.
+    std::wstring protonDbLabel(const Game& game);
+    void openProtonDb(const Game& game);
     int identifyDetailAction() const;
     void openIdentify();
     void openIdentifyFor(const Game& game); // Also from Settings (DRM-free game options).
@@ -2400,6 +2406,9 @@ private:
         std::optional<Installer> installer;      // Dodaj grę z instalatora: the one running.
         std::string launch_after;                // The game that starts once the download (compatProvision) ends.
     } compat_;
+    struct ProtonDbEntry { uint32_t app = 0; protondb::Summary summary; };
+    std::map<std::string, ProtonDbEntry> protondb_;  // By game key, once fetched.
+    std::set<std::string> protondb_requested_;
 #endif
     AppSettings settings_;
     LibraryState library_state_;

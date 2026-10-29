@@ -118,6 +118,7 @@ desktop_ui::Hit Launcher::desktopHit(float x, float y) const {
         for (int i = 0; i < static_cast<int>(chips.size()); ++i) if (chips[static_cast<size_t>(i)].contains(x, y)) return {Target::pane_chip, i};
         if (renderer_.desktopChipAdd().contains(x, y)) return {Target::pane_chip_add, 0};
         if (renderer_.desktopRating().contains(x, y)) return {Target::pane_rating, 0};
+        if (renderer_.desktopProtonDb().contains(x, y)) return {Target::pane_protondb, 0};
         for (int i = 0; i < 2; ++i) if (renderer_.desktopStudios()[static_cast<size_t>(i)].contains(x, y)) return {Target::pane_studio, i};
         if (renderer_.desktopAchievements().contains(x, y)) return {Target::pane_achievements, 0};
         if (renderer_.desktopCloud().contains(x, y)) return {Target::pane_cloud, 0};
@@ -403,6 +404,7 @@ void Launcher::desktopContextClick(float mouse_x, float mouse_y) {
     }
     case Target::pane_primary: case Target::pane_favorite: case Target::pane_more: case Target::pane_quick: case Target::pane_chip:
     case Target::pane_chip_add: case Target::pane_rating: case Target::pane_studio: case Target::pane_achievements: case Target::pane_cloud:
+    case Target::pane_protondb:
         desktopOpenGameMenu(x, y, false);
         return;
     default: return;
@@ -568,6 +570,7 @@ void Launcher::desktopActivate(const desktop_ui::Hit& hit) {
         return;
     }
     case Target::pane_rating: openRatingSource(); return;
+    case Target::pane_protondb: if (!cards_.empty()) openProtonDb(cards_[selected_].game); return;
     case Target::pane_studio: { // Developer or Wydawca: that studio's games.
         if (cards_.empty()) return;
         bool loading = false;

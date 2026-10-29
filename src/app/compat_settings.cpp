@@ -892,6 +892,9 @@ void Launcher::compatSettingsRows() {
                          std::wstring(tr(L"Gra używa ustawień domyślnych. Zmiana dowolnej opcji zapisze jej własne.")),
                 stored ? (compat_.confirm == "reset:" + key ? tr(L"Potwierdź") : tr(L"Przywróć domyślne")) : tr(L"Edytuj domyślne")};
             add(std::move(scope));
+            if (const auto rating = protonDbLabel(compat_.game); !rating.empty())
+                add({Id::launch_protondb, Control::action, L"ProtonDB", rating + L"\n" + tr(L"Ocena graczy i Valve: jak gra działa przez Protona i na Steam Decku."),
+                     tr(L"Otwórz")});
             if (launchEditable(compat_.game))
                 add({Id::launch_edit_game, Control::action, tr(L"Plik gry i argumenty"), tr(L"Program, który się uruchamia, jego argumenty i folder."), tr(L"Edytuj")});
             // The runner's output of the last start: what to look at (or send) when it does not start.
@@ -1100,6 +1103,7 @@ bool Launcher::compatSettingsActivate(const Row& row) {
         if (row.locked) { navigationBoundary(); return true; }
         compatInstallGame();
         return true;
+    case Id::launch_protondb: openProtonDb(compat_.game); return true;
     case Id::launch_log:
         if (row.locked || row.key.empty()) { navigationBoundary(); return true; }
         if (execute_(hwnd_, GameAction{wide(row.key), {}, {}, ActionKind::open_client}) <= 32)

@@ -239,7 +239,7 @@ void Renderer::drawDesktop() {
     layout.tools = static_cast<int>(view.tools.size());
     layout.companion_card = view.companion_card;
     layout.narrow = view.sidebar_narrow; layout.pane_width = view.pane_width;
-    desktop_chips_.clear(); desktop_chip_add_ = {}; desktop_rating_ = {}; desktop_achievements_ = {}; desktop_cloud_ = {}; desktop_studios_ = {};
+    desktop_chips_.clear(); desktop_chip_add_ = {}; desktop_rating_ = {}; desktop_protondb_ = {}; desktop_achievements_ = {}; desktop_cloud_ = {}; desktop_studios_ = {};
     desktop_hotspots_.clear(); // Widżety record their controls here.
     companion_bubble_ = {};
     brush(app_bg);
@@ -1073,6 +1073,22 @@ void Renderer::drawDesktopPane(const Layout& layout, const View& view) {
         if (hover) { brush(uiAccent(0.6f)); target_->FillRectangle(D2D1::RectF(left, y + 17, left + w, y + 18), solid_.Get()); }
         desktop_rating_ = {left, y - 2, left + w, y + 20};
         y += 34;
+    }
+    if (!pane.protondb.empty()) { // Linux: how it runs through Proton, and on the Steam Deck (a line each when narrow).
+        std::vector<std::wstring> lines{pane.protondb + L"  \u2197"};
+        if (const auto dot = pane.protondb.find(L" \u00B7 "); dot != std::wstring::npos && textAdvance(lines[0], desktop_font_.Get()) + 4 > width)
+            lines = {pane.protondb.substr(0, dot), pane.protondb.substr(dot + 3) + L"  \u2197"};
+        const bool hover = view.hover.target == Target::pane_protondb;
+        float widest = 0;
+        for (size_t i = 0; i < lines.size(); ++i) {
+            const float w = std::min(textAdvance(lines[i], desktop_font_.Get()) + 4, width);
+            const float line_y = y + 8 + static_cast<float>(i) * 22;
+            textLine(lines[i], left, line_y, w, desktop_font_.Get(), uiAccent(hover ? 1.0f : 0.85f));
+            if (hover) { brush(uiAccent(0.6f)); target_->FillRectangle(D2D1::RectF(left, line_y + 9, left + w, line_y + 10), solid_.Get()); }
+            widest = std::max(widest, w);
+        }
+        desktop_protondb_ = {left, y - 2, left + widest, y + 20 + static_cast<float>(lines.size() - 1) * 22};
+        y += 34 + static_cast<float>(lines.size() - 1) * 22;
     }
     textLine(upper(tr(L"Opis")), left, y, width, desktop_label_font_.Get(), palette::muted());
     y += 14;

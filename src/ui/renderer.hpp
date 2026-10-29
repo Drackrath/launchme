@@ -82,6 +82,7 @@ public:
     const std::vector<settings_ui::Rect>& desktopChips() const { return desktop_chips_; }
     settings_ui::Rect desktopChipAdd() const { return desktop_chip_add_; }
     settings_ui::Rect desktopRating() const { return desktop_rating_; }
+    settings_ui::Rect desktopProtonDb() const { return desktop_protondb_; }
     // The pane's Developer and Wydawca values: a click shows that studio's games.
     const std::array<settings_ui::Rect, 2>& desktopStudios() const { return desktop_studios_; }
     settings_ui::Rect desktopAchievements() const { return desktop_achievements_; }
@@ -1151,7 +1152,7 @@ private:
     bool desktop_viewport_ = false;
     float desktop_pane_height_ = 0;
     std::vector<settings_ui::Rect> desktop_chips_;
-    settings_ui::Rect desktop_chip_add_{}, desktop_rating_{}, desktop_achievements_{}, desktop_cloud_{};
+    settings_ui::Rect desktop_chip_add_{}, desktop_rating_{}, desktop_protondb_{}, desktop_achievements_{}, desktop_cloud_{};
     std::chrono::steady_clock::time_point skeleton_at_{}; // The last frame that drew a skeleton.
     std::array<settings_ui::Rect, 2> desktop_studios_{};
     std::vector<desktop_ui::SheetHotspot> desktop_hotspots_;

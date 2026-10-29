@@ -834,6 +834,7 @@ void Launcher::desktopView(desktop_ui::View& view) {
         pane.achievements_link = steamArtwork(game) || pluginAchievementsProvider(game);
     }
     pane.rating = ratingLabel();
+    pane.protondb = protonDbLabel(game); // Linux only.
     for (const auto& c : settings_collections_) {
         if (favoriteCollection(c) || (settings_.show_emulation && srmCollection(c))) continue;
         if (desktopMember(game, c)) pane.collections.emplace_back(c.name, "collection:" + c.id);

@@ -100,6 +100,7 @@ set(LAUNCHME_CORE_SOURCES
     src/net/http_curl.cpp
     src/net/http_download.cpp
     src/net/json.cpp
+    src/net/protondb.cpp
     src/net/steam_upcoming.cpp
     src/net/web_search.cpp
     src/platform/hashing.cpp
@@ -303,6 +304,7 @@ endfunction()
 if(BUILD_TESTING)
     launchme_executable(game_fps_tests TEST game_fps_history_and_overlay_bar SOURCES tests/game_fps_tests.cpp)
     launchme_executable(failure_cache_tests TEST persistent_artwork_failure_cache SOURCES tests/failure_cache_tests.cpp)
+    launchme_executable(protondb_tests TEST protondb_and_steam_deck_ratings SOURCES tests/protondb_tests.cpp)
     launchme_executable(controller_models_tests TEST controller_picture_classification SOURCES tests/controller_models_tests.cpp)
     launchme_executable(profile_data_tests TEST play_journal_achievement_history_and_playtime SOURCES tests/profile_data_tests.cpp)
     launchme_executable(visibility_tests TEST steam_visibility SOURCES tests/visibility_tests.cpp)
