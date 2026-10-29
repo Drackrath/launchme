@@ -107,10 +107,11 @@ Settings → System → Help → **Open folder** (the version row) opens it.
 - **Recently played** can also list games not installed, by the date they were added (Settings → Library →
   Visibility → *Not installed in Recently played*).
 - **Extended Aurelia integration** (Windows, optional, off by default): install/update the latest x64 helper
-  from Settings → Library → Steam → *Manage Aurelia*. It manages only the games you choose (or all, by default)
-  and adds managed Steam downloads, cloud-save status and conflict
-  resolution, DLC, manifest pinning/downgrades, beta branches, Workshop and native live friends chat in both
-  desktop and TV modes. Primarily for single-player/offline games; some games, especially multiplayer,
+  from Settings → Library → Steam → *Manage Aurelia*, and sign in there with a QR code from the Steam Mobile app or
+  the account name and password. It manages only the games you choose (or all, by default)
+  and adds managed Steam downloads, cloud saves synced before and after playing, cloud-save status and conflict
+  resolution, Steam Family Sharing games, DLC, manifest pinning/downgrades, beta branches, Workshop and native
+  live friends chat in both desktop and TV modes. Primarily for single-player/offline games; some games, especially multiplayer,
   DRM and Steamworks titles, may require the Steam client. See the [Aurelia guide](docs/AURELIA.md).
 - **Artwork**: SteamGridDB covers, heroes (the sharp 3840 px ones first), logos and posters with OCR-assisted cropping,
   a variant browser and *Adjust crop* for covers and backgrounds; where SteamGridDB has nothing, the store's own
