@@ -52,7 +52,8 @@ void Renderer::drawCustomGameEditor() {
     textGroup(heading, {}, panel.left + Layout::margin, panel.top + Layout::margin,
               panel.right - panel.left - 2 * Layout::margin, category_font_.Get(), gray(0.96f), settings_body_font_.Get(), gray(0.62f), 1, true);
 
-    const std::array<const wchar_t*, field_count> labels{tr(L"Nazwa"), tr(L"Plik"), tr(L"Opcje uruchamiania"), tr(L"Folder roboczy")};
+    const std::array<const wchar_t*, field_count> labels{tr(L"Nazwa"), tr(L"Plik"), tr(L"Opcje uruchamiania"), tr(L"Folder roboczy"),
+                                                         L"WINEDLLOVERRIDES", tr(L"Opcje Protona i Wine (jak w Steamie)")};
     for (int index = 0; index < field_count; ++index) {
         if (!ui.shows(index)) continue;
         const auto label = layout.label(index);
@@ -85,6 +86,8 @@ void Renderer::drawCustomGameEditor() {
                 textLine(tr(L"Domyślnie: folder pliku"), left, y, visible, settings_body_font_.Get(), gray(0.38f));
             else if (index == arguments_field && ui.launchOptions())
                 textLine(tr(L"Np. -windowed -skipintro"), left, y, visible, settings_body_font_.Get(), gray(0.38f));
+            else if (index == dll_field) textLine(tr(L"Np. dinput8=n,b;winhttp=n,b"), left, y, visible, settings_body_font_.Get(), gray(0.38f));
+            else if (index == wine_field) textLine(tr(L"Np. PROTON_USE_WINED3D=1 gamemoderun %command% -dx11"), left, y, visible, settings_body_font_.Get(), gray(0.38f));
         } else {
             target_->PushAxisAlignedClip(D2D1::RectF(left - 4, input.top + 2, left + visible + 4, input.bottom - 2), D2D1_ANTIALIAS_MODE_ALIASED);
             if (focused && ui.selected)
@@ -93,10 +96,8 @@ void Renderer::drawCustomGameEditor() {
             target_->PopAxisAlignedClip();
         }
         if (focused && !ui.selected) line(left + caret - offset, input.top + 14, left + caret - offset, input.bottom - 14, gray(0.93f), 2);
-        if (browseRow(index)) {
-            const bool browse_focused = ui.focus == (index == file_field ? Item::file_browse : Item::directory_browse);
-            button(layout.browse(index), tr(L"Wybierz…"), browse_focused);
-        }
+        if (browseRow(index))
+            button(layout.browse(index), index == wine_field ? std::wstring(L"Proton / Wine…") : std::wstring(tr(L"Wybierz…")), ui.focus == browseItem(index));
     }
     if (ui.posterShown()) {
         // The poster the typed name finds (or the game's own), "Zidentyfikuj grę" under it.

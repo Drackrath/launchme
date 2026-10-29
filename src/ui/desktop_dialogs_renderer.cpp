@@ -237,10 +237,12 @@ void Renderer::drawDesktopCustomEditor() {
     const bool poster = ui.posterShown();
     constexpr float poster_w = 150, poster_column = poster_w + 22;
     const float height = sheet_header + 16 + subtitle + static_cast<float>(fields) * field_step + (ui.error.empty() ? 0.0f : 26.0f) + 64;
-    const auto p = desktopDialogFrame(view, poster ? 620 + poster_column : 620, height,
+    const float width = ui.compat ? 760.0f : 620.0f; // A Windows game on Linux: its Wine/Proton options are long.
+    const auto p = desktopDialogFrame(view, poster ? width + poster_column : width, height,
                                       ui.launchOptions() ? tr(L"Opcje uruchamiania") : ui.editing() ? tr(L"Edytuj grę") : tr(L"Dodaj grę"), false);
     const float fields_right = p.right - 22 - (poster ? poster_column : 0.0f);
-    const std::array<const wchar_t*, custom_game_ui::field_count> labels{trKey(L"Nazwa"), trKey(L"Plik"), trKey(L"Opcje uruchamiania"), trKey(L"Folder roboczy")};
+    const std::array<const wchar_t*, custom_game_ui::field_count> labels{trKey(L"Nazwa"), trKey(L"Plik"), trKey(L"Opcje uruchamiania"), trKey(L"Folder roboczy"),
+                                                                         L"WINEDLLOVERRIDES", trKey(L"Opcje Protona i Wine (jak w Steamie)")};
     const int focused_field = custom_game_ui::field(ui.focus);
     float y = p.top + sheet_header + 14;
     if (poster) {
@@ -271,17 +273,21 @@ void Renderer::drawDesktopCustomEditor() {
         if (!ui.shows(index)) continue;
         textLine(tr(labels[static_cast<size_t>(index)]), p.left + 22, y + 8, fields_right - p.left - 22, desktop_label_font_.Get(), gray(0.62f));
         const bool browse = custom_game_ui::browseRow(index);
-        const float field_right = fields_right - (browse ? 120.0f : 0.0f);
+        const bool page = index == custom_game_ui::wine_field; // "Proton / Wine…": the game's page.
+        const float field_right = fields_right - (browse ? (page ? 170.0f : 120.0f) : 0.0f);
         const Rect f{p.left + 22, y + 20, field_right, y + 60};
         const wchar_t* placeholder = index == custom_game_ui::directory_field ? tr(L"Domyślnie: folder pliku") :
-            index == custom_game_ui::arguments_field && ui.launchOptions() ? tr(L"Np. -windowed -skipintro") : L"";
+            index == custom_game_ui::arguments_field && ui.launchOptions() ? tr(L"Np. -windowed -skipintro") :
+            index == custom_game_ui::dll_field ? tr(L"Np. dinput8=n,b;winhttp=n,b") :
+            page ? tr(L"Np. PROTON_USE_WINED3D=1 gamemoderun %command% -dx11") : L"";
         desktopTextField(f, ui.fields[static_cast<size_t>(index)], placeholder,
                          ui.caret, focused_field == index, ui.selected, hover == SheetHit{Kind::field, index} ? 1.0f : 0.0f);
         desktopModalHot({Kind::field, index}, f);
         if (browse) {
             const Rect b{field_right + 10, f.top, fields_right, f.bottom};
-            const Item item = index == custom_game_ui::file_field ? Item::file_browse : Item::directory_browse;
-            desktopButton(b, 1, hover == SheetHit{Kind::tile_action, index} ? 1.0f : 0.0f, false, true, glyph::folder_open, tr(L"Wybierz"));
+            const Item item = custom_game_ui::browseItem(index);
+            desktopButton(b, 1, hover == SheetHit{Kind::tile_action, index} ? 1.0f : 0.0f, false, true, page ? glyph::settings : glyph::folder_open,
+                          page ? std::wstring(L"Proton / Wine…") : std::wstring(tr(L"Wybierz")));
             if (ui.focus == item) desktopFocusRing(b, 8);
             desktopModalHot({Kind::tile_action, index}, b);
         }

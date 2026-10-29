@@ -65,7 +65,7 @@ bool Launcher::desktopModalClick(float mouse_x, float mouse_y, bool double_click
         auto& ui = custom_editor_;
         if (hit.kind == K::close) { closeCustomEditor(); return true; }
         if (hit.kind == K::field && hit.index >= 0 && hit.index < custom_game_ui::field_count) {
-            constexpr Item items[] = {Item::name, Item::file, Item::arguments, Item::directory};
+            constexpr Item items[] = {Item::name, Item::file, Item::arguments, Item::directory, Item::dll, Item::wine};
             if (ui.focus != items[hit.index]) { ui.focus = items[hit.index]; ui.caret = ui.fields[static_cast<size_t>(hit.index)].size(); }
             ui.selected = false;
             ui.confirm_remove = false;
@@ -76,7 +76,7 @@ bool Launcher::desktopModalClick(float mouse_x, float mouse_y, bool double_click
             return true;
         }
         if (hit.kind == K::tile_action) {
-            ui.focus = hit.index == custom_game_ui::file_field ? Item::file_browse : Item::directory_browse;
+            ui.focus = custom_game_ui::browseItem(hit.index);
             ui.confirm_remove = false;
             customEditorAccept();
             return true;

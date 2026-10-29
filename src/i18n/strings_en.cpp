@@ -2627,6 +2627,14 @@ constexpr Entry entries[] = {
     {L"Winetricks z Protonem i prefiksem tej gry: biblioteki Microsoft, czcionki, poprawki. Także dla gier spoza Steam.",
      L"Winetricks with this game's Proton and prefix: Microsoft libraries, fonts, fixes. Also for games from outside Steam."},
     {L"Otwieranie winetricks…", L"Opening winetricks…"},
+    // Opcje uruchamiania of a Windows game on Linux: its WINEDLLOVERRIDES and Steam-style launch options.
+    {L"Opcje Protona i Wine (jak w Steamie)", L"Proton and Wine options (as in Steam)"},
+    {L"Np. dinput8=n,b;winhttp=n,b", L"E.g. dinput8=n,b;winhttp=n,b"},
+    {L"Np. PROTON_USE_WINED3D=1 gamemoderun %command% -dx11", L"E.g. PROTON_USE_WINED3D=1 gamemoderun %command% -dx11"},
+    {L"Najwyżej 64 zmienne środowiska.", L"At most 64 environment variables."},
+    {L"Nieprawidłowe polecenie przed %command%.", L"An invalid command before %command%."},
+    {L"Nieprawidłowe argumenty po %command%.", L"Invalid arguments after %command%."},
+    {L"Nieprawidłowe WINEDLLOVERRIDES (np. dinput8=n,b;xinput1_3=n).", L"Invalid WINEDLLOVERRIDES (e.g. dinput8=n,b;xinput1_3=n)."},
     // Entries of extras built only on this machine (local/i18n), when present.
 #if __has_include("strings_en_local.inc")
 #include "strings_en_local.inc"

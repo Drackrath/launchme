@@ -1617,6 +1617,11 @@ private:
     // Linux: Ustawienia → Biblioteka → Proton i Wine with a game's own options open (its menu's
     // "Proton / Wine…"); Back from that page leaves Settings.
     void openGameCompatSettings(const Game& game);
+    // Linux, a Windows game in the "Opcje uruchamiania" panel: its WINEDLLOVERRIDES and Wine/Proton
+    // launch options as Steam writes them (compat_settings.cpp); write false only checks them. A
+    // field left as it opened is not saved. No-ops on Windows.
+    void compatEditorFill(custom_game_ui::State& ui, const Game& game) const;
+    bool compatEditorApply(const custom_game_ui::State& ui, bool write, std::wstring& error, custom_game_ui::Item& field);
 #ifndef _WIN32
     // Ustawienia → Proton i Wine (src/app/compat_settings.cpp): the tools, their downloads, the
     // prefix manager and the Wine/Proton options as an accordion.

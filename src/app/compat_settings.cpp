@@ -38,6 +38,8 @@ using namespace settings_ui;
 #ifdef _WIN32
 bool Launcher::compatGame(const Game&) const { return false; }
 void Launcher::openGameCompatSettings(const Game&) {}
+void Launcher::compatEditorFill(custom_game_ui::State&, const Game&) const {}
+bool Launcher::compatEditorApply(const custom_game_ui::State&, bool, std::wstring&, custom_game_ui::Item&) { return true; }
 #else
 namespace catalog = launch_options_catalog;
 namespace store = launch_options_store;
@@ -265,6 +267,115 @@ bool Launcher::compatGame(const Game& game) const {
     // A store's game: its Windows build, unless the action starts a native program.
     if (target.empty() || target.find(L"://") != std::wstring::npos) return true;
     return windowsProgram(target) || !std::filesystem::path(target).has_extension();
+}
+
+namespace {
+// A word of Steam-style launch options, quoted only when the shell would split or expand it.
+std::string launchWord(const std::string& text) {
+    const bool plain = !text.empty() && std::all_of(text.begin(), text.end(), [](char ch) {
+        return (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || std::string_view("_-.,:/@%+=").find(ch) != std::string_view::npos;
+    });
+    return plain ? text : wine_runner::shellQuote(text);
+}
+// The options as Steam's launch options: VAR=value, the wrappers, %command%, the game's arguments.
+// (Switches that set no variable, gamescope among them, stay on the game's Proton / Wine page.)
+std::string launchText(const LaunchOptions& options) {
+    std::string text;
+    const auto add = [&](const std::string& word) { if (!word.empty()) text += (text.empty() ? "" : " ") + word; };
+    for (const auto& variable : options.environment) add(variable.name + "=" + (variable.value.empty() ? std::string("''") : launchWord(variable.value)));
+    if (options.game_performance) add("game-performance");
+    if (options.dlss_swapper) add("dlss-swapper");
+    if (options.gamemode) add("gamemoderun");
+    if (options.mangohud) add("mangohud");
+    add(options.wrapper);
+    add("%command%");
+    add(options.arguments);
+    return text;
+}
+// Back into the options: VAR=value words before %command% are variables, other words wrappers
+// (gamemoderun, mangohud, game-performance and dlss-swapper are their switches); after it the game's
+// arguments as typed. Without %command% (Steam: arguments only) leading VAR=value words are still
+// variables. The error, else nullopt.
+std::optional<std::wstring> applyLaunchText(LaunchOptions& options, const std::string& text) {
+    const auto words = wine_runner::shellWords(text);
+    const auto command = std::find(words.begin(), words.end(), std::string("%command%"));
+    const bool has_command = command != words.end();
+    std::vector<LaunchOptions::Variable> environment;
+    std::vector<std::string> wrappers;
+    bool gamemode = false, mangohud = false, performance = false, swapper = false;
+    auto it = words.begin();
+    for (; it != command; ++it) {
+        const auto equals = it->find('=');
+        if (equals != std::string::npos && equals > 0 && catalog::variableName(std::string_view(*it).substr(0, equals))) {
+            const auto name = it->substr(0, equals);
+            std::erase_if(environment, [&](const auto& variable) { return variable.name == name; });
+            environment.push_back({name, it->substr(equals + 1)});
+            continue;
+        }
+        if (!has_command) break; // The game's arguments from here, as in Steam.
+        if (*it == "gamemoderun") gamemode = true;
+        else if (*it == "mangohud") mangohud = true;
+        else if (*it == "game-performance") performance = true;
+        else if (*it == "dlss-swapper") swapper = true;
+        else wrappers.push_back(*it);
+    }
+    std::string arguments;
+    if (has_command) {
+        const auto at = text.find("%command%");
+        if (at != std::string::npos) arguments = text.substr(at + 9);
+    } else for (; it != words.end(); ++it) arguments += (arguments.empty() ? "" : " ") + launchWord(*it);
+    while (!arguments.empty() && (arguments.front() == ' ' || arguments.front() == '\t')) arguments.erase(arguments.begin());
+    while (!arguments.empty() && (arguments.back() == ' ' || arguments.back() == '\t')) arguments.pop_back();
+    if (environment.size() > 64) return std::wstring(tr(L"Najwyżej 64 zmienne środowiska."));
+    std::string wrapper;
+    for (const auto& word : wrappers) wrapper += (wrapper.empty() ? "" : " ") + launchWord(word);
+    auto next = options;
+    next.environment = std::move(environment);
+    next.gamemode = gamemode;
+    next.mangohud = mangohud;
+    next.game_performance = performance;
+    next.dlss_swapper = swapper;
+    if (!catalog::setValue(next, "wrapper", wrapper)) return std::wstring(tr(L"Nieprawidłowe polecenie przed %command%."));
+    if (!catalog::setValue(next, "arguments", arguments)) return std::wstring(tr(L"Nieprawidłowe argumenty po %command%."));
+    options = std::move(next);
+    return std::nullopt;
+}
+}
+
+void Launcher::compatEditorFill(custom_game_ui::State& ui, const Game& game) const {
+    const auto key = gameKey(game);
+    if (key.empty() || !compatGame(game)) return;
+    const auto options = store::gameOptions(key).value_or(gameDefaults());
+    ui.compat = true;
+    ui.game_key = key;
+    ui.fields[custom_game_ui::dll_field] = ui.dll_opened = wide(options.dll_overrides);
+    ui.fields[custom_game_ui::wine_field] = ui.wine_opened = wide(launchText(options));
+}
+
+bool Launcher::compatEditorApply(const custom_game_ui::State& ui, bool write, std::wstring& error, custom_game_ui::Item& field) {
+    if (!ui.compat || ui.game_key.empty()) return true;
+    const auto dll = ui.fields[custom_game_ui::dll_field], launch = ui.fields[custom_game_ui::wine_field];
+    const bool dll_changed = dll != ui.dll_opened, launch_changed = launch != ui.wine_opened;
+    if (!dll_changed && !launch_changed) return true;
+    const auto change = [&](LaunchOptions& options) {
+        if (dll_changed && !catalog::setValue(options, "dll_overrides", narrow(dll))) {
+            error = tr(L"Nieprawidłowe WINEDLLOVERRIDES (np. dinput8=n,b;xinput1_3=n).");
+            field = custom_game_ui::Item::dll;
+            return false;
+        }
+        if (launch_changed)
+            if (const auto problem = applyLaunchText(options, narrow(launch))) {
+                error = *problem;
+                field = custom_game_ui::Item::wine;
+                return false;
+            }
+        return true;
+    };
+    if (!write) {
+        auto copy = store::gameOptions(ui.game_key).value_or(gameDefaults());
+        return change(copy);
+    }
+    return compatSaveOptions(ui.game_key, change);
 }
 
 void Launcher::openGameCompatSettings(const Game& game) {

@@ -422,6 +422,11 @@ bool setGameOptions(const std::string& key, const LaunchOptions& options) {
     auto overrides = found != document.games.end() ? overridesOf(document, key) : std::set<std::string>{};
     const auto previous = found != document.games.end() ? found->second : forGame(document.defaults);
     for (const auto& id : differences(options, previous)) overrides.insert(id);
+    // A variable neither the game nor the default has is nothing to override.
+    std::erase_if(overrides, [&](const std::string& id) {
+        return id.starts_with("env:") && !variableIn(options.environment, std::string_view(id).substr(4)) &&
+               !variableIn(document.defaults.environment, std::string_view(id).substr(4));
+    });
     if (overrides.empty()) { // Nothing of its own: it follows the default.
         if (found == document.games.end()) return true;
         document.games.erase(key);

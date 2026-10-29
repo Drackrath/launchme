@@ -13,9 +13,11 @@
 // "Zidentyfikuj grę" under it.
 // The same panel edits how another game starts ("Opcje uruchamiania…" in the game's menu): a
 // DRM-free game's file, options and working directory, a Steam game's launch options only.
+// Linux, a Windows game (State::compat): also its WINEDLLOVERRIDES and its Wine/Proton launch options
+// as Steam writes them (VAR=value wrapper %command% arguments), with "Proton / Wine…" to its page.
 namespace custom_game_ui {
-enum class Item { name, file, file_browse, arguments, directory, directory_browse, identify, remove, cancel, save };
-enum Field { name_field, file_field, arguments_field, directory_field, field_count };
+enum class Item { name, file, file_browse, arguments, directory, directory_browse, dll, wine, wine_page, identify, remove, cancel, save };
+enum Field { name_field, file_field, arguments_field, directory_field, dll_field, wine_field, field_count };
 enum class Target { custom, drm_free, steam };
 // The poster beside the fields: nothing to look for (no name), being looked for, shown, none found.
 enum class Poster { none, loading, shown, missing };
@@ -40,11 +42,17 @@ struct State {
     bool identified_new = false;
     Poster poster = Poster::none;
     Item identify_from = Item::name; // Left from "Zidentyfikuj grę" goes back where Right came from.
+    // Linux, a Windows game: its Wine/Proton fields (dll_field, wine_field), its key and what they held
+    // when the panel opened (saved only when changed).
+    bool compat = false;
+    std::string game_key;
+    std::wstring dll_opened, wine_opened;
     bool editing() const { return !id.empty(); }
     bool launchOptions() const { return target != Target::custom; }
     bool posterShown() const { return target == Target::custom; }
     const std::string& gameId() const { return editing() ? id : pending_id; }
     bool shows(int index) const {
+        if (index == dll_field || index == wine_field) return compat;
         return target == Target::custom || (target == Target::drm_free ? index != name_field : index == arguments_field);
     }
     unsigned hidden() const { // Bit per field the panel leaves out.
@@ -61,22 +69,29 @@ inline int field(Item item) {
     case Item::file: return file_field;
     case Item::arguments: return arguments_field;
     case Item::directory: return directory_field;
+    case Item::dll: return dll_field;
+    case Item::wine: return wine_field;
     default: return -1;
     }
 }
-// Rows 0-3 hold the fields (1 and 3 with a browse button), row 4 the buttons; "Zidentyfikuj grę"
-// stands apart in the poster's column (5).
+// Rows 0-5 hold the fields (1 and 3 with a browse button, 5 with "Proton / Wine…"), row 6 the
+// buttons; "Zidentyfikuj grę" stands apart in the poster's column (7).
+inline constexpr int buttons_row = field_count, identify_row = field_count + 1;
 inline int row(Item item) {
     switch (item) {
     case Item::name: return 0;
     case Item::file: case Item::file_browse: return 1;
     case Item::arguments: return 2;
     case Item::directory: case Item::directory_browse: return 3;
-    case Item::identify: return 5;
-    default: return 4;
+    case Item::dll: return 4;
+    case Item::wine: case Item::wine_page: return 5;
+    case Item::identify: return identify_row;
+    default: return buttons_row;
     }
 }
-inline bool browseRow(int index) { return index == file_field || index == directory_field; }
+inline bool browseRow(int index) { return index == file_field || index == directory_field || index == wine_field; }
+// The button beside a row's field.
+inline Item browseItem(int index) { return index == file_field ? Item::file_browse : index == wine_field ? Item::wine_page : Item::directory_browse; }
 
 struct Layout {
     float width, height;
@@ -91,7 +106,7 @@ struct Layout {
         return result;
     }
     settings_ui::Rect panel() const {
-        const float w = std::min(poster ? 1100.0f : 920.0f, width - 96), half = 326 - (field_count - slot(field_count)) * 52.0f;
+        const float w = std::min(poster ? 1100.0f : 920.0f, width - 96), half = 118 + slot(field_count) * 52.0f;
         return {(width - w) * 0.5f, height * 0.5f - half, (width + w) * 0.5f, height * 0.5f + half};
     }
     float rowTop(int index) const { return panel().top + 96 + slot(index) * 104.0f; }
@@ -126,10 +141,10 @@ struct Layout {
         return {right - button_width, top, right, bottom};
     }
     std::optional<Item> hit(float x, float y, bool editing) const {
-        for (const auto item : {Item::name, Item::file, Item::arguments, Item::directory})
+        for (const auto item : {Item::name, Item::file, Item::arguments, Item::directory, Item::dll, Item::wine})
             if (shown(row(item)) && input(row(item)).contains(x, y)) return item;
-        if (shown(file_field) && browse(file_field).contains(x, y)) return Item::file_browse;
-        if (shown(directory_field) && browse(directory_field).contains(x, y)) return Item::directory_browse;
+        for (const int index : {static_cast<int>(file_field), static_cast<int>(directory_field), static_cast<int>(wine_field)})
+            if (shown(index) && browse(index).contains(x, y)) return browseItem(index);
         if (poster && (identify().contains(x, y) || posterBox().contains(x, y))) return Item::identify;
         for (const auto item : {Item::remove, Item::cancel, Item::save})
             if ((item != Item::remove || editing) && button(item).contains(x, y)) return item;

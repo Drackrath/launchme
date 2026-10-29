@@ -21,7 +21,7 @@ std::filesystem::path posterPreviewCache() { return coverCacheDirectory().parent
 constexpr uint64_t poster_delay_ms = 500; // The typed name rests this long before its poster is looked up.
 
 constexpr size_t field_limits[custom_game_ui::field_count]{
-    custom_games::max_name, custom_games::max_path, custom_games::max_arguments, custom_games::max_path};
+    custom_games::max_name, custom_games::max_path, custom_games::max_arguments, custom_games::max_path, custom_games::max_arguments, custom_games::max_arguments};
 
 // Caret steps keep surrogate pairs together.
 size_t previousStop(const std::wstring& text, size_t caret) {
@@ -139,6 +139,7 @@ void Launcher::openCustomEditor(const std::string& id, std::optional<Item> focus
         ui.id = id;
         ui.fields = {found->name, found->path.wstring(), found->arguments, found->directory.wstring()};
         ui.art_name = found->name; // Its artwork was matched by this name.
+        compatEditorFill(ui, custom_games::makeGame(*found, true)); // Linux, a Windows game: its Wine/Proton fields.
     } else ui.pending_id = custom_games::newId(custom_games_); // Zidentyfikuj grę keys a new game by it before it is saved.
     ui.open = true;
     // A new game starts at "Wybierz…": one press picks the file, the next one saves it.
@@ -280,6 +281,7 @@ void Launcher::openLaunchEditor(const Game& game) {
         ui.fields = {entry->name, entry->executable.wstring(), entry->arguments, entry->working_directory.wstring()};
         ui.focus = Item::file;
         ui.caret = ui.fields[custom_game_ui::file_field].size();
+        compatEditorFill(ui, game);
     } else {
         ui.target = custom_game_ui::Target::steam;
         ui.key = gameKey(game);
@@ -346,24 +348,28 @@ void Launcher::customEditorMove(int horizontal, int vertical) {
         int row = custom_game_ui::row(focus);
         do row += vertical; while (row >= 0 && row < custom_game_ui::field_count && !custom_editor_.shows(row));
         if (row < 0) return;
-        row = std::min(row, 4);
-        const bool right = focus == Item::file_browse || focus == Item::directory_browse || focus == Item::save;
+        row = std::min(row, custom_game_ui::buttons_row);
+        const bool right = focus == Item::file_browse || focus == Item::directory_browse || focus == Item::wine_page || focus == Item::save;
         switch (row) {
         case 0: next = Item::name; break;
         case 1: next = right ? Item::file_browse : Item::file; break;
         case 2: next = Item::arguments; break;
         case 3: next = right ? Item::directory_browse : Item::directory; break;
-        default: if (custom_game_ui::row(focus) != 4) next = Item::save; break;
+        case 4: next = Item::dll; break;
+        case 5: next = right ? Item::wine_page : Item::wine; break;
+        default: if (custom_game_ui::row(focus) != custom_game_ui::buttons_row) next = Item::save; break;
         }
     } else if (horizontal) {
         const bool forward = horizontal > 0;
         // The rightmost item of a field row continues to "Zidentyfikuj grę" under the poster.
         switch (focus) {
-        case Item::name: case Item::arguments: if (forward && poster) next = Item::identify; break;
+        case Item::name: case Item::arguments: case Item::dll: if (forward && poster) next = Item::identify; break;
         case Item::file: if (forward) next = Item::file_browse; break;
         case Item::file_browse: next = forward ? (poster ? Item::identify : focus) : Item::file; break;
         case Item::directory: if (forward) next = Item::directory_browse; break;
         case Item::directory_browse: next = forward ? (poster ? Item::identify : focus) : Item::directory; break;
+        case Item::wine: if (forward) next = Item::wine_page; break;
+        case Item::wine_page: next = forward ? (poster ? Item::identify : focus) : Item::wine; break;
         case Item::remove: if (forward) next = Item::cancel; break;
         case Item::cancel: next = forward ? Item::save : custom_editor_.editing() ? Item::remove : Item::cancel; break;
         case Item::save: if (!forward) next = Item::cancel; break;
@@ -421,7 +427,8 @@ void Launcher::customEditorKey(WPARAM key, bool repeated) {
     case VK_RIGHT: customEditorMove(1, 0); break;
     case VK_TAB: {
         std::vector<Item> order;
-        for (const auto item : {Item::name, Item::file, Item::file_browse, Item::arguments, Item::directory, Item::directory_browse})
+        for (const auto item : {Item::name, Item::file, Item::file_browse, Item::arguments, Item::directory, Item::directory_browse,
+                                Item::dll, Item::wine, Item::wine_page})
             if (ui.shows(custom_game_ui::row(item))) order.push_back(item);
         if (ui.posterShown()) order.push_back(Item::identify);
         if (ui.editing()) order.push_back(Item::remove);
@@ -443,6 +450,16 @@ void Launcher::customEditorAccept() {
     switch (ui.focus) {
     case Item::file_browse: customEditorBrowse(false); break;
     case Item::directory_browse: customEditorBrowse(true); break;
+    case Item::wine_page: {
+        // Saved first (the page shows the same options), then the game's Proton / Wine page.
+        const auto key = ui.game_key;
+        customEditorSave();
+        if (custom_editor_.open || key.empty()) break; // A field to correct.
+        for (const auto* games : {&public_library_, &private_category_.games})
+            for (const auto& game : *games)
+                if (gameKey(game) == key) { openGameCompatSettings(game); return; }
+        break;
+    }
     case Item::save: customEditorSave(); break;
     case Item::cancel: closeCustomEditor(); break;
     case Item::identify: customEditorIdentify(); break;
@@ -545,6 +562,10 @@ void Launcher::customEditorSave() {
         InvalidateRect(hwnd_, nullptr, FALSE);
     };
     if (ui.launchOptions()) { launchEditorSave(); return; }
+    // Linux, a Windows game: its Wine/Proton fields are checked before anything is saved.
+    std::wstring compat_error;
+    Item compat_field = Item::wine;
+    if (!compatEditorApply(ui, false, compat_error, compat_field)) { fail(compat_error, compat_field); return; }
     const auto existing = std::find_if(custom_games_.begin(), custom_games_.end(), [&](const auto& entry) { return entry.id == ui.id; });
     if (ui.editing() && existing == custom_games_.end()) { closeCustomEditor(); return; } // Removed meanwhile.
     if (!ui.editing() && custom_games_.size() >= custom_games::max_games) { fail(tr(L"Osiągnięto limit gier: ") + std::to_wstring(custom_games::max_games), Item::save); return; }
@@ -578,6 +599,7 @@ void Launcher::customEditorSave() {
     // Artwork was matched by title (or identified as one): a new name is matched again (the user's picks stay).
     if (!ui.art_name.empty() && ui.art_name != entry.name) forgetCustomArtwork(previous ? *previous : custom_games::makeGame(entry, false), false);
     ui.identified_new = false; // Saved: its identification stays with it.
+    compatEditorApply(ui, true, compat_error, compat_field);
     closeCustomEditor();
     applyCustomGames();
     if (settingsOpen() && settings_state_.category == static_cast<int>(settings_ui::Category::library)) {
@@ -610,6 +632,9 @@ void Launcher::launchEditorSave() {
     if (ui.target == Target::drm_free) check.directory = custom_games::cleanPath(ui.fields[directory_field]);
     // A DRM-free game is its folder's file: unlike a game added by hand, it always has one.
     if (check.path.empty()) { fail(tr(L"Wybierz plik gry lub wpisz jego pełną ścieżkę."), Item::file); return; }
+    std::wstring compat_error;
+    Item compat_field = Item::wine;
+    if (!compatEditorApply(ui, false, compat_error, compat_field)) { fail(compat_error, compat_field); return; }
     switch (custom_games::validate(check)) {
     case custom_games::Problem::path: fail(tr(L"Wybierz plik gry lub wpisz jego pełną ścieżkę."), Item::file); return;
     case custom_games::Problem::arguments: fail(tr(L"Opcje uruchamiania: jedna linia, do 2000 znaków."), Item::arguments); return;
@@ -639,6 +664,7 @@ void Launcher::launchEditorSave() {
         entry->missing = false;
     }
     if (!saveDrmFree()) { *entry = previous; fail(tr(L"Nie udało się zapisać katalogu DRM-free"), Item::save); return; }
+    compatEditorApply(ui, true, compat_error, compat_field);
     closeCustomEditor();
     applyDrmFree();
     if (settingsOpen()) buildSettingsRows();
