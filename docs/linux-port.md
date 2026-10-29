@@ -4,6 +4,9 @@ Launchme is being ported to run natively on Linux. It is not a Wine build: the s
 build for both systems, with Windows code kept behind `#ifdef _WIN32` or in per-platform files. The
 Windows build is unchanged in behaviour.
 
+**Highly experimental (WIP).** Since 0.4.0 the real launcher (TV mode and the desktop window) runs on Linux, but
+it has been tested far less than on Windows: expect bugs and missing pieces.
+
 ## Status
 
 | Part | State |
@@ -13,8 +16,10 @@ Windows build is unchanged in behaviour.
 | Platform services (phase 2) | Audio (SDL3), decoding and trailers (FFmpeg), system volume (PulseAudio/PipeWire), controllers (SDL3, hidraw, BlueZ), processes (`/proc`, signals), power (logind), sensors (hwmon), memory, Discord, Steam downloads |
 | Stores | Steam (native, Flatpak, Snap), Heroic (Epic and GOG, launched through its legendary/gogdl backends with the game's Wine/Proton settings), Lutris, Prism Launcher/PolyMC/MultiMC, Battle.net in a Lutris prefix |
 | Tests | 57 CTest suites build and pass |
-| Launcher window | SDL3 library browser with keyboard/gamepad navigation and selected-game details; SDL window/input event boundary is available |
-| Renderer, web view | Not started (phases 3–4) |
+| Launcher window | The full launcher (`cmake/LinuxApp.cmake`): the Win32 surface it uses is implemented on SDL3 (`src/linux/window`) |
+| Renderer | Direct2D, DirectWrite and WIC on Skia (`src/linux/gfx`): GPU through Vulkan, else OpenGL; fonts through Fontconfig and SkParagraph |
+| Windows games | umu-launcher, Proton or Wine with prefixes and per-game options (Settings → Compatibility, [LINUX_WINE.md](LINUX_WINE.md)) |
+| Web view | `launchme-browser` helper on GTK 4 + WebKitGTK 6.0 when present, else the user's browser |
 
 ## Building on Linux
 
@@ -81,8 +86,7 @@ files (`http_winhttp`, `image_codec_wic`, `audio_windows`, `system_audio_windows
 been compiled yet.
 
 Known gaps on Linux:
-- Windows programs (`.exe`) are not run: no Wine integration outside Heroic's per-game settings. GOG
-  offline installers report that they are unavailable.
+- GOG offline installers report that they are unavailable (run them with *Add a game from its installer*).
 - No FPS reading (PresentMon has no Linux equivalent); no window focus or game-window lookup (Wayland).
 - Heroic: Amazon and sideloaded games; Lutris: games without a store; Heroic's AppImage hides its
   backends (games then launch through `heroic://`).
@@ -91,7 +95,7 @@ Known gaps on Linux:
 - Updates: only as an AppImage (`launchme-<version>-x86_64.AppImage` release asset with a SHA-256).
 - Some messages still name Windows (no new translation keys yet).
 
-### Phase 3: window, input and renderer
+### Phase 3: window, input and renderer (done in 0.4.0, Skia instead of a Canvas layer)
 
 This is the largest phase: 48 files in `src/ui` and `src/app` call Direct2D and DirectWrite directly
 (`ID2D1RenderTarget`, geometries, effects, `IDWriteTextLayout`), and about 50 use `HWND`.

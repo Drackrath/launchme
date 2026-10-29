@@ -7,6 +7,11 @@ It merges Steam (collections and non-Steam shortcuts), GOG, Battle.net, EA app, 
 Epic Games, Amazon Games, Xbox (PC) and your own programs into one library, with artwork from SteamGridDB (and Epic's
 own store art for an Epic account's games).
 
+> **Linux: highly experimental (WIP).** Since 0.4.0 the same launcher also builds and runs natively on Linux,
+> with Proton/Wine for Windows games (umu-launcher, GE-Proton, prefixes, per-game options). It is a work in
+> progress: expect bugs and missing pieces, and keep Windows as the supported platform for now.
+> See [Linux](#linux-highly-experimental-wip).
+
 Native C++20: Win32, Direct2D/DirectWrite/WIC, WinHTTP, XAudio2 and Media Foundation — no HTML UI.
 The interface is available in English, Polish, Brazilian Portuguese and Spanish (Settings → System → Language).
 The AI companion and Tarot speak English or Polish.
@@ -93,6 +98,10 @@ Settings → System → Help → **Open folder** (the version row) opens it.
   script, or no file at all, for a game to play next or one played elsewhere; such a game reads **Choose file** and
   opens its editor at the file. The editor shows the poster its name finds as you type, with **Identify game** under it;
   **Remove from library** (the game's menu, in red, after a question) removes the entry, never the game's files.
+- **Shortcuts** (the desktop window's game menu → *Shortcuts*): a desktop shortcut and a Start menu entry for any
+  game (on Linux the applications menu, and Steam), starting it through Launchme with its launch options.
+- **Recently played** can also list games not installed, by the date they were added (Settings → Library →
+  Visibility → *Not installed in Recently played*).
 - **Extended Aurelia integration** (Windows, optional, off by default): install/update the latest x64 helper
   from Settings → Library → Steam → *Manage Aurelia*. It manages only the games you choose (or all, by default)
   and adds managed Steam downloads, cloud-save status and conflict
@@ -141,7 +150,7 @@ Settings → System → Help → **Open folder** (the version row) opens it.
   the launcher leaves the taskbar and Alt+Tab and comes back when the game closes.
 - **Music and sound**: background music with two themes (Horizons and Exploratory Silence) or none, and
   interface sounds that can come from your own sound folder.
-- Screensaver, start with Windows, single instance, crash dumps.
+- Screensaver, start with Windows, single instance, crash dumps; the computer stays awake while a game runs.
 
 ## API keys (all optional, all free)
 
@@ -198,14 +207,21 @@ Close a running launcher before rebuilding. The C++ runtime is linked statically
 games, store clients, installers or change system settings; `*_live_test.exe` and `tools/` probes are
 manual (network, real accounts).
 
-### Linux (work in progress)
+### Linux (highly experimental, WIP)
 
-A native Linux port is under way. The Linux build now includes a native SDL3 launcher shell;
-the full library UI, renderer and web view are still being ported.
-Status, plan and conventions: [docs/linux-port.md](docs/linux-port.md).
+**Highly experimental, work in progress.** The full launcher (TV mode and the desktop window) builds and runs
+natively on Linux from the same sources: SDL3 for the window, input and sound, Skia on the GPU (Vulkan, else
+OpenGL) in place of Direct2D/DirectWrite. It reads Steam (native, Flatpak, Snap), Heroic (Epic and GOG), Lutris,
+Prism Launcher and your own games, and runs Windows games through umu-launcher, Proton or Wine with a prefix
+manager and per-game options (Settings → *Compatibility*, [docs/LINUX_WINE.md](docs/LINUX_WINE.md)).
+It has been tested far less than the Windows build: expect crashes, missing features (no FPS reading; the in-game
+Guide opens in the launcher's window; web pages need WebKitGTK) and changes between versions. Bug reports are welcome.
+
+Status, building (Skia is built from source by `tools/linux/build-skia.sh`) and conventions:
+[docs/linux-port.md](docs/linux-port.md).
 
 ```sh
-cmake -S . -B build/linux -G Ninja -DCMAKE_BUILD_TYPE=Debug
+cmake -S . -B build/linux -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build/linux
 ./build/linux/launchme
 ```
