@@ -294,6 +294,11 @@ void Launcher::buildSettingsRows() {
             // "Gry dodane ręcznie" page: adding first, then each game with its editor (which also removes it).
             add({Id::custom_add, Control::action, tr(L"Dodaj grę"),
                 tr(L"Program, skrót lub skrypt spoza sklepów."), tr(L"Dodaj")});
+#ifndef _WIN32
+            // A Windows game from its installer: installed into a prefix of its own (compat_settings.cpp).
+            add({Id::compat_install_game, Control::action, tr(L"Dodaj grę z instalatora"),
+                tr(L"Instalator Windows (.exe, .msi) w nowym prefiksie; potem wskazujesz plik gry."), tr(L"Wybierz…")});
+#endif
             // Their covers in one go: each title matched (SteamGridDB, else the Steam store) and only missing art fetched.
             if (!custom_games_.empty())
                 add({Id::custom_covers, Control::action, tr(L"Okładki"),

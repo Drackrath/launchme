@@ -29,6 +29,19 @@ int main(int argc, char** argv) {
 EOF
 x86_64-w64-mingw32-gcc -O2 -o "$DIR/probe.exe" "$DIR/probe.c"
 rm -f "$DIR/out.txt"
+# A made-up installer for "Dodaj grę z instalatora": puts the probe in C:\Program Files\Probe Game.
+cat > "$DIR/setup.c" <<'EOF'
+#include <windows.h>
+int main(void) {
+    CreateDirectoryA("C:\\Program Files\\Probe Game", NULL);
+    CopyFileA("Z:\\home\\pp\\lm\\wineprobe\\probe.exe", "C:\\Program Files\\Probe Game\\probegame.exe", FALSE);
+    CopyFileA("Z:\\home\\pp\\lm\\wineprobe\\probe.exe", "C:\\Program Files\\Probe Game\\unins000.exe", FALSE);
+    Sleep(2000);
+    return 0;
+}
+EOF
+mkdir -p "$HOME/Downloads"
+x86_64-w64-mingw32-gcc -O2 -o "$HOME/Downloads/setup_probe_game_1.0_(64bit).exe" "$DIR/setup.c"
 cat > "$CONFIG/custom-games.json" <<EOF
 {"version":1,"games":[{"id":"0123456789abcdef","name":"Wine Probe","path":"$DIR/probe.exe","arguments":"out.txt -flag","directory":""}]}
 EOF

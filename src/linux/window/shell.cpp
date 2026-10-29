@@ -378,13 +378,19 @@ int ReleaseDC(HWND, HDC) { return 1; }
 // ---- The desktop's file dialog --------------------------------------------------------------
 
 namespace lm_window {
+namespace {
+bool dialog_unavailable = false; // The last pickFile found no portal, Zenity or KDialog.
+}
+bool fileDialogUnavailable() { return dialog_unavailable; }
+
 std::filesystem::path pickFile(HWND owner, bool folder, const std::vector<FileFilter>& filters, const std::filesystem::path& initial) {
-    struct Answer { bool done = false; std::filesystem::path path; };
+    struct Answer { bool done = false, failed = false; std::filesystem::path path; };
     auto answer = std::make_shared<Answer>();
     auto* keep = new std::shared_ptr<Answer>(answer); // Released by the callback, which SDL always calls once.
     const auto callback = [](void* data, const char* const* list, int) {
         auto* held = static_cast<std::shared_ptr<Answer>*>(data);
         if (list && list[0]) (*held)->path = std::filesystem::path(text_encoding::wideLenient(list[0]));
+        (*held)->failed = !list; // An error, not a cancel (an empty list).
         (*held)->done = true;
         delete held;
     };
@@ -411,6 +417,7 @@ std::filesystem::path pickFile(HWND owner, bool folder, const std::vector<FileFi
         }
         waitForInput(0.05);
     }
+    dialog_unavailable = answer->failed;
     return answer->path;
 }
 }

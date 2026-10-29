@@ -27,6 +27,9 @@ SDL_Window* sdlWindow(HWND window);
 // Wayland), run modally: the event loop keeps running until the user answers. Empty: cancelled.
 struct FileFilter { std::string name, pattern; }; // pattern: "png;jpg" or "*".
 std::filesystem::path pickFile(HWND owner, bool folder, const std::vector<FileFilter>& filters, const std::filesystem::path& initial);
+// The last pickFile could not show a dialog at all (no portal, Zenity or KDialog): the launcher's own
+// file browser stands in.
+bool fileDialogUnavailable();
 // Runs `work` on the UI thread from the event loop (another thread's request).
 void post(std::function<void()> work);
 // Mouse cursor shown over the window: false hides it.

@@ -676,6 +676,18 @@ bool Launcher::removeCustomGame(const std::string& id) {
     return true;
 }
 
+std::string Launcher::addCustomGame(custom_games::Entry entry) {
+    entry.id = custom_games::newId(custom_games_);
+    if (entry.id.empty() || custom_games::validate(entry) != custom_games::Problem::none) return {};
+    auto next = custom_games_;
+    next.push_back(entry);
+    if (!custom_games::save(next, customGamesFile())) return {};
+    custom_games_ = std::move(next);
+    applyCustomGames();
+    refreshCustomGames();
+    return entry.id;
+}
+
 // "Usuń z biblioteki" in the game's menu (Tryb TV, its Details' "…" and the desktop window): only the
 // entry goes, never the game's file; while it runs or is suspended it stays.
 bool Launcher::canRemoveFromLibrary(const Game& game) const {

@@ -28,3 +28,11 @@ inline constexpr INT_PTR no_handler = 31;  // Nothing handles the link (store cl
 // owns the handle; empty after it was taken. On Linux it is the process ID (0: none) of a program
 // started in a session of its own, already reaped when it exits: there is nothing to close.
 HANDLE takeLaunchedProcess();
+
+// Linux: what the last Windows program's start (umu, Proton or Wine) reported: its error code when
+// it could not start ("no-tool"...) and the options it had to skip ("mangohud"...), as
+// wine_runner::Plan has them. Empty after it was taken; always empty on Windows.
+#include <string>
+#include <vector>
+struct LaunchProblems { std::string error; std::vector<std::string> missing; };
+LaunchProblems takeLaunchProblems();

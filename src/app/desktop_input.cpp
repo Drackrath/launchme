@@ -1165,6 +1165,12 @@ void Launcher::desktopOpenGameMenu(float x, float y, bool keyboard) {
         if (launchEditable(game)) // A game added by hand: the file, name and options are its own editor.
             items.push_back({Action::launch_options, game.source == GameSource::custom ? tr(L"Edytuj grę…") : tr(L"Opcje uruchamiania…"), {}, glyph::settings});
         if (compatGame(game) && !gameKey(game).empty()) items.push_back({Action::compat_options, L"Proton / Wine…", {}, glyph::settings});
+        // Skróty ▸ Pulpit, Menu Start (menu aplikacji), Steam: the game started through Launchme from outside it.
+        if (shortcutAvailable(game, ShortcutPlace::desktop) || shortcutAvailable(game, ShortcutPlace::menu) || shortcutAvailable(game, ShortcutPlace::steam)) {
+            MenuItem shortcuts{Action::shortcuts, tr(L"Skróty"), {}, glyph::open};
+            shortcuts.submenu = true;
+            items.push_back(std::move(shortcuts));
+        }
         if (!gameFolder(game).empty()) items.push_back({Action::folder, tr(L"Otwórz folder gry"), {}, glyph::folder_open});
         const auto plugins = pluginContext(game);
         if (!plugins.empty()) separator();
@@ -1218,7 +1224,19 @@ void Launcher::desktopOpenSubmenu(int index) {
     if (!desktop_menu_ || index < 0 || index >= static_cast<int>(desktop_menu_->items.size())) return;
     auto& menu = *desktop_menu_;
     menu.sub_parent = index;
-    menu.sub = desktopCollectionItems(desktopGamesOf(menu.games));
+    if (menu.items[static_cast<size_t>(index)].action == Action::shortcuts) {
+        menu.sub.clear();
+        const auto games = desktopGamesOf(menu.games);
+        if (!games.empty())
+            for (const auto place : {ShortcutPlace::desktop, ShortcutPlace::menu, ShortcutPlace::steam}) {
+                if (!shortcutAvailable(games.front(), place)) continue;
+                MenuItem item{Action::shortcut_toggle, shortcutPlaceName(place), {},
+                              place == ShortcutPlace::desktop ? glyph::tv : place == ShortcutPlace::menu ? glyph::library : glyph::game};
+                item.value = static_cast<int>(place);
+                item.checked = hasShortcut(games.front(), place);
+                menu.sub.push_back(std::move(item));
+            }
+    } else menu.sub = desktopCollectionItems(desktopGamesOf(menu.games));
     menu.sub_hover = menu.keyboard ? stepItem(menu.sub, -1, 1) : -1;
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
@@ -1410,6 +1428,8 @@ void Launcher::desktopMenuPick(const desktop_ui::MenuItem& item, bool /*from_sub
     case Action::steam_account: if (game) cycleSteamAccount(*game); return;
     case Action::launch_options: if (game) openLaunchEditor(*game); return;
     case Action::compat_options: if (game) openGameCompatSettings(*game); return;
+    case Action::shortcuts: return; // Its submenu.
+    case Action::shortcut_toggle: if (game) setShortcut(*game, static_cast<ShortcutPlace>(item.value), !item.checked); return;
     case Action::folder:
         if (game) if (const auto folder = gameFolder(*game); !folder.empty())
             if (execute_(hwnd_, GameAction{folder.wstring(), {}, {}, ActionKind::open_client}) <= 32)

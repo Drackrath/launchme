@@ -5,6 +5,9 @@
 #include "../library/steam.hpp"
 #include "../platform/file_listing.hpp"
 #include "../platform/file_dialog.hpp"
+#ifndef _WIN32
+#include "../linux/window/window_system.hpp"
+#endif
 
 #include <algorithm>
 #include <cwctype>
@@ -53,9 +56,17 @@ void Launcher::openFileBrowser(Request request, std::function<void(const std::fi
             pickPath(hwnd_, request.mode == file_browser::Mode::folder, request.title, request.extensions, request.filter_label,
                      request.all_files_option, initial);
         mouse_transition_until_ = GetTickCount64() + GetDoubleClickTime(); // Its closing click stays in the dialog.
-        if (!picked.empty() && done) done(picked);
-        InvalidateRect(hwnd_, nullptr, FALSE);
-        return;
+#ifndef _WIN32
+        // No desktop dialog here (no portal, Zenity or KDialog: a minimal desktop, Steam's Game Mode):
+        // Launchme's own browser below.
+        if (picked.empty() && lm_window::fileDialogUnavailable()) request.native = nullptr;
+        else
+#endif
+        {
+            if (!picked.empty() && done) done(picked);
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            return;
+        }
     }
     auto& ui = file_browser_;
     const bool show_hidden = ui.show_hidden; // Kept for the session, like Explorer's view setting.

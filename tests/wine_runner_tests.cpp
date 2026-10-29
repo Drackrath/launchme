@@ -180,6 +180,10 @@ void protonPlans() {
           variable(plan, "WINEPREFIX") == "/pfx/borderlands-3" && variable(plan, "STEAM_COMPAT_APP_ID") == "0" &&
           variable(plan, "SteamGameId") == "launchme-epic-catnip" && !variable(plan, "GAMEID") && !variable(plan, "PROTONPATH"), "proton variables");
     check(plan.proton_prefix, "Proton's pfx link is made before it runs");
+    check(variable(plan, "UMU_ID") == "umu-397540" && variable(plan, "STORE") == "egs", "protonfixes' UMU_ID and STORE without umu-run");
+    request.launch.steam_app_id = 397540;
+    check(!variable(wine_runner::plan(request, context), "UMU_ID"), "a Steam game's protonfixes come from SteamAppId");
+    request.launch.steam_app_id = 0;
     context.steam_game_id = "12345";
     check(!variable(wine_runner::plan(request, context), "SteamGameId"), "Steam's own SteamGameId (Game Mode) kept");
     // umu wanted but not installed: Proton directly.

@@ -805,7 +805,10 @@ public:
     bool startMaximized() const { return desktop_mode_ && settings_.desktop_maximized; }
     // The taskbar's Jump List (src/app/jump_list.cpp): a picked entry's command ("launch:<hex key>",
     // "settings", "tv"), from this process's arguments or a second one (WM_COPYDATA).
+    // "play:<hex key>" (Linux: Launchme's shortcut in Steam) launches it too, and the process that
+    // sent it waits until the game's session ends: finishedPlays() lists those commands once.
     void jumpCommand(const std::wstring& command);
+    std::vector<std::string> finishedPlays();
     // The window's own top bar (WM_NCCALCSIZE, WM_NCHITTEST in main.cpp): client pixels → HTCAPTION
     // over its empty parts, HTMAXBUTTON over maximize (Windows 11 snap layouts), else HTCLIENT.
     LRESULT desktopNonClientHit(int x, int y) const;
@@ -1620,7 +1623,38 @@ private:
     std::wstring compatToolName(const std::string& id) const;
     bool compatSaveOptions(const std::string& key, const std::function<bool(LaunchOptions&)>& change);
     CompatLaunch compatPrefixLaunch(const std::filesystem::path& prefix) const;
+    // Dodaj grę z instalatora: the installer runs in a new prefix named after the game; once it ends
+    // the game's program is picked inside that prefix and added as a game of its own, in it.
+    void compatInstallGame();
+    void compatRunInstaller(const std::filesystem::path& installer);
+    void compatInstallerFinished(const std::filesystem::path& prefix, const std::wstring& name, uint64_t started);
+    // Dodaj do Steam: Launchme's shortcut of the game in Steam (it starts the game through Launchme,
+    // with its options, and lasts as long as the game); its appid, 0 when the game has none.
+    uint32_t compatSteamShortcut(const Game& game) const;
+    void compatSetSteamShortcut(const Game& game, bool add);
+    // A Windows game's Proton or Wine is on this computer (its own, the default, or any found).
+    bool compatToolReady(const Game& game) const;
+    void compatRefreshDatabase(); // umu-database's CSV (protonfixes IDs of store games), once a day.
+    // None is: the newest GE-Proton is downloaded (as from Settings) and the game starts after it.
+    void compatProvision(const Game& game);
 #endif
+    // A game added without the editor (from an installer): saved and in the library; its id, or
+    // empty when the list cannot be saved.
+    std::string addCustomGame(custom_games::Entry entry);
+    // Skróty (src/app/game_links.cpp): the game's shortcut on the desktop, in the Start menu (Linux:
+    // the applications menu) and, on Linux, in Steam. Each starts the game through Launchme, with
+    // its launch options.
+    enum class ShortcutPlace { desktop, menu, steam };
+    bool shortcutAvailable(const Game& game, ShortcutPlace place) const;
+    bool hasShortcut(const Game& game, ShortcutPlace place) const;
+    void setShortcut(const Game& game, ShortcutPlace place, bool add);
+    const wchar_t* shortcutPlaceName(ShortcutPlace place) const;
+    // What shortcuts start: launchme.exe; Linux: the helper script that execs the current Launchme
+    // (written when `create`).
+    std::filesystem::path shortcutProgram(bool create) const;
+    // The game's icon for its shortcuts: its own .exe (Windows), else its cover on a square canvas
+    // (.ico on Windows, PNG on Linux) in <data>/shortcut-icons; empty for none.
+    std::filesystem::path shortcutIcon(const Game& game) const;
     // query: a plugin page's search text (params.query). background: the page's periodic refresh,
     // which neither blocks nor outlives a command picked meanwhile.
     void pluginAction(const plugins::Action& action, const Game& game = {}, bool refresh = false,
@@ -2036,6 +2070,7 @@ private:
     // Every worker thread is owned here; ~Launcher signals them, then joins within a budget.
     BackgroundWork work_;
     std::map<std::string, GameSession> game_sessions_;
+    bool sleep_inhibited_ = false; // A game runs: SetThreadExecutionState keeps the computer and display awake.
     QuickResumeBackend quick_resume_;
     bool frozen_state_readable_ = true; // Never overwrite a journal that failed recovery.
     std::optional<int> exit_prompt_; // Selected exit_prompt::Choice while asking.
@@ -2358,6 +2393,9 @@ private:
         std::string confirm;                     // A destructive row asked to confirm (its key).
         bool steam_target = false;               // Proton downloads also into Steam's compatibilitytools.d.
         Game game;                               // The game whose options page is open.
+        struct Installer { std::filesystem::path prefix, installer; std::wstring name; };
+        std::optional<Installer> installer;      // Dodaj grę z instalatora: the one running.
+        std::string launch_after;                // The game that starts once the download (compatProvision) ends.
     } compat_;
 #endif
     AppSettings settings_;
@@ -2775,6 +2813,10 @@ private:
     void pollJumpList();     // Waiting command run once the library holds its game; the list follows Ostatnio grane.
     std::wstring jump_pending_;
     ULONGLONG jump_pending_since_ = 0, jump_list_checked_ = 0;
+    // "play:" commands whose sender waits for the game (finishedPlays): its key, when it was asked
+    // (0: the game was not found), whether its session has been seen.
+    struct PlayWait { std::wstring command; std::string key; ULONGLONG since = 0; bool seen = false; };
+    std::vector<PlayWait> play_waits_;
     std::string jump_list_signature_;
     bool desktopOwnInstall(const Game& game) const; // GOG/Epic installed by the launcher: Anuluj opens its dialog.
     bool desktopStoreKey(WPARAM key); // Sklep: arrows walk the results, Enter, Esc; typing stays with the field.

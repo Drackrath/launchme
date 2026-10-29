@@ -88,7 +88,9 @@ enum class Id { font, home_layout, ui_accent, accent, uninstalled, emulation, co
                    // A game's (or the default) Wine/Proton options: the accordion's sections (Control::fold,
                    // Row::key the section's id), an option (Row::key its catalog id), WINEDLLOVERRIDES
                    // presets (Row::key their DLLs), environment variables (Row::key the index).
-                   launch_scope, launch_fold, launch_option, launch_dll, launch_env, launch_env_add, launch_env_preset, launch_edit_game };
+                   launch_scope, launch_fold, launch_option, launch_dll, launch_env, launch_env_add, launch_env_preset, launch_edit_game,
+                   // Zgodność: a game from a Windows installer; a game's shortcuts in Steam, on the desktop, in the menu.
+                   compat_install_game, launch_steam, launch_shortcut_desktop, launch_shortcut_menu, launch_log };
 inline bool hasOptionsButton(Id id) { return id == Id::plugin_enabled || id == Id::pc_platform; }
 // layout: drawn preview tiles in the row (one per home layout); Row::choice is the active one.
 // count: Row::value as a large number with a chevron; activating opens a sub-list.

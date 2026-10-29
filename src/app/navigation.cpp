@@ -11,6 +11,10 @@
 #include "../ui/quick_menu.hpp"
 #include "../ui/category_rail.hpp"
 #include "../ui/empty_library.hpp"
+#ifndef _WIN32
+#include "../model/launch_options_catalog.hpp"
+#include "../platform/wine_runner.hpp"
+#endif
 
 #include <algorithm>
 
@@ -1020,6 +1024,10 @@ void Launcher::launchGame(const Game& original, bool via_steam) {
                               std::wstring(tr(L"Sprawdź konfigurację ")) + sourceName(active.source));
         return;
     }
+#ifndef _WIN32
+    // A Windows game and no Proton or Wine on this computer: GE-Proton is downloaded, then it starts.
+    if (action.kind == ActionKind::play && compatGame(active) && !compatToolReady(active)) { dismissMenu(); compatProvision(active); return; }
+#endif
     // A Steam game another remembered account installed: Steam restarts signed in to it first.
     if (action.kind == ActionKind::play && !beginSteamAccountSwitch(active)) return;
     if (settings_.launch_animation && action.kind == ActionKind::play) startLaunchAnimation(active);
@@ -1058,6 +1066,13 @@ void Launcher::finishLaunch() {
             if (const HANDLE created = launchJob(process)) job = ownLaunchJob(created);
         closeLaunchedProcess(process);
     }
+    // Linux: why umu/Proton/Wine could not start it, and the options it went without.
+    [[maybe_unused]] const auto problems = execute_ == executeGameAction ? takeLaunchProblems() : LaunchProblems{};
+    std::wstring skipped;
+#ifndef _WIN32
+    for (const auto& code : problems.missing)
+        if (const auto* text = launch_options_catalog::text(wine_runner::problemText(code)); text && *text) skipped += (skipped.empty() ? L"" : L"; ") + std::wstring(text);
+#endif
     if (result <= 32) {
         stopLaunchAnimation();
         if (!anyActiveSession()) audio_.resumeMusic();
@@ -1066,7 +1081,11 @@ void Launcher::finishLaunch() {
         const auto title = action.kind == ActionKind::open_client ? tr(L"Nie udało się otworzyć klienta") :
                            action.kind == ActionKind::install ? tr(L"Nie udało się rozpocząć instalacji") : tr(L"Nie udało się uruchomić gry");
         std::wstring detail;
-        if (result == launch_error::no_handler && !file)
+#ifndef _WIN32
+        if (!problems.error.empty()) detail = launch_options_catalog::text(wine_runner::problemText(problems.error));
+#endif
+        if (!detail.empty()) {} // umu/Proton/Wine's own reason ("No Proton or Wine…").
+        else if (result == launch_error::no_handler && !file)
             detail = std::wstring(sourceName(pending_game_.source)) + L": " + tr(L"klient nie jest zainstalowany");
         else if ((result == launch_error::file_missing || result == launch_error::path_missing) && file)
             detail = std::wstring(tr(L"Brak pliku: ")) + action.target;
@@ -1078,7 +1097,8 @@ void Launcher::finishLaunch() {
     } else if (action.kind == ActionKind::play) {
         // Silent Steam: nobody else may take the foreground, so wait longer for the game's window.
         beginGameSession(pending_game_, action.keep_focus ? silent_focus_ms : default_focus_ms, std::move(job));
-        showNotification(NotificationKind::launch, pending_game_.name, tr(L"Uruchamianie…")); // Clients and updates can take a while.
+        // Clients and updates can take a while. An option whose program is missing is named.
+        showNotification(NotificationKind::launch, pending_game_.name, skipped.empty() ? std::wstring(tr(L"Uruchamianie…")) : tr(L"Uruchamianie bez: ") + skipped);
         if (settings_.quick_resume) freezeOthers(gameKey(pending_game_));
         // On return the started game waits at the front of Recent, focused; under the
         // cover animation the view behind it changes only when the animation ends.

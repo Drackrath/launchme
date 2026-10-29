@@ -307,6 +307,7 @@ void Launcher::settingsActivate() {
     const auto row = settings_rows_[settings_state_.row()];
 #ifndef _WIN32
     if (compatSettingsActivate(row)) return; // Proton i Wine and its pages (compat_settings.cpp).
+    if (row.id == Id::compat_install_game) { compatInstallGame(); return; } // Also on Gry dodane ręcznie.
 #endif
     if (row.id == Id::aurelia) { toggleAurelia(); return; }
     if (row.id == Id::aurelia_open) { openAurelia(); return; }

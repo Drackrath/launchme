@@ -85,6 +85,7 @@ set(LAUNCHME_APP_SOURCES
     src/app/desktop_input.cpp
     src/app/desktop_window.cpp
     src/app/jump_list.cpp
+    src/app/game_links.cpp
     src/app/desktop_quick.cpp
     src/app/desktop_metadata.cpp
     src/app/desktop_text.cpp
@@ -296,6 +297,7 @@ set(LAUNCHME_APP_SOURCES
     src/platform/helper_process.cpp
     src/platform/file_dialog.cpp
     src/platform/file_listing.cpp
+    src/platform/game_shortcuts.cpp
     src/platform/performance.cpp
     src/platform/memory_usage.cpp
     src/platform/frame_clock.cpp

@@ -357,6 +357,12 @@ Plan plan(const Request& request, const Context& context) {
         add(env, "SteamAppId", launch.steam_app_id ? std::to_string(launch.steam_app_id) : std::string("0"));
         // PROTON_LOG names its file after SteamGameId; Steam's own (Game Mode) is kept.
         if (context.steam_game_id.empty()) add(env, "SteamGameId", "launchme-" + name);
+        // GE-Proton and UMU-Proton bring protonfixes: without umu-run they find a non-Steam game's
+        // fixes by UMU_ID (umu-database's ID) and STORE, as umu-run passes them.
+        if (!launch.steam_app_id) {
+            add(env, "UMU_ID", context.game_id.empty() ? std::string("umu-default") : context.game_id);
+            if (!launch.store.empty()) add(env, "STORE", launch.store);
+        }
         if (!install_path.empty()) add(env, "STEAM_COMPAT_INSTALL_PATH", install_path.string());
         break;
     case Runner::wine:

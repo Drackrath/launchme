@@ -19,6 +19,7 @@
 #include <optional>
 #include <string>
 #include <unistd.h>
+#include <utility>
 #include <vector>
 #endif
 
@@ -41,6 +42,7 @@ std::wstring systemPowerShell() {
 }
 #else
 thread_local HANDLE launched_process = 0;
+thread_local LaunchProblems launch_problems;
 
 std::string utf8(const std::wstring& value) { return text_encoding::utf8Lenient(value); }
 
@@ -134,6 +136,7 @@ INT_PTR startWindowsProgram(const GameAction& action, const std::filesystem::pat
     if (action.kind != ActionKind::play) request.purpose = wine_runner::Purpose::tool; // Installers and clients: no wrappers.
     request = wine_runner::resolveShortcut(std::move(request));
     const auto plan = wine_runner::plan(request, wine_runner::context(request.launch));
+    launch_problems = {plan.error, plan.missing};
     if (!plan.error.empty()) return launch_error::no_handler; // No Proton, Wine or umu-launcher installed.
     pid_t process = 0;
     const int error = wine_runner::start(plan, process);
@@ -142,6 +145,14 @@ INT_PTR startWindowsProgram(const GameAction& action, const std::filesystem::pat
     launched_process = process;
     return 33;
 }
+#endif
+}
+
+LaunchProblems takeLaunchProblems() {
+#ifdef _WIN32
+    return {};
+#else
+    return std::exchange(launch_problems, LaunchProblems{});
 #endif
 }
 

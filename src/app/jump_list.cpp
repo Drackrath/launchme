@@ -71,6 +71,23 @@ void Launcher::jumpCommand(const std::wstring& command) {
     pollJumpList();
 }
 
+// A "play:" game's session ended (or it never started: not found, not launched in 15 s).
+std::vector<std::string> Launcher::finishedPlays() {
+    std::vector<std::string> finished;
+    if (play_waits_.empty()) return finished;
+    const auto now = GetTickCount64();
+    for (auto wait = play_waits_.begin(); wait != play_waits_.end();) {
+        const bool running = game_sessions_.contains(wait->key);
+        if (running) wait->seen = true;
+        const bool starting = (pending_launch_ && gameKey(pending_game_) == wait->key) || launchAnimationActive();
+        if ((wait->seen && !running) || (!wait->seen && !running && !starting && now - wait->since > 15000)) {
+            finished.push_back(text_encoding::utf8Lenient(wait->command));
+            wait = play_waits_.erase(wait);
+        } else ++wait;
+    }
+    return finished;
+}
+
 void Launcher::pollJumpList() {
     if (!hwnd_ || closing_) return;
     const auto now = GetTickCount64();
@@ -79,13 +96,21 @@ void Launcher::pollJumpList() {
         const auto command = jump_pending_;
         if (command == L"settings") { jump_pending_.clear(); if (!settingsOpen()) openSettings(); }
         else if (command == L"tv") { jump_pending_.clear(); if (desktop_mode_) setDesktopMode(false); }
-        else if (command.starts_with(L"launch:")) {
-            const auto key = bytesOf(std::wstring_view(command).substr(7));
+        else if (command.starts_with(L"launch:") || command.starts_with(L"play:")) {
+            const bool play = command.starts_with(L"play:");
+            const auto key = bytesOf(std::wstring_view(command).substr(play ? 5 : 7));
             const Game* found = nullptr;
             for (const auto* games : {&public_library_, &private_category_.games})
                 for (const auto& game : *games) if (!found && gameKey(game) == key) found = &game;
-            if (found) { jump_pending_.clear(); const auto game = *found; launchGame(game); }
-            else if (key.empty() || now - jump_pending_since_ > 60000) jump_pending_.clear();
+            if (found) {
+                jump_pending_.clear();
+                const auto game = *found;
+                if (play) play_waits_.push_back({command, key, now, false});
+                launchGame(game);
+            } else if (key.empty() || now - jump_pending_since_ > 60000) {
+                jump_pending_.clear();
+                if (play) play_waits_.push_back({command, key, 0, false}); // Its sender stops waiting.
+            }
         } else jump_pending_.clear();
     }
 #ifndef _WIN32

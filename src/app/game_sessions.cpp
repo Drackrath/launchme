@@ -345,6 +345,14 @@ void Launcher::onGameActivity(std::unique_ptr<GameActivityMessage> message) {
     // that simply keeps running costs no repaint of the launcher behind it.
     invalidateGameOverlay(); // Live playtime comparisons while the Guide drawer is visible.
     applyGameFocus(*message);
+    // While a game runs (not suspended) the computer neither sleeps nor blanks its screen: a pad's
+    // input is not the system's idle input.
+    const bool playing = std::any_of(game_sessions_.begin(), game_sessions_.end(),
+                                     [](const auto& entry) { return entry.second.running() && !entry.second.frozen(); });
+    if (playing != sleep_inhibited_) {
+        sleep_inhibited_ = playing;
+        SetThreadExecutionState(playing ? ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED : ES_CONTINUOUS);
+    }
     if (state_changed || !finished.empty() || history_changed) InvalidateRect(hwnd_, nullptr, FALSE);
     if (finished.empty()) return;
     // The started game ended (or never came): its picture, resting behind it, goes with it.

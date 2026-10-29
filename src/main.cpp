@@ -631,6 +631,12 @@ public:
             [[maybe_unused]] const auto written = ::write(stop_, &one, sizeof(one));
             thread_.join();
         }
+        {
+            // Senders still waiting for a game (play:) see the connection close and end too.
+            std::lock_guard guard(waiting_mutex_);
+            for (const auto& [command, clients] : waiting_) for (const int client : clients) ::close(client);
+            waiting_.clear();
+        }
         if (listener_ >= 0) { ::close(listener_); ::unlink(socket_path_.c_str()); }
         if (stop_ >= 0) ::close(stop_);
         if (lock_ >= 0) ::close(lock_); // Releases the lock; the file stays for the next start.
@@ -675,10 +681,20 @@ public:
         }
         thread_ = std::thread([this] { answer(); });
     }
+    // A play: command's game ended: its senders get "2" and their connection closes.
+    void finish(const std::string& command) {
+        std::lock_guard guard(waiting_mutex_);
+        const auto found = waiting_.find(command);
+        if (found == waiting_.end()) return;
+        for (const int client : found->second) { ::send(client, "2", 1, MSG_NOSIGNAL); ::close(client); }
+        waiting_.erase(found);
+    }
 private:
     std::filesystem::path lock_path_, socket_path_;
     int lock_ = -1, listener_ = -1, stop_ = -1;
     std::thread thread_;
+    std::mutex waiting_mutex_;
+    std::map<std::string, std::vector<int>> waiting_; // play: commands → their senders' connections.
 
     bool lock() {
         const int file = ::open(lock_path_.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
@@ -704,6 +720,12 @@ private:
             ::shutdown(connection, SHUT_WR);
             char reply = 0;
             accepted = ::recv(connection, &reply, 1, 0) == 1 && reply == '1';
+            // Started by Steam (play:): this process lasts as long as the game, so Steam sees it play.
+            if (accepted && command.starts_with("play:")) {
+                const timeval forever{0, 0};
+                ::setsockopt(connection, SOL_SOCKET, SO_RCVTIMEO, &forever, sizeof(forever));
+                while (::recv(connection, &reply, 1, 0) < 0 && errno == EINTR) {}
+            }
         }
         ::close(connection);
         return accepted;
@@ -741,6 +763,11 @@ private:
                 accepted = result.wait_for(std::chrono::seconds(2)) == std::future_status::ready && result.get();
             }
             ::send(client, accepted ? "1" : "0", 1, MSG_NOSIGNAL);
+            if (accepted && text.starts_with("play:")) { // Kept until the game ends (finish).
+                std::lock_guard guard(waiting_mutex_);
+                waiting_[text].push_back(client);
+                continue;
+            }
             ::close(client);
         }
     }
@@ -834,6 +861,8 @@ int main(int argc, char** argv) {
     ShowWindow(hwnd, start_minimized ? SW_SHOWMINNOACTIVE : launcher && launcher->startMaximized() ? SW_SHOWMAXIMIZED : SW_SHOW);
     UpdateWindow(hwnd);
     if (auto* app = reinterpret_cast<Launcher*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA)); app && !jump.empty()) app->jumpCommand(jump);
+    // Started by Launchme's shortcut in Steam (--jump=play:): it ends with its game, as Steam expects.
+    const std::string own_play = jump.starts_with(L"play:") ? text_encoding::utf8Lenient(jump) : std::string{};
     MSG message{};
     FrameClock frame_clock;
     bool running = true;
@@ -842,6 +871,12 @@ int main(int argc, char** argv) {
             if (message.message == WM_QUIT) { running = false; break; }
             TranslateMessage(&message); DispatchMessageW(&message);
         }
+        if (!running) break;
+        if (auto* app = reinterpret_cast<Launcher*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA)))
+            for (const auto& command : app->finishedPlays()) {
+                instance.finish(command); // A second start from Steam waiting for this game.
+                if (command == own_play) { SendMessageW(hwnd, WM_QUERYENDSESSION, 0, 0); SendMessageW(hwnd, WM_ENDSESSION, TRUE, 0); running = false; }
+            }
         if (!running) break;
         auto* active = reinterpret_cast<Launcher*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
         // Nobody watches a switched-off display; the screensaver's slow pans need no 144 Hz.

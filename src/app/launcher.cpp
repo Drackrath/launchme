@@ -293,6 +293,10 @@ bool Launcher::initialize(HWND hwnd) {
     companionRemoteSync(); // Phone access, when switched on.
     restoreFrozenGames();
     initializeUpdates(); // The previous update's old files away, its changes shown once; then a look for a newer one.
+#ifndef _WIN32
+    shortcutProgram(false); // The shortcuts' helper follows Launchme when it moved (a new AppImage).
+    compatRefreshDatabase();
+#endif
     if (desktop_mode_) { applyWindowMode(); buildDesktopSidebar(); } // The window's style and place; ShowWindow follows in main.cpp.
     if (!settings_.tour_done && !settings_.aurelia_intro_done) openAurelia(nullptr, true);
     else if (!desktop_mode_ && !settings_.tour_done) startTour(); // First start: the walkthrough over the loading home screen.

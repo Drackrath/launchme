@@ -97,7 +97,9 @@ enum class Action {
     versions, artwork, retry_art, missing_art, identify, folder, hide, exclude, plugin, sort, section_rename, section_games,
     section_options, section_delete, section_up, section_down, section_tv, section_hide, clear_marks, select_all, store_page, downloads, metadata, companion_change, companion_mind,
     companion_settings, uninstall, launch_options, aurelia, steam_account, remove_game,
-    compat_options // Linux: the game's Proton / Wine options (Launcher::openGameCompatSettings).
+    compat_options, // Linux: the game's Proton / Wine options (Launcher::openGameCompatSettings).
+    shortcuts,      // Skróty ▸: the game's shortcuts outside Launchme (Launcher::setGameShortcut).
+    shortcut_toggle // One of them (value: ShortcutPlace), checked when it exists.
 };
 struct MenuItem {
     Action action = Action::none;

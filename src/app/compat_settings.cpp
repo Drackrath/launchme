@@ -7,14 +7,27 @@
 #include "launcher.hpp"
 
 #ifndef _WIN32
+#include "../artwork/cover_cache.hpp"
+#include "../library/shortcuts.hpp"
+#include "../library/steam_accounts.hpp"
+#include "../library/xdg_paths.hpp"
 #include "../model/launch_options_catalog.hpp"
+#include "../platform/process_spawn.hpp"
+#include "../platform/system.hpp"
 #include "../platform/text_encoding.hpp"
+#include "../platform/updater.hpp"
 #include "../platform/wine_runner.hpp"
+
+#include <sys/wait.h>
 
 #include <algorithm>
 #include <cerrno>
+#include <chrono>
 #include <cstring>
+#include <ctime>
+#include <cwchar>
 #include <cwctype>
+#include <fstream>
 #endif
 
 using namespace settings_ui;
@@ -95,6 +108,107 @@ constexpr Fold folds[] = {
     {"gamescope", catalog::Section::gamescope, L"Gamescope", trKey(L"Rozdzielczość, skalowanie i limit klatek gamescope.")},
     {"game", catalog::Section::game, trKey(L"Zmienne i argumenty"), trKey(L"Zmienne środowiska, argumenty, folder roboczy i skrypty.")},
 };
+
+// A game's name from its installer's ("setup_the_witcher_3_wild_hunt_4.04_(64bit)_(62548).exe" →
+// "The Witcher 3 Wild Hunt"): setup/installer words, versions and bracketed parts left out.
+std::wstring installerName(const std::filesystem::path& installer) {
+    std::wstring stem = installer.stem().wstring();
+    std::vector<std::wstring> words;
+    std::wstring word;
+    const auto flush = [&] {
+        std::wstring lower = word;
+        for (auto& ch : lower) ch = static_cast<wchar_t>(std::towlower(ch));
+        // "SteamSetup", "GameInstaller": the word without its setup part.
+        for (const std::wstring_view part : {std::wstring_view(L"installer"), std::wstring_view(L"setup")}) {
+            if (lower.size() > part.size() && lower.ends_with(part)) { word.resize(word.size() - part.size()); lower.resize(lower.size() - part.size()); }
+            else if (lower.size() > part.size() && lower.starts_with(part)) { word.erase(0, part.size()); lower.erase(0, part.size()); }
+        }
+        static constexpr std::wstring_view noise_words[] = {L"setup", L"installer", L"install", L"x64", L"x86", L"win64", L"win32", L"gog",
+                                                            L"repack", L"64bit", L"32bit"};
+        const bool noise = lower.empty() || std::find(std::begin(noise_words), std::end(noise_words), lower) != std::end(noise_words);
+        const bool version = !lower.empty() && (lower.front() == L'(' || lower.find(L'.') != std::wstring::npos ||
+                                                (lower.front() == L'v' && lower.size() > 1 && std::iswdigit(lower[1])) ||
+                                                (lower.size() >= 4 && std::all_of(lower.begin(), lower.end(), [](wchar_t ch) { return std::iswdigit(ch); })));
+        if (!noise && !version) {
+            if (!word.empty()) word[0] = static_cast<wchar_t>(std::towupper(word[0]));
+            words.push_back(word);
+        }
+        word.clear();
+    };
+    for (const wchar_t ch : stem) {
+        if (ch == L'_' || ch == L' ' || ch == L'-') flush();
+        else word += ch;
+    }
+    flush();
+    std::wstring name;
+    for (const auto& item : words) name += (name.empty() ? L"" : L" ") + item;
+    return name.empty() ? stem : name;
+}
+
+// Wine's own programs in a prefix (wordpad.exe, iexplore.exe...): its builtin and placeholder files
+// carry the mark right after the DOS header.
+bool wineStub(const std::filesystem::path& file) {
+    std::ifstream in(file, std::ios::binary);
+    char head[128]{};
+    in.read(head, sizeof head);
+    const std::string_view bytes(head, static_cast<size_t>(in.gcount()));
+    return bytes.find("Wine builtin DLL") != std::string_view::npos || bytes.find("Wine placeholder DLL") != std::string_view::npos;
+}
+
+// The program an installer most likely put in the prefix: the largest .exe written since it started,
+// no uninstaller, setup, redistributable, crash reporter or Wine's own program; empty when none.
+std::filesystem::path installedProgram(const std::filesystem::path& prefix, uint64_t started) {
+    const auto drive = prefix / L"drive_c";
+    std::filesystem::path best;
+    uintmax_t best_size = 0;
+    // What a new prefix brings itself.
+    static constexpr std::wstring_view system_folders[] = {L"common files", L"internet explorer", L"windows media player", L"windows nt",
+                                                           L"windows defender", L"microsoft.net", L"windowspowershell", L"temp", L"public"};
+    for (const auto* folder : {L"Program Files", L"Program Files (x86)", L"GOG Games", L"Games", L"users"}) {
+        std::error_code ec;
+        std::filesystem::recursive_directory_iterator it(drive / folder, std::filesystem::directory_options::skip_permission_denied, ec), end;
+        for (int count = 0; !ec && it != end && count < 20000; it.increment(ec), ++count) {
+            if (it.depth() > 5) { it.disable_recursion_pending(); continue; }
+            std::error_code type;
+            if (it.depth() == 0 && it->is_directory(type)) {
+                auto name = it->path().filename().wstring();
+                for (auto& ch : name) ch = static_cast<wchar_t>(std::towlower(ch));
+                if (std::find(std::begin(system_folders), std::end(system_folders), name) != std::end(system_folders)) {
+                    it.disable_recursion_pending();
+                    continue;
+                }
+            }
+            if (!it->is_regular_file(type) || it->is_symlink(type)) continue;
+            auto extension = it->path().extension().wstring();
+            for (auto& ch : extension) ch = static_cast<wchar_t>(std::towlower(ch));
+            if (extension != L".exe") continue;
+            auto name = it->path().filename().wstring();
+            for (auto& ch : name) ch = static_cast<wchar_t>(std::towlower(ch));
+            if (name.starts_with(L"unins") || name.find(L"setup") != std::wstring::npos || name.find(L"redist") != std::wstring::npos ||
+                name.find(L"crash") != std::wstring::npos || name.find(L"install") != std::wstring::npos || name.find(L"update") != std::wstring::npos)
+                continue;
+            const auto changed = std::filesystem::last_write_time(it->path(), type);
+            const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::file_clock::to_sys(changed).time_since_epoch()).count();
+            if (type || seconds + 120 < static_cast<int64_t>(started)) continue;
+            const auto size = it->file_size(type);
+            if (!type && size > best_size && !wineStub(it->path())) { best_size = size; best = it->path(); }
+        }
+    }
+    return best;
+}
+
+std::wstring hexKey(const std::string& key) {
+    static constexpr wchar_t digits[] = L"0123456789abcdef";
+    std::wstring text;
+    for (const unsigned char c : key) { text += digits[c >> 4]; text += digits[c & 15]; }
+    return text;
+}
+// The shortcut's launch options: they identify Launchme's shortcut of the game (--jump=play:, main.cpp).
+std::wstring playOptions(const Game& game) { return L"--jump=play:" + hexKey(gameKey(game)); }
+std::filesystem::path shortcutsFile() {
+    const auto config = steam_shortcuts::configFolder(findSteamRoot());
+    return config.empty() ? config : config / L"shortcuts.vdf";
+}
 
 constexpr std::pair<const char*, const wchar_t*> wine_programs[] = {
     {"winecfg", trKey(L"Konfiguracja Wine (winecfg)")},
@@ -255,6 +369,7 @@ void Launcher::compatInstall(const compat_tools::Release& release) {
             });
         post([result, release](Launcher& app) {
             app.compat_.install.reset();
+            const auto waiting = std::exchange(app.compat_.launch_after, std::string{});
             if (result.error == compat_tools::Error::none) {
                 app.compat_.status.clear();
                 app.showNotification(NotificationKind::download, release.name, tr(L"Zainstalowano"));
@@ -264,8 +379,55 @@ void Launcher::compatInstall(const compat_tools::Release& release) {
             }
             app.compatLoadTools();
             if (app.settingsOpen() && app.compatSettingsPage()) app.buildSettingsRows();
+            // The game that was waiting for it (compatProvision) starts now.
+            if (result.error == compat_tools::Error::none && !waiting.empty())
+                for (const auto* games : {&app.public_library_, &app.private_category_.games})
+                    for (const auto& game : *games)
+                        if (gameKey(game) == waiting) { const auto copy = game; app.launchGame(copy); return; }
         });
     })) compat_.install.reset();
+}
+
+void Launcher::compatRefreshDatabase() {
+    // umu-database: store games' protonfixes IDs (GAMEID / UMU_ID), fetched at most once a day.
+    work_.start([] { compat_tools::refreshUmuDatabase(compat_tools::systemRoots().config); });
+}
+
+bool Launcher::compatToolReady(const Game& game) const {
+    const auto launch = store::compatLaunch(game);
+    return compat_tools::resolve(compat_tools::discover(), launch ? launch->options.compat_tool : std::string("default")).has_value();
+}
+
+void Launcher::compatProvision(const Game& game) {
+    const auto key = gameKey(game);
+    if (compat_.install) { // A download is on already: the game starts after it.
+        compat_.launch_after = key;
+        showNotification(NotificationKind::download, game.name, tr(L"Gra uruchomi się po zakończeniu pobierania."));
+        return;
+    }
+    const auto* source = compat_tools::findSource("ge-proton");
+    if (!source) return;
+    compat_.launch_after = key;
+    showNotification(NotificationKind::download, tr(L"Pobieranie GE-Proton"),
+                     game.name + L" · " + tr(L"To gra Windows: najpierw Proton, potem gra uruchomi się sama."));
+    const auto alive = alive_; const auto hwnd = hwnd_;
+    if (!work_.start([alive, hwnd, source] {
+        auto list = compat_tools::releases(*source, false);
+        if (!alive->load()) return;
+        auto message = std::make_unique<RemoteMessage>();
+        message->run = [list = std::move(list)](Launcher& app) mutable {
+            app.compat_.releases["ge-proton"] = list;
+            if (list.releases.empty() || app.compat_.launch_after.empty()) {
+                if (!app.compat_.launch_after.empty())
+                    app.showNotification(NotificationKind::error, tr(L"Nie udało się pobrać GE-Proton"),
+                                         tr(L"Sprawdź połączenie albo pobierz Protona w Ustawieniach → Zgodność."));
+                app.compat_.launch_after.clear();
+                return;
+            }
+            app.compatInstall(list.releases.front()); // The newest; its progress is in Ustawienia → Zgodność.
+        };
+        if (PostMessageW(hwnd, remote_message, 0, reinterpret_cast<LPARAM>(message.get()))) message.release();
+    })) compat_.launch_after.clear();
 }
 
 void Launcher::compatMeasure(const std::filesystem::path& prefix) {
@@ -319,7 +481,146 @@ void Launcher::compatPrefixAction(const std::filesystem::path& prefix, const std
         return;
     } else error = wine_runner::runWineProgram(launch, action, pid);
     if (error) { failed(error); return; }
+    process_spawn::reapLater(pid); // Nobody else waits for it.
     showNotification(NotificationKind::launch, title, tr(L"Uruchomiono w prefiksie"));
+}
+
+// ---- A game from its installer -----------------------------------------------------------------------
+
+void Launcher::compatInstallGame() {
+    if (compat_.installer) { showNotification(NotificationKind::launch, compat_.installer->name, tr(L"Instalator już działa")); return; }
+    file_browser::Request request;
+    request.mode = file_browser::Mode::file;
+    request.title = tr(L"Wybierz instalator gry");
+    request.extensions = {L".exe", L".msi"};
+    request.filter_label = tr(L"Instalatory Windows (.exe, .msi)");
+    request.all_files_option = true;
+    const auto home = xdg_paths::home();
+    std::error_code ec;
+    for (const auto* folder : {L"Downloads", L"Pobrane"})
+        if (!home.empty() && std::filesystem::is_directory(home / folder, ec)) { request.initial = home / folder; break; }
+    openFileBrowser(std::move(request), [this](const std::filesystem::path& picked) { if (!picked.empty()) compatRunInstaller(picked); });
+}
+
+void Launcher::compatRunInstaller(const std::filesystem::path& installer) {
+    const auto name = installerName(installer);
+    const auto prefix = store::newPrefix(name, "default");
+    if (prefix.empty()) { showNotification(NotificationKind::error, tr(L"Nie udało się utworzyć prefiksu"), store::prefixRoot().wstring()); return; }
+    compat_.prefixes = store::prefixes();
+    auto launch = compatPrefixLaunch(prefix);
+    launch.title = name;
+    pid_t pid = 0;
+    const uint64_t started = static_cast<uint64_t>(std::time(nullptr));
+    if (const int error = wine_runner::runInPrefix(launch, installer, {}, pid); error) {
+        showNotification(NotificationKind::error, tr(L"Nie udało się uruchomić instalatora"),
+                         error == ENOENT ? std::wstring(tr(L"Brak Protona lub Wine: pobierz go w Ustawieniach → Proton i Wine.")) : wide(std::strerror(error)));
+        return;
+    }
+    compat_.installer = CompatSettings::Installer{prefix, installer, name};
+    showNotification(NotificationKind::download, name, tr(L"Instalator działa w nowym prefiksie. Po instalacji wskażesz plik gry."));
+    if (settingsOpen()) buildSettingsRows();
+    const auto alive = alive_; const auto hwnd = hwnd_;
+    // The runner lasts as long as the installer (and what it starts in the prefix).
+    if (!work_.start([alive, hwnd, pid, prefix, name, started] {
+        int status = 0;
+        while (::waitpid(pid, &status, 0) < 0 && errno == EINTR) {}
+        if (!alive->load()) return;
+        auto message = std::make_unique<RemoteMessage>();
+        message->run = [prefix, name, started](Launcher& app) { app.compatInstallerFinished(prefix, name, started); };
+        if (PostMessageW(hwnd, remote_message, 0, reinterpret_cast<LPARAM>(message.get()))) message.release();
+    })) process_spawn::reapLater(pid);
+}
+
+void Launcher::compatInstallerFinished(const std::filesystem::path& prefix, const std::wstring& name, uint64_t started) {
+    compat_.installer.reset();
+    if (settingsOpen()) buildSettingsRows();
+    // The game's program: the installer's newest program file is offered first.
+    file_browser::Request request;
+    request.mode = file_browser::Mode::file;
+    request.title = tr(L"Wybierz plik gry: ") + name;
+    request.extensions = {L".exe", L".lnk", L".bat"};
+    request.filter_label = tr(L"Programy Windows");
+    request.all_files_option = true;
+    const auto guess = installedProgram(prefix, started);
+    std::error_code ec;
+    // The guess highlighted in its folder: Enter takes it.
+    request.initial = !guess.empty() ? guess : std::filesystem::is_directory(prefix / L"drive_c", ec) ? prefix / L"drive_c" : prefix;
+    openFileBrowser(std::move(request), [this, prefix, name](const std::filesystem::path& picked) {
+        if (picked.empty()) {
+            showNotification(NotificationKind::launch, name, tr(L"Gry nie dodano. Prefiks został na liście prefiksów."));
+            return;
+        }
+        custom_games::Entry entry;
+        entry.name = name;
+        entry.path = picked;
+        const auto id = addCustomGame(entry);
+        if (id.empty()) { showNotification(NotificationKind::error, tr(L"Nie udało się dodać gry"), picked.wstring()); return; }
+        // The game runs in the prefix it was installed into.
+        compatSaveOptions("custom:" + id, [&](LaunchOptions& options) { options.prefix = prefix; return true; });
+        compatLoadTools();
+        showNotification(NotificationKind::download, name, tr(L"Dodano do biblioteki"));
+        openCustomEditor(id); // Its name and artwork, at once.
+    });
+}
+
+// ---- Steam -------------------------------------------------------------------------------------------
+
+uint32_t Launcher::compatSteamShortcut(const Game& game) const {
+    const auto file = shortcutsFile();
+    return file.empty() || gameKey(game).empty() ? 0 : steam_shortcuts::find(file, playOptions(game));
+}
+
+void Launcher::compatSetSteamShortcut(const Game& game, bool add) {
+    const auto file = shortcutsFile();
+    if (file.empty()) { showNotification(NotificationKind::error, tr(L"Nie znaleziono konta Steam"), tr(L"Zaloguj się w Steamie na tym komputerze.")); return; }
+    const bool steam_running = steam_accounts::runningSteamProcess() != 0;
+    const std::wstring restart = steam_running ? std::wstring(tr(L"Uruchom ponownie Steam, aby zobaczyć zmianę.")) : std::wstring{};
+    if (!add) {
+        if (!steam_shortcuts::remove(file, playOptions(game))) { showNotification(NotificationKind::error, tr(L"Nie udało się zmienić skrótów Steam"), file.wstring()); return; }
+        showNotification(NotificationKind::launch, game.name, restart.empty() ? std::wstring(tr(L"Usunięto ze Steam")) : tr(L"Usunięto ze Steam. ") + restart);
+        return;
+    }
+    // Through the helper script (game_shortcuts::helper): a new AppImage elsewhere keeps the shortcut working.
+    auto program = shortcutProgram(true);
+    std::wstring options = playOptions(game);
+    if (program.empty()) {
+        program = updater::appImage().value_or(system_info::executablePath());
+        // A data folder of its own (LAUNCHME_CONFIG_DIR): Steam starts Launchme with it too.
+        if (const auto folder = system_info::environment(L"LAUNCHME_CONFIG_DIR", 4095); folder && !folder->empty())
+            options = L"LAUNCHME_CONFIG_DIR=\"" + *folder + L"\" %command% " + options;
+    }
+    const auto cache = coverCacheDirectory();
+    steam_shortcuts::Shortcut shortcut;
+    shortcut.name = game.name;
+    shortcut.exe = program.wstring();
+    shortcut.start_dir = program.parent_path().wstring();
+    shortcut.launch_options = options;
+    const auto image = [&](ArtworkKind kind) {
+        const auto found = cachedArtworkFile(game, kind, cache);
+        auto extension = found.extension().wstring();
+        for (auto& ch : extension) ch = static_cast<wchar_t>(std::towlower(ch));
+        return extension == L".png" || extension == L".jpg" || extension == L".jpeg" ? found : std::filesystem::path{};
+    };
+    const auto icon = shortcutIcon(game); // Square, as Steam's list shows it.
+    shortcut.icon = (icon.empty() ? image(ArtworkKind::cover) : icon).wstring();
+    const uint32_t id = steam_shortcuts::add(file, shortcut);
+    if (!id) { showNotification(NotificationKind::error, tr(L"Nie udało się zmienić skrótów Steam"), file.wstring()); return; }
+    // Its artwork in Steam: the poster, the wide capsule, the hero and the logo under the shortcut's appid.
+    const auto grid = file.parent_path() / L"grid";
+    std::error_code ec;
+    std::filesystem::create_directories(grid, ec);
+    const auto copy = [&](ArtworkKind kind, const std::wstring& suffix) {
+        const auto source = image(kind);
+        if (source.empty()) return;
+        std::error_code copy_error;
+        std::filesystem::copy_file(source, grid / (std::to_wstring(id) + suffix + source.extension().wstring()),
+                                   std::filesystem::copy_options::overwrite_existing, copy_error);
+    };
+    copy(cachedArtworkFile(game, ArtworkKind::poster, cache).empty() ? ArtworkKind::cover : ArtworkKind::poster, L"p");
+    copy(ArtworkKind::landscape, L"");
+    copy(ArtworkKind::hero, L"_hero");
+    copy(ArtworkKind::logo, L"_logo");
+    showNotification(NotificationKind::download, game.name, restart.empty() ? std::wstring(tr(L"Dodano do Steam")) : tr(L"Dodano do Steam. ") + restart);
 }
 
 // ---- Rows ------------------------------------------------------------------------------------------
@@ -353,6 +654,15 @@ void Launcher::compatSettingsRows() {
     };
     switch (frame->page) {
     case Page::compat: {
+        section(tr(L"Gry"));
+        {
+            Row row{Id::compat_install_game, Control::action, tr(L"Dodaj grę z instalatora"),
+                compat_.installer ? tr(L"Instalowanie: ") + compat_.installer->name + L" · " + compat_.installer->prefix.wstring() :
+                                    std::wstring(tr(L"Instalator Windows (.exe, .msi) w nowym prefiksie; potem wskazujesz plik gry.")),
+                compat_.installer ? tr(L"Instalowanie…") : tr(L"Wybierz…")};
+            row.locked = compat_.installer.has_value();
+            add(std::move(row));
+        }
         section(tr(L"Domyślnie"));
         {
             Row row{Id::compat_default_tool, Control::choice, tr(L"Wersja Protona / Wine"),
@@ -581,6 +891,16 @@ void Launcher::compatSettingsRows() {
             add(std::move(scope));
             if (launchEditable(compat_.game))
                 add({Id::launch_edit_game, Control::action, tr(L"Plik gry i argumenty"), tr(L"Program, który się uruchamia, jego argumenty i folder."), tr(L"Edytuj")});
+            // The runner's output of the last start: what to look at (or send) when it does not start.
+            std::filesystem::path log;
+            if (const auto launch = store::compatLaunch(compat_.game))
+                for (const auto& file : wine_runner::logFiles(*launch))
+                    if (std::error_code ec; std::filesystem::is_regular_file(file, ec)) { log = file; break; }
+            Row log_row{Id::launch_log, Control::action, tr(L"Dziennik ostatniego uruchomienia"),
+                        tr(L"Wyjście Wine/Protona tej gry: przydaje się, gdy gra nie startuje."), log.empty() ? tr(L"Jeszcze nie uruchomiono") : tr(L"Otwórz")};
+            log_row.locked = log.empty();
+            log_row.key = text_encoding::utf8Lenient(log.wstring());
+            add(std::move(log_row));
         }
         const LaunchOptions plain;
         for (const auto& fold : folds) {
@@ -706,6 +1026,27 @@ void Launcher::compatSettingsRows() {
                 nested(std::move(row));
             }
         }
+        // Skróty: the game started through Launchme, with these options, from outside it.
+        if (game) {
+            section(tr(L"Skróty"));
+            if (shortcutAvailable(compat_.game, ShortcutPlace::steam)) {
+                const bool in_steam = hasShortcut(compat_.game, ShortcutPlace::steam);
+                add({Id::launch_steam, Control::action, L"Steam",
+                     in_steam ? std::wstring(tr(L"Gra jest w bibliotece Steam: Steam uruchamia ją przez Launchme, z tymi opcjami.")) :
+                                std::wstring(tr(L"Skrót w bibliotece Steam (także w trybie gry na Steam Decku), z grafikami; gra startuje przez Launchme.")),
+                     in_steam ? tr(L"Usuń ze Steam") : tr(L"Dodaj do Steam")});
+            }
+            if (shortcutAvailable(compat_.game, ShortcutPlace::desktop)) {
+                const bool there = hasShortcut(compat_.game, ShortcutPlace::desktop);
+                add({Id::launch_shortcut_desktop, Control::action, tr(L"Skrót na pulpicie"),
+                     tr(L"Ikona gry na pulpicie; uruchamia ją przez Launchme, z tymi opcjami."), there ? tr(L"Usuń") : tr(L"Utwórz")});
+            }
+            if (shortcutAvailable(compat_.game, ShortcutPlace::menu)) {
+                const bool there = hasShortcut(compat_.game, ShortcutPlace::menu);
+                add({Id::launch_shortcut_menu, Control::action, tr(L"Menu aplikacji"),
+                     tr(L"Gra na liście programów systemu, jak gry spoza Launchme."), there ? tr(L"Usuń") : tr(L"Dodaj")});
+            }
+        }
         break;
     }
     default: break;
@@ -747,6 +1088,21 @@ bool Launcher::compatSettingsActivate(const Row& row) {
     if (row.id != Id::compat_tool && row.id != Id::prefix_delete && row.id != Id::launch_scope && !compat_.confirm.empty()) compat_.confirm.clear();
     switch (row.id) {
     // Proton i Wine.
+    case Id::compat_install_game:
+        if (row.locked) { navigationBoundary(); return true; }
+        compatInstallGame();
+        return true;
+    case Id::launch_log:
+        if (row.locked || row.key.empty()) { navigationBoundary(); return true; }
+        if (execute_(hwnd_, GameAction{wide(row.key), {}, {}, ActionKind::open_client}) <= 32)
+            showNotification(NotificationKind::error, tr(L"Nie można otworzyć pliku"), wide(row.key));
+        return true;
+    case Id::launch_steam: case Id::launch_shortcut_desktop: case Id::launch_shortcut_menu: {
+        const auto place = row.id == Id::launch_steam ? ShortcutPlace::steam : row.id == Id::launch_shortcut_desktop ? ShortcutPlace::desktop : ShortcutPlace::menu;
+        setShortcut(compat_.game, place, !hasShortcut(compat_.game, place));
+        buildSettingsRows(); audio_.context();
+        return true;
+    }
     case Id::compat_default_tool:
         return pick([&](const Choice& choice) { store::setDefaultTool(narrow(choice.key)); });
     case Id::compat_defaults:
