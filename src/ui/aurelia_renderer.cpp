@@ -29,7 +29,7 @@ void Renderer::drawAurelia() {
     if (panel_borders_) { brush(gray(1, 0.16f)); target_->DrawRoundedRectangle(D2D1::RoundedRect(box(p), 18, 18), solid_.Get(), 1.0f); }
     // Back (a glass circle with a dot) and the title, its game beneath.
     const auto back = layout.back();
-    brush(drawButton(box(back), s.hover == -1 ? 1.0f : 0.0f, 1, false));
+    brush(drawButton(box(back), s.hover == -1 || s.back_focus ? 1.0f : 0.0f, 1, false));
     target_->FillEllipse(D2D1::Ellipse(D2D1::Point2F((back.left + back.right) * 0.5f, middle(back)), 3, 3), solid_.Get());
     const float title_left = back.right + 18;
     textGroup(s.confirmation ? s.confirmation->title : s.title, s.confirmation ? std::wstring{} : s.subtitle, title_left, middle(back),
@@ -55,7 +55,7 @@ void Renderer::drawAurelia() {
         return;
     }
     // Setup: a plain note under the header, measured, so the rows start below its last line.
-    if (s.page == aurelia_ui::Page::setup) {
+    if (s.page == aurelia_ui::Page::setup && s.login == aurelia_ui::State::Login::none) {
         const float width = p.right - p.left - 2 * layout.pad;
         s.notice_height = paragraph(aurelia_ui::notice(), p.left + layout.pad, p.top + layout.header, width, settings_body_font_.Get(), palette::muted(), 3);
     } else s.notice_height = 0;
@@ -82,7 +82,7 @@ void Renderer::drawAurelia() {
     for (int i = s.first; i < last; ++i) {
         const auto& row = s.rows[static_cast<size_t>(i)];
         const auto r = layout.row(s, i);
-        const bool focused = !s.input_focus && s.focus == i, hover = s.hover == i;
+        const bool focused = !s.input_focus && !s.back_focus && s.focus == i, hover = s.hover == i;
         // Rows as the settings' rows: a faint card, a lighter one with the focus, no outline.
         brush(gray(1, focused ? 0.10f : hover ? 0.06f : 0.034f));
         target_->FillRoundedRectangle(D2D1::RoundedRect(box(r), 16, 16), solid_.Get());
@@ -148,11 +148,11 @@ void Renderer::drawDesktopAurelia() {
     // The note (setup) and the game's name, measured; then as many rows as the window allows.
     const float text_width = width - 44;
     const float subtitle = s.subtitle.empty() || s.confirmation ? 0.0f : 24.0f;
-    const float note = s.page == aurelia_ui::Page::setup && !s.confirmation ?
+    const float note = s.page == aurelia_ui::Page::setup && !s.confirmation && s.login == aurelia_ui::State::Login::none ?
         paragraph(aurelia_ui::notice(), 0, 0, text_width, desktop_small_font_.Get(), palette::muted(), 4, false) + 14 : 0.0f;
     const float status = s.status.empty() ? 0.0f : 28.0f;
     // The sign-in's QR code under the note.
-    const bool qr = s.page == aurelia_ui::Page::setup && !s.confirmation && !s.qr.empty() && s.qr_size > 0;
+    const bool qr = s.page == aurelia_ui::Page::setup && !s.confirmation && s.login == aurelia_ui::State::Login::form && !s.qr.empty() && s.qr_size > 0;
     constexpr float qr_side = 196;
     const float qr_h = qr ? qr_side + 40 : 0.0f;
     const float chrome = sheet_header + 12 + subtitle + note + qr_h + field_h + status + 14;
@@ -166,6 +166,9 @@ void Renderer::drawDesktopAurelia() {
     const float height = s.confirmation ? sheet_header + 20 + confirm_h : chrome + static_cast<float>(shown) * line_h;
     const auto p = desktopDialogFrame(view, width, height, s.confirmation ? s.confirmation->title : s.title, inner && !s.confirmation);
     float y = p.top + sheet_header + 12;
+    // Back on inner pages, else ✕, with the keyboard's or the pad's focus (Up from the first row).
+    if (s.back_focus && !s.confirmation)
+        desktopFocusRing(inner ? Rect{p.left + 12, p.top + 10, p.left + 48, p.top + 46} : Rect{p.right - 48, p.top + 10, p.right - 12, p.top + 46}, 8);
     if (s.busy || s.progress >= 0) {
         const float left = p.left + 1, right = p.right - 1, top = p.top + sheet_header - 1;
         float from = left, to = left + (right - left) * std::clamp(s.progress, 0.0f, 1.0f);
@@ -204,7 +207,7 @@ void Renderer::drawDesktopAurelia() {
         const auto& row = s.rows[static_cast<size_t>(i)];
         const float top = y + static_cast<float>(i - s.first) * line_h;
         const Rect r{p.left + 12, top, p.right - 12, top + line_h - 4};
-        const bool focused = !s.input_focus && s.focus == i, over = hover == SheetHit{Kind::row, i};
+        const bool focused = !s.input_focus && !s.back_focus && s.focus == i, over = hover == SheetHit{Kind::row, i};
         if (focused || over) desktopFill(r, 8, gray(1, focused ? 0.075f : 0.045f));
         float right = r.right - 12;
         if (row.toggle) {

@@ -14,18 +14,20 @@ launch depends on the game. The integration does not promise offline authenticat
 1. Open **Settings → Library → Steam → Manage Aurelia**.
 2. Choose **Install Aurelia**. Launchme selects `aurelia_windows_x86_64.exe` from the latest stable
    GitHub release, verifies its advertised SHA-256 and Windows x64 PE header, and publishes it atomically.
-3. Sign in, inside Launchme:
-   - **Sign in with a QR code** shows Steam's code on the page (desktop and TV). Scan it in the Steam Mobile
-     app (Steam Guard → Scan a QR code) and approve. Steam rotates the code; the page follows it.
-   - **Sign in with account name and password** asks for both in the page's field (the password shows as
-     dots), then for a Steam Guard code from the e-mail or the app when Steam wants one, or to approve the
-     sign-in in Steam Mobile.
-   - **Sign in using Aurelia's window** remains, for Aurelia's own console.
+3. **Sign in** (the first row says who is signed in, or *Not signed in*). One page, desktop and TV, as Steam's
+   own sign-in: Steam's QR code (scan it in the Steam Mobile app, Steam Guard → Scan a QR code, and approve;
+   Steam rotates the code and the page follows it) and, below it, the field for the account name and then its
+   password (dots; Backspace in the empty field goes back to the name). A Steam Guard code from the e-mail or
+   the app is asked for in the same field when Steam wants one. **Sign in using Aurelia's window** remains on
+   the page, for Aurelia's own console; **Cancel sign-in** (or Back/Esc) leaves it.
 
-   Both in-app ways run `aurelia login --json` (`--qr --timeout 300`, or `-u <account>`) with its standard
-   input kept open: Steam Guard codes go there, and **Cancel sign-in** (or Back/Esc) sends `cancel` before the
-   process is ended. The password goes to the child only, as `AURELIA_PASSWORD` in its environment, never on a
-   command line, and Launchme never saves it. Launchme does not read Aurelia's tokens.
+   The QR code and the password run `aurelia login --json` (`--qr --timeout 300`, or `-u <account>`) with its
+   standard input kept open: Steam Guard codes go there, and leaving sends `cancel` before the process is
+   ended. They run in Launchme's child itself (`AURELIA_NO_DAEMON=1`), as Aurelia's console does: a forwarded
+   `login --json` would reach the daemon with only its command line, without the password or this stdin. The
+   password goes to the child only, as `AURELIA_PASSWORD` in its environment, never on a command line, and
+   Launchme never saves it. The daemon takes the new session on the next command (`login --reconnect`).
+   Launchme does not read Aurelia's tokens.
 4. Enable **Extended Aurelia integration**, then close and reopen Launchme.
 
 The executable lives in `%LOCALAPPDATA%\Launchme\helpers\aurelia\<release>\`. `current.txt` selects
@@ -37,8 +39,13 @@ the previous selection. Binaries are downloaded on demand, not bundled with Laun
 This session is separate from standalone Aurelia and from the Steam client's remembered accounts.
 The launcher never changes its own process environment to select that session.
 The child also receives a dedicated `AURELIA_DAEMON_SOCKET`: a Windows named pipe derived from the
-canonical profile path and current user's SID. An existing endpoint without a usable daemon identity
-marker is refused, avoiding the upstream fallback that stops all Aurelia daemons.
+canonical profile path and current user's SID (on Linux a Unix socket in the runtime folder). Before a
+command reaches the daemon, Launchme checks who serves the endpoint (the pipe's server process, the socket's
+peer): Launchme's own helper with its identity marker naming it is used as it is. Its own helper without a
+usable marker (cleaned from the temp folder, or removed by a newer CLI whose restart could not stop it), or
+running an older installed version's executable after an update, is ended, so the command starts a fresh
+daemon. Anything else at the endpoint is refused, avoiding the upstream fallback that stops all Aurelia
+daemons.
 
 ## Games and downloads
 

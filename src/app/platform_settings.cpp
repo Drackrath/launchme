@@ -99,9 +99,12 @@ void Launcher::pcSettingsRows() {
         Row cloud{Id::aurelia_cloud, Control::toggle, tr(L"Zapisy w chmurze"),
             tr(L"Stan i synchronizacja zapisów gier zarządzanych przez Aurelię."), {}, settings_.aurelia_cloud};
         cloud.locked = !settings_.aurelia; add(std::move(cloud));
-        add({Id::aurelia_open, Control::action, tr(L"Zarządzaj Aurelią"),
-            aurelia_version_.empty() ? std::wstring(tr(L"Instalacja i konto.")) : aurelia_version_ + (aurelia_account_name_.empty() ? L"" : L" · " + aurelia_account_name_),
-            tr(L"Otwórz")});
+        // Its version and who is signed in (or that nobody is).
+        std::wstring state = aurelia_version_.empty() ? std::wstring(tr(L"Instalacja i konto.")) : aurelia_version_;
+        if (!aurelia_version_.empty() && aurelia_authenticated_)
+            state += L" · " + (aurelia_account_name_.empty() ? std::wstring(tr(L"Zalogowano")) : tr(L"Zalogowano: ") + aurelia_account_name_);
+        else if (!aurelia_version_.empty() && aurelia_session_known_) state += L" · " + std::wstring(tr(L"Nie zalogowano"));
+        add({Id::aurelia_open, Control::action, tr(L"Zarządzaj Aurelią"), std::move(state), tr(L"Otwórz")});
         return;
     }
     if (source == GameSource::gog || source == GameSource::epic) {

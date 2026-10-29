@@ -120,22 +120,53 @@ int LauncherUiTest::companionRemote(HWND window) {
 }
 
 int LauncherUiTest::companionPaste(HWND window) {
-    // Exercise the actual Win32 clipboard/key state and restore them on every exit.
+    // Exercise the actual Win32 clipboard/key state and restore them on every exit. The clipboard is
+    // kept as a copy of each memory format (a picture as its DIB, from which Windows makes the bitmap
+    // again): restoring another program's OLE data object can fail inside ole32 (a copied screenshot).
     struct ClipboardScope {
-        IDataObject* previous = nullptr;
+        HWND window;
         BYTE keys[256]{};
-        bool initialized = SUCCEEDED(OleInitialize(nullptr));
-        ClipboardScope() { GetKeyboardState(keys); if (initialized) OleGetClipboard(&previous); }
+        std::vector<std::pair<UINT, std::vector<uint8_t>>> formats;
+        static bool open(HWND window) {
+            for (int attempt = 0; attempt < 40; ++attempt) { if (OpenClipboard(window)) return true; Sleep(5); }
+            return false;
+        }
+        // GDI handles and OLE's own markers (they point at the former owner's data object) are not copied.
+        static bool handleFormat(UINT format) {
+            if (format == CF_BITMAP || format == CF_METAFILEPICT || format == CF_PALETTE || format == CF_ENHMETAFILE ||
+                format == CF_OWNERDISPLAY || format == CF_DSPBITMAP || format == CF_DSPMETAFILEPICT || format == CF_DSPENHMETAFILE) return true;
+            wchar_t name[128]{};
+            const std::wstring_view text(name, static_cast<size_t>(std::max(0, GetClipboardFormatNameW(format, name, 128))));
+            return text == L"DataObject" || text.starts_with(L"Ole ");
+        }
+        explicit ClipboardScope(HWND w) : window(w) {
+            GetKeyboardState(keys);
+            if (!open(window)) return;
+            for (UINT format = EnumClipboardFormats(0); format; format = EnumClipboardFormats(format)) {
+                if (handleFormat(format)) continue;
+                const HANDLE data = GetClipboardData(format);
+                const SIZE_T size = data ? GlobalSize(data) : 0;
+                const auto* bytes = size ? static_cast<const uint8_t*>(GlobalLock(data)) : nullptr;
+                if (!bytes) continue;
+                formats.emplace_back(format, std::vector<uint8_t>(bytes, bytes + size));
+                GlobalUnlock(data);
+            }
+            CloseClipboard();
+        }
         ~ClipboardScope() {
             SetKeyboardState(keys);
-            if (initialized) {
-                OleSetClipboard(previous);
-                if (previous) { OleFlushClipboard(); previous->Release(); }
-                OleUninitialize();
+            if (!open(window)) return;
+            EmptyClipboard();
+            for (const auto& [format, bytes] : formats) {
+                const auto memory = GlobalAlloc(GMEM_MOVEABLE, bytes.size());
+                auto* target = memory ? static_cast<uint8_t*>(GlobalLock(memory)) : nullptr;
+                if (!target) { if (memory) GlobalFree(memory); continue; }
+                std::copy(bytes.begin(), bytes.end(), target); GlobalUnlock(memory);
+                if (!SetClipboardData(format, memory)) GlobalFree(memory);
             }
+            CloseClipboard();
         }
-    } saved;
-    if (!saved.initialized) return 8250;
+    } saved{window};
     const auto clipboard = [&](const std::wstring& text) {
         bool opened = false;
         for (int attempt = 0; attempt < 20; ++attempt) {

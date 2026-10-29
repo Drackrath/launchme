@@ -33,6 +33,11 @@ std::string text(const json::Value& value, std::string_view key) { const auto* p
 bool flag(const json::Value& value, std::string_view key) { return boolean(value.get(key)).value_or(false); }
 bool validGame(const Game& game) { return game.source == GameSource::steam && game.kind == GameKind::steam && game.app_id; }
 
+bool validAccount(std::wstring_view name) {
+    return !name.empty() && name.size() <= 64 && name.front() != L'-' &&
+           std::none_of(name.begin(), name.end(), [](wchar_t c) { return c <= L' ' || c == 0x7f; });
+}
+
 std::vector<std::wstring> arguments(const Request& r) {
     using C = Command;
     switch (r.command) {
@@ -53,9 +58,7 @@ std::vector<std::wstring> arguments(const Request& r) {
     // here and the password through the environment; Steam Guard codes go to stdin.
     case C::login_qr: add({L"login", L"--qr", L"--timeout", L"300"}); break;
     case C::login_password:
-        if (r.text.empty() || r.text.size() > 64 || r.secret.empty() || r.secret.size() > 256) return {};
-        // An account name, never an option or anything with spaces or control characters.
-        if (r.text.front() == L'-' || std::any_of(r.text.begin(), r.text.end(), [](wchar_t c) { return c <= L' ' || c == 0x7f; })) return {};
+        if (!validAccount(r.text) || r.secret.empty() || r.secret.size() > 256) return {};
         add({L"login", L"-u", r.text}); break;
     case C::logout: add({L"logout"}); break;
     case C::reconnect: add({L"login", L"--reconnect"}); break;

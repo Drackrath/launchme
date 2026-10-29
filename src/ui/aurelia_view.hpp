@@ -16,7 +16,7 @@ inline const wchar_t* notice() {
 enum class Page { setup, game, cloud, dlc, versions, branches, workshop, libraries };
 enum class Action {
     none, toggle, cloud_toggle, default_launch, helper, repository, login, logout, reconnect, refresh, close,
-    login_qr, login_password, login_cancel, // The in-app sign-in (setup page).
+    login_start, login_refresh, login_cancel, // The in-app sign-in (setup page): open it, a new QR code, leave it.
     cloud, dlc, versions, branches, workshop,
     sync, resolve_cloud, resolve_local, install, update, verify, cancel, uninstall, steam, auto_cloud,
     enable_dlc, disable_dlc, pin, unpin, downgrade, set_branch, move, choose_library, browse_library,
@@ -48,14 +48,17 @@ struct State {
     int visible = 0;         // Rows the last drawn dialog shows; 0 before the first frame.
     bool confirm_focus = false; // Confirmation: Potwierdź (true) or Anuluj (false) has the focus.
     bool confirm_only = false;  // Opened for its question alone (Odinstaluj from the game's menu): the answer closes it.
-    // The in-app sign-in on the setup page (src/app/aurelia_ui.cpp): its step; Steam's QR challenge as
-    // rows of modules (1: dark), scanned or not; the field shows dots while it takes the password.
-    enum class Login { none, account, password, guard, waiting, qr };
+    // The sign-in page (src/app/aurelia_ui.cpp): Steam's QR code for the Steam Mobile app and, in the
+    // same page, the field for the account's name and then its password (dots); a Steam Guard code
+    // when Steam asks for one; waiting while the password's sign-in runs. The QR challenge comes as
+    // rows of modules (1: dark), scanned or not.
+    enum class Login { none, form, guard, waiting };
     Login login = Login::none;
-    std::wstring login_account;
-    bool guard_email = false, qr_scanned = false, input_secret = false;
+    std::wstring login_account; // Typed: the field then takes the password.
+    bool guard_email = false, qr_scanned = false, qr_failed = false, input_secret = false;
     std::vector<uint8_t> qr;
     int qr_size = 0;
+    bool back_focus = false; // Back (Tryb TV and the desktop's inner pages) or ✕ has the focus.
 };
 
 // Tryb TV: a panel in the middle of the 1600 × 900 canvas, Back and the title at its top, the rows,
@@ -73,10 +76,10 @@ struct Layout {
     static constexpr float qr_side = 236, qr_block = qr_side + 44;
     float noteBottom(const State& s) const {
         const auto p = panel();
-        const bool note = s.page == Page::setup && !s.confirmation && s.notice_height > 0;
+        const bool note = s.page == Page::setup && !s.confirmation && s.login == State::Login::none && s.notice_height > 0;
         return p.top + header + (note ? s.notice_height + 20 : 0.0f);
     }
-    bool showsQr(const State& s) const { return s.page == Page::setup && !s.confirmation && !s.qr.empty() && s.qr_size > 0; }
+    bool showsQr(const State& s) const { return s.page == Page::setup && !s.confirmation && s.login == State::Login::form && !s.qr.empty() && s.qr_size > 0; }
     settings_ui::Rect qr(const State& s) const {
         const auto p = panel(); const float top = noteBottom(s), cx = (p.left + p.right) * 0.5f;
         return {cx - qr_side * 0.5f, top, cx + qr_side * 0.5f, top + qr_side};

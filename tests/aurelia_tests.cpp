@@ -11,10 +11,14 @@
 #include <thread>
 #include <atomic>
 #ifndef _WIN32
+#include <csignal>
 #include <cstring>
+#include <spawn.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <sys/wait.h>
 #include <unistd.h>
+extern char** environ;
 #endif
 
 #define CHECK(x) do { if (!(x)) { std::cerr << "Aurelia check " << __LINE__ << ": " << #x << '\n'; return __LINE__; } } while (false)
@@ -22,6 +26,31 @@ using C = aurelia::Command;
 json::Value parsed(std::string_view text) { const auto v = json::parse(text); if (!v) throw std::runtime_error("fixture"); return *v; }
 
 int main(int argc, char** argv) {
+    // A stand-in for Aurelia's daemon: it serves the endpoint until it is ended.
+    if (argc > 2 && std::string_view(argv[1]) == "--fixture-daemon") {
+#ifdef _WIN32
+        const auto name = text_encoding::wideLenient(argv[2]);
+        const auto make = [&] { return CreateNamedPipeW(name.c_str(), PIPE_ACCESS_DUPLEX, PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES, 4096, 4096, 0, nullptr); };
+        HANDLE current = make(); if (current == INVALID_HANDLE_VALUE) return 4;
+        // As a real daemon: the next instance waits while a client is served; this one ends when the client does.
+        while (true) {
+            ConnectNamedPipe(current, nullptr);
+            const HANDLE next = make();
+            char buffer[64]; DWORD received = 0;
+            while (ReadFile(current, buffer, sizeof(buffer), &received, nullptr) && received) {}
+            DisconnectNamedPipe(current); CloseHandle(current); current = next;
+        }
+#else
+        const std::string path = argv[2];
+        const int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+        sockaddr_un address{}; address.sun_family = AF_UNIX;
+        if (fd < 0 || path.size() >= sizeof(address.sun_path)) return 4;
+        memcpy(address.sun_path, path.c_str(), path.size() + 1);
+        unlink(path.c_str());
+        if (bind(fd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) != 0 || listen(fd, 8) != 0) return 4;
+        while (true) { const int client = accept(fd, nullptr, nullptr); if (client >= 0) close(client); }
+#endif
+    }
     if (argc > 1 && std::string_view(argv[1]) == "--json") {
         const std::string command = argc > 2 ? argv[2] : "";
         if (command == "login") {
@@ -231,14 +260,58 @@ int main(int argc, char** argv) {
 #endif
     CHECK(pipe == aurelia::daemonEndpoint(root / L"." / L"profile"));
     // An existing endpoint without its identity marker must never invoke the CLI's broad stale-daemon fallback.
+    const auto marker = aurelia::daemonMarker(pipe);
+    const auto healthy = [&](const aurelia::Runtime& r) { return aurelia::invoke(r, {C::health}, [] { return false; }).ok; };
+    // Two installed versions of the helper (this executable as both), for a daemon left by the older one.
+    const auto versions = root / L"helper-versions";
+    std::error_code e;
+    std::filesystem::create_directories(versions / L"v1", e); std::filesystem::create_directories(versions / L"v2", e);
+    const std::filesystem::path older = versions / L"v1" / std::filesystem::path(self).filename(), newer = versions / L"v2" / std::filesystem::path(self).filename();
+    CHECK(std::filesystem::copy_file(self, older, std::filesystem::copy_options::overwrite_existing, e) && !e);
+    CHECK(std::filesystem::copy_file(self, newer, std::filesystem::copy_options::overwrite_existing, e) && !e);
+#ifndef _WIN32
+    std::filesystem::permissions(older, std::filesystem::perms::owner_all, e); std::filesystem::permissions(newer, std::filesystem::perms::owner_all, e);
+#endif
+    const aurelia::Runtime updated{newer, runtime.profile};
 #ifdef _WIN32
     const HANDLE server = CreateNamedPipeW(pipe.c_str(), PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED, PIPE_TYPE_BYTE, 1, 4096, 4096, 0, nullptr);
     CHECK(server != INVALID_HANDLE_VALUE);
     OVERLAPPED pending{}; pending.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     ConnectNamedPipe(server, &pending);
-    auto unidentified = aurelia::invoke(runtime, {C::health}, [] { return false; });
-    CHECK(!unidentified.ok);
+    CHECK(!healthy(runtime)); // Something that is not Launchme's Aurelia serves it: refused, never ended.
     CancelIoEx(server, &pending); WaitForSingleObject(pending.hEvent, 1000); CloseHandle(server); CloseHandle(pending.hEvent);
+    // A stand-in daemon, ended with its handle whatever a check says (it never outlives the test).
+    struct Fixture {
+        HANDLE process = nullptr; DWORD pid = 0;
+        Fixture() = default;
+        Fixture(const Fixture&) = delete;
+        Fixture& operator=(const Fixture&) = delete;
+        ~Fixture() { if (process) { TerminateProcess(process, 1); WaitForSingleObject(process, 3000); CloseHandle(process); } }
+    };
+    const auto spawn = [&](Fixture& daemon, const std::filesystem::path& exe) {
+        std::wstring line = L"\"" + exe.wstring() + L"\" --fixture-daemon " + pipe;
+        STARTUPINFOW startup{}; startup.cb = sizeof(startup); PROCESS_INFORMATION process{};
+        if (!CreateProcessW(exe.c_str(), line.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &startup, &process)) return false;
+        CloseHandle(process.hThread); daemon.process = process.hProcess; daemon.pid = process.dwProcessId;
+        for (const auto until = GetTickCount64() + 5000; GetTickCount64() < until;) { if (WaitNamedPipeW(pipe.c_str(), 50)) return true; Sleep(20); }
+        return false;
+    };
+    const auto pidMarker = [&](DWORD pid) { return atomic_file::write(marker, "{\"version\":\"0.1.41\",\"pid\":" + std::to_string(pid) + "}"); };
+    {
+        // Launchme's own daemon with its marker: used as it is.
+        Fixture daemon;
+        CHECK(spawn(daemon, self) && pidMarker(daemon.pid));
+        CHECK(healthy(runtime) && WaitForSingleObject(daemon.process, 0) == WAIT_TIMEOUT);
+        // Without its marker (cleaned, or removed by a newer CLI that could not stop it): ended; the command goes on.
+        std::filesystem::remove(marker, e);
+        CHECK(healthy(runtime) && WaitForSingleObject(daemon.process, 5000) == WAIT_OBJECT_0);
+    }
+    {
+        // An older version's daemon after an update, its marker still there: ended too.
+        Fixture daemon;
+        CHECK(spawn(daemon, older) && pidMarker(daemon.pid));
+        CHECK(healthy(updated) && WaitForSingleObject(daemon.process, 5000) == WAIT_OBJECT_0 && !std::filesystem::exists(marker));
+    }
 #else
     {
         const std::filesystem::path socket_path(pipe);
@@ -246,20 +319,55 @@ int main(int argc, char** argv) {
         sockaddr_un address{}; address.sun_family = AF_UNIX;
         memcpy(address.sun_path, socket_path.c_str(), socket_path.string().size() + 1);
         CHECK(server >= 0 && bind(server, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == 0 && listen(server, 4) == 0);
-        auto unidentified = aurelia::invoke(runtime, {C::health}, [] { return false; });
-        CHECK(!unidentified.ok);
-        // With the daemon's marker next to it, the same endpoint is accepted.
-        auto marker = socket_path; marker.replace_extension(".info");
+        CHECK(!healthy(runtime)); // Something that is not Launchme's Aurelia listens: refused, never ended.
+        // A marker naming another process is not trusted either.
         CHECK(atomic_file::write(marker, R"({"pid":1,"version":"0.1.41"})"));
-        CHECK(aurelia::invoke(runtime, {C::health}, [] { return false; }).ok);
+        CHECK(!healthy(runtime));
         close(server);
-        std::error_code e; std::filesystem::remove(marker, e);
+        std::filesystem::remove(marker, e);
         // A socket nothing listens on any more is left for Aurelia to replace.
-        CHECK(aurelia::invoke(runtime, {C::health}, [] { return false; }).ok);
+        CHECK(healthy(runtime));
+        std::filesystem::remove(socket_path, e);
+        const auto spawn = [&](const std::filesystem::path& exe) {
+            const std::string program = exe.string(), socket_name = socket_path.string();
+            char* arguments[] = {const_cast<char*>(program.c_str()), const_cast<char*>("--fixture-daemon"), const_cast<char*>(socket_name.c_str()), nullptr};
+            pid_t pid = 0;
+            if (posix_spawn(&pid, program.c_str(), nullptr, nullptr, arguments, environ) != 0) return pid_t{0};
+            for (int wait = 0; wait < 250; ++wait) {
+                const int probe = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+                const bool up = connect(probe, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == 0;
+                close(probe);
+                if (up) break;
+                usleep(20000);
+            }
+            return pid;
+        };
+        // A stand-in daemon, ended whatever a check says (it never outlives the test).
+        struct Fixture { pid_t pid = 0; ~Fixture() { if (pid > 0) { kill(pid, SIGKILL); waitpid(pid, nullptr, 0); } } };
+        const auto ended = [](Fixture& daemon) {
+            for (int wait = 0; wait < 250; ++wait) { int status = 0; if (waitpid(daemon.pid, &status, WNOHANG) == daemon.pid) { daemon.pid = 0; return true; } usleep(20000); }
+            return false;
+        };
+        const auto pidMarker = [&](pid_t pid) { return atomic_file::write(marker, "{\"version\":\"0.1.41\",\"pid\":" + std::to_string(pid) + "}"); };
+        {
+            // Launchme's own daemon with its marker: used as it is.
+            Fixture daemon{spawn(self)};
+            CHECK(daemon.pid > 0 && pidMarker(daemon.pid));
+            CHECK(healthy(runtime) && kill(daemon.pid, 0) == 0);
+            // Without its marker (removed by a newer CLI that could not stop it): ended; the command goes on.
+            std::filesystem::remove(marker, e);
+            CHECK(healthy(runtime) && ended(daemon));
+        }
+        {
+            // An older version's daemon after an update, its marker still there: ended too.
+            Fixture daemon{spawn(older)};
+            CHECK(daemon.pid > 0 && pidMarker(daemon.pid));
+            CHECK(healthy(updated) && ended(daemon) && !std::filesystem::exists(marker));
+        }
         std::filesystem::remove(socket_path, e);
         // Something else at the socket's path is never handed to Aurelia (it would delete it).
         CHECK(atomic_file::write(socket_path, "not a socket"));
-        CHECK(!aurelia::invoke(runtime, {C::health}, [] { return false; }).ok);
+        CHECK(!healthy(runtime));
         std::filesystem::remove(socket_path, e);
     }
 #endif

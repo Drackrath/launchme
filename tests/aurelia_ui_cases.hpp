@@ -124,44 +124,69 @@ int LauncherUiTest::aureliaIntegration(HWND window) {
     if (!app.settings_.aurelia || app.aurelia_active_ || app.aurelia_ui_.status.empty()) return 10303; // Restart, no half-switched services.
     app.closeAurelia();
     if (!app.settings_.aurelia_intro_done || app.topModal() != Launcher::Modal::none) return 10304;
-    // Signing in here: Steam's QR code for the Steam Mobile app, then the account, password and Steam Guard code.
+    // One sign-in page: Steam's QR code for the Steam Mobile app and the account's name and password together.
     {
+        using L = aurelia_ui::State::Login;
         fake->logged_in = false; app.aurelia_authenticated_ = false; app.openAurelia(nullptr);
         if (!wait([&] { return !app.aurelia_ui_.busy; })) return 10406;
         const auto row = [&](A action) -> const aurelia_ui::Row* {
             for (const auto& item : app.aurelia_ui_.rows) if (item.action == action) return &item;
             return nullptr;
         };
-        if (!row(A::login_qr) || !row(A::login_password) || !row(A::login) || row(A::logout)) return 10392;
-        app.aureliaActivate(*row(A::login_qr));
-        if (!wait([&] { return app.aurelia_ui_.qr_size > 0 && !app.aurelia_ui_.qr.empty(); }) || !row(A::login_cancel)) return 10393;
+        // The account first: nobody signed in, one way to sign in.
+        if (app.aurelia_ui_.rows.empty() || app.aurelia_ui_.rows.front().action != A::login_start ||
+            app.aurelia_ui_.rows.front().value != tr(L"Nie zalogowano") || row(A::login) || row(A::logout)) return 10392;
+        if (!capture(L"aurelia-signed-out-tv.png")) return 10412;
+        app.aureliaActivate(*row(A::login_start));
+        if (!wait([&] { return app.aurelia_ui_.qr_size > 0 && !app.aurelia_ui_.qr.empty(); }) || app.aurelia_ui_.login != L::form) return 10393;
         if (app.aurelia_ui_.qr.size() != static_cast<size_t>(app.aurelia_ui_.qr_size * app.aurelia_ui_.qr_size)) return 10394;
-        if (app.aurelia_ui_.rows.size() != 1 || app.aurelia_ui_.focus != 0) return 10407; // The sign-in owns the page: only its way out.
+        // The page: the QR code, the field for the account's name, Aurelia's console and the way out.
+        if (app.aurelia_ui_.input_hint != tr(L"Nazwa konta Steam") || app.aurelia_ui_.input_secret || app.aurelia_ui_.rows.size() != 2 ||
+            !row(A::login) || !row(A::login_cancel)) return 10407;
         if (!capture(L"aurelia-login-qr-tv.png")) return 10395;
         app.desktop_mode_ = true; const bool desktop_shot = capture(L"aurelia-login-qr-desktop.png"); app.desktop_mode_ = false;
         if (!desktop_shot) return 10396;
-        // Back cancels it: a cancel line goes to the CLI and the page's choices return.
+        // Back leaves it: a cancel line goes to the CLI and the page's choices return.
         app.aureliaKey(VK_ESCAPE, false);
-        if (app.aurelia_ui_.login != aurelia_ui::State::Login::none || !app.aurelia_ui_.qr.empty() || !row(A::login_qr)) return 10397;
+        if (app.aurelia_ui_.login != L::none || !app.aurelia_ui_.qr.empty() || !row(A::login_start)) return 10397;
+        // Scanned and approved: signed in; the daemon takes the new session; the account at the top.
         fake->logged_in = true; fake->qr_approve = true;
-        app.aureliaActivate(*row(A::login_qr));
-        if (!wait([&] { return app.aurelia_ui_.login == aurelia_ui::State::Login::none && fake->count(C::reconnect) > 0 && app.aurelia_authenticated_; })) return 10398;
-        // The password: two steps in the field (it shows dots), then the e-mailed Steam Guard code on stdin.
-        fake->logged_in = false; app.aurelia_authenticated_ = false; app.aureliaPage(P::setup);
-        if (!wait([&] { return !app.aurelia_ui_.busy && row(A::login_password); })) return 10399;
-        app.aureliaActivate(*row(A::login_password));
-        if (app.aurelia_ui_.login != aurelia_ui::State::Login::account || app.aurelia_ui_.input_hint.empty()) return 10400;
+        app.aureliaActivate(*row(A::login_start));
+        if (!wait([&] { return app.aurelia_ui_.login == L::none && fake->count(C::reconnect) > 0 && app.aurelia_authenticated_; })) return 10398;
+        if (!wait([&] { return !app.aurelia_ui_.busy && !app.aurelia_ui_.rows.empty() && app.aurelia_ui_.rows.front().action == A::reconnect &&
+                               app.aurelia_ui_.rows.front().value == L"Aurelia fixture" && row(A::logout) && !row(A::login_start); })) return 10408;
+        if (!capture(L"aurelia-signed-in-tv.png")) return 10413;
+        // The password on the same page, while the QR code waits: the name, the password (dots), a wrong
+        // one said, then the e-mailed Steam Guard code on stdin.
+        fake->qr_approve = false; fake->logged_in = false; app.aurelia_authenticated_ = false; app.aureliaPage(P::setup);
+        if (!wait([&] { return !app.aurelia_ui_.busy && row(A::login_start); })) return 10399;
+        app.aureliaActivate(*row(A::login_start));
+        if (!wait([&] { return !app.aurelia_ui_.qr.empty(); })) return 10400;
+        app.aurelia_ui_.input = L"-h"; app.aureliaSubmit();
+        if (!app.aurelia_ui_.login_account.empty() || app.aurelia_ui_.input != L"-h") return 10414; // Never an option for the CLI.
         app.aurelia_ui_.input = L"fixture"; app.aureliaSubmit();
-        if (app.aurelia_ui_.login != aurelia_ui::State::Login::password || !app.aurelia_ui_.input_secret) return 10401;
+        if (app.aurelia_ui_.login != L::form || !app.aurelia_ui_.input_secret || app.aurelia_ui_.login_account != L"fixture" || app.aurelia_ui_.qr.empty()) return 10401;
+        app.aurelia_ui_.input = L"wrong"; app.aureliaSubmit();
+        if (!wait([&] { return app.aurelia_ui_.login == L::form && !app.aurelia_ui_.busy && !app.aurelia_ui_.qr.empty() && app.aurelia_ui_.input_secret &&
+                               app.aurelia_setup_status_ == tr(L"Nieprawidłowa nazwa konta, hasło lub kod Steam Guard."); })) return 10409;
         app.aurelia_ui_.input = L"hunter2";
         if (!capture(L"aurelia-login-password-tv.png")) return 10402;
+        app.desktop_mode_ = true; const bool desktop_password = capture(L"aurelia-login-password-desktop.png"); app.desktop_mode_ = false;
+        if (!desktop_password) return 10415;
         app.aureliaSubmit();
-        if (!app.aurelia_ui_.input.empty() || !wait([&] { return app.aurelia_ui_.login == aurelia_ui::State::Login::guard && app.aurelia_ui_.guard_email; })) return 10403;
+        if (!app.aurelia_ui_.input.empty() || !wait([&] { return app.aurelia_ui_.login == L::guard && app.aurelia_ui_.guard_email; })) return 10403;
         fake->logged_in = true; app.aurelia_ui_.input = L"ABCDE"; app.aureliaSubmit();
-        if (!wait([&] { return app.aurelia_ui_.login == aurelia_ui::State::Login::none && app.aurelia_authenticated_; })) return 10404;
+        if (!wait([&] { return app.aurelia_ui_.login == L::none && app.aurelia_authenticated_; })) return 10404;
         const auto sent = fake->last(C::login_password);
         if (sent.text != L"fixture" || sent.secret != L"hunter2" || !sent.input) return 10405;
-        app.closeAurelia(); fake->qr_approve = false;
+        // Back above the rows: Up from the first row reaches it, Enter takes it.
+        app.aurelia_ui_.focus = 0; app.aureliaKey(VK_UP, false);
+        if (!app.aurelia_ui_.back_focus) return 10410;
+        app.aureliaKey(VK_DOWN, false);
+        if (app.aurelia_ui_.back_focus || app.aurelia_ui_.focus != 0) return 10416;
+        app.aureliaKey(VK_UP, false); app.aureliaKey(VK_RETURN, false);
+        if (app.aurelia_ui_.open) return 10411;
+        fake->qr_approve = false;
     }
     app.aurelia_active_ = app.aurelia_authenticated_ = true; app.aurelia_account_ = app.account_;
     if (!app.menuRows().aurelia) return 10305;
@@ -190,6 +215,10 @@ int LauncherUiTest::aureliaIntegration(HWND window) {
     app.modalKey(VK_ESCAPE, false); if (app.aurelia_ui_.confirmation || fake->count(C::cloud_sync) != 1 || !app.aurelia_ui_.open) return 10314;
     app.aureliaActivate({L"Use cloud saves", {}, {}, A::resolve_cloud}, true);
     if (!wait([&] { return !app.aurelia_ui_.busy; }) || app.aurelia_cloud_[902].state != aurelia::CloudState::synced) return 10315;
+    // Not signed in (or Aurelia not answering): Synchronizuj teraz says so where it is, never jumps to the setup page.
+    app.aurelia_authenticated_ = false; app.aureliaActivate({{}, {}, {}, A::sync});
+    if (!app.aurelia_ui_.open || app.aurelia_ui_.page != P::cloud || app.aurelia_ui_.status.empty() || fake->count(C::cloud_sync) != 2) return 10417;
+    app.aurelia_authenticated_ = true;
     // The cloud toggle: no state shown or checked while off.
     app.aureliaPage(P::setup); app.aureliaActivate({{}, {}, {}, A::cloud_toggle});
     if (app.settings_.aurelia_cloud || !app.aureliaCloudText(game).empty() || !app.aurelia_cloud_.empty()) return 10375;

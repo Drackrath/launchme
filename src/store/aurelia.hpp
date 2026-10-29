@@ -75,6 +75,11 @@ struct InstallationInfo { std::filesystem::path executable; std::wstring version
 struct Release { std::wstring version, url; uint64_t size = 0; std::string sha256; };
 struct Runtime { std::filesystem::path executable, profile; uint32_t query_timeout_ms = 90000; };
 std::wstring daemonEndpoint(const std::filesystem::path& profile);
+// The daemon's identity marker for an endpoint (upstream's version_marker_path): next to its socket on
+// Linux, in the temp folder named after the pipe on Windows.
+std::filesystem::path daemonMarker(const std::wstring& endpoint);
+// A Steam account's name as `login -u` takes it: not an option, no spaces or control characters.
+bool validAccount(std::wstring_view name);
 using Transport = std::function<Reply(const Request&, const Cancel&, const Event&)>;
 std::vector<std::wstring> arguments(const Request& request);
 Reply invoke(const Runtime& runtime, const Request& request, const Cancel& cancelled, const Event& event = {});

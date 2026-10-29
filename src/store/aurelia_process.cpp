@@ -24,24 +24,88 @@ bool longCommand(Command c) {
     return c == Command::install || c == Command::update || c == Command::verify || c == Command::downgrade ||
            c == Command::move || c == Command::workshop_install || c == Command::workshop_subscribe || c == Command::play || c == Command::chat_live;
 }
-bool daemonIdentified(const std::wstring& endpoint) {
-    // Upstream's stale-daemon fallback can stop every Aurelia daemon when its marker is
-    // missing. Never enter that path for an existing endpoint without a usable PID marker.
-    if (!WaitNamedPipeW(endpoint.c_str(), 1)) {
-        const auto error = GetLastError();
-        if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND) return true;
-        if (error != ERROR_SEM_TIMEOUT && error != ERROR_PIPE_BUSY) return false;
+bool pipeAbsent(const std::wstring& endpoint) {
+    if (WaitNamedPipeW(endpoint.c_str(), 1)) return false;
+    const auto error = GetLastError();
+    return error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND;
+}
+std::optional<DWORD> markerPid(const std::filesystem::path& marker) {
+    if (marker.empty()) return {};
+    std::ifstream file(marker, std::ios::binary | std::ios::ate);
+    if (!file || file.tellg() <= 0 || file.tellg() > 65536) return {};
+    std::string content(static_cast<size_t>(file.tellg()), '\0'); file.seekg(0);
+    if (!file.read(content.data(), content.size())) return {};
+    const auto value = json::parse(content); const auto pid = value ? integer(value->get("pid")) : std::nullopt;
+    if (!pid || !*pid || *pid > UINT32_MAX || text(*value, "version").empty()) return {};
+    return static_cast<DWORD>(*pid);
+}
+std::wstring lower(std::wstring text) { std::transform(text.begin(), text.end(), text.begin(), towlower); return text; }
+// Launchme's own Aurelia: the helper's executable in an installed version's folder
+// (helpers\aurelia\<version>\aurelia_windows_x86_64.exe), never this process. Its image when it is one.
+std::optional<std::wstring> ownAurelia(DWORD pid, const std::filesystem::path& executable) {
+    if (!pid || pid == GetCurrentProcessId()) return {};
+    Handle process{OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid)};
+    if (!process.value) return {};
+    std::wstring path(32768, L'\0'); DWORD size = static_cast<DWORD>(path.size());
+    if (!QueryFullProcessImageNameW(process.value, 0, path.data(), &size)) return {};
+    path.resize(size);
+    const std::filesystem::path image(path);
+    if (lower(image.filename().wstring()) != lower(executable.filename().wstring()) ||
+        lower(image.parent_path().parent_path().lexically_normal().wstring()) != lower(executable.parent_path().parent_path().lexically_normal().wstring())) return {};
+    return lower(image.lexically_normal().wstring());
+}
+bool current(const std::wstring& image, const std::filesystem::path& executable) { return image == lower(executable.lexically_normal().wstring()); }
+// The process serving a named pipe. Its instances may be busy, or one may drop this connection before
+// it is asked (a server that ends each connection at once): a few attempts.
+std::optional<DWORD> pipeServer(const std::wstring& endpoint) {
+    for (int attempt = 0; attempt < 10; ++attempt) {
+        Handle pipe{CreateFileW(endpoint.c_str(), GENERIC_READ, 0, nullptr, OPEN_EXISTING, 0, nullptr)};
+        if (pipe.value == INVALID_HANDLE_VALUE) {
+            pipe.value = nullptr;
+            const auto error = GetLastError();
+            if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND) return {};
+            if (error == ERROR_PIPE_BUSY) WaitNamedPipeW(endpoint.c_str(), 500); else Sleep(50);
+            continue;
+        }
+        ULONG pid = 0;
+        if (GetNamedPipeServerProcessId(pipe.value, &pid) && pid) return static_cast<DWORD>(pid);
+        Sleep(20);
     }
+    return {};
+}
+// Before a command reaches the daemon. Upstream's stale-daemon fallback can stop every Aurelia
+// daemon when its marker is missing: never enter it for an endpoint without a usable marker. A
+// daemon of Launchme's own helper is ended here instead when it has no marker (cleaned from the temp
+// folder, or removed by a newer CLI that could not stop it) or runs an older version's executable
+// (after an update; upstream's own restart may fail and still remove the marker), so the command
+// starts a fresh one; anything else at the endpoint is refused.
+bool daemonReady(const std::wstring& endpoint, const std::filesystem::path& executable) {
+    if (pipeAbsent(endpoint)) return true;
+    const auto marker = daemonMarker(endpoint);
+    std::optional<DWORD> stale;
+    // A daemon that has just bound its pipe writes its marker right after: a moment for it.
+    for (int wait = 0; wait < 20 && !stale; ++wait) {
+        if (const auto pid = markerPid(marker))
+            if (const auto image = ownAurelia(*pid, executable)) { if (current(*image, executable)) return true; stale = *pid; break; }
+        Sleep(100);
+        if (pipeAbsent(endpoint)) return true;
+    }
+    const auto server = stale ? stale : pipeServer(endpoint);
+    if (!server || !ownAurelia(*server, executable)) return pipeAbsent(endpoint);
+    Handle process{OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, FALSE, *server)};
+    if (!process.value || !TerminateProcess(process.value, 1)) return false;
+    WaitForSingleObject(process.value, 5000);
+    std::error_code error; if (!marker.empty()) std::filesystem::remove(marker, error);
+    for (int wait = 0; wait < 50; ++wait) { if (pipeAbsent(endpoint)) return true; Sleep(100); }
+    return false;
+}
+}
+// The endpoint's name made a file name, in the temp folder.
+std::filesystem::path daemonMarker(const std::wstring& endpoint) {
     auto name = endpoint;
     for (auto& c : name) if (!((c >= L'a' && c <= L'z') || (c >= L'A' && c <= L'Z') || (c >= L'0' && c <= L'9') || c == L'-' || c == L'.')) c = L'-';
-    std::error_code error; const auto temp = std::filesystem::temp_directory_path(error); if (error) return false;
-    std::ifstream file(temp / (name + L".info"), std::ios::binary | std::ios::ate);
-    if (!file || file.tellg() <= 0 || file.tellg() > 65536) return false;
-    std::string content(static_cast<size_t>(file.tellg()), '\0'); file.seekg(0);
-    if (!file.read(content.data(), content.size())) return false;
-    const auto value = json::parse(content); const auto pid = value ? integer(value->get("pid")) : std::nullopt;
-    return pid && *pid > 0 && *pid <= UINT32_MAX && !text(*value, "version").empty();
-}
+    std::error_code error; const auto temp = std::filesystem::temp_directory_path(error);
+    return error || endpoint.empty() ? std::filesystem::path{} : temp / (name + L".info");
 }
 std::wstring daemonEndpoint(const std::filesystem::path& profile) {
     if (!profile.is_absolute()) return {};
@@ -90,10 +154,12 @@ Reply invoke(const Runtime& runtime, const Request& request, const Cancel& cance
     // `stop` and `running` only read Aurelia's launch records and end the recorded process: run in
     // this child, not forwarded to the daemon, which (v0.1.40) answers nothing while it waits for a game.
     const bool local = request.command == Command::stop || request.command == Command::running;
-    // The in-app sign-ins run in this child too, as the console's does (they replace the stored session).
+    // The in-app sign-ins run in this child too, as the console's does: `login --json` would be
+    // forwarded to the daemon, which sees only the command line (not AURELIA_PASSWORD) and its own
+    // stdin. The session file they write is what the daemon reads on the next command.
     const bool interactive = request.command == Command::login_qr || request.command == Command::login_password;
-    if (local) env[L"AURELIA_NO_DAEMON"] = L"1";
-    else if (request.command != Command::login && !interactive && !daemonIdentified(endpoint)) {
+    if (local || interactive) env[L"AURELIA_NO_DAEMON"] = L"1";
+    else if (request.command != Command::login && !daemonReady(endpoint, runtime.executable)) {
         result.error = tr(L"Nie można potwierdzić tożsamości daemona Aurelii. Spróbuj ponownie po zakończeniu jego uruchamiania."); return result;
     }
     env[L"NO_COLOR"] = L"1";
@@ -269,27 +335,89 @@ std::filesystem::path socketFolder() {
     if (::lstat(folder.c_str(), &status) != 0 || !S_ISDIR(status.st_mode) || status.st_uid != ::getuid() || (status.st_mode & 077)) return {};
     return folder;
 }
-bool daemonIdentified(const std::wstring& endpoint) {
-    // Upstream's stale-daemon fallback can stop every Aurelia daemon when its marker is missing.
-    // Never enter that path for a listening socket without a usable PID marker (<socket>.info).
+// The daemon's socket: 1 something listens on it (its process in `server`), 0 nothing does any more
+// (left by a daemon that ended: Aurelia binds a new one), -1 unusable.
+int socketState(const std::filesystem::path& socket_path, pid_t* server = nullptr) {
+    sockaddr_un address{}; address.sun_family = AF_UNIX;
+    const auto name = socket_path.string();
+    if (name.size() >= sizeof(address.sun_path)) return -1;
+    std::memcpy(address.sun_path, name.c_str(), name.size() + 1);
+    // Never waiting: a listener that does not accept (its queue full) answers EAGAIN instead of blocking.
+    const int fd = ::socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
+    if (fd < 0) return -1;
+    const bool connected = ::connect(fd, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) == 0;
+    const int error = errno;
+    if (connected && server) {
+        ucred peer{}; socklen_t size = sizeof(peer);
+        *server = ::getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &peer, &size) == 0 ? peer.pid : 0;
+    }
+    ::close(fd);
+    if (connected || error == EAGAIN || error == EINPROGRESS) return 1;
+    return error == ECONNREFUSED || error == ENOENT ? 0 : -1;
+}
+std::optional<pid_t> markerPid(const std::filesystem::path& marker) {
+    const auto content = readSmall(marker, 65536);
+    const auto value = content.empty() ? std::nullopt : json::parse(content);
+    const auto pid = value ? integer(value->get("pid")) : std::nullopt;
+    if (!pid || !*pid || *pid > INT32_MAX || text(*value, "version").empty()) return {};
+    return static_cast<pid_t>(*pid);
+}
+// Launchme's own Aurelia: the helper's executable in an installed version's folder
+// (helpers/aurelia/<version>/aurelia…), never this process. Its image when it is one.
+std::optional<std::filesystem::path> ownAurelia(pid_t pid, const std::filesystem::path& executable) {
+    if (pid <= 0 || pid == ::getpid()) return {};
+    std::error_code error;
+    auto image = std::filesystem::read_symlink("/proc/" + std::to_string(pid) + "/exe", error).string();
+    if (error || image.empty()) return {};
+    if (image.ends_with(" (deleted)")) image.resize(image.size() - 10); // Its binary was replaced.
+    const std::filesystem::path path = std::filesystem::path(image).lexically_normal();
+    const auto folder = std::filesystem::weakly_canonical(executable.parent_path().parent_path(), error);
+    if (error || path.filename() != executable.filename() || path.parent_path().parent_path() != folder.lexically_normal()) return {};
+    return path;
+}
+bool current(const std::filesystem::path& image, const std::filesystem::path& executable) {
+    std::error_code error; const auto canonical = std::filesystem::weakly_canonical(executable, error);
+    return !error && image == canonical.lexically_normal();
+}
+// Still running: neither gone nor a zombie waiting for its parent.
+bool running(pid_t pid) {
+    if (::kill(pid, 0) != 0 && errno == ESRCH) return false;
+    std::ifstream file("/proc/" + std::to_string(pid) + "/stat");
+    std::string stat; std::getline(file, stat);
+    const auto close = stat.rfind(')');
+    return close == std::string::npos || close + 2 >= stat.size() || stat[close + 2] != 'Z';
+}
+// Before a command reaches the daemon. Upstream's stale-daemon fallback can stop every Aurelia
+// daemon when its marker is missing: never enter it for a listening socket without a usable marker
+// (<socket>.info). A daemon of Launchme's own helper is ended here instead when it has no marker
+// (removed by a newer CLI that could not stop it) or runs an older version's executable (after an
+// update; upstream's own restart may fail and still remove the marker), so the command starts a
+// fresh one; anything else at the socket is refused.
+bool daemonReady(const std::wstring& endpoint, const std::filesystem::path& executable) {
     const std::filesystem::path socket_path(endpoint);
     struct stat status{};
     if (::lstat(socket_path.c_str(), &status) != 0) return errno == ENOENT; // No daemon yet: Aurelia starts one.
     if (!S_ISSOCK(status.st_mode) || status.st_uid != ::getuid()) return false; // Aurelia would replace it.
-    sockaddr_un address{}; address.sun_family = AF_UNIX;
-    const auto name = socket_path.string();
-    if (name.size() >= sizeof(address.sun_path)) return false;
-    std::memcpy(address.sun_path, name.c_str(), name.size() + 1);
-    const int fd = ::socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
-    if (fd < 0) return false;
-    const bool listening = ::connect(fd, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) == 0;
-    const int error = errno; ::close(fd);
-    if (!listening) return error == ECONNREFUSED; // Left by a daemon that ended: Aurelia binds a new one.
-    auto marker = socket_path; marker.replace_extension(".info");
-    const auto content = readSmall(marker, 65536);
-    const auto value = content.empty() ? std::nullopt : json::parse(content);
-    const auto pid = value ? integer(value->get("pid")) : std::nullopt;
-    return pid && *pid > 0 && *pid <= UINT32_MAX && !text(*value, "version").empty();
+    const auto marker = daemonMarker(endpoint);
+    pid_t server = 0;
+    // A daemon that has just bound its socket writes its marker right after: a moment for it.
+    for (int wait = 0; wait < 20 && !server; ++wait) {
+        const auto state = socketState(socket_path);
+        if (state != 1) return state == 0;
+        if (const auto pid = markerPid(marker))
+            if (const auto image = ownAurelia(*pid, executable)) { if (current(*image, executable)) return true; server = *pid; break; }
+        std::this_thread::sleep_for(100ms);
+    }
+    if (!server) {
+        if (const auto state = socketState(socket_path, &server); state != 1) return state == 0;
+    }
+    if (!ownAurelia(server, executable)) return false;
+    ::kill(server, SIGTERM);
+    for (int wait = 0; wait < 30 && running(server); ++wait) std::this_thread::sleep_for(100ms);
+    if (running(server)) { ::kill(server, SIGKILL); for (int wait = 0; wait < 20 && running(server); ++wait) std::this_thread::sleep_for(100ms); }
+    std::error_code error; std::filesystem::remove(marker, error);
+    for (int wait = 0; wait < 50; ++wait) { if (socketState(socket_path) == 0) return true; std::this_thread::sleep_for(100ms); }
+    return false;
 }
 // posix_spawn with the three standard streams given; its own session, nothing else inherited.
 int spawnChild(const std::vector<std::string>& arguments, const std::vector<std::string>& environment, const std::filesystem::path& directory,
@@ -427,6 +555,11 @@ std::wstring daemonEndpoint(const std::filesystem::path& profile) {
     if (endpoint.string().size() >= sizeof(sockaddr_un::sun_path)) return {};
     return endpoint.wstring();
 }
+std::filesystem::path daemonMarker(const std::wstring& endpoint) {
+    if (endpoint.empty()) return {};
+    std::filesystem::path marker(endpoint); marker.replace_extension(".info");
+    return marker;
+}
 Reply invoke(const Runtime& runtime, const Request& request, const Cancel& cancel, const Event& event) {
     Reply result;
     if (arguments(request).empty() || !runtime.executable.is_absolute() || !runtime.profile.is_absolute()) {
@@ -448,10 +581,12 @@ Reply invoke(const Runtime& runtime, const Request& request, const Cancel& cance
     // `stop` and `running` only read Aurelia's launch records and end the recorded process: run in
     // this child, not forwarded to the daemon, which (v0.1.40) answers nothing while it waits for a game.
     const bool local = request.command == Command::stop || request.command == Command::running;
-    // The in-app sign-ins run in this child too, as the terminal's does (they replace the stored session).
+    // The in-app sign-ins run in this child too, as the terminal's does: `login --json` would be
+    // forwarded to the daemon, which sees only the command line (not AURELIA_PASSWORD) and its own
+    // stdin. The session file they write is what the daemon reads on the next command.
     const bool interactive = request.command == Command::login_qr || request.command == Command::login_password;
-    if (local) own.push_back("AURELIA_NO_DAEMON=1");
-    else if (request.command != Command::login && !interactive && !daemonIdentified(endpoint)) {
+    if (local || interactive) own.push_back("AURELIA_NO_DAEMON=1");
+    else if (request.command != Command::login && !daemonReady(endpoint, runtime.executable)) {
         result.error = tr(L"Nie można potwierdzić tożsamości daemona Aurelii. Spróbuj ponownie po zakończeniu jego uruchamiania."); return result;
     }
     own.push_back("NO_COLOR=1");

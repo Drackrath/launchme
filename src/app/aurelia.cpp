@@ -185,6 +185,7 @@ void Launcher::startAureliaLibraryWorker() {
                         app.aurelia_account_ = account; app.aurelia_authenticated_ = account != 0 && authenticated;
                         app.aurelia_account_name_ = text_encoding::wideLenient(aurelia::text(health.data, "account"));
                     }
+                    app.aurelia_session_known_ = health.ok;
                     // A changed borrowed list: the Steam library is read again and takes it in (onLibrary).
                     if (family) {
                         const auto ids = [](const std::vector<Game>& games) { std::set<uint32_t> result; for (const auto& g : games) result.insert(g.app_id); return result; };
@@ -311,7 +312,16 @@ std::wstring Launcher::aureliaCloudText(const Game& game) const {
 }
 
 void Launcher::aureliaOperation(aurelia::Request request, const Game& game) {
-    if (!aurelia_authenticated_ || !aurelia_active_) { openAurelia(); return; }
+    if (!aurelia_authenticated_ || !aurelia_active_) {
+        // Said where the user is (the game's page, its cloud): why nothing happens and what to do.
+        if (aurelia_ui_.open && aurelia_ui_.page != P::setup) {
+            aurelia_ui_.status = !aurelia_active_ ? tr(L"Włącz rozszerzoną integrację Aurelia") :
+                                 !aurelia_setup_status_.empty() && !aurelia_session_known_ ? aurelia_setup_status_ :
+                                 tr(L"Najpierw zaloguj się w Aurelii: Ustawienia → Biblioteka → Steam → Zarządzaj Aurelią");
+            aureliaRows(); return;
+        }
+        openAurelia(); return;
+    }
     if (aurelia_operations_.contains(request.app) || aurelia_operations_.contains(game.app_id) || aurelia_downloads_.contains(request.app)) {
         showNotification(NotificationKind::error, L"Aurelia", tr(L"Operacja dla tej gry już trwa")); return;
     }

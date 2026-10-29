@@ -119,34 +119,39 @@ void Launcher::aureliaRows() {
         s.subtitle.clear();
         s.status = aurelia_setup_status_;
         if (s.login != aurelia_ui::State::Login::none) {
-            // A sign-in in progress owns the page: its field or QR code and the way out.
+            // The sign-in page: the QR code above, the account's name and then its password in the
+            // field (a Steam Guard code when Steam asks), Aurelia's own console and the way out.
             using L = aurelia_ui::State::Login;
-            switch (s.login) {
-            case L::account: s.input_hint = tr(L"Nazwa konta Steam"); s.submit = tr(L"Dalej"); break;
-            case L::password: s.input_hint = tr(L"Hasło"); s.submit = tr(L"Zaloguj"); break;
-            case L::guard: s.input_hint = s.guard_email ? tr(L"Kod Steam Guard z e-maila") : tr(L"Kod Steam Guard"); s.submit = tr(L"Wyślij"); break;
-            default: break;
+            if (s.login == L::form) {
+                const bool password = !s.login_account.empty();
+                s.input_hint = password ? tr(L"Hasło") : tr(L"Nazwa konta Steam");
+                s.submit = password ? tr(L"Zaloguj") : tr(L"Dalej");
+                s.input_secret = password;
+                if (s.qr_failed) add(A::login_refresh, tr(L"Nowy kod QR"));
+                add(A::login, tr(L"Zaloguj w oknie Aurelii"));
+            } else if (s.login == L::guard) {
+                s.input_hint = s.guard_email ? tr(L"Kod Steam Guard z e-maila") : tr(L"Kod Steam Guard"); s.submit = tr(L"Wyślij");
             }
-            s.input_secret = s.login == L::password;
             add(A::login_cancel, tr(L"Anuluj logowanie"));
             break;
+        }
+        // The account first: who is signed in, or the way to sign in.
+        if (aurelia_authenticated_) {
+            auto& account = add(A::reconnect, tr(L"Konto Steam"), aurelia_account_name_.empty() ? std::wstring(tr(L"Zalogowano")) : aurelia_account_name_);
+            account.description = tr(L"Zalogowano · połącz ponownie");
+            account.locked = s.busy;
+            add(A::logout, tr(L"Wyloguj")).danger = true;
+        } else {
+            auto& sign_in = add(A::login_start, tr(L"Zaloguj się"),
+                                !aurelia_transport_ ? std::wstring(tr(L"Najpierw zainstaluj Aurelię")) : aurelia_session_known_ ? std::wstring(tr(L"Nie zalogowano")) : std::wstring(tr(L"Stan nieznany")));
+            sign_in.description = tr(L"Kod QR z aplikacji Steam Mobile albo nazwa konta i hasło");
+            sign_in.locked = !aurelia_transport_;
         }
         toggle(A::toggle, tr(L"Rozszerzona integracja Aurelia"), settings_.aurelia);
         toggle(A::cloud_toggle, tr(L"Zapisy w chmurze"), settings_.aurelia_cloud).locked = !settings_.aurelia;
         toggle(A::default_launch, tr(L"Domyślnie zarządzaj grami przez Aurelię"), settings_.aurelia_default).locked = !settings_.aurelia;
         add(A::helper, s.installed ? tr(L"Sprawdź aktualizację") : tr(L"Zainstaluj Aurelię"),
             aurelia_helper_busy_ ? tr(L"Pobieranie…") : aurelia_version_).locked = aurelia_helper_busy_;
-        if (aurelia_authenticated_) {
-            add(A::reconnect, tr(L"Połączenie"), tr(L"Połączono")).locked = s.busy;
-            add(A::logout, tr(L"Wyloguj"), aurelia_account_name_).danger = true;
-        } else {
-            // Signing in here: Steam's QR code for the Steam Mobile app, or the account's name and
-            // password (Steam Guard asked for in the same field); Aurelia's own console stays.
-            const bool locked = !aurelia_transport_ || s.busy;
-            add(A::login_qr, tr(L"Zaloguj kodem QR"), tr(L"Aplikacja Steam Mobile")).locked = locked;
-            add(A::login_password, tr(L"Zaloguj nazwą konta i hasłem")).locked = locked;
-            add(A::login, tr(L"Zaloguj w oknie Aurelii")).locked = locked;
-        }
         add(A::repository, tr(L"Repozytorium Aurelii"), L"GitHub");
         if (s.intro) add(A::close, tr(L"Dalej"));
         break;
@@ -242,7 +247,7 @@ void Launcher::aureliaRows() {
 void Launcher::aureliaPage(P page) {
     closeKeyboard();
     auto& s = aurelia_ui_; const auto generation = ++aurelia_page_generation_;
-    s.page = page; s.focus = s.first = 0; s.input_focus = false; s.input.clear(); s.confirmation.reset(); s.status.clear(); s.busy = false;
+    s.page = page; s.focus = s.first = 0; s.input_focus = false; s.back_focus = false; s.input.clear(); s.confirmation.reset(); s.status.clear(); s.busy = false;
     s.hover = -9; s.visible = 0;
     aurelia_page_data_ = {}; aureliaRows();
     if (!aurelia_transport_ || (page != P::setup && !aurelia_authenticated_)) return;
@@ -264,7 +269,7 @@ void Launcher::aureliaPage(P page) {
         if (reply.ok) {
             app.aurelia_page_data_ = reply.data;
             if (page == P::setup) {
-                app.aurelia_authenticated_ = aurelia::flag(reply.data, "logged_in");
+                app.aurelia_authenticated_ = aurelia::flag(reply.data, "logged_in"); app.aurelia_session_known_ = true;
                 app.aurelia_account_name_ = wideLenient(aurelia::text(reply.data, "account"));
                 app.aurelia_setup_status_ = app.settings_.aurelia != app.aurelia_active_ ? tr(L"Wymaga ponownego uruchomienia Launchme") : L"";
             } else if (page == P::game) {
@@ -289,7 +294,7 @@ void Launcher::aureliaPage(P page) {
                     else for (auto& item : list->elements) item.properties["path"] = json::string(text_encoding::utf8(plainPath(wideLenient(aurelia::text(item, "path")))));
                 }
             }
-        } else if (page == P::setup) app.aurelia_setup_status_ = reply.error;
+        } else if (page == P::setup) { app.aurelia_setup_status_ = reply.error; app.aurelia_session_known_ = false; }
         app.aureliaRows();
     });
 }
@@ -320,18 +325,9 @@ void Launcher::aureliaActivate(const Row& row, bool confirmed) {
     }
     if (row.action == A::helper) { installAurelia(); return; }
     if (row.action == A::login_cancel) { aureliaCancelLogin(); audio_.context(); return; }
-    if (row.action == A::login_qr || row.action == A::login_password) {
-        if (!aurelia_operations_.empty() || !aurelia_playing_.empty() || !aurelia_downloads_.empty()) {
-            s.status = tr(L"Najpierw zakończ gry i pobierania Aurelii"); InvalidateRect(hwnd_, nullptr, FALSE); return;
-        }
-        if (row.action == A::login_qr) { aureliaStartLogin({C::login_qr}); return; }
-        // The account's name first, then its password, in the page's field.
-        aureliaCancelLogin();
-        s.login = aurelia_ui::State::Login::account; s.input.clear(); s.input_focus = true; s.focus = 0;
-        aureliaRows(); audio_.context();
-        if (!desktop_mode_ && pad_input_) openKeyboard();
-        return;
-    }
+    if (row.action == A::login_start) { aureliaOpenSignIn(); return; }
+    if (row.action == A::login_refresh) { aureliaLoginProcess({C::login_qr}); audio_.context(); return; }
+    if (row.action == A::login) aureliaCancelLogin(); // Aurelia's own console instead: the page's sign-in stops.
     if (row.action == A::repository) {
         execute_(hwnd_, GameAction{L"https://github.com/Drackrath/Aurelia", {}, {}, ActionKind::open_client}); return;
     }
@@ -427,51 +423,86 @@ void Launcher::aureliaActivate(const Row& row, bool confirmed) {
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
-// The in-app sign-in: `login --json` with its stdin kept open. Its events show the QR code, ask for a
-// Steam Guard code or say to approve in the Steam Mobile app; the last line is its result.
-void Launcher::aureliaStartLogin(aurelia::Request request) {
+// The sign-in page: Steam's QR code for the Steam Mobile app and, in the same page, the field for the
+// account's name and then its password, as Steam's own sign-in. One `login --json` runs at a time with
+// its stdin kept open: the QR code's until the password is given, then the password's. Their events
+// show the code, ask for a Steam Guard code or say to approve in the app; the last line is the result.
+void Launcher::aureliaOpenSignIn() {
+    auto& s = aurelia_ui_; if (!s.open || !aurelia_transport_) return;
+    if (!aurelia_operations_.empty() || !aurelia_playing_.empty() || !aurelia_downloads_.empty()) {
+        s.status = tr(L"Najpierw zakończ gry i pobierania Aurelii"); InvalidateRect(hwnd_, nullptr, FALSE); return;
+    }
+    aureliaCancelLogin();
+    s.login = aurelia_ui::State::Login::form; s.login_account.clear(); s.input.clear();
+    s.focus = s.first = 0; s.back_focus = false;
+    s.input_focus = desktop_mode_ || !pad_input_; // The keyboard types the account's name at once; a pad starts on the rows.
+    aureliaLoginProcess({C::login_qr});
+    audio_.context();
+}
+
+void Launcher::aureliaLoginProcess(aurelia::Request request) {
     using L = aurelia_ui::State::Login;
     auto& s = aurelia_ui_; if (!s.open) return;
-    aureliaCancelLogin(); // An earlier attempt goes.
+    aureliaStopLoginProcess(); // The earlier one goes.
     const bool qr = request.command == C::login_qr;
     aurelia_login_input_ = std::make_shared<aurelia::Input>();
     aurelia_login_cancel_ = std::make_shared<std::atomic_bool>(false);
     request.input = aurelia_login_input_;
     const auto generation = ++aurelia_login_generation_;
-    s.login = qr ? L::qr : L::waiting; s.busy = true; s.input_focus = false; s.focus = 0;
-    aurelia_setup_status_ = qr ? tr(L"Pobieranie kodu QR…") : tr(L"Logowanie…");
+    s.qr.clear(); s.qr_size = 0; s.qr_scanned = false; s.qr_failed = false;
+    if (qr) aurelia_setup_status_ = s.login_account.empty() ? tr(L"Pobieranie kodu QR…") : tr(L"Konto: ") + s.login_account;
+    else { s.login = L::waiting; s.busy = true; s.input_focus = false; s.focus = 0; aurelia_setup_status_ = tr(L"Logowanie…"); }
     aureliaRows();
-    aureliaRequest(std::move(request), [generation](Launcher& app, aurelia::Reply reply) {
+    aureliaRequest(std::move(request), [generation, qr](Launcher& app, aurelia::Reply reply) {
         if (app.aurelia_login_generation_ != generation) return;
         auto& s = app.aurelia_ui_;
         app.aurelia_login_input_.reset(); app.aurelia_login_cancel_.reset();
-        s.login = L::none; s.qr.clear(); s.qr_size = 0; s.qr_scanned = false; s.busy = false; s.input.clear(); s.login_account.clear();
         if (reply.ok) {
+            std::fill(s.input.begin(), s.input.end(), L'\0');
+            s.login = L::none; s.qr.clear(); s.qr_size = 0; s.qr_scanned = s.qr_failed = false; s.busy = false; s.input.clear(); s.login_account.clear();
             const auto account = wideLenient(aurelia::text(reply.data, "account"));
             app.aurelia_setup_status_.clear();
+            if (!account.empty()) app.aurelia_account_name_ = account;
             app.showNotification(NotificationKind::launch, L"Aurelia", account.empty() ? std::wstring(tr(L"Zalogowano")) : tr(L"Zalogowano: ") + account);
-            // A running daemon keeps the session it had: it takes the new one, then the page asks again.
+            // The daemon keeps the session it had: it takes the new one, then the page asks again.
             app.aureliaRequest({C::reconnect}, [](Launcher& app, aurelia::Reply) {
                 app.aureliaRescan();
-                if (app.aurelia_ui_.open && app.aurelia_ui_.page == P::setup) app.aureliaPage(P::setup);
+                if (app.aurelia_ui_.open && app.aurelia_ui_.page == P::setup && app.aurelia_ui_.login == L::none) app.aureliaPage(P::setup);
             });
-        } else if (!reply.cancelled) {
-            const auto type = aurelia::text(reply.data, "type");
-            app.aurelia_setup_status_ =
-                type == "login_denied" ? tr(L"Logowanie odrzucone w aplikacji Steam Mobile.") :
-                type == "login_expired" ? tr(L"Kod wygasł przed zatwierdzeniem. Spróbuj ponownie.") :
-                type == "timeout" ? tr(L"Logowanie nie zostało zatwierdzone na czas.") :
-                type == "auth_required" ? tr(L"Nieprawidłowa nazwa konta, hasło lub kod Steam Guard.") :
-                type == "rate_limited" ? tr(L"Steam chwilowo ogranicza logowanie. Spróbuj za kilka minut.") :
-                type == "offline" || type == "network_timeout" ? tr(L"Brak połączenia ze Steam.") :
-                reply.error.empty() ? std::wstring(tr(L"Logowanie Aurelii nie powiodło się")) : reply.error;
-        } else app.aurelia_setup_status_.clear();
-        if (s.open) app.aureliaRows();
-    }, [generation](Launcher& app, json::Value event) {
+            if (s.open) app.aureliaRows();
+            return;
+        }
+        if (reply.cancelled) return;
+        const auto type = aurelia::text(reply.data, "type");
+        const std::wstring message =
+            type == "login_denied" ? tr(L"Logowanie odrzucone w aplikacji Steam Mobile.") :
+            type == "login_expired" ? tr(L"Kod wygasł przed zatwierdzeniem. Spróbuj ponownie.") :
+            type == "timeout" ? tr(L"Logowanie nie zostało zatwierdzone na czas.") :
+            type == "auth_required" ? tr(L"Nieprawidłowa nazwa konta, hasło lub kod Steam Guard.") :
+            type == "rate_limited" ? tr(L"Steam chwilowo ogranicza logowanie. Spróbuj za kilka minut.") :
+            type == "offline" || type == "network_timeout" ? tr(L"Brak połączenia ze Steam.") :
+            reply.error.empty() ? std::wstring(tr(L"Logowanie Aurelii nie powiodło się")) : reply.error;
+        if (!s.open || s.login == L::none) return;
+        if (qr) {
+            // The QR code's sign-in ended without one: a new code when it only expired, else the
+            // reason and Nowy kod QR; the field goes on taking the account and password.
+            s.qr.clear(); s.qr_size = 0; s.qr_scanned = false;
+            if (s.login == L::form && (type == "login_expired" || type == "timeout")) { app.aureliaLoginProcess({C::login_qr}); return; }
+            s.qr_failed = true;
+            app.aurelia_setup_status_ = message;
+        } else {
+            // The password's sign-in failed: the page again, a new QR code, the password asked once more.
+            s.login = L::form; s.busy = false; s.input.clear(); s.input_focus = app.desktop_mode_ || !app.pad_input_;
+            app.aureliaLoginProcess({C::login_qr});
+            app.aurelia_setup_status_ = message;
+        }
+        app.aureliaRows();
+    }, [generation, qr](Launcher& app, json::Value event) {
         auto& s = app.aurelia_ui_;
         if (app.aurelia_login_generation_ != generation || !s.open || s.login == L::none) return;
         const auto kind = aurelia::text(event, "event");
-        if (kind == "qr_challenge") {
+        if (kind == "qr_challenge" && qr) {
+            if (s.login != L::form) return;
             // Steam's challenge as a QR code; a new one replaces it when Steam rotates the code.
             s.qr.clear(); s.qr_size = 0;
             try {
@@ -480,9 +511,9 @@ void Launcher::aureliaStartLogin(aurelia::Request request) {
                 s.qr.reserve(static_cast<size_t>(s.qr_size) * static_cast<size_t>(s.qr_size));
                 for (int y = 0; y < s.qr_size; ++y) for (int x = 0; x < s.qr_size; ++x) s.qr.push_back(code.getModule(x, y) ? 1 : 0);
             } catch (...) { s.qr.clear(); s.qr_size = 0; }
-            s.login = L::qr; s.qr_scanned = false;
-            app.aurelia_setup_status_ = tr(L"Steam Mobile → Steam Guard → Zeskanuj kod QR");
-        } else if (kind == "qr_scanned") {
+            s.qr_scanned = s.qr_failed = false;
+            if (app.aurelia_setup_status_ == tr(L"Pobieranie kodu QR…")) app.aurelia_setup_status_ = tr(L"Steam Mobile → Steam Guard → Zeskanuj kod QR");
+        } else if (kind == "qr_scanned" && qr) {
             s.qr_scanned = true;
             app.aurelia_setup_status_ = tr(L"Kod zeskanowany. Zatwierdź logowanie w aplikacji.");
         } else if (kind == "awaiting_confirmation") {
@@ -501,15 +532,20 @@ void Launcher::aureliaStartLogin(aurelia::Request request) {
     }, aurelia_login_cancel_);
 }
 
-void Launcher::aureliaCancelLogin() {
+void Launcher::aureliaStopLoginProcess() {
     ++aurelia_login_generation_;
     if (aurelia_login_cancel_) aurelia_login_cancel_->store(true); // The CLI is asked to stop ("cancel"), then ended.
     aurelia_login_input_.reset(); aurelia_login_cancel_.reset();
+}
+
+// Leaves the sign-in page: its `login` stops, what was typed goes.
+void Launcher::aureliaCancelLogin() {
+    aureliaStopLoginProcess();
     auto& s = aurelia_ui_;
     if (s.login == aurelia_ui::State::Login::none) return;
     std::fill(s.input.begin(), s.input.end(), L'\0'); s.input.clear(); s.input_focus = false;
     s.login = aurelia_ui::State::Login::none; s.login_account.clear();
-    s.qr.clear(); s.qr_size = 0; s.qr_scanned = false; s.busy = false;
+    s.qr.clear(); s.qr_size = 0; s.qr_scanned = s.qr_failed = false; s.busy = false; s.focus = s.first = 0;
     aurelia_setup_status_.clear();
     if (s.open) aureliaRows();
 }
@@ -517,18 +553,19 @@ void Launcher::aureliaCancelLogin() {
 void Launcher::aureliaSubmit() {
     auto& s = aurelia_ui_;
     using L = aurelia_ui::State::Login;
-    // The sign-in's steps: the account's name, its password (then the sign-in starts), a Steam Guard code.
-    if (s.open && s.page == P::setup && (s.login == L::account || s.login == L::password || s.login == L::guard)) {
+    // The sign-in's steps: the account's name, its password (then its sign-in starts), a Steam Guard code.
+    if (s.open && s.page == P::setup && (s.login == L::form || s.login == L::guard)) {
         if (s.input.empty()) return;
-        if (s.login == L::account) {
-            s.login_account = s.input; s.input.clear(); s.login = L::password; s.input_focus = true;
+        if (s.login == L::form && s.login_account.empty()) {
+            if (!aurelia::validAccount(s.input)) { aurelia_setup_status_ = tr(L"Nieprawidłowa nazwa konta"); aureliaRows(); return; }
+            s.login_account = s.input; s.input.clear(); s.input_focus = true;
             aurelia_setup_status_ = tr(L"Konto: ") + s.login_account;
             aureliaRows(); return;
         }
-        if (s.login == L::password) {
+        if (s.login == L::form) {
             aurelia::Request request{C::login_password}; request.text = s.login_account; request.secret = s.input;
             std::fill(s.input.begin(), s.input.end(), L'\0'); s.input.clear();
-            aureliaStartLogin(std::move(request));
+            aureliaLoginProcess(std::move(request));
             return;
         }
         if (aurelia_login_input_) aurelia_login_input_->write(text_encoding::utf8(s.input));
@@ -576,15 +613,30 @@ void Launcher::aureliaKey(WPARAM key, bool repeated) {
         else aureliaPage(P::game);
         return;
     }
-    if (key == VK_F5 && !repeated) { aureliaPage(s.page); return; }
+    if (key == VK_F5 && !repeated && s.login == aurelia_ui::State::Login::none) { aureliaPage(s.page); return; }
+    // Back (✕ on the desktop's first pages) above the rows: Up from the first row reaches it.
+    if (s.back_focus) {
+        if (key == VK_DOWN || key == VK_TAB) { s.back_focus = false; audio_.navigate(); }
+        else if ((key == VK_RETURN || key == VK_SPACE) && !repeated) { s.back_focus = false; aureliaKey(VK_ESCAPE, false); return; }
+        else if (key == VK_UP) { navigationBoundary(); return; }
+        InvalidateRect(hwnd_, nullptr, FALSE); return;
+    }
     if (key == VK_TAB && !s.input_hint.empty()) { s.input_focus = !s.input_focus; InvalidateRect(hwnd_, nullptr, FALSE); return; }
     if (key == VK_PRIOR || key == VK_NEXT) { aureliaScroll(key == VK_PRIOR ? -4 : 4); return; }
     if (s.input_focus) {
+        if (key == VK_BACK && s.input.empty() && s.login == aurelia_ui::State::Login::form && !s.login_account.empty()) {
+            // Back from the password to the account's name.
+            s.input = s.login_account; s.login_account.clear();
+            aurelia_setup_status_.clear(); aureliaRows(); return;
+        }
         if (key == VK_BACK && !s.input.empty()) {
             const auto last = s.input.back(); s.input.pop_back();
             if (last >= 0xdc00 && last <= 0xdfff && !s.input.empty() && s.input.back() >= 0xd800 && s.input.back() <= 0xdbff) s.input.pop_back();
         } else if (key == VK_RETURN && !repeated) aureliaSubmit();
-        else if (key == VK_UP) { s.input_focus = false; s.focus = std::max(0, static_cast<int>(s.rows.size()) - 1); }
+        else if (key == VK_UP) {
+            s.input_focus = false;
+            if (s.rows.empty()) s.back_focus = true; else s.focus = static_cast<int>(s.rows.size()) - 1;
+        }
         else if (key == 'V' && (GetKeyState(VK_CONTROL) & 0x8000) && OpenClipboard(hwnd_)) {
             if (const auto handle = GetClipboardData(CF_UNICODETEXT)) {
                 if (const auto* text = static_cast<const wchar_t*>(GlobalLock(handle))) {
@@ -601,6 +653,7 @@ void Launcher::aureliaKey(WPARAM key, bool repeated) {
         const int last = static_cast<int>(s.rows.size()) - 1;
         if (key == VK_DOWN && s.focus >= last && !s.input_hint.empty()) { s.input_focus = true; audio_.navigate(); InvalidateRect(hwnd_, nullptr, FALSE); return; }
         const int next = std::clamp(s.focus + (key == VK_UP ? -1 : 1), 0, std::max(0, last));
+        if (key == VK_UP && next == s.focus) { s.back_focus = true; audio_.navigate(); InvalidateRect(hwnd_, nullptr, FALSE); return; }
         if (next == s.focus) { navigationBoundary(); return; }
         s.focus = next; audio_.navigate();
         const int visible = aureliaVisibleRows();
@@ -615,9 +668,9 @@ void Launcher::aureliaClick(float x, float y) {
     if (hit == -1) { aureliaKey(VK_ESCAPE, false); return; }
     if (s.confirmation) {
         if (hit == -4 || hit == -5) { aureliaAnswer(hit == -5); return; }
-    } else if (hit == -2) { s.input_focus = true; if (!desktop_mode_ && pad_input_) openKeyboard(); }
+    } else if (hit == -2) { s.input_focus = true; s.back_focus = false; if (!desktop_mode_ && pad_input_) openKeyboard(); }
     else if (hit == -3) aureliaSubmit();
-    else if (hit >= 0) { s.input_focus = false; s.focus = hit; aureliaActivate(s.rows[hit]); }
+    else if (hit >= 0) { s.input_focus = false; s.back_focus = false; s.focus = hit; aureliaActivate(s.rows[hit]); }
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
@@ -632,10 +685,10 @@ void Launcher::aureliaDesktopClick(desktop_ui::SheetHit hit) {
         if (hit.kind == K::action && (hit.index == 1 || hit.index == 2)) aureliaAnswer(hit.index == 2);
         return;
     }
-    if (hit.kind == K::field) s.input_focus = true;
+    if (hit.kind == K::field) { s.input_focus = true; s.back_focus = false; }
     else if (hit.kind == K::action && hit.index == 0) aureliaSubmit();
     else if (hit.kind == K::row && hit.index >= 0 && hit.index < static_cast<int>(s.rows.size())) {
-        s.input_focus = false; s.focus = hit.index; aureliaActivate(s.rows[static_cast<size_t>(hit.index)]);
+        s.input_focus = false; s.back_focus = false; s.focus = hit.index; aureliaActivate(s.rows[static_cast<size_t>(hit.index)]);
     }
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
