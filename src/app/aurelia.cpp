@@ -111,8 +111,10 @@ void Launcher::startAureliaLibraryWorker() {
     const auto epoch = aurelia_epoch_;
     work_.start([=] {
         ChangeWatch watch; watch.wake(wake->event);
-        // Not the library source: only the session (account, sign-in) is followed here.
+        // Not the library source: only the session (account, sign-in) is followed here, and the games the
+        // account borrows through Steam Family Sharing (every 10 minutes; the Steam client has the rest).
         bool first = true;
+        uint64_t family_at = 0, family_account = 0;
         while (alive->load()) {
             const auto generation = epoch->load();
             const auto cancel = [=] { return !alive->load() || epoch->load() != generation; };
@@ -153,10 +155,19 @@ void Launcher::startAureliaLibraryWorker() {
                         }
                     }
                 }
+                std::optional<std::vector<Game>> family;
+                if (!source && authenticated && account && (account != family_account || GetTickCount64() >= family_at)) {
+                    if (const auto reply = invoke({C::library}, cancel, {}); reply.ok)
+                        if (auto games = aurelia::library(reply.data, account)) {
+                            family.emplace();
+                            for (auto& game : *games) if (game.family_shared) family->push_back(std::move(game));
+                            family_account = account; family_at = GetTickCount64() + 10 * 60 * 1000;
+                        }
+                } else if (!source && !authenticated) { family.emplace(); family_account = 0; } // Signed out: none borrowed.
                 if (cancel()) continue;
                 auto snapshot = std::shared_ptr<LibraryMessage>(message.release());
                 auto state = std::make_unique<RemoteMessage>();
-                state->run = [account, health, authenticated, epoch, generation, snapshot, valid, source](Launcher& app) {
+                state->run = [account, health, authenticated, epoch, generation, snapshot, valid, source, family](Launcher& app) {
                     if (epoch->load() != generation) return;
                     const bool changed = health.ok && app.aurelia_account_ != account;
                     if (changed) {
@@ -174,7 +185,14 @@ void Launcher::startAureliaLibraryWorker() {
                         app.aurelia_account_ = account; app.aurelia_authenticated_ = account != 0 && authenticated;
                         app.aurelia_account_name_ = text_encoding::wideLenient(aurelia::text(health.data, "account"));
                     }
-                    app.aurelia_setup_status_ = health.error;
+                    // A changed borrowed list: the Steam library is read again and takes it in (onLibrary).
+                    if (family) {
+                        const auto ids = [](const std::vector<Game>& games) { std::set<uint32_t> result; for (const auto& g : games) result.insert(g.app_id); return result; };
+                        const bool different = ids(*family) != ids(app.aurelia_family_);
+                        app.aurelia_family_ = *family;
+                        if (different) app.steam_rescan_->request();
+                    }
+                    if (app.aurelia_ui_.login == aurelia_ui::State::Login::none) app.aurelia_setup_status_ = health.error; // A sign-in's own messages stay.
                     if (source && (valid || changed)) app.onLibrary(std::make_unique<LibraryMessage>(*snapshot));
                     else if (source && app.scanning_) { app.scanning_ = false; InvalidateRect(app.hwnd_, nullptr, FALSE); }
                     if (app.aurelia_ui_.open && app.aurelia_ui_.page == P::setup) app.aureliaRows();
@@ -188,6 +206,28 @@ void Launcher::startAureliaLibraryWorker() {
             watch.wait(60000); wake->take(); // Explicit refresh wakes it immediately; no per-frame queries.
         }
     });
+}
+
+// The Steam library read from the Steam client (Aurelia only follows the session): the games the same
+// account borrows through Steam Family Sharing join it, not installed, and the installed borrowed ones
+// are marked so; they install and start through the client.
+void Launcher::mergeAureliaFamily(LibraryMessage& library) const {
+    if (aurelia_family_.empty() || !library.account || library.account != aurelia_account_) return;
+    std::set<uint32_t> borrowed, known;
+    for (const auto& game : aurelia_family_) borrowed.insert(game.app_id);
+    for (auto* games : {&library.games, &library.private_games})
+        for (auto& game : *games) {
+            if (game.source != GameSource::steam || game.kind != GameKind::steam) continue;
+            known.insert(game.app_id);
+            if (borrowed.contains(game.app_id)) { game.family_shared = true; game.steam_owner = 0; } // This account plays it.
+        }
+    for (const auto& game : aurelia_family_) {
+        if (known.contains(game.app_id) || library.excluded.contains(game.app_id)) continue;
+        auto copy = game;
+        copy.installed = false; copy.install_directory.clear();
+        copy.account_id = std::to_string(library.account);
+        library.games.push_back(std::move(copy));
+    }
 }
 
 void Launcher::aureliaApplyDownloads(const json::Value& data) {
@@ -341,7 +381,8 @@ void Launcher::aureliaLaunch(const Game& game) {
     if (aurelia_downloads_.contains(game.app_id)) { openAurelia(&game); return; }
     aurelia_playing_.insert(game.app_id);
     aurelia::Request request{C::standalone, game.app_id}; request.steam = false;
-    request.auto_cloud = aureliaCloudEnabled() && settings_.aurelia_auto_cloud.contains(std::to_string(game.app_id));
+    // Its Steam Cloud saves: pulled before the game starts and pushed after it ends, unless turned off for it.
+    request.auto_cloud = aureliaCloudEnabled() && !settings_.aurelia_cloud_skip.contains(std::to_string(game.app_id));
     // Managed only through "Domyślnie zarządzaj przez Aurelię": a game that cannot run without the
     // Steam client here goes to the client instead (said so); one chosen for Aurelia reports it.
     const bool by_default = settings_.aurelia_default;

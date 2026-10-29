@@ -74,6 +74,9 @@ struct Game {
     // Steam: a preload, the content downloaded ahead of the release (its manifest waits on "not released");
     // neither installed nor installing, playable from the release day.
     bool preloaded = false;
+    // Steam Family Sharing: borrowed from another member of the account's Steam Family (Aurelia's
+    // list); it installs and starts through the Steam client, which authorises the licence.
+    bool family_shared = false;
     // EGS account metadata and installations managed by Launchme/Legendary.
     std::string epic_namespace, epic_catalog, epic_partner;
     // The store's own art (https on its CDN): the tall box art, the wide one and the logo; empty when

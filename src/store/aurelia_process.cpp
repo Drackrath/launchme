@@ -90,11 +90,14 @@ Reply invoke(const Runtime& runtime, const Request& request, const Cancel& cance
     // `stop` and `running` only read Aurelia's launch records and end the recorded process: run in
     // this child, not forwarded to the daemon, which (v0.1.40) answers nothing while it waits for a game.
     const bool local = request.command == Command::stop || request.command == Command::running;
+    // The in-app sign-ins run in this child too, as the console's does (they replace the stored session).
+    const bool interactive = request.command == Command::login_qr || request.command == Command::login_password;
     if (local) env[L"AURELIA_NO_DAEMON"] = L"1";
-    else if (request.command != Command::login && !daemonIdentified(endpoint)) {
+    else if (request.command != Command::login && !interactive && !daemonIdentified(endpoint)) {
         result.error = tr(L"Nie można potwierdzić tożsamości daemona Aurelii. Spróbuj ponownie po zakończeniu jego uruchamiania."); return result;
     }
     env[L"NO_COLOR"] = L"1";
+    if (request.command == Command::login_password) env[L"AURELIA_PASSWORD"] = request.secret; // Never on the command line.
     std::vector<wchar_t> environment;
     for (const auto& [key, value] : env) {
         const auto entry = key + L'=' + value; environment.insert(environment.end(), entry.begin(), entry.end()); environment.push_back(0);
@@ -114,7 +117,8 @@ Reply invoke(const Runtime& runtime, const Request& request, const Cancel& cance
             !CreatePipe(&in_read.value, &in_write.value, &sa, 0)) return result;
         SetHandleInformation(out_read.value, HANDLE_FLAG_INHERIT, 0); SetHandleInformation(err_read.value, HANDLE_FLAG_INHERIT, 0);
         SetHandleInformation(in_write.value, HANDLE_FLAG_INHERIT, 0);
-        if (!live) in_write.reset(); // Queries cannot wait for a prompt. Live chat keeps stdin open.
+        // Queries cannot wait for a prompt. Live chat and the in-app sign-ins keep stdin open (EOF ends a sign-in).
+        if (!live && !interactive) in_write.reset();
         startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
         startup.StartupInfo.hStdInput = in_read.value; startup.StartupInfo.hStdOutput = out_write.value; startup.StartupInfo.hStdError = err_write.value;
         SIZE_T size = 0; InitializeProcThreadAttributeList(nullptr, 1, 0, &size); attributes.resize(size);
@@ -162,14 +166,27 @@ Reply invoke(const Runtime& runtime, const Request& request, const Cancel& cance
         }
     };
     const auto started = GetTickCount64();
-    const uint64_t timeout = console ? 10 * 60 * 1000ULL : longCommand(request.command) ? 0 : runtime.query_timeout_ms;
+    // A sign-in waits for the user; a cloud sync may move large saves: ten minutes each.
+    const bool slow = console || interactive || request.command == Command::cloud_sync;
+    const uint64_t timeout = slow ? 10 * 60 * 1000ULL : longCommand(request.command) ? 0 : runtime.query_timeout_ms;
+    // Lines the UI wrote for the child's stdin (a Steam Guard code, cancel).
+    const auto feed = [&] {
+        if (!request.input || !in_write.value) return;
+        for (auto line : request.input->take()) {
+            line += '\n'; DWORD written = 0;
+            if (!WriteFile(in_write.value, line.data(), static_cast<DWORD>(line.size()), &written, nullptr)) { in_write.reset(); return; }
+        }
+    };
     while (true) {
+        feed();
         drain(out_read.value, true); drain(err_read.value, false);
         if ((cancel && cancel()) || overflow || (timeout && GetTickCount64() - started > timeout)) {
             result.cancelled = cancel && cancel();
             result.error = result.cancelled ? tr(L"Anulowano") : overflow ? tr(L"Odpowiedź Aurelii jest zbyt duża") : tr(L"Aurelia nie odpowiedziała na czas");
+            // A sign-in is asked to stop (it answers "cancelled"), live chat sees its stdin end.
+            if (interactive && in_write.value) { const std::string stop = "cancel\n"; DWORD written = 0; WriteFile(in_write.value, stop.data(), static_cast<DWORD>(stop.size()), &written, nullptr); }
             in_write.reset();
-            if (WaitForSingleObject(process.value, live ? 800 : 0) != WAIT_OBJECT_0) TerminateProcess(process.value, 1);
+            if (WaitForSingleObject(process.value, live || interactive ? 2000 : 0) != WAIT_OBJECT_0) TerminateProcess(process.value, 1);
             WaitForSingleObject(process.value, 3000); return result;
         }
         if (WaitForSingleObject(process.value, 40) == WAIT_OBJECT_0) break;
@@ -431,12 +448,15 @@ Reply invoke(const Runtime& runtime, const Request& request, const Cancel& cance
     // `stop` and `running` only read Aurelia's launch records and end the recorded process: run in
     // this child, not forwarded to the daemon, which (v0.1.40) answers nothing while it waits for a game.
     const bool local = request.command == Command::stop || request.command == Command::running;
+    // The in-app sign-ins run in this child too, as the terminal's does (they replace the stored session).
+    const bool interactive = request.command == Command::login_qr || request.command == Command::login_password;
     if (local) own.push_back("AURELIA_NO_DAEMON=1");
-    else if (request.command != Command::login && !daemonIdentified(endpoint)) {
+    else if (request.command != Command::login && !interactive && !daemonIdentified(endpoint)) {
         result.error = tr(L"Nie można potwierdzić tożsamości daemona Aurelii. Spróbuj ponownie po zakończeniu jego uruchamiania."); return result;
     }
     own.push_back("NO_COLOR=1");
     if (request.command == Command::login) return terminalLogin(runtime, own, cancel);
+    if (request.command == Command::login_password) own.push_back("AURELIA_PASSWORD=" + text_encoding::utf8Lenient(request.secret)); // Never in argv.
     std::vector<std::string> environment;
     for (char** entry = environ; entry && *entry; ++entry) {
         const std::string_view line(*entry);
@@ -450,7 +470,13 @@ Reply invoke(const Runtime& runtime, const Request& request, const Cancel& cance
     const bool live = request.command == Command::chat_live;
     Descriptor out_read, out_write, err_read, err_write, in_read, in_write;
     if (!pipeOf(out_read, out_write) || !pipeOf(err_read, err_write) || !pipeOf(in_read, in_write)) return result;
-    if (!live) in_write.reset(); // Queries cannot wait for a prompt. Live chat keeps stdin open.
+    // The child's stdin blocks as a terminal's does: a sign-in waiting for its next line must not see EAGAIN.
+    ::fcntl(in_read.fd, F_SETFL, ::fcntl(in_read.fd, F_GETFL) & ~O_NONBLOCK);
+    // Queries cannot wait for a prompt. Live chat and the in-app sign-ins keep stdin open (EOF ends a sign-in).
+    if (!live && !interactive) in_write.reset();
+    // A child that went away must not end Launchme with SIGPIPE when a line is written to it.
+    static const bool ignore_broken_pipe = (::signal(SIGPIPE, SIG_IGN), true);
+    (void)ignore_broken_pipe;
     pid_t pid = 0;
     if (spawnChild(argv, environment, runtime.profile, in_read.fd, out_write.fd, err_write.fd, pid) != 0) {
         result.error = tr(L"Nie można uruchomić Aurelii"); return result;
@@ -483,17 +509,30 @@ Reply invoke(const Runtime& runtime, const Request& request, const Cancel& cance
         }
     };
     const auto started = std::chrono::steady_clock::now();
-    const std::chrono::milliseconds timeout(longCommand(request.command) ? 0 : runtime.query_timeout_ms);
+    // A sign-in waits for the user; a cloud sync may move large saves: ten minutes each.
+    const bool slow = interactive || request.command == Command::cloud_sync;
+    const std::chrono::milliseconds timeout(slow ? 10 * 60 * 1000 : longCommand(request.command) ? 0 : runtime.query_timeout_ms);
+    // Lines the UI wrote for the child's stdin (a Steam Guard code, cancel).
+    const auto feed = [&] {
+        if (!request.input || in_write.fd < 0) return;
+        for (auto line : request.input->take()) {
+            line += '\n';
+            if (::write(in_write.fd, line.data(), line.size()) != static_cast<ssize_t>(line.size())) { in_write.reset(); return; }
+        }
+    };
     int code = 1;
     while (true) {
+        feed();
         pollfd fds[2]{{out_read.fd, POLLIN, 0}, {err_read.fd, POLLIN, 0}};
         if (out_read.fd >= 0 || err_read.fd >= 0) ::poll(fds, 2, 40); else std::this_thread::sleep_for(40ms);
         drain(out_read, true); drain(err_read, false);
         if ((cancel && cancel()) || overflow || (timeout.count() && std::chrono::steady_clock::now() - started > timeout)) {
             result.cancelled = cancel && cancel();
             result.error = result.cancelled ? tr(L"Anulowano") : overflow ? tr(L"Odpowiedź Aurelii jest zbyt duża") : tr(L"Aurelia nie odpowiedziała na czas");
+            // A sign-in is asked to stop (it answers "cancelled"), live chat sees its stdin end.
+            if (interactive && in_write.fd >= 0) { const std::string stop = "cancel\n"; [[maybe_unused]] const auto sent = ::write(in_write.fd, stop.data(), stop.size()); }
             in_write.reset();
-            child.exited = true; stopChild(pid, live ? 800ms : 0ms);
+            child.exited = true; stopChild(pid, live || interactive ? 2000ms : 0ms);
             return result;
         }
         if (const auto exit = process_spawn::waitExit(pid, 0ms)) { code = *exit; child.exited = true; break; }

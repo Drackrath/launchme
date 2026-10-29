@@ -33,6 +33,8 @@ if(NOT LAUNCHME_STATIC_RUNTIME)
     string(APPEND LAUNCHME_RUNTIME "DLL")
 endif()
 set_property(TARGET miniz PROPERTY MSVC_RUNTIME_LIBRARY "${LAUNCHME_RUNTIME}")
+include(cmake/QrCode.cmake)
+set_property(TARGET launchme_qrcodegen PROPERTY MSVC_RUNTIME_LIBRARY "${LAUNCHME_RUNTIME}")
 include(cmake/CompanionEmbeddings.cmake)
 
 # Only PresentMon's ETW consumer, not its desktop application/service. Pinned MIT
@@ -100,7 +102,7 @@ list(APPEND LAUNCHME_CORE_SOURCES ${LAUNCHME_I18N_SOURCES})
 list(REMOVE_DUPLICATES LAUNCHME_CORE_SOURCES)
 add_library(launchme_core STATIC ${LAUNCHME_CORE_SOURCES})
 launchme_target_defaults(launchme_core)
-target_link_libraries(launchme_core PUBLIC ${LAUNCHME_APP_LIBS} miniz launchme_presentmon iphlpapi ws2_32)
+target_link_libraries(launchme_core PUBLIC ${LAUNCHME_APP_LIBS} miniz launchme_qrcodegen launchme_presentmon iphlpapi ws2_32)
 target_link_libraries(launchme_core PUBLIC companion_ort companion_sqlite sentencepiece-static)
 target_include_directories(launchme_core SYSTEM PRIVATE "${companion_spm_SOURCE_DIR}/src")
 target_precompile_headers(launchme_core PRIVATE <Windows.h> <string> <vector> <filesystem>)
@@ -183,6 +185,7 @@ launchme_plugin(launchme_achievements plugins/achievements launchme.achievements
 target_link_libraries(launchme_achievements PRIVATE bcrypt)
 install(FILES plugins/achievements/NOTICE.md DESTINATION plugin-packages/licenses RENAME successstory.txt COMPONENT Runtime)
 install(FILES "${miniz_SOURCE_DIR}/LICENSE" DESTINATION plugin-packages/licenses RENAME miniz.txt COMPONENT Runtime)
+install(FILES "${qrcodegen_SOURCE_DIR}/Readme.markdown" DESTINATION plugin-packages/licenses RENAME qrcodegen.txt COMPONENT Runtime) # MIT, in its License section.
 install(FILES "${presentmon_SOURCE_DIR}/LICENSE.txt" DESTINATION plugin-packages/licenses RENAME presentmon.txt COMPONENT Runtime)
 install(FILES "${webview2_SOURCE_DIR}/LICENSE.txt" DESTINATION plugin-packages/licenses RENAME webview2.txt COMPONENT Runtime)
 

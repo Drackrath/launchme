@@ -618,6 +618,7 @@ private:
     void drawDesktopAurelia();
     // The cloud saves icon (Szczegoly, after the dots): a cloud, and a badge for synced or a problem.
     void drawCloudGlyph(float cx, float cy, D2D1_COLOR_F ink, std::optional<aurelia::CloudState> state);
+    void drawQrCode(settings_ui::Rect r, const std::vector<uint8_t>& modules, int size); // aurelia_renderer.cpp
     bool createProfileFonts();
     void drawProfileImage(size_t index, D2D1_RECT_F box, float radius, float alpha, const std::wstring& fallback);
     void drawProfileCard(D2D1_RECT_F box, float alpha, float focus, float hover);

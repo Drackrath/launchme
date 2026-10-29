@@ -13,6 +13,8 @@
 #include <algorithm>
 
 void Launcher::onLibrary(std::unique_ptr<LibraryMessage> library) {
+    // Steam Family Sharing through Aurelia: the borrowed games join the client's library.
+    if (aurelia_active_ && !aurelia_library_source_ && !library->installation_update) mergeAureliaFamily(*library);
     if (aurelia_active_) for (auto* list : {&library->games, &library->private_games}) for (auto& game : *list)
         if (const auto found = aurelia_downloads_.find(game.app_id); found != aurelia_downloads_.end()) { game.installation = found->second.progress; game.installation.update = game.installed; }
     if (settings_.show_private) revealPrivateSteamGames(*library);

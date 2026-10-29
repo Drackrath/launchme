@@ -21,6 +21,7 @@ set(INSTALL_PROJECT OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(miniz GIT_REPOSITORY https://github.com/richgel999/miniz.git
     GIT_TAG 174573d60290f447c13a2b1b3405de2b96e27d6c)
 FetchContent_MakeAvailable(miniz)
+include(cmake/QrCode.cmake)
 
 set(LAUNCHME_I18N_SOURCES src/i18n/i18n.cpp src/i18n/strings_en.cpp src/i18n/strings_pt_br.cpp src/i18n/strings_es.cpp)
 
@@ -125,7 +126,7 @@ set(LAUNCHME_CORE_SOURCES
     src/store/steam_app_match.cpp
     src/store/steam_trailer.cpp
     src/store/web_import.cpp)
-set(LAUNCHME_CORE_LIBS miniz Threads::Threads ICU::uc ICU::i18n OpenSSL::Crypto PkgConfig::LIBSECRET CURL::libcurl)
+set(LAUNCHME_CORE_LIBS miniz launchme_qrcodegen Threads::Threads ICU::uc ICU::i18n OpenSSL::Crypto PkgConfig::LIBSECRET CURL::libcurl)
 
 # Sources ported per area (docs/linux-port.md, phase 1). Each block is edited by one piece of
 # work at a time; keep additions (and its find_package/pkg_check_modules and

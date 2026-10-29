@@ -198,9 +198,10 @@ AppSettings parseAppSettings(std::string_view text) {
         if (key == "steam_enabled") { if (value == "0" || value == "1") settings.steam_enabled = value == "1"; continue; }
         if (key == "aurelia_default") { if (value == "0" || value == "1") settings.aurelia_default = value == "1"; continue; }
         if (key == "aurelia_cloud") { if (value == "0" || value == "1") settings.aurelia_cloud = value == "1"; continue; }
-        if (key == "aurelia_standalone" || key == "aurelia_auto_cloud" || key == "aurelia_steam") {
+        if (key == "aurelia_auto_cloud") continue; // 0.4.1 and earlier: an opt-in; syncing is on by default now.
+        if (key == "aurelia_standalone" || key == "aurelia_cloud_skip" || key == "aurelia_steam") {
             if (!value.empty() && value.size() <= 10 && std::all_of(value.begin(), value.end(), [](char c) { return c >= '0' && c <= '9'; }))
-                (key == "aurelia_standalone" ? settings.aurelia_standalone : key == "aurelia_steam" ? settings.aurelia_steam : settings.aurelia_auto_cloud).insert(std::string(value));
+                (key == "aurelia_standalone" ? settings.aurelia_standalone : key == "aurelia_steam" ? settings.aurelia_steam : settings.aurelia_cloud_skip).insert(std::string(value));
             continue;
         }
         // Outside the else-if chain below: MSVC refuses one level more of it (C1061).
@@ -744,7 +745,7 @@ bool saveAppSettings(const AppSettings& settings, const std::filesystem::path& f
     output << "steam_install_dialog=" << settings.steam_install_dialog << '\n';
     output << "aurelia=" << settings.aurelia << '\n' << "aurelia_intro_done=" << settings.aurelia_intro_done << '\n';
     for (const auto& id : settings.aurelia_standalone) output << "aurelia_standalone=" << id << '\n';
-    for (const auto& id : settings.aurelia_auto_cloud) output << "aurelia_auto_cloud=" << id << '\n';
+    for (const auto& id : settings.aurelia_cloud_skip) output << "aurelia_cloud_skip=" << id << '\n';
     output << "steam_enabled=" << settings.steam_enabled << '\n';
     for (const auto& [app, steam_id] : settings.steam_launch_accounts) output << "steam_account=" << app << ':' << steam_id << '\n';
     output << "aurelia_default=" << settings.aurelia_default << '\n' << "aurelia_cloud=" << settings.aurelia_cloud << '\n';

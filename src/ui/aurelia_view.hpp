@@ -16,6 +16,7 @@ inline const wchar_t* notice() {
 enum class Page { setup, game, cloud, dlc, versions, branches, workshop, libraries };
 enum class Action {
     none, toggle, cloud_toggle, default_launch, helper, repository, login, logout, reconnect, refresh, close,
+    login_qr, login_password, login_cancel, // The in-app sign-in (setup page).
     cloud, dlc, versions, branches, workshop,
     sync, resolve_cloud, resolve_local, install, update, verify, cancel, uninstall, steam, auto_cloud,
     enable_dlc, disable_dlc, pin, unpin, downgrade, set_branch, move, choose_library, browse_library,
@@ -47,6 +48,14 @@ struct State {
     int visible = 0;         // Rows the last drawn dialog shows; 0 before the first frame.
     bool confirm_focus = false; // Confirmation: Potwierdź (true) or Anuluj (false) has the focus.
     bool confirm_only = false;  // Opened for its question alone (Odinstaluj from the game's menu): the answer closes it.
+    // The in-app sign-in on the setup page (src/app/aurelia_ui.cpp): its step; Steam's QR challenge as
+    // rows of modules (1: dark), scanned or not; the field shows dots while it takes the password.
+    enum class Login { none, account, password, guard, waiting, qr };
+    Login login = Login::none;
+    std::wstring login_account;
+    bool guard_email = false, qr_scanned = false, input_secret = false;
+    std::vector<uint8_t> qr;
+    int qr_size = 0;
 };
 
 // Tryb TV: a panel in the middle of the 1600 × 900 canvas, Back and the title at its top, the rows,
@@ -60,11 +69,19 @@ struct Layout {
         return {(width - w) / 2, (height - h) / 2, (width + w) / 2, (height + h) / 2};
     }
     settings_ui::Rect back() const { const auto p = panel(); return {p.left + pad, p.top + pad, p.left + pad + 48, p.top + pad + 48}; }
-    float rowsTop(const State& s) const {
+    // The sign-in's QR code (on white, its quiet zone inside) under the note, centred; the rows below it.
+    static constexpr float qr_side = 236, qr_block = qr_side + 44;
+    float noteBottom(const State& s) const {
         const auto p = panel();
         const bool note = s.page == Page::setup && !s.confirmation && s.notice_height > 0;
         return p.top + header + (note ? s.notice_height + 20 : 0.0f);
     }
+    bool showsQr(const State& s) const { return s.page == Page::setup && !s.confirmation && !s.qr.empty() && s.qr_size > 0; }
+    settings_ui::Rect qr(const State& s) const {
+        const auto p = panel(); const float top = noteBottom(s), cx = (p.left + p.right) * 0.5f;
+        return {cx - qr_side * 0.5f, top, cx + qr_side * 0.5f, top + qr_side};
+    }
+    float rowsTop(const State& s) const { return noteBottom(s) + (showsQr(s) ? qr_block : 0.0f); }
     bool field(const State& s) const { return !s.input_hint.empty() && !s.confirmation; }
     settings_ui::Rect input() const { const auto p = panel(); return {p.left + pad, p.bottom - pad - 56, p.right - pad - 192, p.bottom - pad}; }
     settings_ui::Rect send() const { const auto p = panel(); return {p.right - pad - 180, p.bottom - pad - 56, p.right - pad, p.bottom - pad}; }

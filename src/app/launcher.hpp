@@ -946,6 +946,16 @@ private:
     void aureliaPage(aurelia_ui::Page page);
     void aureliaActivate(const aurelia_ui::Row& row, bool confirmed = false);
     void aureliaSubmit();
+    // The in-app sign-in (QR code or account and password, Steam Guard by stdin): its running
+    // `login`'s stdin and cancel flag, and its generation (a later sign-in drops the earlier's replies).
+    void aureliaStartLogin(aurelia::Request request);
+    void aureliaCancelLogin();
+    std::shared_ptr<aurelia::Input> aurelia_login_input_;
+    std::shared_ptr<std::atomic_bool> aurelia_login_cancel_;
+    uint32_t aurelia_login_generation_ = 0;
+    // Steam Family Sharing: the games the account borrows (Aurelia's list), added to the Steam library.
+    std::vector<Game> aurelia_family_;
+    void mergeAureliaFamily(LibraryMessage& library) const;
     void aureliaRequest(aurelia::Request request, std::function<void(Launcher&, aurelia::Reply)> done,
                        std::function<void(Launcher&, json::Value)> progress = {}, std::shared_ptr<std::atomic_bool> cancel = {});
     void aureliaOperation(aurelia::Request request, const Game& game);

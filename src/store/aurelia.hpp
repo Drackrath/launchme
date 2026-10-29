@@ -7,7 +7,12 @@
 #include "../library/steam_achievements.hpp"
 #include "../model/game_details.hpp"
 #include <functional>
+#include <memory>
+#include <mutex>
 #include <optional>
+#include <string>
+#include <utility>
+#include <vector>
 
 namespace aurelia {
 inline constexpr wchar_t latest_url[] = L"https://api.github.com/repos/Drackrath/Aurelia/releases/latest";
@@ -24,7 +29,18 @@ inline constexpr wchar_t executable_name[] = L"aurelia";
 #endif
 using Cancel = std::function<bool()>;
 using Event = std::function<void(const json::Value&)>;
+// Lines a running command reads on its stdin while it runs: a sign-in's Steam Guard code, or
+// "cancel". Written by the UI, sent by the transport's loop.
+struct Input {
+    std::mutex mutex;
+    std::vector<std::string> lines;
+    void write(std::string line) { std::lock_guard lock(mutex); lines.push_back(std::move(line)); }
+    std::vector<std::string> take() { std::lock_guard lock(mutex); return std::exchange(lines, {}); }
+};
 enum class Command {
+    // login: Aurelia's own console (password, Steam Guard). login_qr and login_password are the
+    // in-app sign-ins of `--json login` (events on stderr, stdin kept open for the code and cancel).
+    login_qr, login_password,
     health, login, logout, reconnect, library, libraries, info, achievements, friends, presence,
     chat_history, chat_send, chat_live, install, downloads, cancel_install, update, verify, uninstall,
     play, launch_targets, running, stop, available, cloud_list, cloud_sync, dlc, enable_dlc, disable_dlc,
@@ -46,6 +62,9 @@ struct Request {
     enum class Direction { both, down, up } direction = Direction::both;
     bool auto_cloud = false;
     bool force = false; // stop: end the recorded process tree at once (taskkill /F), as Zamknij grę does.
+    // login_password: the password, given to the child as AURELIA_PASSWORD (never on a command line).
+    std::wstring secret;
+    std::shared_ptr<Input> input; // login_qr, login_password: lines for the child's stdin.
 };
 struct Reply {
     bool ok = false, cancelled = false;

@@ -59,6 +59,13 @@ void Renderer::drawAurelia() {
         const float width = p.right - p.left - 2 * layout.pad;
         s.notice_height = paragraph(aurelia_ui::notice(), p.left + layout.pad, p.top + layout.header, width, settings_body_font_.Get(), palette::muted(), 3);
     } else s.notice_height = 0;
+    if (layout.showsQr(s)) {
+        // The sign-in's QR code, then what to do with it.
+        const auto code = layout.qr(s);
+        drawQrCode(code, s.qr, s.qr_size);
+        textLine(s.qr_scanned ? tr(L"Zatwierdź logowanie w aplikacji Steam Mobile") : tr(L"Zeskanuj kod aplikacją Steam Mobile"), p.left + layout.pad, code.bottom + 16,
+                 p.right - p.left - 2 * layout.pad, settings_body_font_.Get(), gray(0.86f), DWRITE_TEXT_ALIGNMENT_CENTER);
+    }
     s.visible = layout.visible(s);
     if (s.focus < s.first) s.first = s.focus;
     if (s.focus >= s.first + s.visible) s.first = s.focus - s.visible + 1;
@@ -111,7 +118,9 @@ void Renderer::drawAurelia() {
         brush(gray(1, typing ? 0.13f : s.hover == -2 ? 0.08f : 0.06f)); target_->FillRoundedRectangle(pill(box(f)), solid_.Get());
         if (typing) { brush(accent); target_->DrawRoundedRectangle(pill(box(f)), solid_.Get(), 1.5f); }
         const float text_left = f.left + 26, room = f.right - f.left - 52;
-        const auto shown = s.input.size() > 90 ? L"…" + s.input.substr(s.input.size() - 89) : s.input;
+        // The password shows as dots.
+        const auto value = s.input_secret ? std::wstring(s.input.size(), L'\u2022') : s.input;
+        const auto shown = value.size() > 90 ? L"…" + value.substr(value.size() - 89) : value;
         if (shown.empty()) textLine(s.input_hint, text_left, middle(f), room, menu_font_.Get(), gray(0.5f));
         else textLine(shown, text_left, middle(f), room, menu_font_.Get(), gray(0.95f));
         if (typing && std::sin(elapsed_ * 4.0f) >= 0)
@@ -142,7 +151,11 @@ void Renderer::drawDesktopAurelia() {
     const float note = s.page == aurelia_ui::Page::setup && !s.confirmation ?
         paragraph(aurelia_ui::notice(), 0, 0, text_width, desktop_small_font_.Get(), palette::muted(), 4, false) + 14 : 0.0f;
     const float status = s.status.empty() ? 0.0f : 28.0f;
-    const float chrome = sheet_header + 12 + subtitle + note + field_h + status + 14;
+    // The sign-in's QR code under the note.
+    const bool qr = s.page == aurelia_ui::Page::setup && !s.confirmation && !s.qr.empty() && s.qr_size > 0;
+    constexpr float qr_side = 196;
+    const float qr_h = qr ? qr_side + 40 : 0.0f;
+    const float chrome = sheet_header + 12 + subtitle + note + qr_h + field_h + status + 14;
     const float most = std::min(640.0f, view.height - 80);
     int capacity = std::max(2, static_cast<int>((most - chrome) / line_h));
     if (s.confirmation) capacity = 0;
@@ -176,6 +189,13 @@ void Renderer::drawDesktopAurelia() {
     }
     if (subtitle > 0) { textLine(s.subtitle, p.left + 22, y + 8, p.right - p.left - 44, desktop_small_font_.Get(), palette::muted()); y += subtitle; }
     if (note > 0) { paragraph(aurelia_ui::notice(), p.left + 22, y + 2, text_width, desktop_small_font_.Get(), palette::muted(), 4); y += note; }
+    if (qr) {
+        const float cx = (p.left + p.right) * 0.5f;
+        drawQrCode({cx - qr_side * 0.5f, y + 2, cx + qr_side * 0.5f, y + 2 + qr_side}, s.qr, s.qr_size);
+        textLine(s.qr_scanned ? tr(L"Zatwierdź logowanie w aplikacji Steam Mobile") : tr(L"Zeskanuj kod aplikacją Steam Mobile"), p.left + 22, y + qr_side + 20,
+                 p.right - p.left - 44, desktop_font_.Get(), palette::text(), DWRITE_TEXT_ALIGNMENT_CENTER);
+        y += qr_h;
+    }
     s.visible = capacity;
     if (s.focus < s.first) s.first = s.focus;
     if (s.focus >= s.first + capacity) s.first = s.focus - capacity + 1;
@@ -215,7 +235,8 @@ void Renderer::drawDesktopAurelia() {
     if (field_h > 0) {
         const float fy = p.bottom - 20 - 40;
         const Rect f{p.left + 20, fy, p.right - 20 - 130, fy + 40}, b{p.right - 20 - 120, fy, p.right - 20, fy + 40};
-        desktopTextField(f, s.input, s.input_hint, s.input.size(), s.input_focus, false, hover.kind == Kind::field ? 1.0f : 0.0f);
+        const auto value = s.input_secret ? std::wstring(s.input.size(), L'\u2022') : s.input; // The password shows as dots.
+        desktopTextField(f, value, s.input_hint, value.size(), s.input_focus, false, hover.kind == Kind::field ? 1.0f : 0.0f);
         desktopModalHot({Kind::field}, f);
         const bool ready = !s.input.empty() && !s.busy;
         desktopButton(b, 2, hover == SheetHit{Kind::action, 0} ? 1.0f : 0.0f, false, ready, 0, s.submit);
@@ -223,6 +244,26 @@ void Renderer::drawDesktopAurelia() {
     }
     desktop_modal_ = desktop_ui::DialogKind::aurelia;
     target_->SetTransform(saved);
+}
+
+// A QR code: dark modules on a white square whose margin is its quiet zone; whole pixels per module.
+void Renderer::drawQrCode(settings_ui::Rect r, const std::vector<uint8_t>& modules, int size) {
+    if (size <= 0 || modules.size() != static_cast<size_t>(size) * static_cast<size_t>(size)) return;
+    brush(D2D1::ColorF(1, 1, 1));
+    target_->FillRoundedRectangle(D2D1::RoundedRect(box(r), 8, 8), solid_.Get());
+    const float cell = std::max(1.0f, std::floor((r.right - r.left) / static_cast<float>(size + 6)));
+    const float left = std::round(r.left + ((r.right - r.left) - cell * static_cast<float>(size)) * 0.5f);
+    const float top = std::round(r.top + ((r.bottom - r.top) - cell * static_cast<float>(size)) * 0.5f);
+    brush(D2D1::ColorF(0, 0, 0));
+    for (int y = 0; y < size; ++y)
+        for (int x = 0; x < size;) {
+            if (!modules[static_cast<size_t>(y) * static_cast<size_t>(size) + static_cast<size_t>(x)]) { ++x; continue; }
+            int end = x;
+            while (end < size && modules[static_cast<size_t>(y) * static_cast<size_t>(size) + static_cast<size_t>(end)]) ++end; // One rectangle per run.
+            target_->FillRectangle(D2D1::RectF(left + cell * static_cast<float>(x), top + cell * static_cast<float>(y),
+                                                left + cell * static_cast<float>(end), top + cell * static_cast<float>(y + 1)), solid_.Get());
+            x = end;
+        }
 }
 
 void Renderer::drawCloudGlyph(float cx, float cy, D2D1_COLOR_F ink, std::optional<aurelia::CloudState> state) {

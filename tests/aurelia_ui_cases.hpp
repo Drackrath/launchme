@@ -33,7 +33,7 @@ int LauncherUiTest::aureliaIntegration(HWND window) {
         std::mutex mutex; std::vector<aurelia::Request> calls;
         std::atomic_bool send_failure{false}, download{false}, stop_download{false}, helper_failure{false}, stop_failure{false};
         std::atomic_int helper_calls{0};
-        std::atomic_bool logged_in{true}, bad_health{false};
+        std::atomic_bool logged_in{true}, bad_health{false}, qr_approve{false};
         std::atomic_uint64_t account{76561198000000001ULL};
         int count(C c) { std::lock_guard lock(mutex); return static_cast<int>(std::count_if(calls.begin(), calls.end(), [c](const auto& r) { return r.command == c; })); }
         aurelia::Request last(C c) { std::lock_guard lock(mutex); for (auto it = calls.rbegin(); it != calls.rend(); ++it) if (it->command == c) return *it; return {}; }
@@ -47,6 +47,25 @@ int LauncherUiTest::aureliaIntegration(HWND window) {
             (fake->logged_in ? "true" : "false") + ",\"steam_id\":" + std::to_string(fake->account.load()) + ",\"account\":\"Aurelia fixture\"}");
         case C::library: return ok(R"([{"app_id":902,"name":"The Moonlit Archive","is_installed":true,"is_owned":true,"install_path":"D:\\SteamLibrary\\Fixture"},{"app_id":906,"name":"Library worker fixture","is_installed":false,"is_owned":true}])");
         case C::available: return ok(R"({"app_id":902,"available":true,"pinned":true})");
+        case C::login_qr:
+            // Steam's challenge, then (once the test "scans" it) the approval; a cancel line ends it.
+            if (event) event(*json::parse(R"({"event":"qr_challenge","url":"https://s.team/q/1/2394052957912650983"})"));
+            while (!cancel() && !fake->qr_approve) {
+                if (r.input) for (const auto& line : r.input->take()) if (line == "cancel") return aurelia::Reply{false, true, *json::parse(R"({"event":"result","ok":false,"type":"cancelled","error":"cancelled"})")};
+                Sleep(5);
+            }
+            if (cancel()) return aurelia::Reply{false, true};
+            if (event) event(*json::parse(R"({"event":"qr_scanned"})"));
+            return ok(R"({"event":"result","schema":1,"ok":true,"type":"approved","account":"Aurelia fixture","steam_id":76561198000000001})");
+        case C::login_password: {
+            if (r.text != L"fixture" || r.secret != L"hunter2") return aurelia::Reply{false, false, *json::parse(R"({"error":"Invalid password","type":"auth_required"})"), L"Invalid password"};
+            if (event) event(*json::parse(R"({"event":"guard_required","type":"email"})"));
+            for (const auto until = GetTickCount64() + 4000; GetTickCount64() < until && !cancel(); Sleep(5))
+                if (const auto lines = r.input ? r.input->take() : std::vector<std::string>{}; !lines.empty())
+                    return lines.front() == "ABCDE" ? ok(R"({"logged_in":true,"account":"Aurelia fixture"})") :
+                                                     aurelia::Reply{false, false, *json::parse(R"({"error":"Bad code","type":"auth_required"})"), L"Bad code"};
+            return aurelia::Reply{false, true};
+        }
         case C::launch_targets: return ok(R"({"app_id":902,"targets":[{"platform":"windows","steam_mode":"none","available":true}]})");
         case C::play: return ok(R"({"app_id":902,"status":"finished"})");
         case C::downgrade: return ok(R"({"app_id":902,"status":"downgraded","pinned":true})");
@@ -105,6 +124,45 @@ int LauncherUiTest::aureliaIntegration(HWND window) {
     if (!app.settings_.aurelia || app.aurelia_active_ || app.aurelia_ui_.status.empty()) return 10303; // Restart, no half-switched services.
     app.closeAurelia();
     if (!app.settings_.aurelia_intro_done || app.topModal() != Launcher::Modal::none) return 10304;
+    // Signing in here: Steam's QR code for the Steam Mobile app, then the account, password and Steam Guard code.
+    {
+        fake->logged_in = false; app.aurelia_authenticated_ = false; app.openAurelia(nullptr);
+        if (!wait([&] { return !app.aurelia_ui_.busy; })) return 10406;
+        const auto row = [&](A action) -> const aurelia_ui::Row* {
+            for (const auto& item : app.aurelia_ui_.rows) if (item.action == action) return &item;
+            return nullptr;
+        };
+        if (!row(A::login_qr) || !row(A::login_password) || !row(A::login) || row(A::logout)) return 10392;
+        app.aureliaActivate(*row(A::login_qr));
+        if (!wait([&] { return app.aurelia_ui_.qr_size > 0 && !app.aurelia_ui_.qr.empty(); }) || !row(A::login_cancel)) return 10393;
+        if (app.aurelia_ui_.qr.size() != static_cast<size_t>(app.aurelia_ui_.qr_size * app.aurelia_ui_.qr_size)) return 10394;
+        if (app.aurelia_ui_.rows.size() != 1 || app.aurelia_ui_.focus != 0) return 10407; // The sign-in owns the page: only its way out.
+        if (!capture(L"aurelia-login-qr-tv.png")) return 10395;
+        app.desktop_mode_ = true; const bool desktop_shot = capture(L"aurelia-login-qr-desktop.png"); app.desktop_mode_ = false;
+        if (!desktop_shot) return 10396;
+        // Back cancels it: a cancel line goes to the CLI and the page's choices return.
+        app.aureliaKey(VK_ESCAPE, false);
+        if (app.aurelia_ui_.login != aurelia_ui::State::Login::none || !app.aurelia_ui_.qr.empty() || !row(A::login_qr)) return 10397;
+        fake->logged_in = true; fake->qr_approve = true;
+        app.aureliaActivate(*row(A::login_qr));
+        if (!wait([&] { return app.aurelia_ui_.login == aurelia_ui::State::Login::none && fake->count(C::reconnect) > 0 && app.aurelia_authenticated_; })) return 10398;
+        // The password: two steps in the field (it shows dots), then the e-mailed Steam Guard code on stdin.
+        fake->logged_in = false; app.aurelia_authenticated_ = false; app.aureliaPage(P::setup);
+        if (!wait([&] { return !app.aurelia_ui_.busy && row(A::login_password); })) return 10399;
+        app.aureliaActivate(*row(A::login_password));
+        if (app.aurelia_ui_.login != aurelia_ui::State::Login::account || app.aurelia_ui_.input_hint.empty()) return 10400;
+        app.aurelia_ui_.input = L"fixture"; app.aureliaSubmit();
+        if (app.aurelia_ui_.login != aurelia_ui::State::Login::password || !app.aurelia_ui_.input_secret) return 10401;
+        app.aurelia_ui_.input = L"hunter2";
+        if (!capture(L"aurelia-login-password-tv.png")) return 10402;
+        app.aureliaSubmit();
+        if (!app.aurelia_ui_.input.empty() || !wait([&] { return app.aurelia_ui_.login == aurelia_ui::State::Login::guard && app.aurelia_ui_.guard_email; })) return 10403;
+        fake->logged_in = true; app.aurelia_ui_.input = L"ABCDE"; app.aureliaSubmit();
+        if (!wait([&] { return app.aurelia_ui_.login == aurelia_ui::State::Login::none && app.aurelia_authenticated_; })) return 10404;
+        const auto sent = fake->last(C::login_password);
+        if (sent.text != L"fixture" || sent.secret != L"hunter2" || !sent.input) return 10405;
+        app.closeAurelia(); fake->qr_approve = false;
+    }
     app.aurelia_active_ = app.aurelia_authenticated_ = true; app.aurelia_account_ = app.account_;
     if (!app.menuRows().aurelia) return 10305;
     // A Steam game the client manages: the dialog offers only the choice; nothing goes through Aurelia.
@@ -241,9 +299,10 @@ int LauncherUiTest::aureliaIntegration(HWND window) {
     if (dispatched != std::vector<std::wstring>{L"steam://rungameid/902"} || fake->count(C::play)) return 10352;
     app.game_sessions_.clear(); app.game_activity_jobs_->active.clear();
     app.settings_.aurelia_standalone.insert("902"); dispatched.clear();
+    app.settings_.aurelia_cloud_skip.insert("902"); // Its saves are not synced around play (on by default).
     app.launchGame(routed);
     if (!wait([&] { return !app.aurelia_playing_.contains(902); }) || !dispatched.empty() || fake->last(C::play).steam) return 10353;
-    app.settings_.aurelia_auto_cloud.insert("902");
+    app.settings_.aurelia_cloud_skip.erase("902");
     const auto before_play = fake->count(C::play);
     app.launchGame(routed);
     if (!wait([&] { return !app.aurelia_playing_.contains(902) && !app.aurelia_ui_.busy; }) || fake->count(C::play) != before_play ||

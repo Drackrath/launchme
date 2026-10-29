@@ -239,7 +239,8 @@ struct AppSettings {
     bool aurelia_default = false;
     std::unordered_set<std::string> aurelia_steam;
     bool aurelia_cloud = true; // Cloud state and sync of the games Aurelia manages.
-    std::unordered_set<std::string> aurelia_auto_cloud; // Explicit opt-in to sync before/after standalone play.
+    // Games whose saves are not synced before and after standalone play (pulled before, pushed after for the others).
+    std::unordered_set<std::string> aurelia_cloud_skip;
     // Videos downloaded from ScreenScraper: <video_folder>\<ES-DE system>\videos\<ROM name>.mp4, the
     // layout of ES-DE's downloaded_media (pointing it there shares them). Empty: <config>\media.
     std::filesystem::path video_folder;

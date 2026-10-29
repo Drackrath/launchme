@@ -36,6 +36,7 @@ bool validGame(const Game& game) { return game.source == GameSource::steam && ga
 std::vector<std::wstring> arguments(const Request& r) {
     using C = Command;
     switch (r.command) {
+    case C::login_qr: case C::login_password:
     case C::health: case C::login: case C::logout: case C::reconnect: case C::library: case C::libraries:
     case C::friends: case C::presence: case C::chat_history: case C::chat_send: case C::chat_live:
     case C::downloads: case C::running: case C::workshop_install: case C::workshop_subscribe: case C::workshop_unsubscribe: break;
@@ -48,6 +49,14 @@ std::vector<std::wstring> arguments(const Request& r) {
     case C::standalone: return {};
     case C::health: add({L"login", L"--health"}); break;
     case C::login: return {L"login"}; // An owned console; no credential ever enters Launchme's command line.
+    // In-app sign-ins: Steam's QR challenge (scanned with the Steam Mobile app), or the account name
+    // here and the password through the environment; Steam Guard codes go to stdin.
+    case C::login_qr: add({L"login", L"--qr", L"--timeout", L"300"}); break;
+    case C::login_password:
+        if (r.text.empty() || r.text.size() > 64 || r.secret.empty() || r.secret.size() > 256) return {};
+        // An account name, never an option or anything with spaces or control characters.
+        if (r.text.front() == L'-' || std::any_of(r.text.begin(), r.text.end(), [](wchar_t c) { return c <= L' ' || c == 0x7f; })) return {};
+        add({L"login", L"-u", r.text}); break;
     case C::logout: add({L"logout"}); break;
     case C::reconnect: add({L"login", L"--reconnect"}); break;
     case C::library: add({L"list"}); break;
@@ -125,6 +134,7 @@ std::optional<std::vector<Game>> library(const json::Value& value, uint64_t acco
         // Unlicensed on-disk games are not the signed-in account's library.
         if (!flag(item, "is_owned") && !flag(item, "is_family_shared")) continue;
         Game g; g.app_id = id; g.name = wideLenient(name); g.installed = *installed;
+        g.family_shared = !flag(item, "is_owned") && flag(item, "is_family_shared");
         g.install_directory = wideLenient(text(item, "install_path"));
         g.account_id = std::to_string(account);
         g.store_playtime_minutes = static_cast<uint32_t>(std::min<uint64_t>(UINT32_MAX, integer(item.get("playtime_forever_minutes")).value_or(0)));

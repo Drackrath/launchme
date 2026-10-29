@@ -72,6 +72,22 @@ int main(int argc, char** argv) {
     CHECK(aurelia::arguments({C::uninstall, 0}).empty());
     request = {C::cloud_sync, 902}; request.direction = aurelia::Request::Direction::down;
     CHECK(aurelia::arguments(request).back() == L"--down");
+    // The in-app sign-in: the account on the command line, the password never (the child's environment).
+    CHECK(aurelia::arguments({C::login_qr}) == std::vector<std::wstring>({L"--json", L"login", L"--qr", L"--timeout", L"300"}));
+    request = {C::login_password}; request.text = L"fixture"; request.secret = L"hunter2";
+    {
+        const auto line = aurelia::arguments(request);
+        CHECK(line == std::vector<std::wstring>({L"--json", L"login", L"-u", L"fixture"}));
+        CHECK(std::find(line.begin(), line.end(), request.secret) == line.end());
+    }
+    for (const auto* invalid : {L"", L"-h", L"--qr", L"two words", L"tab\tname"}) { request.text = invalid; CHECK(aurelia::arguments(request).empty()); }
+    request.text.assign(65, L'a'); CHECK(aurelia::arguments(request).empty());
+    request.text = L"fixture"; request.secret.clear(); CHECK(aurelia::arguments(request).empty());
+    // Steam Family Sharing: a borrowed game is kept and marked; one neither owned nor shared is not.
+    {
+        const auto shared = aurelia::library(parsed(R"([{"app_id":902,"name":"Owned","is_installed":true,"is_owned":true},{"app_id":903,"name":"Borrowed","is_installed":false,"is_owned":false,"is_family_shared":true},{"app_id":904,"name":"Neither","is_installed":true,"is_owned":false}])"), 76561198000000001ULL);
+        CHECK(shared && shared->size() == 2 && !shared->front().family_shared && shared->back().app_id == 903 && shared->back().family_shared);
+    }
     std::vector<json::Value> frames;
     aurelia::JsonStream stream;
     const std::string chunks = "log [debug]\n\x1b[32m{\n\"id\":8593343465227540543,\"text\":\"braces {} [ ] and \\\"quote\\\"\"}\x1b[0m\n[1,2]";

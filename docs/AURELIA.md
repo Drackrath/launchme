@@ -14,8 +14,18 @@ launch depends on the game. The integration does not promise offline authenticat
 1. Open **Settings → Library → Steam → Manage Aurelia**.
 2. Choose **Install Aurelia**. Launchme selects `aurelia_windows_x86_64.exe` from the latest stable
    GitHub release, verifies its advertised SHA-256 and Windows x64 PE header, and publishes it atomically.
-3. **Sign in using Aurelia's window**. Enter the password and any Steam Guard challenge in that console.
-   Launchme does not read Aurelia's tokens or place passwords on command lines.
+3. Sign in, inside Launchme:
+   - **Sign in with a QR code** shows Steam's code on the page (desktop and TV). Scan it in the Steam Mobile
+     app (Steam Guard → Scan a QR code) and approve. Steam rotates the code; the page follows it.
+   - **Sign in with account name and password** asks for both in the page's field (the password shows as
+     dots), then for a Steam Guard code from the e-mail or the app when Steam wants one, or to approve the
+     sign-in in Steam Mobile.
+   - **Sign in using Aurelia's window** remains, for Aurelia's own console.
+
+   Both in-app ways run `aurelia login --json` (`--qr --timeout 300`, or `-u <account>`) with its standard
+   input kept open: Steam Guard codes go there, and **Cancel sign-in** (or Back/Esc) sends `cancel` before the
+   process is ended. The password goes to the child only, as `AURELIA_PASSWORD` in its environment, never on a
+   command line, and Launchme never saves it. Launchme does not read Aurelia's tokens.
 4. Enable **Extended Aurelia integration**, then close and reopen Launchme.
 
 The executable lives in `%LOCALAPPDATA%\Launchme\helpers\aurelia\<release>\`. `current.txt` selects
@@ -37,6 +47,12 @@ Steam client is installed on this PC, its own library scan keeps running as befo
 remembered account, preloads, collections, shortcuts) and Aurelia only adds what it knows; without a local
 Steam client Aurelia's library is used. Other stores continue using their own adapters. Artwork, news,
 ratings and other independent services keep their existing providers.
+
+**Steam Family Sharing.** Games borrowed from the account's Steam Family (`is_family_shared` and not owned in
+`aurelia list --json`) appear in the library, marked *Family shared*. With a local Steam client, Aurelia's family
+list is asked again every 10 minutes and merged into the client's scan: an installed borrowed game is marked,
+a missing one is added as not installed. Upstream requires the Steam client for them, so they always launch
+through it and are never managed by Aurelia.
 
 **Managed games.** Aurelia installs, updates, uninstalls and launches only the games it manages: those with
 **Manage through Aurelia** switched on in **Manage · Aurelia**, or every game when **Manage games through
@@ -80,9 +96,9 @@ successful sync. Conflicts, skipped paths, transfer failures and unknown state s
 
 **Cloud saves → Sync saves** uses Aurelia's conflict-detecting default. No conflict winner is selected
 automatically. **Use cloud saves** or **Use local saves** requires confirmation. File/save operations are
-blocked while the launcher knows that the game is running. **Sync before and after playing** is a
-separate per-game opt-in, off by default: it downloads before standalone play and uploads after the
-game has finished. A failed, partial or conflicting pre-launch sync prevents launch; resolve it in
+blocked while the launcher knows that the game is running. **Sync before and after playing** is on
+for every managed game while **Cloud saves** is on (switch it off per game in **Manage · Aurelia**): it
+downloads before standalone play and uploads after the game has finished. A failed, partial or conflicting pre-launch sync prevents launch; resolve it in
 the Cloud page and retry. A failed upload is reported separately from a launch failure. The ordinary
 Steam launch path leaves save synchronization to Steam. Listing status never uploads or overwrites saves,
 and a delayed file-list reply cannot erase a newer sync outcome.
@@ -121,8 +137,11 @@ keyboard is not available there.
 ## Implementation and verification
 
 Contract reviewed against Aurelia **v0.1.40** (`a47e90bf42aa9f99818bd8d0de286a5c33da9b44`),
-including the JSON command handlers and NDJSON progress/chat events. The installer deliberately selects
-the latest stable release; incompatible responses are reported rather than guessed.
+including the JSON command handlers and NDJSON progress/chat events; the in-app sign-in (`login --json`
+events `qr_challenge`, `qr_scanned`, `guard_required`, its stdin control channel) and `is_family_shared`
+against **v0.1.41**. The installer deliberately selects the latest stable release; incompatible responses
+are reported rather than guessed. QR codes are drawn with Nayuki's
+[QR Code generator](https://github.com/nayuki/QR-Code-generator) (MIT, fetched at build time).
 
 - `src/store/aurelia*`: typed requests/parsers, Win32 child-process transport, release installer.
 - `src/store/aurelia_lifecycle.cpp`: semantic operation results, standalone preflight, ordered cloud/play
