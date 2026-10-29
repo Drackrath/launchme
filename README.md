@@ -98,8 +98,12 @@ Settings → System → Help → **Open folder** (the version row) opens it.
   script, or no file at all, for a game to play next or one played elsewhere; such a game reads **Choose file** and
   opens its editor at the file. The editor shows the poster its name finds as you type, with **Identify game** under it;
   **Remove from library** (the game's menu, in red, after a question) removes the entry, never the game's files.
-- **Shortcuts** (the desktop window's game menu → *Shortcuts*): a desktop shortcut and a Start menu entry for any
-  game (on Linux the applications menu, and Steam), starting it through Launchme with its launch options.
+- **Shortcuts** (the desktop window's game menu → *Shortcuts*; TV mode: the game's details → … → *Shortcuts*): a
+  desktop shortcut, a Start menu entry (on Linux the applications menu) and a Steam shortcut with the game's artwork
+  for any game, starting it through Launchme with its launch options; Settings → Library → *Game shortcuts* adds
+  every installed game at once.
+- **Save backups through Ludusavi** (Settings → Library → *Save backups*): a game's saves backed up after it ends
+  (off by default) or by hand from its menu → *Saves*, and restored from there.
 - **Recently played** can also list games not installed, by the date they were added (Settings → Library →
   Visibility → *Not installed in Recently played*).
 - **Extended Aurelia integration** (Windows, optional, off by default): install/update the latest x64 helper
@@ -213,7 +217,10 @@ manual (network, real accounts).
 natively on Linux from the same sources: SDL3 for the window, input and sound, Skia on the GPU (Vulkan, else
 OpenGL) in place of Direct2D/DirectWrite. It reads Steam (native, Flatpak, Snap), Heroic (Epic and GOG), Lutris,
 Prism Launcher and your own games, and runs Windows games through umu-launcher, Proton or Wine with a prefix
-manager and per-game options (Settings → *Compatibility*, [docs/LINUX_WINE.md](docs/LINUX_WINE.md)).
+manager and per-game options (Settings → *Compatibility*, [docs/LINUX_WINE.md](docs/LINUX_WINE.md)): a game keeps
+only its own values on top of the defaults, CachyOS and GE-Proton extras and lsfg-vk are one click, launch options
+can be pasted as Steam writes them, Protontricks works for every game, ProtonDB and Steam Deck ratings are shown,
+and store launchers (Battle.net, EA app, Epic, Ubisoft, Rockstar, GOG Galaxy) install in a prefix of their own.
 It has been tested far less than the Windows build: expect crashes, missing features (no FPS reading; the in-game
 Guide opens in the launcher's window; web pages need WebKitGTK) and changes between versions. Bug reports are welcome.
 
