@@ -1635,8 +1635,10 @@ private:
     // Dodaj grę z instalatora: the installer runs in a new prefix named after the game; once it ends
     // the game's program is picked inside that prefix and added as a game of its own, in it.
     void compatInstallGame();
-    void compatRunInstaller(const std::filesystem::path& installer);
-    void compatInstallerFinished(const std::filesystem::path& prefix, const std::wstring& name, uint64_t started);
+    void compatRunInstaller(const std::filesystem::path& installer, const std::string& store = {});
+    void compatInstallerFinished(const std::filesystem::path& prefix, const std::wstring& name, uint64_t started, const std::string& store);
+    // Sklepy i launchery: a store launcher's official installer, downloaded, then compatRunInstaller.
+    void compatInstallStore(const std::string& id);
     // Dodaj do Steam: Launchme's shortcut of the game in Steam (it starts the game through Launchme,
     // with its options, and lasts as long as the game); its appid, 0 when the game has none.
     uint32_t compatSteamShortcut(const Game& game) const;
@@ -2402,9 +2404,10 @@ private:
         std::string confirm;                     // A destructive row asked to confirm (its key).
         bool steam_target = false;               // Proton downloads also into Steam's compatibilitytools.d.
         Game game;                               // The game whose options page is open.
-        struct Installer { std::filesystem::path prefix, installer; std::wstring name; };
-        std::optional<Installer> installer;      // Dodaj grę z instalatora: the one running.
+        struct Installer { std::filesystem::path prefix, installer; std::wstring name; std::string store; };
+        std::optional<Installer> installer;      // Dodaj grę z instalatora: the one running (store: a store launcher's id).
         std::string launch_after;                // The game that starts once the download (compatProvision) ends.
+        std::string store_download;              // Sklepy i launchery: the launcher whose installer is downloading.
     } compat_;
     struct ProtonDbEntry { uint32_t app = 0; protondb::Summary summary; };
     std::map<std::string, ProtonDbEntry> protondb_;  // By game key, once fetched.

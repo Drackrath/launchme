@@ -112,6 +112,43 @@ constexpr Fold folds[] = {
     {"game", catalog::Section::game, trKey(L"Zmienne i argumenty"), trKey(L"Zmienne środowiska, argumenty, folder roboczy i skrypty.")},
 };
 
+// Store launchers installed with a click (Sklepy i launchery): the official installer, downloaded with curl
+// and run in a prefix named after the launcher; the program it installs (the first of `programs` under
+// drive_c that exists) is then added to the library as a game in that prefix.
+struct StoreInstaller {
+    const char* id;
+    const wchar_t* name;
+    const wchar_t* description; // trKey
+    const wchar_t* url;
+    const wchar_t* file;
+    const wchar_t* programs[3];
+};
+constexpr StoreInstaller store_installers[] = {
+    {"battlenet", L"Battle.net", trKey(L"Blizzard i Activision: World of Warcraft, Diablo, Overwatch, Call of Duty."),
+     L"https://downloader.battle.net/download/getInstaller?os=win&installer=Battle.net-Setup.exe", L"Battle.net-Setup.exe",
+     {L"Program Files (x86)/Battle.net/Battle.net Launcher.exe", L"Program Files (x86)/Battle.net/Battle.net.exe", nullptr}},
+    {"ea", L"EA app", trKey(L"Gry Electronic Arts i EA Play."),
+     L"https://origin-a.akamaihd.net/EA-Desktop-Client-Download/installer-releases/EAappInstaller.exe", L"EAappInstaller.exe",
+     {L"Program Files/Electronic Arts/EA Desktop/EA Desktop/EALauncher.exe", L"Program Files/Electronic Arts/EA Desktop/EA Desktop/EADesktop.exe", nullptr}},
+    {"epic", L"Epic Games Launcher", trKey(L"Gry Epic, których nie uruchamia Legendary (np. z własnym launcherem albo anti-cheatem)."),
+     L"https://launcher-public-service-prod06.ol.epicgames.com/launcher/api/installer/download/EpicGamesLauncherInstaller.msi", L"EpicGamesLauncherInstaller.msi",
+     {L"Program Files (x86)/Epic Games/Launcher/Portal/Binaries/Win64/EpicGamesLauncher.exe",
+      L"Program Files (x86)/Epic Games/Launcher/Portal/Binaries/Win32/EpicGamesLauncher.exe", nullptr}},
+    {"ubisoft", L"Ubisoft Connect", trKey(L"Gry Ubisoftu, także kupione w innych sklepach."),
+     L"https://static3.cdn.ubi.com/orbit/launcher_installer/UbisoftConnectInstaller.exe", L"UbisoftConnectInstaller.exe",
+     {L"Program Files (x86)/Ubisoft/Ubisoft Game Launcher/UbisoftConnect.exe", L"Program Files (x86)/Ubisoft/Ubisoft Game Launcher/upc.exe", nullptr}},
+    {"rockstar", L"Rockstar Games Launcher", trKey(L"GTA, Red Dead Redemption i inne gry Rockstar."),
+     L"https://gamedownloads.rockstargames.com/public/installer/Rockstar-Games-Launcher.exe", L"Rockstar-Games-Launcher.exe",
+     {L"Program Files/Rockstar Games/Launcher/Launcher.exe", nullptr, nullptr}},
+    {"gog", L"GOG Galaxy", trKey(L"Klient GOG: gry z nakładkami i osiągnięciami Galaxy, zapisy w chmurze."),
+     L"https://webinstallers.gog-statics.com/download/GOG_Galaxy_2.0.exe", L"GOG_Galaxy_2.0.exe",
+     {L"Program Files (x86)/GOG Galaxy/GalaxyClient.exe", nullptr, nullptr}},
+};
+const StoreInstaller* findStore(std::string_view id) {
+    for (const auto& store : store_installers) if (id == store.id) return &store;
+    return nullptr;
+}
+
 // A game's name from its installer's ("setup_the_witcher_3_wild_hunt_4.04_(64bit)_(62548).exe" →
 // "The Witcher 3 Wild Hunt"): setup/installer words, versions and bracketed parts left out.
 std::wstring installerName(const std::filesystem::path& installer) {
@@ -505,8 +542,55 @@ void Launcher::compatInstallGame() {
     openFileBrowser(std::move(request), [this](const std::filesystem::path& picked) { if (!picked.empty()) compatRunInstaller(picked); });
 }
 
-void Launcher::compatRunInstaller(const std::filesystem::path& installer) {
-    const auto name = installerName(installer);
+void Launcher::compatInstallStore(const std::string& id) {
+    const auto* store_installer = findStore(id);
+    if (!store_installer || compat_.installer || !compat_.store_download.empty()) return;
+    compat_.store_download = id;
+    showNotification(NotificationKind::download, store_installer->name, tr(L"Pobieranie instalatora…"));
+    if (settingsOpen()) buildSettingsRows();
+    const auto folder = compat_tools::toolsFolder(compat_tools::systemRoots().config) / "cache" / "installers";
+    const auto file = folder / store_installer->file;
+    const std::string url = text_encoding::utf8Lenient(store_installer->url);
+    const auto alive = alive_; const auto hwnd = hwnd_;
+    const auto finish = [alive, hwnd, id, file](bool ok) {
+        if (!alive->load()) return;
+        auto message = std::make_unique<RemoteMessage>();
+        message->run = [id, file, ok](Launcher& app) {
+            app.compat_.store_download.clear();
+            const auto* found = findStore(id);
+            if (!ok || !found) {
+                app.showNotification(NotificationKind::error, tr(L"Nie udało się pobrać instalatora"), found ? std::wstring(found->url) : std::wstring{});
+                if (app.settingsOpen()) app.buildSettingsRows();
+                return;
+            }
+            app.compatRunInstaller(file, id);
+        };
+        if (PostMessageW(hwnd, remote_message, 0, reinterpret_cast<LPARAM>(message.get()))) message.release();
+    };
+    if (!work_.start([folder, file, url, finish] {
+        // A recent copy is reused (a week); otherwise curl fetches the current installer.
+        std::error_code ec;
+        const auto written = std::filesystem::last_write_time(file, ec);
+        if (!ec && std::filesystem::file_size(file, ec) > 0 && !ec &&
+            std::filesystem::file_time_type::clock::now() - written < std::chrono::hours(24 * 7)) { finish(true); return; }
+        std::filesystem::create_directories(folder, ec);
+        const auto part = file.string() + ".part";
+        pid_t pid = 0;
+        process_spawn::Options options;
+        options.search = true;
+        if (process_spawn::spawn({"curl", "-fsSL", "--retry", "2", "--connect-timeout", "20", "-o", part, url}, options, pid)) { finish(false); return; }
+        int status = 0;
+        while (::waitpid(pid, &status, 0) < 0 && errno == EINTR) {}
+        const bool ok = WIFEXITED(status) && WEXITSTATUS(status) == 0;
+        if (ok) std::filesystem::rename(part, file, ec);
+        else std::filesystem::remove(part, ec);
+        finish(ok && !ec);
+    })) { compat_.store_download.clear(); showNotification(NotificationKind::error, tr(L"Nie udało się pobrać instalatora"), wide(url)); }
+}
+
+void Launcher::compatRunInstaller(const std::filesystem::path& installer, const std::string& store_id) {
+    const auto* store_installer = findStore(store_id);
+    const auto name = store_installer ? std::wstring(store_installer->name) : installerName(installer);
     const auto prefix = store::newPrefix(name, "default");
     if (prefix.empty()) { showNotification(NotificationKind::error, tr(L"Nie udało się utworzyć prefiksu"), store::prefixRoot().wstring()); return; }
     compat_.prefixes = store::prefixes();
@@ -519,24 +603,45 @@ void Launcher::compatRunInstaller(const std::filesystem::path& installer) {
                          error == ENOENT ? std::wstring(tr(L"Brak Protona lub Wine: pobierz go w Ustawieniach → Proton i Wine.")) : wide(std::strerror(error)));
         return;
     }
-    compat_.installer = CompatSettings::Installer{prefix, installer, name};
-    showNotification(NotificationKind::download, name, tr(L"Instalator działa w nowym prefiksie. Po instalacji wskażesz plik gry."));
+    compat_.installer = CompatSettings::Installer{prefix, installer, name, store_id};
+    showNotification(NotificationKind::download, name, store_installer ? std::wstring(tr(L"Instalator działa w nowym prefiksie. Po instalacji sklep trafi do biblioteki.")) :
+                                                                          std::wstring(tr(L"Instalator działa w nowym prefiksie. Po instalacji wskażesz plik gry.")));
     if (settingsOpen()) buildSettingsRows();
     const auto alive = alive_; const auto hwnd = hwnd_;
     // The runner lasts as long as the installer (and what it starts in the prefix).
-    if (!work_.start([alive, hwnd, pid, prefix, name, started] {
+    if (!work_.start([alive, hwnd, pid, prefix, name, started, store_id] {
         int status = 0;
         while (::waitpid(pid, &status, 0) < 0 && errno == EINTR) {}
         if (!alive->load()) return;
         auto message = std::make_unique<RemoteMessage>();
-        message->run = [prefix, name, started](Launcher& app) { app.compatInstallerFinished(prefix, name, started); };
+        message->run = [prefix, name, started, store_id](Launcher& app) { app.compatInstallerFinished(prefix, name, started, store_id); };
         if (PostMessageW(hwnd, remote_message, 0, reinterpret_cast<LPARAM>(message.get()))) message.release();
     })) process_spawn::reapLater(pid);
 }
 
-void Launcher::compatInstallerFinished(const std::filesystem::path& prefix, const std::wstring& name, uint64_t started) {
+void Launcher::compatInstallerFinished(const std::filesystem::path& prefix, const std::wstring& name, uint64_t started, const std::string& store_id) {
     compat_.installer.reset();
     if (settingsOpen()) buildSettingsRows();
+    // A store launcher: its known program, added at once.
+    if (const auto* store_installer = findStore(store_id)) {
+        std::error_code drive_error;
+        const auto drive = std::filesystem::is_directory(prefix / L"drive_c", drive_error) ? prefix / L"drive_c" : prefix / L"pfx" / L"drive_c";
+        for (const auto* program : store_installer->programs) {
+            std::error_code ec;
+            if (!program || !std::filesystem::is_regular_file(drive / program, ec)) continue;
+            custom_games::Entry entry;
+            entry.name = name;
+            entry.path = drive / program;
+            const auto id = addCustomGame(entry);
+            if (id.empty()) { showNotification(NotificationKind::error, tr(L"Nie udało się dodać gry"), entry.path.wstring()); return; }
+            compatSaveOptions("custom:" + id, [&](LaunchOptions& options) { options.prefix = prefix; return true; });
+            compatLoadTools();
+            showNotification(NotificationKind::download, name, tr(L"Dodano do biblioteki: gry instalujesz już w nim."));
+            if (settingsOpen()) buildSettingsRows();
+            return;
+        }
+        // Installed somewhere else (or the installer was closed): picked by hand, as any game.
+    }
     // The game's program: the installer's newest program file is offered first.
     file_browser::Request request;
     request.mode = file_browser::Mode::file;
@@ -641,6 +746,10 @@ void Launcher::compatSettingsRows() {
         return settings_rows_.back();
     };
     const auto runners = compat_tools::runners(compat_.tools);
+    // A store launcher already in the library (added by Sklepy i launchery, by its name).
+    const auto installedStore = [&](const StoreInstaller& store) {
+        return std::any_of(custom_library_.begin(), custom_library_.end(), [&](const Game& game) { return game.name == store.name; });
+    };
     // A choice of tool: "default" first (what it falls back to), then every Proton and Wine build.
     const auto toolChoices = [&](Row& row, const std::string& current, std::wstring fallback) {
         row.choices.push_back({std::move(fallback), 0, false, L"default"});
@@ -666,6 +775,10 @@ void Launcher::compatSettingsRows() {
             row.locked = compat_.installer.has_value();
             add(std::move(row));
         }
+        add({Id::compat_stores_open, Control::count, tr(L"Sklepy i launchery"),
+             tr(L"Battle.net, EA app, Epic, Ubisoft Connect, Rockstar i GOG Galaxy: każdy w swoim prefiksie, jednym kliknięciem."),
+             std::to_wstring(std::count_if(std::begin(store_installers), std::end(store_installers),
+                                           [&](const StoreInstaller& store) { return installedStore(store); }))});
         section(tr(L"Domyślnie"));
         {
             Row row{Id::compat_default_tool, Control::choice, tr(L"Wersja Protona / Wine"),
@@ -781,6 +894,27 @@ void Launcher::compatSettingsRows() {
         }
         if (!compat_.status.empty()) add({Id::compat_status, Control::action, tr(L"Ostatnia instalacja"), compat_.status, {}}).locked = true;
         add({Id::compat_source_refresh, Control::action, tr(L"Lista wydań"), tr(L"Zapisana na godzinę; odśwież, aby zobaczyć nowsze."), tr(L"Odśwież")});
+        break;
+    }
+    case Page::compat_stores: {
+        section(tr(L"Sklepy i launchery"));
+        for (const auto& store : store_installers) {
+            const bool running = compat_.installer && compat_.installer->store == store.id;
+            const bool downloading = compat_.store_download == store.id;
+            const bool there = installedStore(store);
+            std::wstring description = tr(store.description);
+            if (downloading) description = tr(L"Pobieranie instalatora…");
+            else if (running) description = tr(L"Instalator działa w prefiksie: ") + compat_.installer->prefix.wstring();
+            else if (there) description += L"\n" + std::wstring(tr(L"Jest w bibliotece (Gry dodane ręcznie)."));
+            Row row{Id::compat_store_install, Control::action, store.name, std::move(description),
+                    downloading || running ? tr(L"Instalowanie") : there ? tr(L"Zainstaluj ponownie") : tr(L"Zainstaluj")};
+            row.key = store.id;
+            row.locked = compat_.installer.has_value() || !compat_.store_download.empty();
+            add(std::move(row));
+        }
+        add({Id::compat_status, Control::action, tr(L"Jak to działa"),
+             tr(L"Oficjalny instalator działa w nowym prefiksie (najlepiej z GE-Proton lub Proton-CachyOS); po instalacji sklep trafia do biblioteki. Gry instalujesz już w nim."),
+             {}}).locked = true;
         break;
     }
     case Page::prefixes: {
@@ -1104,6 +1238,11 @@ bool Launcher::compatSettingsActivate(const Row& row) {
         compatInstallGame();
         return true;
     case Id::launch_protondb: openProtonDb(compat_.game); return true;
+    case Id::compat_stores_open: openSettingsPage(Page::compat_stores); return true;
+    case Id::compat_store_install:
+        if (row.locked) { navigationBoundary(); return true; }
+        compatInstallStore(row.key);
+        return true;
     case Id::launch_log:
         if (row.locked || row.key.empty()) { navigationBoundary(); return true; }
         if (execute_(hwnd_, GameAction{wide(row.key), {}, {}, ActionKind::open_client}) <= 32)

@@ -56,6 +56,7 @@ std::wstring Launcher::settingsPageTitle() const {
         return tr(L"Pobierz");
     }
     case Page::prefixes: return tr(L"Prefiksy");
+    case Page::compat_stores: return tr(L"Sklepy i launchery");
     case Page::prefix: {
 #ifndef _WIN32
         const auto path = std::filesystem::path(text_encoding::wideLenient(frame->key)).lexically_normal();
