@@ -77,7 +77,8 @@ Settings → System → Help → **Open folder** (the version row) opens it.
 - **Library views**: grid (squares, posters or landscape tiles), list, cinematic, detailed, poster,
   coverflow, a shelf of game cases (their spines carry the name and the platform) and novelty
   cartridge/floppy views; sorting, filters, search, *Recently added* by the store's acquisition date and
-  remembered positions. With game videos on, the video plays in List+'s picture, in Cinematic's focused tile
+  remembered positions. Consoles, collections and publishers each open in a default view of their own until one
+  gets its own (Settings → Interface → *Library views in TV mode*, with a reset for each). With game videos on, the video plays in List+'s picture, in Cinematic's focused tile
   and in the desktop window's details pane; PC games from other stores play the Steam trailer of the same game.
   Games you hide, and Steam's hidden and private games, stay out of sight until you show them.
 - **Playing**: Play on a game installed by another remembered Steam account switches Steam to that account
