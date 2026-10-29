@@ -162,6 +162,8 @@ HWND CreateWindowExW(DWORD ex_style, const wchar_t* class_name, const wchar_t* t
     created->parent = parent;
     if (width == CW_USEDEFAULT || width <= 0) width = 1280;
     if (height == CW_USEDEFAULT || height <= 0) height = 720;
+    if (const char* value = std::getenv("LAUNCHME_TRACE_WINDOW"); value && *value == '1')
+        std::fprintf(stderr, "launchme window: create %d,%d %dx%d style 0x%lx\n", x, y, width, height, static_cast<unsigned long>(style));
     const float d = screenDensity();
     SDL_PropertiesID properties = SDL_CreateProperties();
     SDL_SetStringProperty(properties, SDL_PROP_WINDOW_CREATE_TITLE_STRING, text_encoding::utf8Lenient(created->title).c_str());
@@ -273,6 +275,8 @@ LRESULT CallWindowProcW(WNDPROC procedure, HWND window, UINT message, WPARAM wpa
 BOOL ShowWindow(HWND handle, int command) {
     Window* target = window(handle);
     if (!target) return FALSE;
+    static const bool trace = [] { const char* value = std::getenv("LAUNCHME_TRACE_WINDOW"); return value && *value == '1'; }();
+    if (trace) std::fprintf(stderr, "launchme window: %p ShowWindow %d\n", handle, command);
     const bool was_visible = (target->style & WS_VISIBLE) != 0;
     switch (command) {
     case SW_HIDE:
@@ -314,6 +318,10 @@ BOOL UpdateWindow(HWND handle) {
 BOOL SetWindowPos(HWND handle, HWND insert_after, int x, int y, int width, int height, UINT flags) {
     Window* target = window(handle);
     if (!target) return FALSE;
+    // LAUNCHME_TRACE_WINDOW=1: every placement request on stderr (diagnosing a window manager).
+    static const bool trace = [] { const char* value = std::getenv("LAUNCHME_TRACE_WINDOW"); return value && *value == '1'; }();
+    if (trace) std::fprintf(stderr, "launchme window: %p SetWindowPos %d,%d %dx%d flags 0x%x style 0x%lx sdl 0x%llx\n", handle, x, y, width, height,
+                            flags, static_cast<unsigned long>(target->style), static_cast<unsigned long long>(SDL_GetWindowFlags(target->sdl)));
     if (insert_after == HWND_TOPMOST) target->ex_style |= WS_EX_TOPMOST;
     else if (insert_after == HWND_NOTOPMOST) target->ex_style &= ~WS_EX_TOPMOST;
     if (flags & SWP_FRAMECHANGED) applyPlacement(target);
@@ -331,18 +339,27 @@ BOOL SetWindowPos(HWND handle, HWND insert_after, int x, int y, int width, int h
             SDL_SetWindowFullscreenMode(target->sdl, nullptr); // Borderless, at the desktop's mode.
             SDL_SetWindowFullscreen(target->sdl, true);
         } else {
-            if (target->fullscreen) { SDL_SetWindowFullscreen(target->sdl, false); target->fullscreen = false; }
+            // Leaving full screen or a maximized state completes asynchronously on X11 and Wayland, and
+            // then restores the window's earlier size: wait for it, or that restore undoes the new size.
+            if (target->fullscreen) { SDL_SetWindowFullscreen(target->sdl, false); target->fullscreen = false; SDL_SyncWindow(target->sdl); }
             const float d = screenDensity();
-            if ((SDL_GetWindowFlags(target->sdl) & SDL_WINDOW_MAXIMIZED) && !(flags & SWP_NOSIZE)) SDL_RestoreWindow(target->sdl);
+            if ((SDL_GetWindowFlags(target->sdl) & SDL_WINDOW_MAXIMIZED) && !(flags & SWP_NOSIZE)) { SDL_RestoreWindow(target->sdl); SDL_SyncWindow(target->sdl); }
             if (!(flags & SWP_NOSIZE))
                 SDL_SetWindowSize(target->sdl, std::max(1, static_cast<int>(std::lround((wanted.right - wanted.left) / d))),
                                   std::max(1, static_cast<int>(std::lround((wanted.bottom - wanted.top) / d))));
             if (!(flags & SWP_NOMOVE))
                 SDL_SetWindowPosition(target->sdl, static_cast<int>(std::lround(wanted.left / d)), static_cast<int>(std::lround(wanted.top / d)));
+            // SetWindowPos is synchronous on Windows (the caller reads GetClientRect at once).
+            SDL_SyncWindow(target->sdl);
         }
     }
     if (flags & SWP_SHOWWINDOW) ShowWindow(handle, flags & SWP_NOACTIVATE ? SW_SHOWNA : SW_SHOW);
     if (flags & SWP_HIDEWINDOW) ShowWindow(handle, SW_HIDE);
+    if (trace) {
+        int w = 0, h = 0;
+        SDL_GetWindowSizeInPixels(target->sdl, &w, &h);
+        std::fprintf(stderr, "launchme window: %p now %dx%d sdl 0x%llx\n", handle, w, h, static_cast<unsigned long long>(SDL_GetWindowFlags(target->sdl)));
+    }
     target->invalid = true;
     return TRUE;
 }

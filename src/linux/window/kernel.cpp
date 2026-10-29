@@ -55,21 +55,53 @@ std::wstring wide(const UChar* text, int32_t length) {
     return result;
 }
 
-// An ICU date/time pattern formatted for the user's locale (LANG/LC_TIME).
-std::wstring formatDate(const SYSTEMTIME& time, UDateFormatStyle date_style, UDateFormatStyle time_style, const wchar_t* pattern) {
+// A Windows date/time picture as an ICU pattern. Most letters agree (d, dd, M..MMMM, y, H, h, m, s,
+// quoted text); they differ in the weekday (Windows ddd/dddd = ICU EEE/EEEE: ICU's dddd is a
+// zero-padded day of the month), AM/PM (t/tt = a) and the era (g/gg = G).
+std::wstring icuPattern(const wchar_t* pattern) {
+    std::wstring result;
+    for (const wchar_t* p = pattern; *p;) {
+        if (*p == L'\'') { // Quoted text, '' inside it included, passes through.
+            const wchar_t* end = p + 1;
+            while (*end && !(*end == L'\'' && end[1] != L'\'')) end += *end == L'\'' ? 2 : 1;
+            result.append(p, *end ? end + 1 : end);
+            p = *end ? end + 1 : end;
+            continue;
+        }
+        size_t run = 1;
+        while (p[run] == *p) ++run;
+        if (*p == L'd' && run >= 3) result.append(run >= 4 ? L"EEEE" : L"EEE");
+        else if (*p == L't') result.append(L"a");
+        else if (*p == L'g') result.append(L"G");
+        else result.append(p, run);
+        p += run;
+    }
+    return result;
+}
+
+// An ICU locale ID for a BCP-47 name ("pl-PL"), or nullptr (ICU's default: LANG/LC_TIME).
+std::string icuLocale(const wchar_t* name) {
+    if (!name || !*name) return {};
+    std::string result = text_encoding::utf8Lenient(name);
+    for (auto& c : result) if (c == '-') c = '_';
+    return result;
+}
+
+// A date/time formatted for `locale` (the launcher's language) or the user's locale.
+std::wstring formatDate(const SYSTEMTIME& time, UDateFormatStyle date_style, UDateFormatStyle time_style, const wchar_t* pattern,
+                        const wchar_t* locale = nullptr) {
     std::tm parts{};
     parts.tm_year = time.wYear - 1900; parts.tm_mon = time.wMonth - 1; parts.tm_mday = time.wDay;
     parts.tm_hour = time.wHour; parts.tm_min = time.wMinute; parts.tm_sec = time.wSecond; parts.tm_isdst = -1;
     const UDate date = static_cast<UDate>(std::mktime(&parts)) * 1000.0;
     UErrorCode status = U_ZERO_ERROR;
     UDateFormat* format = nullptr;
+    const std::string id = icuLocale(locale);
+    const char* where = id.empty() ? nullptr : id.c_str();
     if (pattern) {
-        // Windows' picture (d, M, y, H, h, m, s, t...) is close enough to ICU's for the launcher's uses.
-        std::wstring icu(pattern);
-        for (auto& c : icu) if (c == L't') c = L'a';
-        const auto converted = utf16(icu);
-        format = udat_open(UDAT_PATTERN, UDAT_PATTERN, nullptr, nullptr, 0, converted.c_str(), static_cast<int32_t>(converted.size()), &status);
-    } else format = udat_open(time_style, date_style, nullptr, nullptr, 0, nullptr, 0, &status);
+        const auto converted = utf16(icuPattern(pattern));
+        format = udat_open(UDAT_PATTERN, UDAT_PATTERN, where, nullptr, 0, converted.c_str(), static_cast<int32_t>(converted.size()), &status);
+    } else format = udat_open(time_style, date_style, where, nullptr, 0, nullptr, 0, &status);
     if (U_FAILURE(status) || !format) return {};
     UChar buffer[256];
     const int32_t length = udat_format(format, date, buffer, 256, nullptr, &status);
@@ -226,25 +258,25 @@ BOOL SystemTimeToTzSpecificLocalTime(const void*, const SYSTEMTIME* universal, S
     return SystemTimeToFileTime(universal, &file) && FileTimeToLocalFileTime(&file, &shifted) && FileTimeToSystemTime(&shifted, local);
 }
 
-int GetDateFormatEx(const wchar_t*, DWORD flags, const SYSTEMTIME* date, const wchar_t* format, wchar_t* buffer, int size, const wchar_t*) {
+int GetDateFormatEx(const wchar_t* locale, DWORD flags, const SYSTEMTIME* date, const wchar_t* format, wchar_t* buffer, int size, const wchar_t*) {
     SYSTEMTIME now{};
     if (!date) { GetLocalTime(&now); date = &now; }
     const UDateFormatStyle style = (flags & DATE_LONGDATE) ? UDAT_LONG : UDAT_SHORT;
     std::wstring text;
-    if (format) text = formatDate(*date, style, UDAT_NONE, format);
-    else if (flags & DATE_YEARMONTH) text = formatDate(*date, style, UDAT_NONE, L"LLLL yyyy");
-    else if (flags & DATE_MONTHDAY) text = formatDate(*date, style, UDAT_NONE, L"d MMMM");
-    else text = formatDate(*date, style, UDAT_NONE, nullptr);
+    if (format) text = formatDate(*date, style, UDAT_NONE, format, locale);
+    else if (flags & DATE_YEARMONTH) text = formatDate(*date, style, UDAT_NONE, L"LLLL yyyy", locale); // L: ICU's stand-alone month.
+    else if (flags & DATE_MONTHDAY) text = formatDate(*date, style, UDAT_NONE, L"d MMMM", locale);
+    else text = formatDate(*date, style, UDAT_NONE, nullptr, locale);
     return text.empty() ? 0 : copyOut(text, buffer, size);
 }
 
-int GetTimeFormatEx(const wchar_t*, DWORD flags, const SYSTEMTIME* time, const wchar_t* format, wchar_t* buffer, int size) {
+int GetTimeFormatEx(const wchar_t* locale, DWORD flags, const SYSTEMTIME* time, const wchar_t* format, wchar_t* buffer, int size) {
     SYSTEMTIME now{};
     if (!time) { GetLocalTime(&now); time = &now; }
     std::wstring text;
-    if (format) text = formatDate(*time, UDAT_NONE, UDAT_SHORT, format);
-    else if (flags & TIME_FORCE24HOURFORMAT) text = formatDate(*time, UDAT_NONE, UDAT_SHORT, (flags & TIME_NOSECONDS) ? L"HH:mm" : L"HH:mm:ss");
-    else text = formatDate(*time, UDAT_NONE, (flags & TIME_NOSECONDS) ? UDAT_SHORT : UDAT_MEDIUM, nullptr);
+    if (format) text = formatDate(*time, UDAT_NONE, UDAT_SHORT, format, locale);
+    else if (flags & TIME_FORCE24HOURFORMAT) text = formatDate(*time, UDAT_NONE, UDAT_SHORT, (flags & TIME_NOSECONDS) ? L"HH:mm" : L"HH:mm:ss", locale);
+    else text = formatDate(*time, UDAT_NONE, (flags & TIME_NOSECONDS) ? UDAT_SHORT : UDAT_MEDIUM, nullptr, locale);
     return text.empty() ? 0 : copyOut(text, buffer, size);
 }
 

@@ -606,12 +606,13 @@ struct Layout {
     // The empty grid's message line (its icon sits 40 px above it): the whole group, from the icon's
     // circle to the buttons or the description, is centred in the view.
     float emptyMessageY(bool buttons, bool body) const {
-        return gridTop() + std::max(150.0f, viewHeight() * 0.5f + (buttons ? -18.0f : body ? 0.0f : 24.0f));
+        return gridTop() + std::max(150.0f, viewHeight() * 0.5f + (buttons ? -34.0f : body ? 0.0f : 24.0f));
     }
-    // The empty grid's buttons, centred under its message.
+    // The empty grid's buttons, centred under its message: below room for the description's three
+    // lines (it starts 32 px under the message line), so a long one never runs into them.
     Rect emptyButton(int i, bool two) const {
         const auto m = main();
-        const float cx = (m.left + m.right) * 0.5f, y = emptyMessageY(true, true) + 70;
+        const float cx = (m.left + m.right) * 0.5f, y = emptyMessageY(true, true) + 102;
         const float w = 190;
         const float left = two ? (i == 0 ? cx - w - 6 : cx + 6) : cx - w * 0.5f;
         return {left, y, left + w, y + 38};
