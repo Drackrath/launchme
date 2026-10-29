@@ -2,6 +2,7 @@
 #include "app/message_dispatch.hpp"
 #include "platform/diagnostics.hpp"
 #include "platform/frame_clock.hpp"
+#include "platform/text_encoding.hpp"
 
 #include <Windows.h>
 #include <windowsx.h>
@@ -11,7 +12,6 @@
 #include <string>
 #ifndef _WIN32
 #include "linux/window/window_system.hpp"
-#include "platform/text_encoding.hpp"
 #include <cerrno>
 #include <chrono>
 #include <cstdlib>
@@ -49,16 +49,28 @@ void CALLBACK foregroundEvent(HWINEVENTHOOK, DWORD, HWND window, LONG, LONG, DWO
         app->foregroundChanged();
 }
 
+// A "play:" command's end (Launchme's shortcut in Steam, src/app/game_links.cpp): Steam sees the game
+// run while the launchme.exe it started lives, so that one waits on this event, which the running
+// launcher sets once the game's session ends (Launcher::finishedPlays).
+std::wstring playEventName(const std::filesystem::path& data_folder, const std::wstring& command) {
+    return L"Local\\Launchme-play-" + std::to_wstring(std::hash<std::wstring>{}(data_folder.lexically_normal().wstring())) + L"-" +
+           std::to_wstring(std::hash<std::wstring>{}(command));
+}
+
 // One launcher per data folder: a second start brings the first one to the front (or hands it
 // its Jump List command). The mutex lives until this process ends, also through its shutdown.
-// nullptr: another launcher took over (this process ends). Otherwise this process continues,
-// owning the returned mutex (INVALID_HANDLE_VALUE: none could be had; start anyway).
+// nullptr: another launcher took over (this process ends; a play: command once its game ended).
+// Otherwise this process continues, owning the returned mutex (INVALID_HANDLE_VALUE: none could be
+// had; start anyway).
 HANDLE singleInstance(const std::filesystem::path& data_folder, const std::wstring& command) {
     const std::wstring name = L"Local\\Launchme-" + std::to_wstring(std::hash<std::wstring>{}(data_folder.lexically_normal().wstring()));
     const HANDLE mutex = CreateMutexW(nullptr, TRUE, name.c_str());
     if (!mutex) return INVALID_HANDLE_VALUE;
     if (GetLastError() != ERROR_ALREADY_EXISTS) return mutex;
     std::wstring text = command.empty() ? std::wstring(L"show") : command;
+    // Created before the command goes, so its end cannot come first.
+    const HANDLE play_done = text.starts_with(L"play:") ? CreateEventW(nullptr, TRUE, FALSE, playEventName(data_folder, text).c_str()) : nullptr;
+    if (play_done) ResetEvent(play_done); // An earlier sender's, already set: wait for this start's game.
     // The other launcher may still be starting (no window yet) or closing (window gone, mutex
     // released when its process ends): look for its window, or take the mutex once it is free.
     for (int attempt = 0; attempt < 100; ++attempt) {
@@ -70,12 +82,24 @@ HANDLE singleInstance(const std::filesystem::path& data_folder, const std::wstri
             DWORD_PTR accepted = 0;
             if (SendMessageTimeoutW(running, WM_COPYDATA, 0, reinterpret_cast<LPARAM>(&data), SMTO_ABORTIFHUNG, 1000, &accepted) && accepted) {
                 CloseHandle(mutex);
+                if (play_done) {
+                    // Until its game ends, or the launcher does (then nothing would set the event).
+                    const HANDLE launcher = OpenProcess(SYNCHRONIZE, FALSE, process);
+                    const HANDLE handles[] = {play_done, launcher};
+                    WaitForMultipleObjects(launcher ? 2 : 1, handles, FALSE, INFINITE);
+                    if (launcher) CloseHandle(launcher);
+                    CloseHandle(play_done);
+                }
                 return nullptr;
             }
         }
         const DWORD waited = WaitForSingleObject(mutex, 100);
-        if (waited == WAIT_OBJECT_0 || waited == WAIT_ABANDONED) return mutex; // It ended: this one is the launcher now.
+        if (waited == WAIT_OBJECT_0 || waited == WAIT_ABANDONED) { // It ended: this one is the launcher now.
+            if (play_done) CloseHandle(play_done);
+            return mutex;
+        }
     }
+    if (play_done) CloseHandle(play_done);
     CloseHandle(mutex);
     return INVALID_HANDLE_VALUE; // It neither answers nor ends: start rather than leave the user with nothing.
 }
@@ -604,6 +628,20 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show_command) {
                 app->setFrameRate(frame_clock.targetHz(), frame_clock.refreshHz());
                 app->tick();
                 app->updateFrame();
+                // play: commands whose game ended: their senders (Steam's launchme.exe) end too, and
+                // so does this launcher when Steam started it for its game.
+                bool own_ended = false;
+                for (const auto& command : app->finishedPlays()) {
+                    const auto wide = text_encoding::wideLenient(command);
+                    if (const HANDLE done = OpenEventW(EVENT_MODIFY_STATE, FALSE, playEventName(data_folder, wide).c_str())) { SetEvent(done); CloseHandle(done); }
+                    if (jump.starts_with(L"play:") && wide == jump) own_ended = true;
+                }
+                if (own_ended) {
+                    SendMessageW(hwnd, WM_QUERYENDSESSION, 0, 0); // Saves its state, as on a sign-out.
+                    DestroyWindow(hwnd);
+                    message.wParam = 0;
+                    break;
+                }
             }
         }
         frame_clock.wait();

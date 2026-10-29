@@ -40,8 +40,9 @@ int LauncherUiTest::excludedGames(HWND window) {
         app.click(x, y, false); return true;
     };
     app.openPcLibrary(GameSource::gog); app.openDetails(gog);
-    // Artwork, folder, Edytuj metadane, hide, exclude and (installed) uninstall.
-    if (!options() || context_menu::rows(app.menuRows()) != 6 || context_menu::row(Item::uninstall, app.menuRows()) != 5) return 3101;
+    // Artwork, folder, Skróty (installed: its shortcuts), Edytuj metadane, hide, exclude and (installed) uninstall.
+    if (!options() || context_menu::rows(app.menuRows()) != 7 || context_menu::row(Item::shortcuts, app.menuRows()) != 2 ||
+        context_menu::row(Item::uninstall, app.menuRows()) != 6) return 3101;
     app.menu_progress_ = 1;
     if (!capture(L"details-options-exclude.png")) return 3102;
     const auto launches = dispatched.size();

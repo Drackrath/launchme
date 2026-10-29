@@ -310,6 +310,18 @@ void Launcher::settingsActivate() {
     if (row.id == Id::compat_install_game) { compatInstallGame(); return; } // Also on Gry dodane ręcznie.
 #endif
     if (row.id == Id::ludusavi) { if (row.locked) navigationBoundary(); else openLudusavi(); return; }
+    // A game's shortcuts (Page::game_shortcuts) and every game's at once (Biblioteka → Skróty gier).
+    if (settings_state_.at(Page::game_shortcuts) && (row.id == Id::launch_shortcut_desktop || row.id == Id::launch_shortcut_menu || row.id == Id::launch_steam)) {
+        const auto place = row.id == Id::launch_shortcut_desktop ? ShortcutPlace::desktop : row.id == Id::launch_shortcut_menu ? ShortcutPlace::menu : ShortcutPlace::steam;
+        setShortcut(shortcuts_game_, place, !hasShortcut(shortcuts_game_, place));
+        buildSettingsRows(); audio_.context(); InvalidateRect(hwnd_, nullptr, FALSE);
+        return;
+    }
+    if (row.id == Id::shortcuts_all_menu || row.id == Id::shortcuts_all_steam) {
+        addShortcutsForAll(row.id == Id::shortcuts_all_steam ? ShortcutPlace::steam : ShortcutPlace::menu);
+        buildSettingsRows(); audio_.context(); InvalidateRect(hwnd_, nullptr, FALSE);
+        return;
+    }
     if (row.id == Id::aurelia) { toggleAurelia(); return; }
     if (row.id == Id::aurelia_open) { openAurelia(); return; }
     if (row.id == Id::aurelia_cloud || row.id == Id::aurelia_default) { // Steam's page: what Aurelia does.

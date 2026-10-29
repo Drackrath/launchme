@@ -883,6 +883,7 @@ void Launcher::menuAccept() {
     case Item::remove: askRemoveFromLibrary(game); break;
     case Item::launch: dismissMenu(); openLaunchEditor(game); break;
     case Item::compat: dismissMenu(); openGameCompatSettings(game); break;
+    case Item::shortcuts: dismissMenu(); openGameShortcuts(game); break;
     case Item::metadata: dismissMenu(); if (desktop_mode_) desktopMetaOpen(game); else openMetadata(game); break;
     case Item::aurelia: dismissMenu(); openAurelia(&game); break;
     case Item::steam_account: cycleSteamAccount(game); break; // The menu stays: the row shows the next choice.

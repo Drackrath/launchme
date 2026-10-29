@@ -16,7 +16,8 @@ namespace context_menu {
 // "metadata": Details' "…" → Edytuj metadane (the player's own title, studios, dates and play time).
 // "remove": Usuń z biblioteki, a game added by hand (only its entry goes, after a question), red and last like Odinstaluj.
 // "compat": Details' "…" → Proton / Wine (Linux: a Windows game's Wine/Proton options).
-enum class Item { primary, suspend, plugin, details, artwork, retry, close, folder, hide, exclude, uninstall, launch, metadata, aurelia, steam_account, remove, compat };
+// "shortcuts": Details' "…" → Skróty (the game's desktop, menu and Steam shortcuts).
+enum class Item { primary, suspend, plugin, details, artwork, retry, close, folder, hide, exclude, uninstall, launch, metadata, aurelia, steam_account, remove, compat, shortcuts };
 struct Rows {
     bool suspend = false;
     int plugins = 0;
@@ -30,16 +31,18 @@ struct Rows {
     bool steam_account = false;  // Details' "…": a Steam game and more than one remembered account to launch it from.
     bool remove = false;         // Launcher::canRemoveFromLibrary (never while the game runs).
     bool compat = false;         // Details' "…": Launcher::compatGame (Linux).
+    bool shortcuts = false;      // Details' "…": the game can have shortcuts (Launcher::shortcutAvailable).
 };
 constexpr auto order(Rows options) {
     return options.secondary_only ?
-        std::array{Item::details, Item::primary, Item::suspend, Item::aurelia, Item::plugin, Item::artwork, Item::retry, Item::close, Item::folder, Item::launch, Item::compat, Item::steam_account, Item::metadata, Item::hide, Item::exclude, Item::uninstall, Item::remove} :
-        std::array{Item::primary, Item::suspend, Item::aurelia, Item::plugin, Item::details, Item::artwork, Item::retry, Item::close, Item::folder, Item::launch, Item::compat, Item::steam_account, Item::metadata, Item::hide, Item::exclude, Item::uninstall, Item::remove};
+        std::array{Item::details, Item::primary, Item::suspend, Item::aurelia, Item::plugin, Item::artwork, Item::retry, Item::close, Item::folder, Item::launch, Item::compat, Item::shortcuts, Item::steam_account, Item::metadata, Item::hide, Item::exclude, Item::uninstall, Item::remove} :
+        std::array{Item::primary, Item::suspend, Item::aurelia, Item::plugin, Item::details, Item::artwork, Item::retry, Item::close, Item::folder, Item::launch, Item::compat, Item::shortcuts, Item::steam_account, Item::metadata, Item::hide, Item::exclude, Item::uninstall, Item::remove};
 }
 constexpr bool visible(Item entry, Rows options) {
     if (entry == Item::aurelia) return options.aurelia;
     if (entry == Item::steam_account) return options.detail_options && options.steam_account;
     if (options.detail_options) return entry == Item::artwork || (entry == Item::launch && options.launch) || (entry == Item::compat && options.compat) ||
+        (entry == Item::shortcuts && options.shortcuts) ||
         (entry == Item::metadata && options.metadata) || (entry == Item::folder && options.folder) ||
         (entry == Item::hide && options.hide) || (entry == Item::exclude && options.exclude) || (entry == Item::uninstall && options.uninstall) ||
         (entry == Item::remove && options.remove);
@@ -51,7 +54,7 @@ constexpr bool visible(Item entry, Rows options) {
     case Item::close: return options.session;
     case Item::uninstall: return options.uninstall && !options.session; // Last and red in the game's menu too ("…" on PSfive); never while it runs.
     case Item::remove: return options.remove && !options.session;
-    case Item::folder: case Item::hide: case Item::exclude: case Item::launch: case Item::metadata: case Item::compat: return false;
+    case Item::folder: case Item::hide: case Item::exclude: case Item::launch: case Item::metadata: case Item::compat: case Item::shortcuts: return false;
     default: return true;
     }
 }

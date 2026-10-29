@@ -2578,6 +2578,15 @@ constexpr Entry entries[] = {
     {L"Gra uruchomi się po zakończeniu pobierania.", L"The game starts when the download ends."},
     {L"Nie udało się pobrać GE-Proton", L"Could not download GE-Proton"},
     {L"Sprawdź połączenie albo pobierz Protona w Ustawieniach → Zgodność.", L"Check the connection, or download Proton in Settings → Compatibility."},
+    // Skróty gier: one game's page (Tryb TV) and every game at once (Settings → Library).
+    {L"Skróty: ", L"Shortcuts: "},
+    {L"Skróty gier", L"Game shortcuts"},
+    {L"Uruchamia grę przez Launchme, z jej opcjami uruchamiania.", L"Starts the game through Launchme, with its launch options."},
+    {L"Dodaj tam wszystkie zainstalowane gry, które jeszcze nie mają skrótu. Każda startuje przez Launchme.", L"Adds every installed game without a shortcut there yet. Each starts through Launchme."},
+    {L"Gry spoza Steam jako skróty w bibliotece Steam (także w trybie gry na Steam Decku). Każda startuje przez Launchme.", L"Games from outside Steam as shortcuts in the Steam library (also in Steam Deck's Game Mode). Each starts through Launchme."},
+    {L"Dodaj wszystkie", L"Add all"},
+    {L"Dodano: ", L"Added: "},
+    {L"nie udało się: ", L"failed: "},
     // Entries of extras built only on this machine (local/i18n), when present.
 #if __has_include("strings_en_local.inc")
 #include "strings_en_local.inc"

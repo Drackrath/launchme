@@ -98,7 +98,9 @@ enum class Id { font, home_layout, ui_accent, accent, uninstalled, emulation, co
                    // Zgodność → Sklepy i launchery: the page, and one launcher to install (Row::key: its id).
                    compat_stores_open, compat_store_install,
                    // Biblioteka → Kopie zapisów: Ludusavi after each game, and Ludusavi itself.
-                   save_backups, ludusavi };
+                   save_backups, ludusavi,
+                   // Biblioteka → Skróty gier: every installed game into the Start/applications menu or Steam.
+                   shortcuts_all_menu, shortcuts_all_steam };
 inline bool hasOptionsButton(Id id) { return id == Id::plugin_enabled || id == Id::pc_platform; }
 // layout: drawn preview tiles in the row (one per home layout); Row::choice is the active one.
 // count: Row::value as a large number with a chevron; activating opens a sub-list.
@@ -119,7 +121,8 @@ enum class Page {
     // Linux: Proton i Wine; one download source's releases (key: its id); the prefix manager; one
     // prefix (key: its path); Wine/Proton options of a game (key: its game key) or the default (key empty).
     compat, compat_source, prefixes, prefix, launch_options,
-    compat_stores // Linux: store launchers installed in a prefix of their own (Battle.net, EA app...).
+    compat_stores, // Linux: store launchers installed in a prefix of their own (Battle.net, EA app...).
+    game_shortcuts // One game's shortcuts outside Launchme (key: its game key); Tryb TV's way to them.
 };
 // A row drawn as tiles, with State::tile picking one of them.
 inline bool tiled(Control control) { return control == Control::sources || control == Control::pads; }

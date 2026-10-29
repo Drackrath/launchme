@@ -1639,10 +1639,6 @@ private:
     void compatInstallerFinished(const std::filesystem::path& prefix, const std::wstring& name, uint64_t started, const std::string& store);
     // Sklepy i launchery: a store launcher's official installer, downloaded, then compatRunInstaller.
     void compatInstallStore(const std::string& id);
-    // Dodaj do Steam: Launchme's shortcut of the game in Steam (it starts the game through Launchme,
-    // with its options, and lasts as long as the game); its appid, 0 when the game has none.
-    uint32_t compatSteamShortcut(const Game& game) const;
-    void compatSetSteamShortcut(const Game& game, bool add);
     // A Windows game's Proton or Wine is on this computer (its own, the default, or any found).
     bool compatToolReady(const Game& game) const;
     void compatRefreshDatabase(); // umu-database's CSV (protonfixes IDs of store games), once a day.
@@ -1663,10 +1659,15 @@ private:
     bool ludusavi_busy_ = false;                          // Its download.
     Game restore_game_;
     // Skróty (src/app/game_links.cpp): the game's shortcut on the desktop, in the Start menu (Linux:
-    // the applications menu) and, on Linux, in Steam. Each starts the game through Launchme, with
-    // its launch options.
+    // the applications menu) and in Steam. Each starts the game through Launchme, with its launch
+    // options.
     enum class ShortcutPlace { desktop, menu, steam };
+    void openGameShortcuts(const Game& game); // Tryb TV: Details "…" → Skróty, a Settings page.
+    Game shortcuts_game_;                     // The game of that page (Page::game_shortcuts).
     bool shortcutAvailable(const Game& game, ShortcutPlace place) const;
+    bool shortcutAvailableAnywhere(ShortcutPlace place) const; // The place exists here (Steam: installed).
+    struct ShortcutPlaceState { uint64_t checked = 0; bool available = false; };
+    mutable std::array<ShortcutPlaceState, 3> shortcut_places_{};
     bool hasShortcut(const Game& game, ShortcutPlace place) const;
     void setShortcut(const Game& game, ShortcutPlace place, bool add);
     const wchar_t* shortcutPlaceName(ShortcutPlace place) const;
@@ -1676,6 +1677,12 @@ private:
     // The game's icon for its shortcuts: its own .exe (Windows), else its cover on a square canvas
     // (.ico on Windows, PNG on Linux) in <data>/shortcut-icons; empty for none.
     std::filesystem::path shortcutIcon(const Game& game) const;
+    // Dodaj do Steam: Launchme's shortcut of the game in Steam (it starts the game through Launchme,
+    // with its options, and lasts as long as the game); its appid, 0 when the game has none.
+    uint32_t steamShortcut(const Game& game) const;
+    bool setSteamShortcut(const Game& game, bool add, bool notify = true);
+    void addShortcutsForAll(ShortcutPlace place); // Every installed game of the library (Steam, the menu).
+    void removeShortcuts(const Game& game);       // Its shortcuts go with a game removed from the library.
     // query: a plugin page's search text (params.query). background: the page's periodic refresh,
     // which neither blocks nor outlives a command picked meanwhile.
     void pluginAction(const plugins::Action& action, const Game& game = {}, bool refresh = false,

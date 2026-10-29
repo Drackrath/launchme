@@ -57,6 +57,7 @@ std::wstring Launcher::settingsPageTitle() const {
     }
     case Page::prefixes: return tr(L"Prefiksy");
     case Page::compat_stores: return tr(L"Sklepy i launchery");
+    case Page::game_shortcuts: return tr(L"Skróty: ") + shortcuts_game_.name;
     case Page::prefix: {
 #ifndef _WIN32
         const auto path = std::filesystem::path(text_encoding::wideLenient(frame->key)).lexically_normal();
@@ -291,6 +292,19 @@ void Launcher::buildSettingsRows() {
 #endif
     case settings_ui::Category::library:
         if (settings_state_.platform()) { pcSettingsRows(); break; } // A platform's page (DRM-free: its folders and games).
+        if (settings_state_.at(Page::game_shortcuts)) { // One game's shortcuts (its menu → Skróty in Tryb TV).
+            for (const auto place : {ShortcutPlace::desktop, ShortcutPlace::menu, ShortcutPlace::steam}) {
+                if (!shortcutAvailable(shortcuts_game_, place)) continue;
+                const bool there = hasShortcut(shortcuts_game_, place);
+                Row row{place == ShortcutPlace::desktop ? Id::launch_shortcut_desktop : place == ShortcutPlace::menu ? Id::launch_shortcut_menu : Id::launch_steam,
+                        Control::toggle, shortcutPlaceName(place),
+                        place == ShortcutPlace::steam ? std::wstring(tr(L"Skrót w bibliotece Steam (także w trybie gry na Steam Decku), z grafikami; gra startuje przez Launchme."))
+                                                      : std::wstring(tr(L"Uruchamia grę przez Launchme, z jej opcjami uruchamiania.")),
+                        {}, there};
+                add(std::move(row));
+            }
+            break;
+        }
         if (settings_state_.at(Page::custom_games)) {
             // "Gry dodane ręcznie" page: adding first, then each game with its editor (which also removes it).
             add({Id::custom_add, Control::action, tr(L"Dodaj grę"),
@@ -392,6 +406,23 @@ void Launcher::buildSettingsRows() {
                 ludusavi_busy_ ? tr(L"Pobieranie…") : program.empty() ? tr(L"Pobierz") : tr(L"Otwórz")};
             row.locked = ludusavi_busy_;
             add(std::move(row));
+        }
+        {
+            // Each game's own shortcuts: its menu → Skróty. Here: every installed game still without one.
+            const auto available = [&](bool steam_only) {
+                return std::any_of(grouped_library_.begin(), grouped_library_.end(), [&](const Game& game) {
+                    return isGame(game) && game.installed && !gameKey(game).empty() && (!steam_only || game.source != GameSource::steam);
+                });
+            };
+            const bool menu = shortcutAvailableAnywhere(ShortcutPlace::menu) && available(false);
+            const bool steam = shortcutAvailableAnywhere(ShortcutPlace::steam) && available(true);
+            if (menu || steam) section(tr(L"Skróty gier"));
+            if (menu)
+                add({Id::shortcuts_all_menu, Control::action, shortcutPlaceName(ShortcutPlace::menu),
+                     tr(L"Dodaj tam wszystkie zainstalowane gry, które jeszcze nie mają skrótu. Każda startuje przez Launchme."), tr(L"Dodaj wszystkie")});
+            if (steam)
+                add({Id::shortcuts_all_steam, Control::action, L"Steam",
+                     tr(L"Gry spoza Steam jako skróty w bibliotece Steam (także w trybie gry na Steam Decku). Każda startuje przez Launchme."), tr(L"Dodaj wszystkie")});
         }
         break;
     case settings_ui::Category::media: {

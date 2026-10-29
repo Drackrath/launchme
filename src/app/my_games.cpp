@@ -665,6 +665,7 @@ bool Launcher::removeCustomGame(const std::string& id) {
     const auto game = custom_games::makeGame(*existing, true);
     custom_games_ = std::move(next);
     custom_installed_.erase(game.source_id);
+    removeShortcuts(game); // Its shortcuts outside Launchme would start nothing (game_links.cpp).
     forgetCustomArtwork(game, true);
     // Its ID is never reused, so its history would only linger.
     if (library_state_.first_seen.erase(gameKey(game)) + library_state_.last_played.erase(recent_games::historyKey(game, account_, gog_state_.account)) +

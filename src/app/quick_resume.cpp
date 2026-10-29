@@ -101,6 +101,8 @@ context_menu::Rows Launcher::menuRows() const {
         rows.uninstall = canUninstall(game) && sessionState(game) == SessionState::none; // Never while it runs.
         rows.launch = launchEditable(game);
         rows.compat = compatGame(game) && !gameKey(game).empty();
+        rows.shortcuts = shortcutAvailable(game, ShortcutPlace::desktop) || shortcutAvailable(game, ShortcutPlace::menu) ||
+                         shortcutAvailable(game, ShortcutPlace::steam);
         rows.aurelia = aurelia_active_ && aurelia::validGame(game);
         rows.steam_account = steamAccountChoices(game).size() > 1;
         rows.metadata = isGame(game) && game.kind != GameKind::catalog && !gameKey(game).empty(); // Not a store's offer.

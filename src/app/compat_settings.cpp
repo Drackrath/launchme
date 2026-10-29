@@ -237,19 +237,6 @@ std::filesystem::path installedProgram(const std::filesystem::path& prefix, uint
     return best;
 }
 
-std::wstring hexKey(const std::string& key) {
-    static constexpr wchar_t digits[] = L"0123456789abcdef";
-    std::wstring text;
-    for (const unsigned char c : key) { text += digits[c >> 4]; text += digits[c & 15]; }
-    return text;
-}
-// The shortcut's launch options: they identify Launchme's shortcut of the game (--jump=play:, main.cpp).
-std::wstring playOptions(const Game& game) { return L"--jump=play:" + hexKey(gameKey(game)); }
-std::filesystem::path shortcutsFile() {
-    const auto config = steam_shortcuts::configFolder(findSteamRoot());
-    return config.empty() ? config : config / L"shortcuts.vdf";
-}
-
 constexpr std::pair<const char*, const wchar_t*> wine_programs[] = {
     {"winecfg", trKey(L"Konfiguracja Wine (winecfg)")},
     {"regedit", trKey(L"Edytor rejestru (regedit)")},
@@ -669,66 +656,6 @@ void Launcher::compatInstallerFinished(const std::filesystem::path& prefix, cons
         showNotification(NotificationKind::download, name, tr(L"Dodano do biblioteki"));
         openCustomEditor(id); // Its name and artwork, at once.
     });
-}
-
-// ---- Steam -------------------------------------------------------------------------------------------
-
-uint32_t Launcher::compatSteamShortcut(const Game& game) const {
-    const auto file = shortcutsFile();
-    return file.empty() || gameKey(game).empty() ? 0 : steam_shortcuts::find(file, playOptions(game));
-}
-
-void Launcher::compatSetSteamShortcut(const Game& game, bool add) {
-    const auto file = shortcutsFile();
-    if (file.empty()) { showNotification(NotificationKind::error, tr(L"Nie znaleziono konta Steam"), tr(L"Zaloguj się w Steamie na tym komputerze.")); return; }
-    const bool steam_running = steam_accounts::runningSteamProcess() != 0;
-    const std::wstring restart = steam_running ? std::wstring(tr(L"Uruchom ponownie Steam, aby zobaczyć zmianę.")) : std::wstring{};
-    if (!add) {
-        if (!steam_shortcuts::remove(file, playOptions(game))) { showNotification(NotificationKind::error, tr(L"Nie udało się zmienić skrótów Steam"), file.wstring()); return; }
-        showNotification(NotificationKind::launch, game.name, restart.empty() ? std::wstring(tr(L"Usunięto ze Steam")) : tr(L"Usunięto ze Steam. ") + restart);
-        return;
-    }
-    // Through the helper script (game_shortcuts::helper): a new AppImage elsewhere keeps the shortcut working.
-    auto program = shortcutProgram(true);
-    std::wstring options = playOptions(game);
-    if (program.empty()) {
-        program = updater::appImage().value_or(system_info::executablePath());
-        // A data folder of its own (LAUNCHME_CONFIG_DIR): Steam starts Launchme with it too.
-        if (const auto folder = system_info::environment(L"LAUNCHME_CONFIG_DIR", 4095); folder && !folder->empty())
-            options = L"LAUNCHME_CONFIG_DIR=\"" + *folder + L"\" %command% " + options;
-    }
-    const auto cache = coverCacheDirectory();
-    steam_shortcuts::Shortcut shortcut;
-    shortcut.name = game.name;
-    shortcut.exe = program.wstring();
-    shortcut.start_dir = program.parent_path().wstring();
-    shortcut.launch_options = options;
-    const auto image = [&](ArtworkKind kind) {
-        const auto found = cachedArtworkFile(game, kind, cache);
-        auto extension = found.extension().wstring();
-        for (auto& ch : extension) ch = static_cast<wchar_t>(std::towlower(ch));
-        return extension == L".png" || extension == L".jpg" || extension == L".jpeg" ? found : std::filesystem::path{};
-    };
-    const auto icon = shortcutIcon(game); // Square, as Steam's list shows it.
-    shortcut.icon = (icon.empty() ? image(ArtworkKind::cover) : icon).wstring();
-    const uint32_t id = steam_shortcuts::add(file, shortcut);
-    if (!id) { showNotification(NotificationKind::error, tr(L"Nie udało się zmienić skrótów Steam"), file.wstring()); return; }
-    // Its artwork in Steam: the poster, the wide capsule, the hero and the logo under the shortcut's appid.
-    const auto grid = file.parent_path() / L"grid";
-    std::error_code ec;
-    std::filesystem::create_directories(grid, ec);
-    const auto copy = [&](ArtworkKind kind, const std::wstring& suffix) {
-        const auto source = image(kind);
-        if (source.empty()) return;
-        std::error_code copy_error;
-        std::filesystem::copy_file(source, grid / (std::to_wstring(id) + suffix + source.extension().wstring()),
-                                   std::filesystem::copy_options::overwrite_existing, copy_error);
-    };
-    copy(cachedArtworkFile(game, ArtworkKind::poster, cache).empty() ? ArtworkKind::cover : ArtworkKind::poster, L"p");
-    copy(ArtworkKind::landscape, L"");
-    copy(ArtworkKind::hero, L"_hero");
-    copy(ArtworkKind::logo, L"_logo");
-    showNotification(NotificationKind::download, game.name, restart.empty() ? std::wstring(tr(L"Dodano do Steam")) : tr(L"Dodano do Steam. ") + restart);
 }
 
 // ---- Rows ------------------------------------------------------------------------------------------
