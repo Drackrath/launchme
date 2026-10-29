@@ -100,7 +100,12 @@ enum class Id { font, home_layout, ui_accent, accent, uninstalled, emulation, co
                    // Biblioteka → Kopie zapisów: Ludusavi after each game, and Ludusavi itself.
                    save_backups, ludusavi,
                    // Biblioteka → Skróty gier: every installed game into the Start/applications menu or Steam.
-                   shortcuts_all_menu, shortcuts_all_steam };
+                   shortcuts_all_menu, shortcuts_all_steam,
+                   // A game's (or the default) options: their search and its clearing; WINEDLLOVERRIDES
+                   // from the presets list (Row::key their DLLs) or typed in.
+                   launch_search, launch_search_clear, launch_dll_preset, launch_dll_add,
+                   // A game's page: winetricks and Wine programs with its own Proton or Wine and prefix.
+                   launch_tricks };
 inline bool hasOptionsButton(Id id) { return id == Id::plugin_enabled || id == Id::pc_platform; }
 // layout: drawn preview tiles in the row (one per home layout); Row::choice is the active one.
 // count: Row::value as a large number with a chevron; activating opens a sub-list.
@@ -278,6 +283,14 @@ struct Row {
     int lines = 0;
     // Nested under an open Control::fold heading: drawn inset by this many steps.
     int indent = 0;
+    // One line (the title, `detail` under it) while another row has the focus; the focused row grows to
+    // show its description (Layout::of, settings_sheet::Layout::of).
+    bool dense = false;
+    std::wstring detail; // Dense rows: what it sets ("PROTON_DXVK_LOWLATENCY=1").
+    // A pill before the controls ("Ta gra": the game's own value, not the default's). With `reset`
+    // (what goes back to the default) it is a button: a click, Delete or the pad's X.
+    std::wstring badge;
+    std::string reset;
     // The list a picker shows for this row: its choices, or those of the focused source tile.
     const std::vector<Choice>& pickList(int tile) const {
         if (control == Control::sources && !tiles.empty()) return tiles[std::clamp(tile, 0, static_cast<int>(tiles.size()) - 1)].choices;
@@ -442,7 +455,8 @@ struct Layout {
     int layout_index = -1;
     bool compact = false; // Thin rows of a long list (DRM-free games).
     std::vector<int> sections; // Rows with a section heading above them, ascending (Row::section).
-    // Every row taller than row_height (previews, tiles, a long description) with its height, ascending.
+    // Every row taller or shorter than row_height (previews, tiles, a long description, a dense row
+    // without the focus) with its height, ascending.
     std::vector<std::pair<int, float>> talls;
     static constexpr float row_height = 102, row_step = 114, row_center = row_height * 0.5f;
     static constexpr float compact_height = 70, compact_step = 78;
@@ -456,10 +470,19 @@ struct Layout {
     static bool tall(Control control) { return control == Control::layout || control == Control::avatar || tiled(control); }
     // One more line of a description (Row::lines) beyond the two every row has room for.
     static constexpr float description_line = 22;
-    static float rowHeightOf(const Row& row) {
+    // focused: a dense row (Row::dense) shows its description only then.
+    static float rowHeightOf(const Row& row, bool focused = true) {
         if (tall(row.control)) return tallHeight(row.control);
+        if (row.dense && !focused) return compact_height;
         return row.lines > 2 ? row_height + (row.lines - 2) * description_line : row_height;
     }
+    // A row's badge (Row::badge), before its controls; a button when the row has Row::reset.
+    Rect badge(int index, float scroll, Control control) const {
+        const auto r = row(index, scroll);
+        const float y = middle(r), right = controlsLeft(control) - (control == Control::toggle ? 12.0f : 16.0f);
+        return {right - 132, y - 17, right, y + 17};
+    }
+    static constexpr float badge_space = 148; // What a badge takes from the row's text.
     static constexpr float heading_cap_top = 90, described_top = 186, plain_top = 156, rail_top = plain_top;
     static constexpr float footer_logo = 36; // System's logo at the bottom, level with Back (Renderer::drawLaunchmeLogo).
     // Extra space above a row that starts a section; its heading is centred section_label above the row.
@@ -485,8 +508,8 @@ struct Layout {
         result.talls.clear();
         for (int i = 0; i < static_cast<int>(rows.size()); ++i) {
             if (!result.compact) {
-                const float h = rowHeightOf(rows[i]);
-                if (h > row_height) result.talls.push_back({i, h});
+                const float h = rowHeightOf(rows[i], state.options && state.row() == i);
+                if (h != row_height) result.talls.push_back({i, h});
                 if (tall(rows[i].control) && result.layout_index < 0) { result.layout_index = i; result.tall_height = h; }
             }
             if (!rows[i].section.empty()) result.sections.push_back(i);

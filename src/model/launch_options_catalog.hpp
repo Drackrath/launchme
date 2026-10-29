@@ -103,6 +103,13 @@ bool presetSet(std::string_view overrides, const DllPreset& preset);
 // The text with the DLLs (comma separated) set to `mode` in one entry at its end, or removed
 // (nullopt); every other entry keeps its order.
 std::string withDllOverride(std::string_view overrides, std::string_view dlls, std::optional<std::string_view> mode);
+// The text's entries in order: their DLLs ("d3d9,dxgi", lowercase, without ".dll") and mode ("n,b";
+// "" disabled).
+struct DllEntry {
+    std::string dlls, mode;
+    bool operator==(const DllEntry&) const = default;
+};
+std::vector<DllEntry> dllEntries(std::string_view overrides);
 
 // Popular environment variables the settings offer to add to a game's list.
 struct VariablePreset {

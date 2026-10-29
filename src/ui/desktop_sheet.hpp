@@ -41,7 +41,8 @@ struct Sheet {
 struct SheetHit {
     enum class Kind {
         none, close, back, nav, row, field, toggle, track, action, cog, up, down, layout, avatar, tile, tile_action,
-        dropdown, dropdown_item, dialog, dialog_field, dialog_save, dialog_cancel, dialog_browse, color_track, save_status
+        dropdown, dropdown_item, dialog, dialog_field, dialog_save, dialog_cancel, dialog_browse, color_track, save_status,
+        badge // A row's badge with Row::reset: back to the default.
     } kind = Kind::none;
     int index = -1, sub = -1;
     bool operator==(const SheetHit&) const = default;
@@ -136,7 +137,8 @@ inline wchar_t categoryGlyph(int category) {
     }
 }
 
-inline float rowHeight(const Row& row, bool compact) {
+// focused: a dense row (Row::dense) shows its description only then.
+inline float rowHeight(const Row& row, bool compact, bool focused = true) {
     switch (row.control) {
     case Control::layout: return 200;
     case Control::avatar: return 292;
@@ -144,6 +146,7 @@ inline float rowHeight(const Row& row, bool compact) {
     case Control::pads: return 216;
     default:
         if (compact) return 50;
+        if (row.dense && !focused) return 46;
         if (row.lines > 2) return 74 + static_cast<float>(row.lines - 2) * 16; // A longer description (Row::lines).
         return row.description.empty() ? 56 : 74;
     }
@@ -171,9 +174,10 @@ struct Layout : Sheet {
             if (!label.empty()) y += i ? section_gap : section_gap - 12;
             layout.labels.push_back(std::move(label));
             layout.tops.push_back(y);
-            const float h = rowHeight(rows[i], compact);
+            const float h = rowHeight(rows[i], compact, state.options && state.row() == static_cast<int>(i));
             layout.heights.push_back(h);
-            y += h + (compact ? 4 : row_gap);
+            // Dense rows sit closer together.
+            y += h + (compact || (rows[i].dense && i + 1 < rows.size() && rows[i + 1].dense && rows[i + 1].section.empty()) ? 4 : row_gap);
         }
         layout.content_height = rows.empty() ? 0 : y + 8;
         if (!rows.empty() && state.category == static_cast<int>(settings_ui::Category::system) && !state.subpage()) {
@@ -241,6 +245,23 @@ struct Layout : Sheet {
         if (item.control == Control::collection) return reorder(0, 0, false).left - 14;
         if (item.control == Control::platform) return settings_ui::hasOptionsButton(item.id) ? cog(0, 0).left - 14 : action(0, 0).left - 16;
         return right();
+    }
+    // Where a row's controls begin: its text (and badge) end before them.
+    float controlsLeft(const Row& item, int i, float s) const {
+        switch (item.control) {
+        case Control::choice: case Control::secret: case Control::text: return field(i, s).left;
+        case Control::action: case Control::count: return action(i, s).left;
+        case Control::page: case Control::fold: return action(i, s).left - 60;
+        case Control::slider: return track(i, s).left - 16;
+        case Control::toggle: case Control::collection: case Control::platform: return toggleRight(item) - 40;
+        default: return right() - 16;
+        }
+    }
+    // A row's badge (Row::badge) before its controls; a button when the row has Row::reset.
+    static constexpr float badge_width = 96;
+    Rect badge(const Row& item, int i, float s) const {
+        const float y = controlY(i, s), r = controlsLeft(item, i, s) - 14;
+        return {r - badge_width, y - 12, r, y + 12};
     }
     // Home layout previews under the row's title.
     Rect layoutTile(int i, float s, int option) const {

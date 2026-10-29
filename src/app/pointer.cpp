@@ -550,8 +550,10 @@ void Launcher::mouseMove(float mouse_x, float mouse_y) {
         int option = -1;
         if (row >= 0 && settings_rows_[row].control == Control::layout)
             for (int i = 0; i < home_layout_count; ++i) if (layout.layoutOption(row, settings_state_.offset(), i).contains(x, y)) option = i;
-        if (settings_hover_row_ != row || settings_preview_.option != option) {
-            settings_hover_row_ = row; settings_preview_.focus(option, GetTickCount64());
+        const int badge = row >= 0 && !settings_rows_[row].reset.empty() && !settings_rows_[row].badge.empty() &&
+                          layout.badge(row, settings_state_.offset(), settings_rows_[row].control).contains(x, y) ? row : -1;
+        if (settings_hover_row_ != row || settings_preview_.option != option || settings_hover_badge_ != badge) {
+            settings_hover_row_ = row; settings_hover_badge_ = badge; settings_preview_.focus(option, GetTickCount64());
             InvalidateRect(hwnd_, nullptr, FALSE);
         }
         return;
@@ -577,7 +579,7 @@ void Launcher::mouseLeave() {
     if (psfive_top_hover_) { psfive_top_hover_ = false; InvalidateRect(hwnd_, nullptr, FALSE); }
     if (tour_.open) tourHover(-1e6f, -1e6f);
     if (settings_hover_row_ < 0 && settings_preview_.option < 0) return;
-    settings_hover_row_ = -1; settings_preview_.focus(-1, GetTickCount64());
+    settings_hover_row_ = settings_hover_badge_ = -1; settings_preview_.focus(-1, GetTickCount64());
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
 

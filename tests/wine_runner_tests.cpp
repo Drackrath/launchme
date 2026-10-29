@@ -635,13 +635,24 @@ void store(const fs::path& root) {
     document.prefixes["epic:Catnip"] = "/pfx/catnip";
     document.prefix_root = "/games/prefixes";
     const auto parsed = s::parse(s::serialize(document));
-    check(parsed && *parsed == document, "document round trip");
-    check(!s::parse("{\"version\":2}") && !s::parse("[]") && !s::parse("not json"), "unknown documents refused");
+    check(parsed && parsed->defaults == document.defaults && parsed->games == document.games && parsed->prefixes == document.prefixes &&
+          parsed->prefix_root == document.prefix_root, "document round trip");
+    check(parsed && parsed->overrides.at("gog:1207658883") == s::differences(document.games["gog:1207658883"], s::forGame(document.defaults)),
+          "a game without a list overrides what differs from the default");
+    check(parsed && s::parse(s::serialize(*parsed)) == parsed, "overrides round trip");
+    check(!s::parse("{\"version\":3}") && !s::parse("[]") && !s::parse("not json"), "unknown documents refused");
     const auto lenient = s::parse(R"({"version":1,"default":{"gamemode":"yes","fsr_strength":9,"sync":"ntsync","environment":[{"name":"OK","value":"1"},{"name":"1X","value":"2"}]},
         "games":{"":{},"steam:10":{"mangohud":true}},"prefixes":{"steam:10":"relative"}})");
     check(lenient && !lenient->defaults.gamemode && lenient->defaults.fsr_strength == 2 && lenient->defaults.sync == LaunchOptions::Sync::ntsync &&
           lenient->defaults.environment == std::vector<LaunchOptions::Variable>{{"OK", "1"}} && lenient->games.size() == 1 && lenient->prefixes.empty(),
           "invalid values keep their defaults");
+    // Version 1: each game a full copy; what differs from the default becomes its override.
+    check(lenient && lenient->overrides.at("steam:10") == std::set<std::string>{"env:OK", "mangohud", "sync"} && lenient->games.at("steam:10").mangohud &&
+          lenient->games.at("steam:10").sync == LaunchOptions::Sync::automatic && lenient->games.at("steam:10").environment.empty(), "version 1 games as overrides");
+    const auto old = s::parse(R"({"version":1,"default":{},"games":{"custom:1":{"umu_id":"umu-1091500","arguments":"-dx11","environment":[{"name":"A","value":"1"}]}}})");
+    const auto reread = old ? s::parse(s::serialize(*old)) : std::nullopt;
+    check(reread && reread->games.at("custom:1").umu_id == "umu-1091500" && reread->games.at("custom:1").arguments == "-dx11" &&
+          reread->games.at("custom:1").environment == std::vector<LaunchOptions::Variable>{{"A", "1"}}, "version 1 overrides kept in version 2");
     // The file.
     check(s::defaults() == LaunchOptions{} && !s::gameOptions("epic:Catnip"), "empty store");
     auto mine = LaunchOptions{};
@@ -709,6 +720,28 @@ void store(const fs::path& root) {
     check(s::parse(s::serialize(stored)) == stored, "prefix info round trip");
     check(s::forgetPrefix(shared) && s::gameOptions("epic:Catnip")->prefix.empty() && s::prefixInfo(shared).name.empty(), "forgotten prefix");
     s::resetGameOptions("epic:Catnip");
+    // Overrides: a game keeps what it sets itself and follows the default in everything else.
+    auto base = LaunchOptions{};
+    base.environment = {{"KEEP", "1"}, {"DROP", "1"}};
+    check(s::setDefaults(base), "a default with variables");
+    auto own = s::forGame(s::defaults());
+    own.mangohud = true;
+    own.environment = {{"KEEP", "1"}, {"MINE", "2"}}; // DROP left out.
+    check(s::setGameOptions("gog:7", own) && s::gameOverrides("gog:7") == std::set<std::string>{"env:DROP", "env:MINE", "mangohud"}, "overrides: what differs");
+    base.gamemode = true;
+    base.environment = {{"KEEP", "2"}, {"DROP", "1"}, {"NEW", "3"}};
+    check(s::setDefaults(base), "a new default");
+    const auto now = s::gameOptions("gog:7");
+    check(now && now->gamemode && now->mangohud && now->environment == std::vector<LaunchOptions::Variable>{{"KEEP", "2"}, {"NEW", "3"}, {"MINE", "2"}},
+          "the game follows the new default except its overrides");
+    auto again = *now;
+    again.mangohud = false; // Back to the default's value: still the game's own choice.
+    check(s::setGameOptions("gog:7", again) && s::gameOverrides("gog:7").contains("mangohud"), "an override equal to the default stays");
+    check(s::resetGameOption("gog:7", "mangohud") && s::gameOverrides("gog:7") == std::set<std::string>{"env:DROP", "env:MINE"}, "one override reset");
+    const auto written = readText(s::file());
+    check(written.find("\"environment_unset\"") != std::string::npos && written.find("\"MINE\"") != std::string::npos, "overrides written");
+    check(s::resetGameOption("gog:7", "env:DROP") && s::resetGameOption("gog:7", "env:MINE") && !s::gameOptions("gog:7"), "the last override: back to the default");
+    s::setDefaults(LaunchOptions{});
 }
 
 // executeGameAction with fake runners: Windows programs reach umu-run, Proton or Wine with the

@@ -285,6 +285,7 @@ SheetHit Launcher::desktopSettingsHit(float x, float y) const {
     const int index = L.hitRow(x, y, s);
     if (index < 0 || index >= static_cast<int>(settings_rows_.size())) return {};
     const auto& item = settings_rows_[static_cast<size_t>(index)];
+    if (!item.reset.empty() && !item.badge.empty() && L.badge(item, index, s).contains(x, y)) return {K::badge, index};
     switch (item.control) {
     case Control::layout:
         for (int option = 0; option < settings_ui::home_layout_count; ++option)
@@ -434,8 +435,12 @@ void Launcher::desktopSettingsActivate(const SheetHit& hit) {
     }
     if (hit.index < 0 || hit.index >= static_cast<int>(settings_rows_.size())) return;
     const auto item = settings_rows_[static_cast<size_t>(hit.index)];
+    // A dense row shows its description at the first click; the next one (or its control) changes it.
+    const bool revealing = item.dense && hit.kind == K::row && !(settings_state_.options && settings_state_.row() == hit.index);
     focus(hit.index);
+    if (revealing) { audio_.navigate(); InvalidateRect(hwnd_, nullptr, FALSE); return; }
     switch (hit.kind) {
+    case K::badge: settingsResetRow(item); return;
     case K::layout: setHomeLayout(hit.sub); audio_.context(); return;
     case K::avatar: {
         const auto look = static_cast<companion::Look>(hit.sub);

@@ -229,6 +229,7 @@ struct ViewContext {
     settings_ui::State settings_state;
     std::wstring settings_title;
     int settings_hover_row = -1, settings_preview_option = -1;
+    int settings_hover_badge = -1; // The row whose badge button (Row::reset) the pointer is over.
     float settings_preview_seconds = 0;
     bool settings_save_failed = false;
     size_t secret_length = 0;
@@ -327,6 +328,7 @@ struct ViewContext {
     bool menu_remove = false, menu_edit_game = false; // "Usuń z biblioteki" (red, last) / "Opcje uruchamiania" read "Edytuj grę".
     bool menu_uninstall = false, menu_launch = false; // "Odinstaluj" (red, last) / Details' "Opcje uruchamiania".
     bool menu_compat = false; // Details' "Proton / Wine" (Linux).
+    bool menu_shortcuts = false; // Details' "Skróty" (the game can have shortcuts).
     bool menu_metadata = false; // Details' "Edytuj metadane".
     bool menu_aurelia = false;
     std::wstring menu_steam_account; // Details' "…": the account a Steam game starts from; empty: no choice.

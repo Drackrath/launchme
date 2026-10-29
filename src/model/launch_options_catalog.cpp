@@ -406,10 +406,10 @@ constexpr Option option_table[] = {
          L"DXVK for cards with Vulkan 1.1–1.2. Not in anti-cheat or online games (Proton-CachyOS)."},
         "PROTON_DXVK_SAREK=1", proton),
     flag("no_d3d11", Section::extras, "PROTON_NO_D3D11", "1", {L"Bez DirectX 11", L"No DirectX 11"},
-        {L"Gra, która umie, wybierze DirectX 9 (czasem działa lepiej).", L"A game that can picks DirectX 9 instead (sometimes it runs better)."},
+        {L"Gra, która umie, wybierze DirectX 9 (czasem działa lepiej).", L"A game that supports it picks DirectX 9 instead (sometimes it runs better)."},
         "PROTON_NO_D3D11=1", proton),
     flag("no_d3d10", Section::extras, "PROTON_NO_D3D10", "1", {L"Bez DirectX 10", L"No DirectX 10"},
-        {L"Gra, która umie, wybierze DirectX 9.", L"A game that can picks DirectX 9 instead."},
+        {L"Gra, która umie, wybierze DirectX 9.", L"A game that supports it picks DirectX 9 instead."},
         "PROTON_NO_D3D10=1", proton),
     flag("heap_delay_free", Section::extras, "PROTON_HEAP_DELAY_FREE", "1", {L"Opóźnione zwalnianie pamięci", L"Delayed memory release"},
         {L"Obejście błędów gier, które używają zwolnionej pamięci (losowe awarie).", L"A workaround for games that use freed memory (random crashes)."},
@@ -417,11 +417,11 @@ constexpr Option option_table[] = {
     flag("dx12_ray_tracing", Section::extras, "VKD3D_CONFIG", "dxr11", {L"Ray tracing w DirectX 12", L"Ray tracing in DirectX 12"},
         {L"Włącza DXR 1.1 w VKD3D-Proton dla gier, które same go nie wybierają.", L"Enables DXR 1.1 in VKD3D-Proton for games that do not pick it themselves."},
         "VKD3D_CONFIG=dxr11"),
-    flag("no_wm_decoration", Section::extras, "PROTON_NO_WM_DECORATION", "1", {L"Bez ramek okien", L"No window decorations"},
+    flag("no_wm_decoration", Section::extras, "PROTON_NO_WM_DECORATION", "1", {L"Bez ramek okien (Proton)", L"No window decorations (Proton)"},
         {L"Wine rysuje ramki sam: naprawia pełny ekran bez ramki i kliknięcia przechodzące przez okno.",
          L"Wine draws the frames itself: fixes borderless full screen and clicks passing through the window."},
         "PROTON_NO_WM_DECORATION=1", proton),
-    flag("wine_no_wm_decoration", Section::extras, "WINE_NO_WM_DECORATION", "1", {L"Bez ramek okien", L"No window decorations"},
+    flag("wine_no_wm_decoration", Section::extras, "WINE_NO_WM_DECORATION", "1", {L"Bez ramek okien (Wine)", L"No window decorations (Wine)"},
         {L"Naprawia pełny ekran bez ramki i kliknięcia przechodzące przez okno (Wine-CachyOS).",
          L"Fixes borderless full screen and clicks passing through the window (Wine-CachyOS)."},
         "WINE_NO_WM_DECORATION=1", wine),
@@ -773,6 +773,17 @@ std::string withDllOverride(std::string_view overrides, std::string_view dlls, s
         append(entry.names, entry.has_mode, entry.mode);
     }
     if (mode) append(names, true, dllName(*mode));
+    return result;
+}
+
+std::vector<DllEntry> dllEntries(std::string_view overrides) {
+    std::vector<DllEntry> result;
+    for (const auto& entry : overrideEntries(overrides)) {
+        DllEntry item;
+        for (size_t i = 0; i < entry.names.size(); ++i) item.dlls += (i ? "," : "") + entry.names[i];
+        item.mode = entry.mode;
+        result.push_back(std::move(item));
+    }
     return result;
 }
 }

@@ -226,19 +226,27 @@ void Renderer::drawDesktopSettings() {
         if (selected && state.editing && item.control == Control::slider) desktopStroke(r, 10, uiAccent(0.8f), 1.5f);
         const float text_left = r.left + 16;
         const float cy = L.controlY(i, s);
-        // The text ends before the row's controls.
-        float controls_left = right - 16;
-        switch (item.control) {
-        case Control::choice: case Control::secret: case Control::text: controls_left = L.field(i, s).left; break;
-        case Control::action: case Control::count: controls_left = L.action(i, s).left; break;
-        case Control::page: case Control::fold: controls_left = L.action(i, s).left - 60; break;
-        case Control::slider: controls_left = L.track(i, s).left - 16; break;
-        case Control::toggle: case Control::collection: case Control::platform: controls_left = L.toggleRight(item) - 40; break;
-        default: break;
-        }
-        const float text_width = (tall ? right - 16 : controls_left - 20) - text_left;
+        // The text ends before the row's controls (and its badge).
+        const float controls_left = L.controlsLeft(item, i, s);
+        const float text_width = (tall ? right - 16 : controls_left - 20 - (item.badge.empty() ? 0.0f : L_t::badge_width + 14)) - text_left;
         const auto title_ink = item.locked ? gray(0.55f) : gray(0.94f);
-        if (tall || !item.description.empty()) {
+        if (!item.badge.empty()) {
+            const auto b = L.badge(item, i, s);
+            const bool resettable = !item.reset.empty();
+            const float h = resettable ? hovered(Kind::badge) : 0.0f;
+            desktopFill(b, 12, uiAccent(0.14f + 0.14f * h));
+            if (h > 0) desktopStroke(b, 12, uiAccent(0.7f));
+            float label_left = b.left + 10;
+            if (resettable) { desktopGlyph(glyph::refresh, b.left + 16, cy, 10, uiAccent(0.95f)); label_left = b.left + 26; }
+            textLine(item.badge, label_left, cy, b.right - 8 - label_left, desktop_small_font_.Get(), uiAccent(0.98f),
+                     resettable ? DWRITE_TEXT_ALIGNMENT_LEADING : DWRITE_TEXT_ALIGNMENT_CENTER);
+        }
+        if (item.dense && !selected) {
+            // A dense row without the focus: the title, then what it sets in one dim line.
+            const float title_y = item.detail.empty() ? cy : r.top + 15;
+            textLine(item.title, text_left, title_y, text_width, desktop_strong_font_.Get(), title_ink);
+            if (!item.detail.empty()) textLine(item.detail, text_left, r.top + 32, text_width, desktop_small_font_.Get(), gray(0.5f));
+        } else if (tall || !item.description.empty()) {
             // Thin rows (DRM-free games) hold the title and one line of description, centred.
             const bool thin = !tall && state.at(settings_ui::Page::drm_games);
             const float title_y = tall ? r.top + 30 : thin ? r.top + 17 : r.top + 24;

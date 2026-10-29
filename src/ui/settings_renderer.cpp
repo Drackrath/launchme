@@ -151,7 +151,8 @@ void Renderer::drawSettings() {
         if (r.bottom < list_top || r.top >= list_bottom) continue;
         // An open accordion section's rows sit inset under its heading, joined by a thin line.
         if (rows[i].indent > 0) {
-            fill({r.left + 14, r.top - (Layout::row_step - (r.bottom - r.top)), r.left + 17, r.bottom}, gray(1, 0.08f), 1.5f);
+            fill({r.left + 14, r.top - (layout.rowStep() - (layout.compact ? Layout::compact_height : Layout::row_height)), r.left + 17, r.bottom},
+                 gray(1, 0.08f), 1.5f);
             r.left += 36.0f * static_cast<float>(rows[i].indent);
         }
         fill(r, gray(1, rows[i].control == Control::fold ? 0.07f : 0.034f), 16);
@@ -196,11 +197,24 @@ void Renderer::drawSettings() {
         }
         const float controls_left = hasOptionsButton(item.id) ? r.right - 324 : layout.controlsLeft(item.control);
         // What the row has room for: thin rows (DRM-free games) one line of description; a row with
-        // tags (plugins) the lines fitSettingsDescriptions made room for, the tags under them; the
-        // rest ends with an ellipsis.
-        const int description_lines = layout.compact ? 1 : !item.tags.empty() ? (item.lines > 2 ? item.lines - 1 : 1) : std::max(2, item.lines);
-        textGroup(item.title, item.description, text_left, y - (item.tags.empty() ? 0 : 12), controls_left - (stepped_size ? 72 : 24) - text_left,
-                  category_font_.Get(), gray(item.locked ? 0.56f : 0.93f), body, gray(0.52f), description_lines);
+        // tags (plugins) the lines fitSettingsDescriptions made room for, the tags under them; a dense
+        // row without the focus its detail line; the rest ends with an ellipsis.
+        const bool dense = item.dense && !selected;
+        const int description_lines = layout.compact || dense ? 1 : !item.tags.empty() ? (item.lines > 2 ? item.lines - 1 : 1) : std::max(2, item.lines);
+        const float badge_room = item.badge.empty() ? 0.0f : Layout::badge_space;
+        textGroup(item.title, dense ? item.detail : item.description, text_left, y - (item.tags.empty() ? 0 : 12),
+                  controls_left - (stepped_size ? 72 : 24) - badge_room - text_left, category_font_.Get(), gray(item.locked ? 0.56f : 0.93f), body,
+                  gray(dense ? 0.46f : 0.52f), description_lines);
+        // The badge: the game's own value; a button back to the default (the pad's X, Delete).
+        if (!item.badge.empty()) {
+            const auto b = layout.badge(i, scroll, item.control);
+            const bool resettable = !item.reset.empty();
+            const bool badge_hover = resettable && context_->settings_hover_badge == i;
+            fill(b, uiAccent(badge_hover ? 0.32f : 0.16f), (b.bottom - b.top) * 0.5f);
+            if (badge_hover) outline(b, uiAccent(0.8f), 1.2f, (b.bottom - b.top) * 0.5f);
+            textLine((resettable ? L"\u21BA  " : L"") + item.badge, b.left + 14, y, b.right - b.left - 28, toast_sub_font_.Get(), uiAccent(0.98f),
+                     DWRITE_TEXT_ALIGNMENT_CENTER);
+        }
         // Each further line grows the centred group by half a line downwards: the tags follow it.
         const float tag_top = y + 24 + (item.description.empty() ? 0.0f : (description_lines - 1) * typeMetrics(body).line * 0.5f);
         float tag_left = text_left;

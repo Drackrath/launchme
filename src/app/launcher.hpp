@@ -1632,6 +1632,11 @@ private:
     std::wstring compatToolName(const std::string& id) const;
     bool compatSaveOptions(const std::string& key, const std::function<bool(LaunchOptions&)>& change);
     CompatLaunch compatPrefixLaunch(const std::filesystem::path& prefix) const;
+    // A game's own override (Row::reset) back to the default.
+    bool compatResetOption(const settings_ui::Row& row);
+    // Protontricks for any game: winetricks with the game's own Proton or Wine, prefix and umu ID
+    // ("winetricks"), or a Wine program ("winecfg"...) in its prefix.
+    void compatGameTool(const Game& game, const std::string& action, const std::vector<std::string>& arguments = {});
     // Dodaj grę z instalatora: the installer runs in a new prefix named after the game; once it ends
     // the game's program is picked inside that prefix and added as a game of its own, in it.
     void compatInstallGame();
@@ -1780,6 +1785,10 @@ private:
     void settingsPickSource(const settings_ui::Row& row, int choice);
     void settingsChoose(const settings_ui::Row& row); // A choice row's picked option (settingsActivate).
     void settingsToggle(const settings_ui::Row& row); // A switch row; saves and repaints itself.
+    bool settingsResetRow(const settings_ui::Row& row); // Its badge button (Row::reset): back to the default.
+public:
+    bool settingsResetFocused(); // Delete or the pad's X on the focused row; false when it has no reset.
+private:
     // A text row (settings_text.cpp): the first Enter edits `current`, the next trims spaces and
     // quotes (unless !unquote) and hands it to `commit`; true closes the field and saves Settings,
     // false keeps it open (commit showed the error).
@@ -2380,6 +2389,7 @@ private:
     bool settings_dragging_ = false;
     settings_ui::LayoutPreview settings_preview_;
     int settings_hover_row_ = -1;
+    int settings_hover_badge_ = -1; // The row whose badge button (Row::reset) the pointer is over.
     struct TourState {
         bool open = false;
         int step = 0;            // tour::Step.
@@ -2418,6 +2428,7 @@ private:
         std::map<std::filesystem::path, uint64_t> sizes; // Measured on a worker.
         std::set<std::filesystem::path> measuring;
         std::set<std::string> expanded{"runner"}; // The accordion's open sections.
+        std::wstring query;                      // Szukaj: the options page shows the matching options instead.
         std::string confirm;                     // A destructive row asked to confirm (its key).
         bool steam_target = false;               // Proton downloads also into Steam's compatibilitytools.d.
         Game game;                               // The game whose options page is open.

@@ -185,6 +185,7 @@ void Launcher::paint(bool overlay) {
         context.settings_picker_choice = settings_picker_choice_;
     }
     context.settings_hover_row = settings_hover_row_;
+    context.settings_hover_badge = settings_hover_badge_;
     context.settings_preview_option = settings_preview_.option;
     context.settings_preview_seconds = settings_preview_.seconds(GetTickCount64());
     context.settings_title = settingsPageTitle();
@@ -275,6 +276,7 @@ void Launcher::paint(bool overlay) {
     context.menu_edit_game = selected_ < cards_.size() && cards_[selected_].game.source == GameSource::custom;
     context.menu_launch = menu_rows.launch;
     context.menu_compat = menu_rows.compat;
+    context.menu_shortcuts = menu_rows.shortcuts;
     context.menu_metadata = menu_rows.metadata;
     context.menu_aurelia = menu_rows.aurelia;
     if (menu_rows.steam_account && selected_ < cards_.size()) context.menu_steam_account = steamAccountLabel(cards_[selected_].game);

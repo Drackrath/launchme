@@ -15,8 +15,11 @@
 #include "../platform/process_spawn.hpp"
 #include "../platform/system.hpp"
 #include "../platform/text_encoding.hpp"
+#include "../platform/unicode_text.hpp"
 #include "../platform/updater.hpp"
 #include "../platform/wine_runner.hpp"
+
+#include <functional>
 
 #include <sys/wait.h>
 
@@ -245,6 +248,14 @@ constexpr std::pair<const char*, const wchar_t*> wine_programs[] = {
     {"explorer", trKey(L"Eksplorator plików")},
     {"uninstaller", trKey(L"Odinstaluj programy")},
 };
+// A WINEDLLOVERRIDES entry's modes ("": disabled).
+constexpr std::pair<const char*, const wchar_t*> dll_modes[] = {
+    {"n,b", trKey(L"Najpierw z gry (n,b)")},
+    {"b,n", trKey(L"Najpierw z Wine (b,n)")},
+    {"n", trKey(L"Tylko z gry (n)")},
+    {"b", trKey(L"Tylko z Wine (b)")},
+    {"", trKey(L"Wyłączona")},
+};
 }
 
 bool Launcher::compatGame(const Game& game) const {
@@ -261,7 +272,9 @@ void Launcher::openGameCompatSettings(const Game& game) {
     if (!compatGame(game) || key.empty()) return;
     dismissMenu();
     compat_.game = game;
-    compat_.expanded = {"runner"};
+    // What the game sets itself first, when it sets anything.
+    compat_.expanded = store::gameOverrides(key).empty() ? std::set<std::string>{"runner"} : std::set<std::string>{"own"};
+    compat_.query.clear();
     compat_.confirm.clear();
     if (!settingsOpen()) openSettings();
     if (!settingsOpen()) return;
@@ -510,6 +523,49 @@ void Launcher::compatPrefixAction(const std::filesystem::path& prefix, const std
     if (error) { failed(error); return; }
     process_spawn::reapLater(pid); // Nobody else waits for it.
     showNotification(NotificationKind::launch, title, tr(L"Uruchomiono w prefiksie"));
+}
+
+// Protontricks for any game, not only Steam's: the game's own launch (its tool, prefix, umu ID and
+// options) runs winetricks or a Wine program, as protontricks does for a Steam game.
+void Launcher::compatGameTool(const Game& game, const std::string& action, const std::vector<std::string>& arguments) {
+    const auto launch = store::compatLaunch(game);
+    if (!launch) return;
+    pid_t pid = 0;
+    const int error = action == "winetricks" ? wine_runner::winetricks(*launch, arguments, pid) : wine_runner::runWineProgram(*launch, action, pid);
+    if (error) {
+        showNotification(NotificationKind::error, tr(L"Nie udało się uruchomić narzędzia prefiksu"),
+                         error == ENOENT ? std::wstring(tr(L"Brak Protona lub Wine: pobierz go w Ustawieniach → Proton i Wine.")) : wide(std::strerror(error)));
+        return;
+    }
+    process_spawn::reapLater(pid);
+    showNotification(NotificationKind::launch, game.name, action == "winetricks" ? (arguments.empty() ? tr(L"Otwieranie winetricks…") : tr(L"Instalowanie: ") + wide(arguments.front()))
+                                                                               : std::wstring(tr(L"Uruchomiono w prefiksie")));
+}
+
+// A badge's reset (Row::reset): one override ("mangohud", "env:NAME"), or a section's ("section:<fold>").
+bool Launcher::compatResetOption(const Row& row) {
+    const auto* frame = settings_state_.top();
+    const std::string key = frame && settings_state_.at(Page::launch_options) ? frame->key : std::string{};
+    if (key.empty() || row.reset.empty()) return false;
+    if (row.reset.starts_with("section:")) {
+        const auto id = std::string_view(row.reset).substr(8);
+        const auto fold = std::find_if(std::begin(folds), std::end(folds), [&](const Fold& item) { return id == item.id; });
+        if (fold == std::end(folds)) return false;
+        const auto overrides = store::gameOverrides(key);
+        for (const auto& option : catalog::options()) {
+            const bool in = fold->section ? option.section == *fold->section && std::string_view(option.id) != "dll_overrides" :
+                                            std::string_view(option.id) == "dll_overrides";
+            const auto override_id = option.variable ? "env:" + std::string(option.variable) : std::string(option.id);
+            if (in && overrides.contains(override_id)) store::resetGameOption(key, override_id);
+        }
+        if (fold->section == catalog::Section::game)
+            for (const auto& override_id : overrides)
+                if (override_id.starts_with("env:") && !catalog::forVariable(std::string_view(override_id).substr(4))) store::resetGameOption(key, override_id);
+    } else store::resetGameOption(key, row.reset);
+    if (store::gameOverrides(key).empty()) compat_.expanded.erase("own");
+    buildSettingsRows(); audio_.context();
+    InvalidateRect(hwnd_, nullptr, FALSE);
+    return true;
 }
 
 // ---- A game from its installer -----------------------------------------------------------------------
@@ -947,17 +1003,40 @@ void Launcher::compatSettingsRows() {
         const bool game = !key.empty();
         const auto stored = game ? store::gameOptions(key) : std::optional<LaunchOptions>{};
         const LaunchOptions options = game ? stored.value_or(gameDefaults()) : store::defaults();
+        const LaunchOptions global = game ? store::defaults() : options;
+        // A game's overrides: the badge "Ta gra" on each, a button back to the default.
+        const auto overrides = game ? store::gameOverrides(key) : std::set<std::string>{};
+        const auto own = [&](Row& row, const std::string& id) {
+            if (!game || !overrides.contains(id)) return;
+            row.badge = tr(L"Ta gra");
+            row.reset = id;
+        };
         if (game) {
             Row scope{Id::launch_scope, Control::action, stored ? tr(L"Własne ustawienia tej gry") : tr(L"Ustawienia domyślne"),
-                stored ? std::wstring(tr(L"Zmiany dotyczą tylko tej gry.")) :
-                         std::wstring(tr(L"Gra używa ustawień domyślnych. Zmiana dowolnej opcji zapisze jej własne.")),
-                stored ? (compat_.confirm == "reset:" + key ? tr(L"Potwierdź") : tr(L"Przywróć domyślne")) : tr(L"Edytuj domyślne")};
+                stored ? std::wstring(tr(L"Opcje z plakietką „Ta gra” są jej własne (↺ wraca do domyślnej); reszta podąża za domyślnymi.")) :
+                         std::wstring(tr(L"Gra używa ustawień domyślnych. Zmiana dowolnej opcji zapisze ją tylko dla tej gry.")),
+                stored ? (compat_.confirm == "reset:" + key ? tr(L"Potwierdź") : tr(L"Przywróć wszystkie")) : tr(L"Edytuj domyślne")};
             add(std::move(scope));
             if (const auto rating = protonDbLabel(compat_.game); !rating.empty())
                 add({Id::launch_protondb, Control::action, L"ProtonDB", rating + L"\n" + tr(L"Ocena graczy i Valve: jak gra działa przez Protona i na Steam Decku."),
                      tr(L"Otwórz")});
             if (launchEditable(compat_.game))
                 add({Id::launch_edit_game, Control::action, tr(L"Plik gry i argumenty"), tr(L"Program, który się uruchamia, jego argumenty i folder."), tr(L"Edytuj")});
+            // Protontricks for any game: winetricks with this game's Proton (or Wine), prefix and umu ID.
+            if (const auto launch = store::compatLaunch(compat_.game)) {
+                const bool available = wine_runner::winetricksAvailable(*launch);
+                Row tricks{Id::launch_tricks, Control::choice, L"Protontricks",
+                    available ? std::wstring(tr(L"Winetricks z Protonem i prefiksem tej gry: biblioteki Microsoft, czcionki, poprawki. Także dla gier spoza Steam.")) :
+                                std::wstring(tr(L"Zainstaluj winetricks (albo umu-launcher), aby tego użyć.")),
+                    tr(L"Wybierz…")};
+                tricks.choice = -1;
+                tricks.locked = !available;
+                tricks.choices.push_back({tr(L"Okno winetricks"), 0, false, L"winetricks"});
+                for (const auto& [program, text] : wine_programs) tricks.choices.push_back({tr(text), 0, false, wide(program)});
+                for (const auto& verb : catalog::winetricksVerbs())
+                    tricks.choices.push_back({L"winetricks " + wide(verb.verb) + L" · " + label(verb.label), 0, false, L"verb:" + wide(verb.verb)});
+                add(std::move(tricks));
+            }
             // The runner's output of the last start: what to look at (or send) when it does not start.
             std::filesystem::path log;
             if (const auto launch = store::compatLaunch(compat_.game))
@@ -969,110 +1048,54 @@ void Launcher::compatSettingsRows() {
             log_row.key = text_encoding::utf8Lenient(log.wstring());
             add(std::move(log_row));
         }
-        const LaunchOptions plain;
-        for (const auto& fold : folds) {
-            if (fold.section == catalog::Section::gamescope && !options.gamescope) continue; // Its options follow its switch.
-            int changed = 0;
-            for (const auto& option : catalog::options()) {
-                const bool in = fold.section ? option.section == *fold.section && std::string_view(option.id) != "dll_overrides" :
-                                               std::string_view(option.id) == "dll_overrides";
-                if (in && (game || std::string_view(option.id) != "prefix") && catalog::value(options, option.id) != catalog::value(plain, option.id)) ++changed;
-            }
-            const bool open = compat_.expanded.contains(fold.id);
-            Row heading{Id::launch_fold, Control::fold, tr(fold.title), tr(fold.description),
-                changed ? tr(L"Zmienione: ") + std::to_wstring(changed) : std::wstring{}, open};
-            heading.key = fold.id;
-            add(std::move(heading));
-            if (!open) continue;
-            const auto nested = [&](Row row) { row.indent = 1; add(std::move(row)); };
-            if (!fold.section) { // WINEDLLOVERRIDES: the presets as switches, then the whole text.
-                for (const auto& preset : catalog::dllPresets()) {
-                    Row row{Id::launch_dll, Control::toggle, label(preset.label), wide(preset.dlls) + L"=" + wide(preset.mode), {},
-                        catalog::presetSet(options.dll_overrides, preset)};
-                    row.key = preset.dlls;
-                    nested(std::move(row));
+        // One option's row (nullopt: shown elsewhere, or not for the default).
+        const auto overrideId = [](const catalog::Option& option) {
+            return option.variable ? "env:" + std::string(option.variable) : std::string(option.id);
+        };
+        const auto optionRow = [&](const catalog::Option& option) -> std::optional<Row> {
+            const std::string_view id = option.id;
+            if (id == "dll_overrides" || id == "environment") return std::nullopt; // Sections of their own.
+            if (id == "prefix" && !game) return std::nullopt; // The default has no prefix: each game gets its own.
+            Row row{Id::launch_option, Control::toggle, label(option.label), {}};
+            row.key = option.id;
+            row.dense = true;
+            row.detail = wide(option.sets);
+            if (id == "compat_tool") {
+                row.control = Control::choice;
+                row.description = label(option.description);
+                std::wstring fallback;
+                if (game) {
+                    const auto prefix = options.prefix.empty() ? store::gamePrefix(compat_.game) : options.prefix;
+                    const auto prefix_tool = store::prefixInfo(prefix).compat_tool;
+                    fallback = chosen(prefix_tool) ? tr(L"Jak prefiks: ") + compatToolName(prefix_tool) :
+                                                     tr(L"Domyślna: ") + compatToolName(store::defaultTool());
+                } else fallback = compatToolName("default");
+                toolChoices(row, options.compat_tool, std::move(fallback));
+                row.detail = row.value;
+                row.lines = 3;
+            } else if (id == "prefix") {
+                const auto mine = store::gamePrefix(compat_.game);
+                row.control = Control::choice;
+                row.description = options.prefix.empty() ? mine.wstring() : options.prefix.wstring();
+                row.detail = row.description;
+                row.choices.push_back({tr(L"Własny prefiks gry"), 0, false, {}});
+                for (const auto& entry : compat_.prefixes) {
+                    if (!entry.named && !entry.shared) continue;
+                    row.choices.push_back({compatPrefixName(entry), 0, false, entry.path.wstring()});
+                    if (!options.prefix.empty() && entry.path == options.prefix.lexically_normal()) row.choice = static_cast<int>(row.choices.size()) - 1;
                 }
-                const auto* manual = catalog::find("dll_overrides");
-                Row row{Id::launch_option, Control::text, tr(L"Ręcznie (WINEDLLOVERRIDES)"), label(manual->description),
-                    options.dll_overrides.empty() ? std::wstring(tr(L"Brak")) : wide(options.dll_overrides)};
-                row.key = "dll_overrides";
-                nested(std::move(row));
-                continue;
-            }
-            for (const auto& option : catalog::options()) {
-                if (option.section != *fold.section) continue;
-                const std::string_view id = option.id;
-                if (id == "dll_overrides") continue;
-                if (option.depends_on && catalog::value(options, option.depends_on) != "1") continue;
-                if (id == "compat_tool") {
-                    Row row{Id::launch_option, Control::choice, label(option.label), label(option.description)};
-                    row.key = option.id;
-                    std::wstring fallback;
-                    if (game) {
-                        const auto prefix = options.prefix.empty() ? store::gamePrefix(compat_.game) : options.prefix;
-                        const auto prefix_tool = store::prefixInfo(prefix).compat_tool;
-                        fallback = chosen(prefix_tool) ? tr(L"Jak prefiks: ") + compatToolName(prefix_tool) :
-                                                         tr(L"Domyślna: ") + compatToolName(store::defaultTool());
-                    } else fallback = compatToolName("default");
-                    toolChoices(row, options.compat_tool, std::move(fallback));
-                    row.lines = 3;
-                    nested(std::move(row));
-                    continue;
+                if (!options.prefix.empty() && row.choice == 0) {
+                    row.choices.push_back({options.prefix.filename().wstring(), 0, false, options.prefix.wstring()});
+                    row.choice = static_cast<int>(row.choices.size()) - 1;
                 }
-                if (id == "prefix") {
-                    if (!game) continue; // The default has no prefix: each game gets its own.
-                    const auto own = store::gamePrefix(compat_.game);
-                    Row row{Id::launch_option, Control::choice, label(option.label), options.prefix.empty() ? own.wstring() : options.prefix.wstring()};
-                    row.key = option.id;
-                    row.choices.push_back({tr(L"Własny prefiks gry"), 0, false, {}});
-                    for (const auto& entry : compat_.prefixes) {
-                        if (!entry.named && !entry.shared) continue;
-                        row.choices.push_back({compatPrefixName(entry), 0, false, entry.path.wstring()});
-                        if (!options.prefix.empty() && entry.path == options.prefix.lexically_normal()) row.choice = static_cast<int>(row.choices.size()) - 1;
-                    }
-                    if (!options.prefix.empty() && row.choice == 0) {
-                        row.choices.push_back({options.prefix.filename().wstring(), 0, false, options.prefix.wstring()});
-                        row.choice = static_cast<int>(row.choices.size()) - 1;
-                    }
-                    row.choices.push_back({tr(L"Inny folder…"), 0, false, L"browse"});
-                    row.value = row.choices[static_cast<size_t>(row.choice)].label;
-                    nested(std::move(row));
-                    Row tools{Id::prefix_entry, Control::page, tr(L"Narzędzia prefiksu"), tr(L"Rozmiar, winecfg, winetricks, instalatory i usuwanie."), {}};
-                    const auto effective = options.prefix.empty() ? own : options.prefix;
-                    tools.key = keyOf(effective.lexically_normal());
-                    if (const auto size = compat_.sizes.find(effective.lexically_normal()); size != compat_.sizes.end()) tools.value = sizeText(size->second);
-                    else if (std::error_code ec; std::filesystem::exists(effective, ec)) compatMeasure(effective);
-                    nested(std::move(tools));
-                    continue;
-                }
-                if (id == "environment") {
-                    for (size_t i = 0; i < options.environment.size(); ++i) {
-                        const auto& variable = options.environment[i];
-                        // A switch above already shows it (Dodatki i obejścia).
-                        if (const auto* shown = catalog::forVariable(variable.name);
-                            shown && (shown->type == catalog::Type::toggle ? variable.value == shown->variable_on :
-                                      std::any_of(shown->choices.begin(), shown->choices.end(), [&](const catalog::Choice& c) { return variable.value == c.value; })))
-                            continue;
-                        Row row{Id::launch_env, Control::action, wide(variable.name) + L"=" + wide(variable.value), tr(L"Zmienna środowiska tej gry."), tr(L"Usuń")};
-                        row.key = std::to_string(i);
-                        nested(std::move(row));
-                    }
-                    nested({Id::launch_env_add, Control::text, tr(L"Dodaj zmienną"),
-                            tr(L"NAZWA=wartość. Ma pierwszeństwo przed przełącznikami powyżej."), tr(L"Dodaj…")});
-                    Row presets{Id::launch_env_preset, Control::choice, tr(L"Popularne zmienne"), tr(L"Często polecane na ProtonDB i PCGamingWiki."), tr(L"Wybierz…")};
-                    presets.choice = -1;
-                    for (const auto& preset : catalog::variablePresets())
-                        presets.choices.push_back({label(preset.label) + L" (" + wide(preset.name) + L"=" + wide(preset.value) + L")", 0, false, wide(preset.name)});
-                    nested(std::move(presets));
-                    continue;
-                }
+                row.choices.push_back({tr(L"Inny folder…"), 0, false, L"browse"});
+                row.value = row.choices[static_cast<size_t>(row.choice)].label;
+            } else {
                 const auto value = catalog::value(options, option.id);
                 std::wstring description = label(option.description);
                 if (option.runners == catalog::proton) description += L" " + std::wstring(tr(L"Tylko Proton."));
                 else if (option.runners == catalog::wine) description += L" " + std::wstring(tr(L"Tylko zwykłe Wine."));
-                description += L"\n" + wide(option.sets);
-                Row row{Id::launch_option, Control::toggle, label(option.label), std::move(description)};
-                row.key = option.id;
+                row.description = description + L"\n" + wide(option.sets);
                 row.lines = 3;
                 switch (option.type) {
                 case catalog::Type::toggle: row.checked = value == "1"; break;
@@ -1087,15 +1110,189 @@ void Launcher::compatSettingsRows() {
                 case catalog::Type::number:
                     row.control = Control::text;
                     row.value = wide(value);
-                    row.description = label(option.description) + L" (" + std::to_wstring(option.minimum) + L"–" + std::to_wstring(option.maximum) + L")\n" +
-                                      wide(option.sets);
+                    row.description = description + L" (" + std::to_wstring(option.minimum) + L"–" + std::to_wstring(option.maximum) + L")\n" + wide(option.sets);
                     break;
                 default:
                     row.control = Control::text;
                     row.value = value.empty() ? std::wstring(tr(L"Brak")) : wide(value);
                     break;
                 }
-                nested(std::move(row));
+            }
+            own(row, overrideId(option));
+            return row;
+        };
+        // Environment variables: the switches above show some; each other one as a row of its own.
+        const auto shownAsSwitch = [](const LaunchOptions::Variable& variable) {
+            const auto* shown = catalog::forVariable(variable.name);
+            return shown && (shown->type == catalog::Type::toggle ? variable.value == shown->variable_on :
+                             std::any_of(shown->choices.begin(), shown->choices.end(), [&](const catalog::Choice& c) { return variable.value == c.value; }));
+        };
+        const auto variableRow = [&](const std::string& name, const std::string* value) {
+            Row row{Id::launch_env, Control::text, wide(name), {}, value ? wide(*value) : std::wstring(tr(L"Wyłączona"))};
+            row.key = name;
+            row.dense = true;
+            row.detail = value ? wide(name + "=" + *value) : std::wstring(tr(L"Z ustawień domyślnych, wyłączona w tej grze"));
+            const bool mine = game && overrides.contains("env:" + name);
+            row.description = !game ? std::wstring(tr(L"Każda gra, która nie ustawia jej sama. Puste pole ją usuwa.")) :
+                              mine ? std::wstring(tr(L"Ustawiona dla tej gry. Puste pole ją usuwa.")) :
+                                     std::wstring(tr(L"Z ustawień domyślnych. Zmiana albo puste pole (wyłącza) dotyczy tylko tej gry."));
+            row.description += L"\n" + row.detail;
+            row.lines = 3;
+            own(row, "env:" + name);
+            return row;
+        };
+        // WINEDLLOVERRIDES: one row per entry with its mode, the presets and a typed entry, then the whole text.
+        const auto dllRows = [&](const std::function<void(Row)>& put) {
+            for (const auto& entry : catalog::dllEntries(options.dll_overrides)) {
+                Row row{Id::launch_dll, Control::choice, wide(entry.dlls), {}, {}};
+                row.key = entry.dlls;
+                row.dense = true;
+                row.detail = wide(entry.dlls + "=" + entry.mode);
+                const auto presets = catalog::dllPresets();
+                const auto preset = std::find_if(presets.begin(), presets.end(), [&](const auto& item) { return entry.dlls == item.dlls; });
+                row.description = (preset != presets.end() ? std::wstring(label(preset->label)) : std::wstring(tr(L"Biblioteka gry albo moda."))) + L"\n" + row.detail;
+                row.choice = -1;
+                for (const auto& [mode, text] : dll_modes) {
+                    row.choices.push_back({tr(text), 0, false, wide(mode)});
+                    if (entry.mode == mode) row.choice = static_cast<int>(row.choices.size()) - 1;
+                }
+                if (row.choice < 0) { row.choices.push_back({wide(entry.mode), 0, false, wide(entry.mode)}); row.choice = static_cast<int>(row.choices.size()) - 1; }
+                row.value = row.choices[static_cast<size_t>(row.choice)].label;
+                row.choices.push_back({tr(L"Usuń z listy"), 0, false, L"remove"});
+                put(std::move(row));
+            }
+            Row presets{Id::launch_dll_preset, Control::choice, tr(L"Dodaj z listy"), tr(L"ReShade, ładowarki ASI, mody i poprawki: gotowe ustawienia."), tr(L"Wybierz…")};
+            presets.choice = -1;
+            for (const auto& preset : catalog::dllPresets())
+                if (!catalog::presetSet(options.dll_overrides, preset))
+                    presets.choices.push_back({label(preset.label) + L" (" + wide(preset.dlls) + L"=" + wide(preset.mode) + L")", 0, false, wide(preset.dlls)});
+            if (!presets.choices.empty()) put(std::move(presets));
+            put({Id::launch_dll_add, Control::text, tr(L"Dodaj ręcznie"), tr(L"nazwa=tryb, np. dinput8=n,b (n: z gry, b: z Wine, pusty tryb: wyłączona)."), tr(L"Dodaj…")});
+            const auto* manual = catalog::find("dll_overrides");
+            Row row{Id::launch_option, Control::text, tr(L"Całość (WINEDLLOVERRIDES)"), label(manual->description),
+                options.dll_overrides.empty() ? std::wstring(tr(L"Brak")) : wide(options.dll_overrides)};
+            row.key = "dll_overrides";
+            row.dense = true;
+            row.detail = L"WINEDLLOVERRIDES";
+            own(row, "dll_overrides");
+            put(std::move(row));
+        };
+        // Szukaj: the options whose name, description or variable has the text, from every section.
+        {
+            Row search{Id::launch_search, Control::text, tr(L"Szukaj opcji"),
+                tr(L"Nazwa, opis albo zmienna (np. DXVK, HDR, MangoHud)."), compat_.query.empty() ? std::wstring(tr(L"Wpisz…")) : compat_.query};
+            search.section = tr(L"Opcje");
+            add(std::move(search));
+        }
+        if (!compat_.query.empty()) {
+            const auto wanted = unicode_text::lower(compat_.query);
+            const auto has = [&](std::wstring_view text) { return unicode_text::lower(text).find(wanted) != std::wstring::npos; };
+            int found = 0;
+            for (const auto& option : catalog::options()) {
+                if (option.depends_on && catalog::value(options, option.depends_on) != "1") continue;
+                if (!has(label(option.label)) && !has(label(option.description)) && !has(wide(option.sets)) && !has(wide(option.id))) continue;
+                if (std::string_view(option.id) == "dll_overrides") { dllRows([&](Row row) { add(std::move(row)); }); ++found; continue; }
+                if (auto row = optionRow(option)) { add(std::move(*row)); ++found; }
+            }
+            for (const auto& variable : options.environment)
+                if (!shownAsSwitch(variable) && (has(wide(variable.name)) || has(wide(variable.value)))) { add(variableRow(variable.name, &variable.value)); ++found; }
+            add({Id::launch_search_clear, Control::action, found ? tr(L"Wyniki: ") + std::to_wstring(found) : std::wstring(tr(L"Nic nie pasuje")),
+                 tr(L"Wróć do wszystkich sekcji."), tr(L"Wyczyść")});
+            break;
+        }
+        // Ustawione dla tej gry: every override in one place, each with its way back to the default.
+        if (game && !overrides.empty()) {
+            const bool open = compat_.expanded.contains("own");
+            Row heading{Id::launch_fold, Control::fold, tr(L"Ustawione dla tej gry"), tr(L"Tu gra nie podąża za ustawieniami domyślnymi."),
+                tr(L"Ta gra: ") + std::to_wstring(overrides.size()), open};
+            heading.key = "own";
+            add(std::move(heading));
+            if (open) {
+                const auto nested = [&](Row row) { row.indent = 1; add(std::move(row)); };
+                for (const auto& option : catalog::options()) {
+                    if (!overrides.contains(overrideId(option))) continue;
+                    if (std::string_view(option.id) == "dll_overrides") {
+                        Row row{Id::launch_option, Control::text, tr(L"Biblioteki DLL (WINEDLLOVERRIDES)"), label(option.description),
+                            options.dll_overrides.empty() ? std::wstring(tr(L"Brak")) : wide(options.dll_overrides)};
+                        row.key = "dll_overrides"; row.dense = true; row.detail = L"WINEDLLOVERRIDES";
+                        own(row, "dll_overrides");
+                        nested(std::move(row));
+                    } else if (auto row = optionRow(option)) nested(std::move(*row));
+                }
+                for (const auto& id : overrides) {
+                    if (!id.starts_with("env:") || catalog::forVariable(std::string_view(id).substr(4))) continue;
+                    const auto name = id.substr(4);
+                    const auto found = std::find_if(options.environment.begin(), options.environment.end(), [&](const auto& v) { return v.name == name; });
+                    nested(variableRow(name, found != options.environment.end() ? &found->value : nullptr));
+                }
+            }
+        }
+        const LaunchOptions plain;
+        for (const auto& fold : folds) {
+            if (fold.section == catalog::Section::gamescope && !options.gamescope) continue; // Its options follow its switch.
+            const auto in = [&](const catalog::Option& option) {
+                return fold.section ? option.section == *fold.section && std::string_view(option.id) != "dll_overrides" :
+                                      std::string_view(option.id) == "dll_overrides";
+            };
+            // The default page counts what differs from Launchme's own; a game's page its overrides.
+            int changed = 0;
+            std::vector<std::string> mine;
+            for (const auto& option : catalog::options()) {
+                if (!in(option)) continue;
+                if (game && overrides.contains(overrideId(option))) mine.push_back(overrideId(option));
+                else if (!game && std::string_view(option.id) != "prefix" && catalog::value(options, option.id) != catalog::value(plain, option.id)) ++changed;
+            }
+            if (game && fold.section == catalog::Section::game)
+                for (const auto& id : overrides)
+                    if (id.starts_with("env:") && !catalog::forVariable(std::string_view(id).substr(4))) mine.push_back(id);
+            if (game) changed = static_cast<int>(mine.size());
+            const bool open = compat_.expanded.contains(fold.id);
+            Row heading{Id::launch_fold, Control::fold, tr(fold.title), tr(fold.description),
+                changed ? (game ? tr(L"Ta gra: ") : tr(L"Zmienione: ")) + std::to_wstring(changed) : std::wstring{}, open};
+            heading.key = fold.id;
+            // A section's overrides back to the default at once.
+            if (!mine.empty()) {
+                heading.badge = tr(L"Domyślne");
+                heading.reset = "section:" + std::string(fold.id);
+            }
+            add(std::move(heading));
+            if (!open) continue;
+            const auto nested = [&](Row row) { row.indent = 1; add(std::move(row)); };
+            if (!fold.section) { dllRows(nested); continue; }
+            for (const auto& option : catalog::options()) {
+                if (option.section != *fold.section) continue;
+                const std::string_view id = option.id;
+                if (option.depends_on && catalog::value(options, option.depends_on) != "1") continue;
+                if (id == "environment") {
+                    for (const auto& variable : options.environment)
+                        if (!shownAsSwitch(variable)) nested(variableRow(variable.name, &variable.value));
+                    // The default's variables this game goes without.
+                    if (game)
+                        for (const auto& variable : global.environment)
+                            if (overrides.contains("env:" + variable.name) && !shownAsSwitch(variable) &&
+                                std::none_of(options.environment.begin(), options.environment.end(), [&](const auto& v) { return v.name == variable.name; }))
+                                nested(variableRow(variable.name, nullptr));
+                    nested({Id::launch_env_add, Control::text, tr(L"Dodaj zmienną"),
+                            tr(L"NAZWA=wartość. Ma pierwszeństwo przed przełącznikami powyżej."), tr(L"Dodaj…")});
+                    Row presets{Id::launch_env_preset, Control::choice, tr(L"Popularne zmienne"), tr(L"Często polecane na ProtonDB i PCGamingWiki."), tr(L"Wybierz…")};
+                    presets.choice = -1;
+                    for (const auto& preset : catalog::variablePresets())
+                        presets.choices.push_back({label(preset.label) + L" (" + wide(preset.name) + L"=" + wide(preset.value) + L")", 0, false, wide(preset.name)});
+                    nested(std::move(presets));
+                    continue;
+                }
+                auto row = optionRow(option);
+                if (!row) continue;
+                nested(std::move(*row));
+                if (id == "prefix") {
+                    const auto mine_prefix = store::gamePrefix(compat_.game);
+                    Row tools{Id::prefix_entry, Control::page, tr(L"Narzędzia prefiksu"), tr(L"Rozmiar, winecfg, winetricks, instalatory i usuwanie."), {}};
+                    const auto effective = options.prefix.empty() ? mine_prefix : options.prefix;
+                    tools.key = keyOf(effective.lexically_normal());
+                    if (const auto size = compat_.sizes.find(effective.lexically_normal()); size != compat_.sizes.end()) tools.value = sizeText(size->second);
+                    else if (std::error_code ec; std::filesystem::exists(effective, ec)) compatMeasure(effective);
+                    nested(std::move(tools));
+                }
             }
         }
         // Skróty: the game started through Launchme, with these options, from outside it.
@@ -1185,6 +1382,7 @@ bool Launcher::compatSettingsActivate(const Row& row) {
         return pick([&](const Choice& choice) { store::setDefaultTool(narrow(choice.key)); });
     case Id::compat_defaults:
         compat_.expanded = {"runner"};
+        compat_.query.clear();
         openSettingsPage(Page::launch_options, {});
         return true;
     case Id::compat_prefixes: compatLoadTools(); openSettingsPage(Page::prefixes); return true;
@@ -1337,33 +1535,81 @@ bool Launcher::compatSettingsActivate(const Row& row) {
         buildSettingsRows(); audio_.context();
         return true;
     case Id::launch_scope:
-        if (!store::gameOptions(page_key)) { compat_.expanded = {"runner"}; openSettingsPage(Page::launch_options, {}); return true; }
+        if (!store::gameOptions(page_key)) { compat_.expanded = {"runner"}; compat_.query.clear(); openSettingsPage(Page::launch_options, {}); return true; }
         if (confirmed("reset:" + page_key)) {
             store::resetGameOptions(page_key);
             buildSettingsRows(); audio_.context();
         }
         return true;
     case Id::launch_edit_game: openLaunchEditor(compat_.game); return true;
-    case Id::launch_dll: {
-        const auto presets = catalog::dllPresets();
-        const auto preset = std::find_if(presets.begin(), presets.end(), [&](const auto& item) { return row.key == item.dlls; });
-        if (preset == presets.end()) return true;
-        compatSaveOptions(page_key, [&](LaunchOptions& options) {
-            options.dll_overrides = catalog::withDllOverride(options.dll_overrides, preset->dlls,
-                row.checked ? std::nullopt : std::optional<std::string_view>(preset->mode));
-            return true;
+    case Id::launch_tricks:
+        return pick([&](const Choice& choice) {
+            const auto action = narrow(choice.key);
+            if (action.starts_with("verb:")) compatGameTool(compat_.game, "winetricks", {action.substr(5)});
+            else compatGameTool(compat_.game, action);
         });
+    case Id::launch_search:
+        settingsTextRow(compat_.query, [this](const std::wstring& value) {
+            compat_.query = value;
+            while (!compat_.query.empty() && compat_.query.back() == L' ') compat_.query.pop_back();
+            if (settingsOpen()) buildSettingsRows();
+            return true;
+        }, false);
+        if (!settings_state_.editing) buildSettingsRows();
+        return true;
+    case Id::launch_search_clear:
+        compat_.query.clear();
         buildSettingsRows(); audio_.context();
         return true;
-    }
-    case Id::launch_env: {
-        const auto index = static_cast<size_t>(std::strtoul(row.key.c_str(), nullptr, 10));
-        compatSaveOptions(page_key, [&](LaunchOptions& options) {
-            if (index >= options.environment.size()) return false;
-            options.environment.erase(options.environment.begin() + static_cast<std::ptrdiff_t>(index));
-            return true;
+    // An entry of WINEDLLOVERRIDES (Row::key its DLLs): its mode, or out of the list.
+    case Id::launch_dll:
+        return pick([&](const Choice& choice) {
+            compatSaveOptions(page_key, [&](LaunchOptions& options) {
+                const auto mode = narrow(choice.key);
+                options.dll_overrides = catalog::withDllOverride(options.dll_overrides, row.key,
+                    mode == "remove" ? std::nullopt : std::optional<std::string_view>(mode));
+                return true;
+            });
         });
-        buildSettingsRows(); audio_.context();
+    case Id::launch_dll_preset:
+        return pick([&](const Choice& choice) {
+            const auto dlls = narrow(choice.key);
+            const auto presets = catalog::dllPresets();
+            const auto preset = std::find_if(presets.begin(), presets.end(), [&](const auto& item) { return dlls == item.dlls; });
+            if (preset == presets.end()) return;
+            compatSaveOptions(page_key, [&](LaunchOptions& options) {
+                options.dll_overrides = catalog::withDllOverride(options.dll_overrides, preset->dlls, std::string_view(preset->mode));
+                return true;
+            });
+        });
+    case Id::launch_dll_add:
+        settingsTextRow({}, [this, page_key](const std::wstring& value) {
+            const auto text = narrow(value);
+            const auto equals = text.find('=');
+            const auto dlls = text.substr(0, equals);
+            if (equals == std::string::npos || catalog::dllEntries(dlls + "=x").empty()) {
+                showNotification(NotificationKind::error, tr(L"Nieprawidłowy wpis"), tr(L"Wpisz nazwa=tryb, np. dinput8=n,b."));
+                return false;
+            }
+            return compatSaveOptions(page_key, [&](LaunchOptions& options) {
+                options.dll_overrides = catalog::withDllOverride(options.dll_overrides, dlls, std::string_view(text).substr(equals + 1));
+                return true;
+            });
+        }, false);
+        if (!settings_state_.editing) buildSettingsRows();
+        return true;
+    // A variable (Row::key its name): a new value; an emptied field takes it away (a game: also the default's).
+    case Id::launch_env: {
+        const auto name = row.key;
+        const auto current = row.value == tr(L"Wyłączona") ? std::wstring{} : row.value;
+        settingsTextRow(current, [this, page_key, name](const std::wstring& value) {
+            return compatSaveOptions(page_key, [&](LaunchOptions& options) {
+                std::erase_if(options.environment, [&](const auto& variable) { return variable.name == name; });
+                if (!value.empty()) options.environment.push_back({name, narrow(value)});
+                return options.environment.size() <= 64;
+            });
+        }, false);
+        if (!settings_state_.editing) buildSettingsRows();
         return true;
     }
     case Id::launch_env_add:

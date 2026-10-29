@@ -492,7 +492,7 @@ void Launcher::controllerInput(const PadReading& state) {
     if (cropOpen()) {
         if (shoulder) cropTab(shoulder);
         if (pressed(XINPUT_GAMEPAD_X)) cropReset();
-    } else if (pressed(XINPUT_GAMEPAD_X)) { noteUserInput(); openKeyboard(); }
+    } else if (pressed(XINPUT_GAMEPAD_X)) { noteUserInput(); if (!settingsResetFocused()) openKeyboard(); } // Settings: a row's own value back to the default.
     if (shoulder && settingsOpen() && !settings_state_.editing) { noteUserInput(); settingsShoulder(shoulder); }
     if (shoulder && artworkOpen()) artworkPage(shoulder);
     if (shoulder && devicesOpen()) deviceColumn(shoulder);

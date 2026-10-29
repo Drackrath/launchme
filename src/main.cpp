@@ -317,6 +317,8 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpara
             else if ((app->editingSecret() || app->editingArtworkSearch()) && wparam == 'A' && (GetKeyState(VK_CONTROL) & 0x8000)) app->selectSecret();
             else if (app->editingArtworkSearch() && wparam == VK_DELETE) app->clearArtworkQuery(); // Delete = "Wyczyść".
             else if ((app->editingSecret() || app->editingArtworkSearch()) && (wparam == VK_BACK || wparam == VK_DELETE)) app->eraseSecret();
+            // Delete on a row with its own value (a game's override): back to the default.
+            else if (wparam == VK_DELETE && !(lparam & (1LL << 30)) && app->settingsOpen() && app->settingsResetFocused()) {}
             else if (wparam == VK_RETURN) app->enterDown((lparam & (1LL << 30)) != 0);
             else if (wparam == VK_TAB) app->tabDown((lparam & (1LL << 30)) != 0);
             // A/D double as Left/Right, except where letters are text (search fields, and the

@@ -91,29 +91,113 @@ std::string toolOf(const Document& document, const std::string& key, const std::
 }
 }
 
+namespace {
+namespace catalog = launch_options_catalog;
+// Fields kept as values of their own (variable switches live in the environment list).
+bool ownField(const catalog::Option& option) { return !option.variable && option.type != catalog::Type::environment; }
+
+// One field's JSON (the type its catalog entry has).
+json::Value fieldJson(const catalog::Option& option, const std::string& value) {
+    switch (option.type) {
+    case catalog::Type::toggle: return json::boolean(value == "1");
+    case catalog::Type::number: return json::number(std::stod(value));
+    default: return json::string(value);
+    }
+}
+json::Value variablesJson(const std::vector<LaunchOptions::Variable>& variables) {
+    auto list = json::array();
+    for (const auto& variable : variables) {
+        auto entry = json::object();
+        entry.properties.emplace("name", json::string(variable.name));
+        entry.properties.emplace("value", json::string(variable.value));
+        list.elements.push_back(std::move(entry));
+    }
+    return list;
+}
+// Reads one field into `options`; false (unchanged) for a value of the wrong type or out of range.
+bool readField(const catalog::Option& option, const json::Value& field, LaunchOptions& options) {
+    switch (option.type) {
+    case catalog::Type::toggle:
+        return field.type == json::Value::Type::boolean && option.set(option, options, field.flag ? "1" : "0");
+    case catalog::Type::number:
+        return field.type == json::Value::Type::number && field.numeric >= 0 && field.numeric <= 4294967295.0 && std::floor(field.numeric) == field.numeric &&
+               option.set(option, options, std::to_string(static_cast<uint32_t>(field.numeric)));
+    default: return field.type == json::Value::Type::string && option.set(option, options, field.text);
+    }
+}
+void readVariables(const catalog::Option& option, const json::Value& field, std::vector<LaunchOptions::Variable>& variables) {
+    if (field.type != json::Value::Type::array) return;
+    for (const auto& entry : field.elements) {
+        const auto name = entry.get("name") ? entry.get("name")->stringOr() : std::string{};
+        const auto text = entry.get("value") ? entry.get("value")->stringOr() : std::string{};
+        // Each entry on its own: an invalid one is skipped, not the whole list.
+        LaunchOptions single;
+        if (variables.size() < 64 && option.set(option, single, name + "=" + text) && single.environment.size() == 1)
+            variables.push_back(single.environment.front());
+    }
+}
+const LaunchOptions::Variable* variableIn(const std::vector<LaunchOptions::Variable>& list, std::string_view name) {
+    for (auto it = list.rbegin(); it != list.rend(); ++it) if (it->name == name) return &*it; // The last one wins, as in the environment.
+    return nullptr;
+}
+std::string variableId(std::string_view name) { return "env:" + std::string(name); }
+
+// A game's object (version 2): its overrides only.
+json::Value gameJson(const LaunchOptions& game, const std::set<std::string>& overrides) {
+    auto result = json::object();
+    for (const auto& option : catalog::options())
+        if (ownField(option) && overrides.contains(option.id)) result.properties.emplace(option.id, fieldJson(option, option.get(option, game)));
+    std::vector<LaunchOptions::Variable> own;
+    auto unset = json::array();
+    for (const auto& id : overrides) {
+        if (!id.starts_with("env:")) continue;
+        const auto name = std::string_view(id).substr(4);
+        if (const auto* variable = variableIn(game.environment, name)) own.push_back(*variable);
+        else unset.elements.push_back(json::string(std::string(name)));
+    }
+    // In the game's own order.
+    std::stable_sort(own.begin(), own.end(), [&](const auto& a, const auto& b) {
+        const auto index = [&](const std::string& name) {
+            for (size_t i = 0; i < game.environment.size(); ++i) if (game.environment[i].name == name) return i;
+            return game.environment.size();
+        };
+        return index(a.name) < index(b.name);
+    });
+    if (!own.empty()) result.properties.emplace("environment", variablesJson(own));
+    if (!unset.elements.empty()) result.properties.emplace("environment_unset", std::move(unset));
+    return result;
+}
+// A game's object back: its options and overrides, on top of `defaults`.
+std::pair<LaunchOptions, std::set<std::string>> gameFromJson(const json::Value& value, const LaunchOptions& defaults) {
+    LaunchOptions own;
+    std::set<std::string> overrides;
+    if (value.type == json::Value::Type::object) {
+        for (const auto& option : catalog::options()) {
+            if (option.variable) continue;
+            const auto* field = value.get(option.id);
+            if (!field) continue;
+            if (option.type == catalog::Type::environment) {
+                readVariables(option, *field, own.environment);
+                for (const auto& variable : own.environment) overrides.insert(variableId(variable.name));
+            } else if (readField(option, *field, own)) overrides.insert(option.id);
+        }
+        if (const auto* unset = value.get("environment_unset"); unset && unset->type == json::Value::Type::array)
+            for (const auto& name : unset->elements)
+                if (name.type == json::Value::Type::string && catalog::variableName(name.text) && overrides.size() < 512) overrides.insert(variableId(name.text));
+    }
+    return {inherit(defaults, own, overrides), std::move(overrides)};
+}
+}
+
 json::Value toJson(const LaunchOptions& options) {
     auto result = json::object();
     const LaunchOptions defaults;
-    for (const auto& option : launch_options_catalog::options()) {
+    for (const auto& option : catalog::options()) {
         if (option.variable) continue; // Kept in the environment list.
         const auto value = option.get(option, options);
         if (value == option.get(option, defaults)) continue;
-        switch (option.type) {
-        case launch_options_catalog::Type::toggle: result.properties.emplace(option.id, json::boolean(value == "1")); break;
-        case launch_options_catalog::Type::number: result.properties.emplace(option.id, json::number(std::stod(value))); break;
-        case launch_options_catalog::Type::environment: {
-            auto list = json::array();
-            for (const auto& variable : options.environment) {
-                auto entry = json::object();
-                entry.properties.emplace("name", json::string(variable.name));
-                entry.properties.emplace("value", json::string(variable.value));
-                list.elements.push_back(std::move(entry));
-            }
-            result.properties.emplace(option.id, std::move(list));
-            break;
-        }
-        default: result.properties.emplace(option.id, json::string(value)); break;
-        }
+        if (option.type == catalog::Type::environment) result.properties.emplace(option.id, variablesJson(options.environment));
+        else result.properties.emplace(option.id, fieldJson(option, value));
     }
     return result;
 }
@@ -121,44 +205,63 @@ json::Value toJson(const LaunchOptions& options) {
 LaunchOptions fromJson(const json::Value& value) {
     LaunchOptions result;
     if (value.type != json::Value::Type::object) return result;
-    for (const auto& option : launch_options_catalog::options()) {
+    for (const auto& option : catalog::options()) {
         if (option.variable) continue; // Read with the environment list.
         const auto* field = value.get(option.id);
         if (!field) continue;
-        switch (option.type) {
-        case launch_options_catalog::Type::toggle:
-            if (field->type == json::Value::Type::boolean) option.set(option, result, field->flag ? "1" : "0");
-            break;
-        case launch_options_catalog::Type::number:
-            if (field->type == json::Value::Type::number && field->numeric >= 0 && field->numeric <= 4294967295.0 && std::floor(field->numeric) == field->numeric)
-                option.set(option, result, std::to_string(static_cast<uint32_t>(field->numeric)));
-            break;
-        case launch_options_catalog::Type::environment:
-            if (field->type == json::Value::Type::array)
-                for (const auto& entry : field->elements) {
-                    const auto name = entry.get("name") ? entry.get("name")->stringOr() : std::string{};
-                    const auto text = entry.get("value") ? entry.get("value")->stringOr() : std::string{};
-                    // Each entry on its own: an invalid one is skipped, not the whole list.
-                    LaunchOptions single;
-                    if (result.environment.size() < 64 && option.set(option, single, name + "=" + text) && single.environment.size() == 1)
-                        result.environment.push_back(single.environment.front());
-                }
-            break;
-        default:
-            if (field->type == json::Value::Type::string) option.set(option, result, field->text);
-            break;
-        }
+        if (option.type == catalog::Type::environment) readVariables(option, *field, result.environment);
+        else readField(option, *field, result);
     }
+    return result;
+}
+
+LaunchOptions forGame(const LaunchOptions& defaults) {
+    auto result = defaults;
+    result.compat_tool = "default";
+    result.prefix.clear();
+    return result;
+}
+
+std::set<std::string> differences(const LaunchOptions& a, const LaunchOptions& b) {
+    std::set<std::string> result;
+    for (const auto& option : catalog::options())
+        if (ownField(option) && option.get(option, a) != option.get(option, b)) result.insert(option.id);
+    for (const auto* list : {&a.environment, &b.environment})
+        for (const auto& variable : *list) {
+            const auto* left = variableIn(a.environment, variable.name);
+            const auto* right = variableIn(b.environment, variable.name);
+            if (!left || !right || left->value != right->value) result.insert(variableId(variable.name));
+        }
+    return result;
+}
+
+LaunchOptions inherit(const LaunchOptions& defaults, const LaunchOptions& game, const std::set<std::string>& overrides) {
+    auto result = forGame(defaults);
+    for (const auto& option : catalog::options())
+        if (ownField(option) && overrides.contains(option.id)) option.set(option, result, option.get(option, game));
+    std::vector<LaunchOptions::Variable> environment;
+    std::set<std::string> done;
+    for (const auto& variable : defaults.environment) {
+        if (!done.insert(variable.name).second) continue;
+        if (!overrides.contains(variableId(variable.name))) environment.push_back(*variableIn(defaults.environment, variable.name));
+        else if (const auto* own = variableIn(game.environment, variable.name)) environment.push_back(*own);
+    }
+    for (const auto& variable : game.environment)
+        if (overrides.contains(variableId(variable.name)) && done.insert(variable.name).second) environment.push_back(*variableIn(game.environment, variable.name));
+    result.environment = std::move(environment);
     return result;
 }
 
 std::string serialize(const Document& document) {
     auto root = json::object();
-    root.properties.emplace("version", json::number(1));
+    root.properties.emplace("version", json::number(2));
     if (!document.prefix_root.empty()) root.properties.emplace("prefix_root", json::string(utf8(document.prefix_root)));
     root.properties.emplace("default", toJson(document.defaults));
     auto games = json::object();
-    for (const auto& [key, options] : document.games) games.properties.emplace(key, toJson(options));
+    for (const auto& [key, options] : document.games) {
+        const auto found = document.overrides.find(key);
+        games.properties.emplace(key, gameJson(options, found != document.overrides.end() ? found->second : differences(options, forGame(document.defaults))));
+    }
     root.properties.emplace("games", std::move(games));
     auto prefixes = json::object();
     for (const auto& [key, path] : document.prefixes) prefixes.properties.emplace(key, json::string(utf8(path)));
@@ -180,13 +283,26 @@ std::optional<Document> parse(std::string_view text) {
     const auto root = json::parse(text, max_document);
     if (!root || root->type != json::Value::Type::object) return std::nullopt;
     const auto* version = root->get("version");
-    if (!version || version->type != json::Value::Type::number || version->numeric != 1) return std::nullopt;
+    if (!version || version->type != json::Value::Type::number || (version->numeric != 1 && version->numeric != 2)) return std::nullopt;
+    const bool copies = version->numeric == 1; // Each game a full copy of its options.
     Document result;
     result.prefix_root = absolutePath(root->get("prefix_root"));
     if (const auto* defaults = root->get("default")) result.defaults = fromJson(*defaults);
     if (const auto* games = root->get("games"); games && games->type == json::Value::Type::object)
-        for (const auto& [key, options] : games->properties)
-            if (validKey(key) && options.type == json::Value::Type::object && result.games.size() < max_games) result.games.emplace(key, fromJson(options));
+        for (const auto& [key, options] : games->properties) {
+            if (!validKey(key) || options.type != json::Value::Type::object || result.games.size() >= max_games) continue;
+            if (copies) {
+                // What differs from the default becomes the game's override.
+                const auto copy = fromJson(options);
+                auto overrides = differences(copy, forGame(result.defaults));
+                result.games.emplace(key, inherit(result.defaults, copy, overrides));
+                result.overrides.emplace(key, std::move(overrides));
+            } else {
+                auto [game, overrides] = gameFromJson(options, result.defaults);
+                result.games.emplace(key, std::move(game));
+                result.overrides.emplace(key, std::move(overrides));
+            }
+        }
     if (const auto* prefixes = root->get("prefixes"); prefixes && prefixes->type == json::Value::Type::object)
         for (const auto& [key, path] : prefixes->properties)
             if (const auto prefix = absolutePath(&path); validKey(key) && !prefix.empty() && result.prefixes.size() < max_games) result.prefixes.emplace(key, prefix);
@@ -254,12 +370,28 @@ bool save(const Document& document) {
     return saveUnlocked(document);
 }
 
+namespace {
+// The game's overrides; a game without a list overrides whatever differs from the default.
+std::set<std::string>& overridesOf(Document& document, const std::string& key) {
+    if (const auto found = document.overrides.find(key); found != document.overrides.end()) return found->second;
+    const auto game = document.games.find(key);
+    return document.overrides[key] = game != document.games.end() ? differences(game->second, forGame(document.defaults)) : std::set<std::string>{};
+}
+// A new default: every game follows it, except in its overrides.
+void rebase(Document& document, const LaunchOptions& defaults) {
+    for (const auto& entry : document.games) overridesOf(document, entry.first);
+    document.defaults = defaults;
+    for (auto& [key, game] : document.games) game = inherit(document.defaults, game, document.overrides[key]);
+}
+}
+
 LaunchOptions defaults() { return load().defaults; }
 bool setDefaults(const LaunchOptions& options) {
     std::lock_guard guard(lock());
     auto document = loadUnlocked();
-    document.defaults = options;
-    document.defaults.prefix.clear(); // The default has no prefix of its own: each game gets one.
+    auto defaults = options;
+    defaults.prefix.clear(); // The default has no prefix of its own: each game gets one.
+    rebase(document, defaults);
     return saveUnlocked(document);
 }
 std::string defaultTool() {
@@ -286,13 +418,42 @@ bool setGameOptions(const std::string& key, const LaunchOptions& options) {
     if (!validKey(key)) return false;
     std::lock_guard guard(lock());
     auto document = loadUnlocked();
-    document.games[key] = options;
+    const auto found = document.games.find(key);
+    auto overrides = found != document.games.end() ? overridesOf(document, key) : std::set<std::string>{};
+    const auto previous = found != document.games.end() ? found->second : forGame(document.defaults);
+    for (const auto& id : differences(options, previous)) overrides.insert(id);
+    if (overrides.empty()) { // Nothing of its own: it follows the default.
+        if (found == document.games.end()) return true;
+        document.games.erase(key);
+        document.overrides.erase(key);
+    } else {
+        document.games[key] = inherit(document.defaults, options, overrides);
+        document.overrides[key] = std::move(overrides);
+    }
     return saveUnlocked(document);
 }
 bool resetGameOptions(const std::string& key) {
     std::lock_guard guard(lock());
     auto document = loadUnlocked();
+    document.overrides.erase(key);
     if (!document.games.erase(key)) return true;
+    return saveUnlocked(document);
+}
+std::set<std::string> gameOverrides(const std::string& key) {
+    auto document = load();
+    return document.games.contains(key) ? overridesOf(document, key) : std::set<std::string>{};
+}
+bool resetGameOption(const std::string& key, const std::string& id) {
+    std::lock_guard guard(lock());
+    auto document = loadUnlocked();
+    const auto found = document.games.find(key);
+    if (found == document.games.end()) return true;
+    auto& overrides = overridesOf(document, key);
+    if (!overrides.erase(id)) return true;
+    if (overrides.empty()) {
+        document.games.erase(found);
+        document.overrides.erase(key);
+    } else found->second = inherit(document.defaults, found->second, overrides);
     return saveUnlocked(document);
 }
 
@@ -455,7 +616,11 @@ bool forgetPrefix(const std::filesystem::path& prefix) {
     bool changed = document.prefix_info.erase(normal) > 0;
     changed |= std::erase_if(document.prefixes, [&](const auto& entry) { return entry.second.lexically_normal() == normal; }) > 0;
     for (auto& [key, options] : document.games)
-        if (!options.prefix.empty() && options.prefix.lexically_normal() == normal) { options.prefix.clear(); changed = true; }
+        if (!options.prefix.empty() && options.prefix.lexically_normal() == normal) {
+            overridesOf(document, key).erase("prefix"); // Back to its own prefix, as the default.
+            options.prefix.clear();
+            changed = true;
+        }
     return !changed || saveUnlocked(document);
 }
 

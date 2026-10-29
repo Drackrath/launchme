@@ -586,6 +586,22 @@ void Launcher::settingsChoose(const Row& row) {
     settingsChanged(relabel);
 }
 
+// A row's badge button (Row::reset): its value back to the default (a game's option, compat_settings.cpp).
+bool Launcher::settingsResetRow(const Row& row) {
+    if (row.reset.empty()) return false;
+#ifndef _WIN32
+    return compatResetOption(row);
+#else
+    return false;
+#endif
+}
+// Delete and the pad's X on the focused row.
+bool Launcher::settingsResetFocused() {
+    if (!settingsOpen() || !settings_state_.options || settings_state_.editing || editingSecret() || settings_rows_.empty()) return false;
+    const auto row = settings_rows_[static_cast<size_t>(settings_state_.row())];
+    return settingsResetRow(row);
+}
+
 // A switch (or a collection's visibility). Most rebuild the shelves; visual-only switches and
 // those read later just save and repaint. Unknown rows do nothing.
 void Launcher::settingsToggle(const Row& row) {
@@ -780,10 +796,22 @@ void Launcher::settingsClick(float x, float y) {
     }
     const int index = layout.hitRow(x, y, static_cast<int>(settings_rows_.size()), settings_state_.offset());
     if (index < 0) return;
+    const bool revealing = settings_rows_[index].dense && !(settings_state_.options && settings_state_.row() == index);
     settings_state_.options = true;
     settings_state_.editing = false;
     settings_state_.selected[settings_state_.category] = index;
     const auto& row = settings_rows_[index];
+    // A badge button: back to the default. A dense row: its description first, then its control.
+    if (!row.reset.empty() && !row.badge.empty() && layout.badge(index, settings_state_.offset(), row.control).contains(x, y)) {
+        settingsResetRow(row);
+        return;
+    }
+    if (revealing) {
+        settings_state_.scroll[settings_state_.category] = Layout::of(view.width, view.height, settings_state_, settings_rows_)
+            .ensureVisible(index, static_cast<int>(settings_rows_.size()), settings_state_.offset());
+        audio_.navigate(); InvalidateRect(hwnd_, nullptr, FALSE);
+        return;
+    }
     if (row.control == Control::platform) {
         settings_state_.editing = (hasOptionsButton(row.id) ? layout.pluginCog(index, settings_state_.offset()) : layout.connect(index, settings_state_.offset())).contains(x, y);
         settingsActivate();

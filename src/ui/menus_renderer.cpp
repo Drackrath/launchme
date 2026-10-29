@@ -133,6 +133,7 @@ void Renderer::drawContextMenu() {
     rows.remove = context_->menu_remove;
     rows.launch = context_->menu_launch;
     rows.compat = context_->menu_compat;
+    rows.shortcuts = context_->menu_shortcuts;
     rows.metadata = context_->menu_metadata;
     rows.aurelia = context_->menu_aurelia;
     rows.steam_account = !context_->menu_steam_account.empty();
