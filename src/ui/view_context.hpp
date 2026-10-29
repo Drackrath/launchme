@@ -326,6 +326,7 @@ struct ViewContext {
     bool menu_hide = false, menu_hidden = false; // Details options: "Ukryj" / "Pokaż".
     bool menu_remove = false, menu_edit_game = false; // "Usuń z biblioteki" (red, last) / "Opcje uruchamiania" read "Edytuj grę".
     bool menu_uninstall = false, menu_launch = false; // "Odinstaluj" (red, last) / Details' "Opcje uruchamiania".
+    bool menu_compat = false; // Details' "Proton / Wine" (Linux).
     bool menu_metadata = false; // Details' "Edytuj metadane".
     bool menu_aurelia = false;
     std::wstring menu_steam_account; // Details' "…": the account a Steam game starts from; empty: no choice.

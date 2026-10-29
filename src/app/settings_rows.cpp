@@ -48,11 +48,34 @@ std::wstring Launcher::settingsPageTitle() const {
     case Page::companion_model: return tr(L"Model AI");
     case Page::companion_voice: return tr(L"Głos (ElevenLabs)");
     case Page::companion_remote: return tr(L"Dostęp z telefonu");
+    case Page::compat: return tr(L"Proton i Wine");
+    case Page::compat_source: {
+#ifndef _WIN32
+        if (const auto* source = compat_tools::findSource(frame->key)) return source->name;
+#endif
+        return tr(L"Pobierz");
+    }
+    case Page::prefixes: return tr(L"Prefiksy");
+    case Page::prefix: {
+#ifndef _WIN32
+        const auto path = std::filesystem::path(text_encoding::wideLenient(frame->key)).lexically_normal();
+        for (const auto& entry : compat_.prefixes) if (entry.path == path) return compatPrefixName(entry);
+        return path.filename().wstring();
+#else
+        return tr(L"Prefiks");
+#endif
+    }
+    case Page::launch_options:
+#ifndef _WIN32
+        if (!frame->key.empty()) return L"Proton / Wine: " + compat_.game.name;
+#endif
+        return tr(L"Domyślne opcje uruchamiania");
     }
     return {};
 }
 
 void Launcher::buildSettingsRows() {
+    if (settings_state_.pages.empty()) settings_page_exits_ = false; // Left for a category: Back is Settings' own again.
     // Rows of one kind (DRM-free folders and games, collections) are told apart by their key.
     std::optional<RowRef> selected_row;
     const auto page = settingsPage();
@@ -263,6 +286,9 @@ void Launcher::buildSettingsRows() {
         break;
     }
     case settings_ui::Category::library:
+#ifndef _WIN32
+        if (compatSettingsPage()) { compatSettingsRows(); break; } // Proton i Wine, its pages, a game's options.
+#endif
         if (settings_state_.platform()) { pcSettingsRows(); break; } // A platform's page (DRM-free: its folders and games).
         if (settings_state_.at(Page::custom_games)) {
             // "Gry dodane ręcznie" page: adding first, then each game with its editor (which also removes it).
@@ -347,6 +373,12 @@ void Launcher::buildSettingsRows() {
         add({Id::hide_while_playing, Control::toggle, tr(L"Chowaj do zasobnika podczas gry"),
             tr(L"Gdy gra działa, launcher znika z paska zadań i Alt+Tab, a jego ikona czeka w zasobniku. Wraca po zamknięciu gry."),
             {}, settings_.hide_while_playing});
+#ifndef _WIN32
+        // Windows games on Linux: the tools, their downloads, the prefixes and the default options.
+        pageRow(Page::compat, tr(L"Proton i Wine"), tr(L"Wersje Protona i Wine, prefiksy i domyślne opcje gier Windows."),
+                compat_.tools_loaded ? compatToolName(launch_options_store::defaultTool()) : std::wstring{});
+        if (!compat_.tools_loaded) compatLoadTools();
+#endif
         break;
     case settings_ui::Category::media: {
         if (settings_state_.at(Page::screenscraper)) {

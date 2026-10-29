@@ -132,6 +132,7 @@ void Renderer::drawContextMenu() {
     rows.uninstall = context_->menu_uninstall;
     rows.remove = context_->menu_remove;
     rows.launch = context_->menu_launch;
+    rows.compat = context_->menu_compat;
     rows.metadata = context_->menu_metadata;
     rows.aurelia = context_->menu_aurelia;
     rows.steam_account = !context_->menu_steam_account.empty();
@@ -174,6 +175,7 @@ void Renderer::drawContextMenu() {
         case context_menu::Item::metadata: return tr(L"Edytuj metadane");
         case context_menu::Item::aurelia: return tr(L"Zarządzaj · Aurelia");
         case context_menu::Item::steam_account: return account_label.c_str();
+        case context_menu::Item::compat: return L"Proton / Wine";
         }
         return L"";
     };

@@ -72,7 +72,18 @@ enum class Id { font, home_layout, ui_accent, accent, uninstalled, emulation, co
                    // Biblioteka → Xbox: the Xodus-based helper, sync, sign-out and Instalacja przez Launchme.
                    xbox_helper, xbox_refresh, xbox_logout, xbox_own_install,
                    // Biblioteka → Gry dodane ręcznie: find and download their missing covers.
-                   custom_covers };
+                   custom_covers,
+                   // Linux: Biblioteka → Proton i Wine (src/app/compat_settings.cpp): the default tool, the
+                   // installed tools and components, umu-launcher, downloads, the prefixes folder.
+                   compat_default_tool, compat_defaults, compat_prefixes, compat_prefix_root, compat_umu, compat_tool,
+                   compat_source, compat_release, compat_steam_target, compat_source_refresh, compat_status,
+                   // The prefix manager and one prefix's page (Row::key: its path, UTF-8).
+                   prefix_new, prefix_entry, prefix_name, prefix_tool, prefix_folder, prefix_size, prefix_games, prefix_create,
+                   prefix_program, prefix_winetricks, prefix_run, prefix_kill, prefix_delete,
+                   // A game's (or the default) Wine/Proton options: the accordion's sections (Control::fold,
+                   // Row::key the section's id), an option (Row::key its catalog id), WINEDLLOVERRIDES
+                   // presets (Row::key their DLLs), environment variables (Row::key the index).
+                   launch_scope, launch_fold, launch_option, launch_dll, launch_env, launch_env_add, launch_env_preset, launch_edit_game };
 inline bool hasOptionsButton(Id id) { return id == Id::plugin_enabled || id == Id::pc_platform; }
 // layout: drawn preview tiles in the row (one per home layout); Row::choice is the active one.
 // count: Row::value as a large number with a chevron; activating opens a sub-list.
@@ -80,14 +91,19 @@ inline bool hasOptionsButton(Id id) { return id == Id::plugin_enabled || id == I
 // pads: a gallery of controller tiles with their pictures, the last one pairs a new pad.
 // avatar: two animated previews of the companion's looks; Row::choice is the active one.
 // page: a tile opening its page of settings (Row::page): Row::value as a short summary and a chevron.
-enum class Control { choice, toggle, collection, slider, secret, platform, action, layout, text, count, sources, pads, avatar, page };
+// fold: an accordion section's heading: Row::checked open (the rows after it, Row::indent 1, are its
+// contents), Row::value a short summary; activating opens or closes it.
+enum class Control { choice, toggle, collection, slider, secret, platform, action, layout, text, count, sources, pads, avatar, page, fold };
 // Drill-down pages: a row opens a page whose rows replace its category's list; Back returns to the
 // row it was opened from. Pages nest (a DRM-free catalogue → its found games).
 enum class Page {
     plugin, platform, drm_games, screenscraper, custom_games, collections,
     // Settings grouped behind one tile (Control::page).
     layout_options, cover_focus, backdrop, videos, service_keys, sounds, screensaver,
-    companion_model, companion_voice, companion_remote
+    companion_model, companion_voice, companion_remote,
+    // Linux: Proton i Wine; one download source's releases (key: its id); the prefix manager; one
+    // prefix (key: its path); Wine/Proton options of a game (key: its game key) or the default (key empty).
+    compat, compat_source, prefixes, prefix, launch_options
 };
 // A row drawn as tiles, with State::tile picking one of them.
 inline bool tiled(Control control) { return control == Control::sources || control == Control::pads; }
@@ -237,6 +253,8 @@ struct Row {
     Page page = Page::plugin; // Control::page: the page it opens.
     // More than two: the description wraps to this many lines and the row grows to fit them.
     int lines = 0;
+    // Nested under an open Control::fold heading: drawn inset by this many steps.
+    int indent = 0;
     // The list a picker shows for this row: its choices, or those of the focused source tile.
     const std::vector<Choice>& pickList(int tile) const {
         if (control == Control::sources && !tiles.empty()) return tiles[std::clamp(tile, 0, static_cast<int>(tiles.size()) - 1)].choices;
@@ -518,7 +536,7 @@ struct Layout {
         case Control::platform: return right - 440;   // State label, switch, then the connect button.
         case Control::layout: case Control::avatar: return contentLeft() + 24;
         case Control::count: return right - 220;      // The number, then a chevron.
-        case Control::page: return right - 300;       // A short summary, then a chevron.
+        case Control::page: case Control::fold: return right - 300; // A short summary, then a chevron.
         default: return right - 324;
         }
     }

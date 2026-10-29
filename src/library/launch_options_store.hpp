@@ -20,11 +20,19 @@
 #include <vector>
 
 namespace launch_options_store {
+// A prefix the manager (Ustawienia → Proton i Wine → Prefiksy) knows by name, with the tool its
+// games run with when their own choice is "default" (a game's own tool > its prefix's > the global).
+struct PrefixInfo {
+    std::wstring name;                   // Empty: the game's title or the folder's name.
+    std::string compat_tool = "default"; // compat_tools::Tool::id, or "default".
+    bool operator==(const PrefixInfo&) const = default;
+};
 struct Document {
     LaunchOptions defaults;
     std::map<std::string, LaunchOptions> games;
     std::map<std::string, std::filesystem::path> prefixes;
     std::filesystem::path prefix_root; // Empty: defaultPrefixRoot().
+    std::map<std::filesystem::path, PrefixInfo> prefix_info; // Absolute, normal paths.
     bool operator==(const Document&) const = default;
 };
 
@@ -69,6 +77,30 @@ std::filesystem::path gamePrefix(const Game& game);
 std::vector<std::string> gamesUsingTool(const std::string& tool_id);
 // Keys of games whose prefix is `prefix` (shared prefixes; the warning before deleting one).
 std::vector<std::string> gamesUsingPrefix(const std::filesystem::path& prefix);
+
+// The prefix manager. Every prefix Launchme knows: named ones, each game's (assigned or chosen), the
+// shared <root>/default, and folders left in the root (a game that went away); named first, then by
+// path. `games`: the keys of games that use it.
+struct PrefixEntry {
+    std::filesystem::path path;
+    PrefixInfo info;
+    std::vector<std::string> games;
+    bool named = false;   // In the manager's list (made or renamed there).
+    bool shared = false;  // <root>/default.
+};
+std::vector<PrefixEntry> prefixes();
+PrefixInfo prefixInfo(const std::filesystem::path& prefix); // Defaults when not named.
+// Names (or renames) a prefix and sets its tool; `prefix` absolute.
+bool setPrefixInfo(const std::filesystem::path& prefix, const PrefixInfo& info);
+// A new named prefix folder <root>/<slug(name)> (-2, -3… when taken), empty on failure. The folder
+// is made; Wine fills it at the first launch or "Utwórz prefiks".
+std::filesystem::path newPrefix(const std::wstring& name, const std::string& compat_tool);
+// Forgets a prefix (after deleting it): its name, and games that named it or had it assigned get a
+// new one at their next launch.
+bool forgetPrefix(const std::filesystem::path& prefix);
+// The tool a game's launch uses: its own choice, else its prefix's, else the global one ("default":
+// automatic). `key` empty: programs without a game.
+std::string effectiveTool(const std::string& key, const std::filesystem::path& prefix);
 
 // What GameAction::compat carries for a game's Windows program (src/platform/wine_runner.hpp):
 // its identity for umu (STORE, store ID, Steam app ID), its install folder, its effective options

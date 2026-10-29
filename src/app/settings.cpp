@@ -33,6 +33,7 @@ void Launcher::openSettings() {
     desktopLeaveLibrary(); rememberPlace();
     screen_ = ScreenMode::settings;
     color_editor_ = {};
+    settings_page_exits_ = false;
     settings_state_.closeAll();
     settings_state_.options = settings_state_.editing = settings_state_.back_focused = false;
     settings_motion_.valid = false;
@@ -301,6 +302,9 @@ void Launcher::settingsActivate() {
     }
     if (settings_rows_.empty()) return;
     const auto row = settings_rows_[settings_state_.row()];
+#ifndef _WIN32
+    if (compatSettingsActivate(row)) return; // Proton i Wine and its pages (compat_settings.cpp).
+#endif
     if (row.id == Id::aurelia) { toggleAurelia(); return; }
     if (row.id == Id::aurelia_open) { openAurelia(); return; }
     if (row.id == Id::aurelia_cloud || row.id == Id::aurelia_default) { // Steam's page: what Aurelia does.

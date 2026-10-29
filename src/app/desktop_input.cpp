@@ -1164,6 +1164,7 @@ void Launcher::desktopOpenGameMenu(float x, float y, bool keyboard) {
         if (steamAccountChoices(game).size() > 1) items.push_back({Action::steam_account, tr(L"Konto Steam: ") + steamAccountLabel(game), {}, glyph::people});
         if (launchEditable(game)) // A game added by hand: the file, name and options are its own editor.
             items.push_back({Action::launch_options, game.source == GameSource::custom ? tr(L"Edytuj grę…") : tr(L"Opcje uruchamiania…"), {}, glyph::settings});
+        if (compatGame(game) && !gameKey(game).empty()) items.push_back({Action::compat_options, L"Proton / Wine…", {}, glyph::settings});
         if (!gameFolder(game).empty()) items.push_back({Action::folder, tr(L"Otwórz folder gry"), {}, glyph::folder_open});
         const auto plugins = pluginContext(game);
         if (!plugins.empty()) separator();
@@ -1408,6 +1409,7 @@ void Launcher::desktopMenuPick(const desktop_ui::MenuItem& item, bool /*from_sub
     case Action::aurelia: if (game) openAurelia(game); return;
     case Action::steam_account: if (game) cycleSteamAccount(*game); return;
     case Action::launch_options: if (game) openLaunchEditor(*game); return;
+    case Action::compat_options: if (game) openGameCompatSettings(*game); return;
     case Action::folder:
         if (game) if (const auto folder = gameFolder(*game); !folder.empty())
             if (execute_(hwnd_, GameAction{folder.wstring(), {}, {}, ActionKind::open_client}) <= 32)

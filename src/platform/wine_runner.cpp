@@ -131,6 +131,13 @@ Environment switches(const Options& o, Runner runner, const Context& context, co
         else plan.missing.push_back("battleye-runtime");
     }
     if (!o.locale.empty()) add(env, proton ? "HOST_LC_ALL" : "LC_ALL", o.locale);
+    if (proton && o.disable_hidraw) add(env, "PROTON_DISABLE_HIDRAW", "1");
+    if (proton && o.prefer_sdl) add(env, "PROTON_PREFER_SDL", "1");
+    if (o.pulse_latency) add(env, "PULSE_LATENCY_MSEC", "60");
+    if (o.old_gl_string) {
+        if (proton) add(env, "PROTON_OLD_GL_STRING", "1");
+        else { add(env, "MESA_EXTENSION_MAX_YEAR", "2003"); add(env, "__GL_ExtensionStringVersion", "17700"); }
+    }
     if (o.log) {
         if (proton) {
             add(env, "PROTON_LOG", "1");

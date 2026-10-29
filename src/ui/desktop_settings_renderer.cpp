@@ -206,7 +206,7 @@ void Renderer::drawDesktopSettings() {
     const bool picking = state.editing && !rows.empty() && state.row() < static_cast<int>(rows.size()) && rows[static_cast<size_t>(state.row())].picker();
     for (int i = 0; i < static_cast<int>(rows.size()) && i < L.count(); ++i) {
         const auto& item = rows[static_cast<size_t>(i)];
-        const auto r = L.row(i, s);
+        auto r = L.row(i, s);
         if (r.bottom < top - 40 || r.top > bottom) continue;
         if (!L.labels[static_cast<size_t>(i)].empty())
             textLine(upper(L.labels[static_cast<size_t>(i)]), r.left + 2, r.top - 15, right - left, desktop_label_font_.Get(), gray(0.52f));
@@ -214,8 +214,14 @@ void Renderer::drawDesktopSettings() {
         const bool hover_row = view.hover.index == i && view.hover.kind != Kind::nav && view.hover.kind != Kind::none;
         const auto hovered = [&](Kind kind, int sub = -1) { return view.hover == SheetHit{kind, i, sub} ? 1.0f : 0.0f; };
         const bool tall = settings_sheet::tall(item.control);
-        desktopFill(r, 10, gray(1, hover_row && !tall ? 0.05f : 0.03f));
-        desktopStroke(r, 10, gray(1, 0.045f));
+        // An open accordion section's rows sit inset under its heading, joined by a thin line.
+        if (item.indent > 0) {
+            desktopFill({r.left + 9, r.top - settings_sheet::row_gap, r.left + 11, r.bottom}, 1, gray(1, 0.07f));
+            r.left += 24.0f * static_cast<float>(item.indent);
+        }
+        const bool fold = item.control == Control::fold;
+        desktopFill(r, 10, gray(1, fold ? (hover_row ? 0.085f : 0.06f) : hover_row && !tall ? 0.05f : 0.03f));
+        desktopStroke(r, 10, gray(1, fold ? 0.07f : 0.045f));
         if (selected && view.keyboard && !picking && item.control != Control::avatar) desktopFocusRing(r, 10);
         if (selected && state.editing && item.control == Control::slider) desktopStroke(r, 10, uiAccent(0.8f), 1.5f);
         const float text_left = r.left + 16;
@@ -225,7 +231,7 @@ void Renderer::drawDesktopSettings() {
         switch (item.control) {
         case Control::choice: case Control::secret: case Control::text: controls_left = L.field(i, s).left; break;
         case Control::action: case Control::count: controls_left = L.action(i, s).left; break;
-        case Control::page: controls_left = L.action(i, s).left - 60; break;
+        case Control::page: case Control::fold: controls_left = L.action(i, s).left - 60; break;
         case Control::slider: controls_left = L.track(i, s).left - 16; break;
         case Control::toggle: case Control::collection: case Control::platform: controls_left = L.toggleRight(item) - 40; break;
         default: break;
@@ -291,6 +297,7 @@ void Renderer::drawDesktopSettings() {
             break;
         }
         case Control::action: {
+            if (item.locked && item.value.empty()) break; // Information only (a status line): no button.
             const auto a = L.action(i, s);
             desktopButton(a, 1, std::max(hovered(Kind::action), hover_row ? 0.4f : 0.0f), view.pressed.index == i, !item.locked, 0,
                           item.value.empty() ? std::wstring(tr(L"Otwórz")) : item.value);
@@ -308,6 +315,14 @@ void Renderer::drawDesktopSettings() {
             const auto a = L.action(i, s);
             desktopGlyph(glyph::chevron_right, a.right - 8, cy, 10, hover_row ? palette::text() : gray(0.6f));
             textLine(item.value, a.left - 60, cy, a.right - a.left + 60 - 24, desktop_font_.Get(), gray(0.78f), DWRITE_TEXT_ALIGNMENT_TRAILING);
+            break;
+        }
+        case Control::fold: {
+            // An accordion heading: its summary, then a chevron pointing down while it is open.
+            const auto a = L.action(i, s);
+            desktopGlyph(glyph::chevron_down, a.right - 8, cy + 1, 9, hover_row ? palette::text() : gray(0.7f), item.checked ? 0.0f : -90.0f);
+            textLine(item.value, a.left - 60, cy, a.right - a.left + 60 - 24, desktop_font_.Get(), item.value.empty() ? gray(0.6f) : uiAccent(0.95f),
+                     DWRITE_TEXT_ALIGNMENT_TRAILING);
             break;
         }
         case Control::slider: {

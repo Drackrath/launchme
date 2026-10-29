@@ -59,6 +59,12 @@ struct LaunchOptions {
     bool battleye_runtime = false;    // Proton: PROTON_BATTLEYE_RUNTIME=<Steam's "Proton BattlEye Runtime">.
     std::string dll_overrides;        // WINEDLLOVERRIDES ("dinput8=n,b;xinput1_3=n"), after Launchme's own.
     std::string locale;               // Proton: HOST_LC_ALL. Wine: LC_ALL ("ja_JP.UTF-8").
+    bool disable_hidraw = false;      // Proton: PROTON_DISABLE_HIDRAW=1 (pads through SDL/evdev instead of raw HID).
+    bool prefer_sdl = false;          // Proton: PROTON_PREFER_SDL=1 (GE: pads through SDL, not Steam Input's hidraw).
+    bool pulse_latency = false;       // PULSE_LATENCY_MSEC=60: crackling sound in some games.
+    // Old games that crash on a long OpenGL extension list. Proton: PROTON_OLD_GL_STRING=1.
+    // Wine: MESA_EXTENSION_MAX_YEAR=2003 __GL_ExtensionStringVersion=17700.
+    bool old_gl_string = false;
     // Proton: PROTON_LOG=1 PROTON_LOG_DIR=<config>/logs/wine/<slug> (+ UMU_LOG=1). Wine: WINEDEBUG left
     // at Wine's default and DXVK's logs beside it; off: WINEDEBUG=-all DXVK_LOG_LEVEL=none.
     bool log = false;

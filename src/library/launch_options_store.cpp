@@ -78,6 +78,17 @@ LaunchOptions resolvedOptions(const Document& document, const std::string& key) 
         options.compat_tool = document.defaults.compat_tool.empty() ? std::string("default") : document.defaults.compat_tool;
     return options;
 }
+
+bool chosen(const std::string& tool) { return !tool.empty() && tool != "default"; }
+
+// The game's own tool, else its prefix's, else the global choice.
+std::string toolOf(const Document& document, const std::string& key, const std::filesystem::path& prefix) {
+    if (const auto found = document.games.find(key); !key.empty() && found != document.games.end() && chosen(found->second.compat_tool))
+        return found->second.compat_tool;
+    if (const auto info = document.prefix_info.find(prefix.lexically_normal()); info != document.prefix_info.end() && chosen(info->second.compat_tool))
+        return info->second.compat_tool;
+    return chosen(document.defaults.compat_tool) ? document.defaults.compat_tool : std::string("default");
+}
 }
 
 json::Value toJson(const LaunchOptions& options) {
@@ -150,6 +161,16 @@ std::string serialize(const Document& document) {
     auto prefixes = json::object();
     for (const auto& [key, path] : document.prefixes) prefixes.properties.emplace(key, json::string(utf8(path)));
     root.properties.emplace("prefixes", std::move(prefixes));
+    if (!document.prefix_info.empty()) {
+        auto named = json::object();
+        for (const auto& [path, info] : document.prefix_info) {
+            auto entry = json::object();
+            if (!info.name.empty()) entry.properties.emplace("name", json::string(text_encoding::utf8Lenient(info.name)));
+            if (chosen(info.compat_tool)) entry.properties.emplace("compat_tool", json::string(info.compat_tool));
+            named.properties.emplace(utf8(path), std::move(entry));
+        }
+        root.properties.emplace("prefix_info", std::move(named));
+    }
     return json::serialize(root) + "\n";
 }
 
@@ -167,6 +188,18 @@ std::optional<Document> parse(std::string_view text) {
     if (const auto* prefixes = root->get("prefixes"); prefixes && prefixes->type == json::Value::Type::object)
         for (const auto& [key, path] : prefixes->properties)
             if (const auto prefix = absolutePath(&path); validKey(key) && !prefix.empty() && result.prefixes.size() < max_games) result.prefixes.emplace(key, prefix);
+    if (const auto* named = root->get("prefix_info"); named && named->type == json::Value::Type::object)
+        for (const auto& [path, entry] : named->properties) {
+            const auto key = json::string(path);
+            const auto prefix = absolutePath(&key);
+            if (prefix.empty() || entry.type != json::Value::Type::object || result.prefix_info.size() >= max_games) continue;
+            PrefixInfo info;
+            if (const auto* name = entry.get("name"); name && name->type == json::Value::Type::string && name->text.size() <= 512)
+                info.name = text_encoding::wideLenient(name->text);
+            if (const auto* tool = entry.get("compat_tool"); tool && tool->type == json::Value::Type::string && !tool->text.empty() && tool->text.size() <= 512)
+                info.compat_tool = tool->text;
+            result.prefix_info.emplace(prefix, std::move(info));
+        }
     return result;
 }
 
@@ -330,6 +363,7 @@ std::shared_ptr<const CompatLaunch> compatLaunch(const Game& game) {
         result->prefix = assign(document, game, result->game_key, changed);
         if (changed) saveUnlocked(document);
     }
+    result->options.compat_tool = toolOf(document, result->game_key, result->prefix);
     return result;
 }
 
@@ -338,6 +372,90 @@ CompatLaunch defaultCompatLaunch() {
     const auto document = load();
     result.options = resolvedOptions(document, {});
     result.prefix = result.options.prefix.empty() ? rootOf(document) / L"default" : result.options.prefix;
+    result.options.compat_tool = toolOf(document, {}, result.prefix);
     return result;
 }
+
+std::vector<PrefixEntry> prefixes() {
+    const auto document = load();
+    const auto root = rootOf(document);
+    std::map<std::filesystem::path, PrefixEntry> found;
+    const auto entry = [&](const std::filesystem::path& path) -> PrefixEntry& {
+        const auto normal = path.lexically_normal();
+        auto& item = found[normal];
+        item.path = normal;
+        return item;
+    };
+    for (const auto& [path, info] : document.prefix_info) { auto& item = entry(path); item.info = info; item.named = true; }
+    for (const auto& [key, path] : document.prefixes) {
+        const auto own = document.games.find(key);
+        if (own != document.games.end() && !own->second.prefix.empty()) continue; // The game names another one.
+        entry(path).games.push_back(key);
+    }
+    for (const auto& [key, options] : document.games)
+        if (!options.prefix.empty()) entry(options.prefix).games.push_back(key);
+    entry(root / L"default").shared = true;
+    // Folders left in the root by games that went away (or made outside Launchme).
+    std::error_code ec;
+    for (std::filesystem::directory_iterator it(root, std::filesystem::directory_options::skip_permission_denied, ec), end; !ec && it != end; it.increment(ec)) {
+        std::error_code type;
+        if (it->is_directory(type) && !it->is_symlink(type)) entry(it->path());
+    }
+    std::vector<PrefixEntry> result;
+    for (auto& [path, item] : found) result.push_back(std::move(item));
+    std::stable_sort(result.begin(), result.end(), [](const PrefixEntry& a, const PrefixEntry& b) {
+        if (a.named != b.named) return a.named;
+        if (a.shared != b.shared) return a.shared;
+        return a.path < b.path;
+    });
+    return result;
+}
+
+PrefixInfo prefixInfo(const std::filesystem::path& prefix) {
+    const auto document = load();
+    const auto found = document.prefix_info.find(prefix.lexically_normal());
+    return found == document.prefix_info.end() ? PrefixInfo{} : found->second;
+}
+
+bool setPrefixInfo(const std::filesystem::path& prefix, const PrefixInfo& info) {
+    if (!prefix.is_absolute() || info.name.size() > 256) return false;
+    std::lock_guard guard(lock());
+    auto document = loadUnlocked();
+    auto stored = info;
+    if (!chosen(stored.compat_tool)) stored.compat_tool = "default";
+    document.prefix_info[prefix.lexically_normal()] = std::move(stored);
+    return saveUnlocked(document);
+}
+
+std::filesystem::path newPrefix(const std::wstring& name, const std::string& compat_tool) {
+    if (name.empty() || name.size() > 256) return {};
+    std::lock_guard guard(lock());
+    auto document = loadUnlocked();
+    const auto root = rootOf(document);
+    const auto base = slug(name, "prefix");
+    for (int attempt = 1; attempt < 1000; ++attempt) {
+        const auto candidate = (root / (attempt == 1 ? base : base + "-" + std::to_string(attempt))).lexically_normal();
+        std::error_code ec;
+        if ((attempt == 1 && base == "default") || document.prefix_info.contains(candidate) || takenByOther(document, candidate, {}) ||
+            std::filesystem::exists(candidate, ec)) continue;
+        if (!std::filesystem::create_directories(candidate, ec) || ec) return {};
+        document.prefix_info[candidate] = PrefixInfo{name, chosen(compat_tool) ? compat_tool : std::string("default")};
+        if (!saveUnlocked(document)) return {};
+        return candidate;
+    }
+    return {};
+}
+
+bool forgetPrefix(const std::filesystem::path& prefix) {
+    const auto normal = prefix.lexically_normal();
+    std::lock_guard guard(lock());
+    auto document = loadUnlocked();
+    bool changed = document.prefix_info.erase(normal) > 0;
+    changed |= std::erase_if(document.prefixes, [&](const auto& entry) { return entry.second.lexically_normal() == normal; }) > 0;
+    for (auto& [key, options] : document.games)
+        if (!options.prefix.empty() && options.prefix.lexically_normal() == normal) { options.prefix.clear(); changed = true; }
+    return !changed || saveUnlocked(document);
+}
+
+std::string effectiveTool(const std::string& key, const std::filesystem::path& prefix) { return toolOf(load(), key, prefix); }
 }

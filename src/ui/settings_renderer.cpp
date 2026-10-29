@@ -146,9 +146,15 @@ void Renderer::drawSettings() {
             textLine(rows[i].section, left + 4, y, right - left, friend_section_font_.Get(), gray(0.58f));
     }
     for (int i = 0; i < static_cast<int>(rows.size()); ++i) {
-        const auto r = layout.row(i, scroll);
+        auto r = layout.row(i, scroll);
         if (tiled(rows[i].control)) continue; // Its tiles are the cards.
-        if (r.bottom >= list_top && r.top < list_bottom) fill(r, gray(1, 0.034f), 16);
+        if (r.bottom < list_top || r.top >= list_bottom) continue;
+        // An open accordion section's rows sit inset under its heading, joined by a thin line.
+        if (rows[i].indent > 0) {
+            fill({r.left + 14, r.top - (Layout::row_step - (r.bottom - r.top)), r.left + 17, r.bottom}, gray(1, 0.08f), 1.5f);
+            r.left += 36.0f * static_cast<float>(rows[i].indent);
+        }
+        fill(r, gray(1, rows[i].control == Control::fold ? 0.07f : 0.034f), 16);
     }
     if (!rows.empty() && 1.0f - solid > 0.004f && !tiled(rows[state.row()].control)) {
         const float row_top = list_top + (row_motion ? motion->row : layout.rowOffset(state.row())) - scroll;
@@ -166,7 +172,7 @@ void Renderer::drawSettings() {
         const bool selected = state.options && state.row() == i;
         const bool hovered = context_->settings_hover_row == i;
         const bool control_focus = selected && (state.editing || item.control == Control::action);
-        float text_left = r.left + 24;
+        float text_left = r.left + 24 + 36.0f * static_cast<float>(item.indent);
         // Platforms: the store's mark in a fixed-width column, so every name starts at one line.
         if (item.control == Control::platform && item.id == Id::pc_platform) {
             desktopBrand(brand_icons::sourceKey(item.source), text_left + 18, y, 34, gray(item.locked ? 0.5f : 0.9f));
@@ -210,6 +216,7 @@ void Renderer::drawSettings() {
         }
         if (item.control == Control::choice || item.control == Control::secret || item.control == Control::text || item.control == Control::action) {
             if (item.control == Control::action) {
+                if (item.locked && item.value.empty()) continue; // Information only (a status line): no button.
                 const auto action = layout.actionButton(i, scroll);
                 const auto ink = button(action, control_focus, hovered, !item.locked);
                 centered(item.value.empty() ? tr(L"Otwórz") : item.value, {action.left + 16, action.top, action.right - 16, action.bottom}, ink);
@@ -231,6 +238,12 @@ void Renderer::drawSettings() {
             // A page of its own: its summary, then a chevron.
             textLine(item.value, controls_left, y, r.right - 58 - controls_left, body, gray(0.78f), DWRITE_TEXT_ALIGNMENT_TRAILING);
             chevron(r.right - 34, y, 1, selected ? accent : gray(0.68f));
+        } else if (item.control == Control::fold) {
+            // An accordion heading: its summary, then a chevron pointing down while it is open.
+            textLine(item.value, controls_left, y, r.right - 58 - controls_left, body, item.value.empty() ? gray(0.6f) : accent, DWRITE_TEXT_ALIGNMENT_TRAILING);
+            const auto ink = selected ? accent : gray(0.68f);
+            if (item.checked) { line(r.right - 40, y - 3, r.right - 34, y + 3, ink, 1.8f); line(r.right - 34, y + 3, r.right - 28, y - 3, ink, 1.8f); }
+            else chevron(r.right - 34, y, 1, ink);
         } else if (item.control == Control::slider) {
             auto readout = layout.sliderValue(i, scroll);
             if (stepped_size) readout.left -= 48;

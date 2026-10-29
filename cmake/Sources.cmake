@@ -45,6 +45,7 @@ set(LAUNCHME_APP_SOURCES
     src/app/input_hints.cpp
     src/app/tour.cpp
     src/app/platform_settings.cpp
+    src/app/compat_settings.cpp
     src/app/ratings.cpp
     src/app/game_video.cpp
     src/app/memory.cpp

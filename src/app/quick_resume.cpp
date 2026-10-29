@@ -100,6 +100,7 @@ context_menu::Rows Launcher::menuRows() const {
         context_menu::Rows rows{false, 0, false, true, !gameFolder(game).empty(), canExclude(game), !hideableCopies(game).empty()};
         rows.uninstall = canUninstall(game) && sessionState(game) == SessionState::none; // Never while it runs.
         rows.launch = launchEditable(game);
+        rows.compat = compatGame(game) && !gameKey(game).empty();
         rows.aurelia = aurelia_active_ && aurelia::validGame(game);
         rows.steam_account = steamAccountChoices(game).size() > 1;
         rows.metadata = isGame(game) && game.kind != GameKind::catalog && !gameKey(game).empty(); // Not a store's offer.

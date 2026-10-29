@@ -254,6 +254,7 @@ void protonSwitches() {
     o.dll_overrides = "xinput1_3=n";
     o.locale = "ja_JP.UTF-8";
     o.log = true;
+    o.disable_hidraw = o.prefer_sdl = o.pulse_latency = o.old_gl_string = true;
     o.nvapi = LaunchOptions::Switch::on;
     o.dlss_upgrade = o.dlss_indicator = o.hide_nvidia_gpu = o.prime_offload = o.gl_shader_cache_keep = o.gl_threaded = true;
     o.gl_shader_cache_gb = 10;
@@ -277,6 +278,7 @@ void protonSwitches() {
         {"__GL_SHADER_DISK_CACHE_SIZE", "10737418240"}, {"__GL_SHADER_DISK_CACHE_SKIP_CLEANUP", "1"}, {"__GL_THREADED_OPTIMIZATIONS", "1"},
         {"DRI_PRIME", "1"}, {"RADV_PERFTEST", "sam,nggc"}, {"RADV_EXPERIMENTAL", "emulate_rt"}, {"mesa_glthread", "true"},
         {"MESA_VK_WSI_PRESENT_MODE", "mailbox"}, {"RADV_TEX_ANISO", "16"}, {"MESA_SHADER_CACHE_MAX_SIZE", "10G"},
+        {"PROTON_DISABLE_HIDRAW", "1"}, {"PROTON_PREFER_SDL", "1"}, {"PULSE_LATENCY_MSEC", "60"}, {"PROTON_OLD_GL_STRING", "1"},
     };
     for (const auto& [name, value] : expected) check(variable(plan, name) == value, "switch " + name + "=" + value + " (got " + variable(plan, name).value_or("<unset>") + ")");
     check(std::find(plan.missing.begin(), plan.missing.end(), "battleye-runtime") != plan.missing.end() &&
@@ -505,7 +507,7 @@ LaunchOptions everything() {
     o.sync = LaunchOptions::Sync::wineserver; o.wined3d = true; o.wayland = true; o.hdr = LaunchOptions::Hdr::force; o.fsr = true; o.fsr_strength = 5;
     o.fsr_resolution = "1280x720"; o.fsr4_upgrade = true; o.xess_upgrade = true; o.large_address_aware = true; o.wow64 = true; o.dxvk_hud = "full";
     o.dxvk_frame_rate = 144; o.install_dxvk = true; o.install_vkd3d = true; o.eac_runtime = true; o.battleye_runtime = true; o.dll_overrides = "a=n";
-    o.locale = "pl_PL.UTF-8"; o.log = true;
+    o.locale = "pl_PL.UTF-8"; o.log = true; o.disable_hidraw = true; o.prefer_sdl = true; o.pulse_latency = true; o.old_gl_string = true;
     o.nvapi = LaunchOptions::Switch::off; o.install_dxvk_nvapi = true; o.dlss_upgrade = true; o.dlss_indicator = true; o.hide_nvidia_gpu = true;
     o.prime_offload = true; o.gl_shader_cache_gb = 12; o.gl_shader_cache_keep = true; o.gl_threaded = true;
     o.dri_prime = true; o.radv_sam = true; o.radv_nggc = true; o.radv_emulate_rt = true; o.mesa_glthread = true;
@@ -562,6 +564,18 @@ void catalog() {
           c::setValue(o, "environment", "A=1\r\n\n  B=2=3\n") && o.environment == std::vector<LaunchOptions::Variable>{{"A", "1"}, {"B", "2=3"}}, "environment lines");
     check(!c::setValue(o, "no_such_option", "1") && c::value(o, "no_such_option").empty(), "unknown ids");
     check(!c::winetricksVerbs().empty() && c::text({L"pl", L"en"}) != nullptr, "verbs and texts");
+    // WINEDLLOVERRIDES presets and their check list.
+    check(c::dllOverride("dinput8=n,b;XInput1_3.dll=n", "xinput1_3") == std::optional<std::string>("n") && !c::dllOverride("a=n", "b"), "dll override lookup");
+    check(c::withDllOverride("a,winhttp=n,b;c=b", "winhttp", std::nullopt) == "a=n,b;c=b", "dll removed from its entry");
+    check(c::withDllOverride("a=n", "winhttp", "n,b") == "a=n;winhttp=n,b", "dll added");
+    check(c::withDllOverride("winhttp=b", "winhttp", "n,b") == "winhttp=n,b", "dll mode replaced");
+    check(c::withDllOverride("", "mscoree,mshtml", "") == "mscoree,mshtml=", "disabled dlls");
+    check(c::presetSet("mscoree,mshtml=", c::dllPresets().back()) && !c::presetSet("mscoree=", c::dllPresets().back()), "preset state");
+    for (const auto& preset : c::dllPresets()) {
+        const auto set = c::withDllOverride("x=n", preset.dlls, std::string_view(preset.mode));
+        check(c::presetSet(set, preset) && !c::presetSet(c::withDllOverride(set, preset.dlls, std::nullopt), preset), std::string("preset round trip ") + preset.dlls);
+    }
+    check(std::all_of(c::variablePresets().begin(), c::variablePresets().end(), [](const auto& preset) { return c::variableName(preset.name); }), "variable presets");
     // Round trip through JSON: the catalog covers every field.
     const auto all = everything();
     const auto back = launch_options_store::fromJson(launch_options_store::toJson(all));
@@ -631,6 +645,34 @@ void store(const fs::path& root) {
           s::slug(L"ゼルダ", "steam:10") == "steam-10" && s::slug(L"", "") == "game" && s::slug(std::wstring(200, L'a'), "").size() == 64, "slugs");
     const auto text = readText(s::file());
     check(text.find("\"prefixes\"") != std::string::npos && text.find("borderlands-3-ultimate-edition") != std::string::npos, "prefixes persisted");
+    // The prefix manager: a named prefix with its own tool, chosen by a game; the tool order.
+    const auto shared = s::newPrefix(L"Sklepy: EA i Ubisoft", "launchme:Wine-Staging-TkG-11.20");
+    check(shared == prefixes / "sklepy-ea-i-ubisoft" && fs::is_directory(shared) && s::newPrefix(L"Sklepy: EA i Ubisoft", "default") == prefixes / "sklepy-ea-i-ubisoft-2",
+          "named prefixes: " + shared.string());
+    check(s::prefixInfo(shared).name == L"Sklepy: EA i Ubisoft" && s::prefixInfo(shared).compat_tool == "launchme:Wine-Staging-TkG-11.20", "prefix info");
+    auto in_shared = LaunchOptions{};
+    in_shared.prefix = shared;
+    s::setGameOptions("epic:Catnip", in_shared);
+    check(s::compatLaunch(game)->prefix == shared && s::compatLaunch(game)->options.compat_tool == "launchme:Wine-Staging-TkG-11.20", "the prefix's tool");
+    in_shared.compat_tool = "launchme:GE-Proton11-12";
+    s::setGameOptions("epic:Catnip", in_shared);
+    check(s::compatLaunch(game)->options.compat_tool == "launchme:GE-Proton11-12" && s::effectiveTool("epic:Catnip", shared) == "launchme:GE-Proton11-12",
+          "the game's own tool wins");
+    check(s::effectiveTool("gog:123", prefixes / "borderlands-3-ultimate-edition-2") == "launchme:GE-Proton11-11", "else the global tool");
+    fs::create_directories(prefixes / "borderlands-3-ultimate-edition"); // Made by the game's earlier launches.
+    const auto list = s::prefixes();
+    const auto entry = std::find_if(list.begin(), list.end(), [&](const auto& item) { return item.path == shared; });
+    check(!list.empty() && list.front().named && entry != list.end() && entry->games == std::vector<std::string>{"epic:Catnip"}, "prefix list: named first, users");
+    check(std::any_of(list.begin(), list.end(), [&](const auto& item) { return item.shared && item.path == prefixes / "default"; }),
+          "the shared prefix listed");
+    check(std::any_of(list.begin(), list.end(), [&](const auto& item) { return item.path == prefixes / "borderlands-3-ultimate-edition" && item.games.empty(); }),
+          "a prefix no game uses any more listed");
+    check(s::setPrefixInfo(shared, {L"EA", "default"}) && s::prefixInfo(shared).name == L"EA" && s::compatLaunch(game)->options.compat_tool == "launchme:GE-Proton11-12",
+          "rename");
+    const auto stored = s::load();
+    check(s::parse(s::serialize(stored)) == stored, "prefix info round trip");
+    check(s::forgetPrefix(shared) && s::gameOptions("epic:Catnip")->prefix.empty() && s::prefixInfo(shared).name.empty(), "forgotten prefix");
+    s::resetGameOptions("epic:Catnip");
 }
 
 // executeGameAction with fake runners: Windows programs reach umu-run, Proton or Wine with the

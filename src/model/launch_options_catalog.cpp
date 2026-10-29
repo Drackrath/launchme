@@ -285,6 +285,22 @@ constexpr Option option_table[] = {
     text<&O::locale>("locale", Section::proton, {L"Język systemu (locale)", L"System locale"},
         {L"Np. ja_JP.UTF-8 dla gier japońskich. Puste: jak w systemie.", L"E.g. ja_JP.UTF-8 for Japanese games. Empty: the system's."},
         "HOST_LC_ALL=<locale>; Wine: LC_ALL=<locale>"),
+    toggle<&O::disable_hidraw>("disable_hidraw", Section::proton, {L"Pady bez hidraw", L"Pads without hidraw"},
+        {L"Pady przez SDL zamiast surowego HID: gdy pad działa źle albo jest widoczny dwa razy.",
+         L"Pads through SDL instead of raw HID: when a pad misbehaves or shows up twice."},
+        "PROTON_DISABLE_HIDRAW=1", proton),
+    toggle<&O::prefer_sdl>("prefer_sdl", Section::proton, {L"Pady przez SDL", L"Pads through SDL"},
+        {L"GE-Proton obsługuje pady przez SDL (np. gdy gra nie widzi pada Nintendo lub PlayStation).",
+         L"GE-Proton handles pads through SDL (e.g. when the game does not see a Nintendo or PlayStation pad)."},
+        "PROTON_PREFER_SDL=1", proton),
+    toggle<&O::pulse_latency>("pulse_latency", Section::proton, {L"Napraw trzeszczący dźwięk", L"Fix crackling sound"},
+        {L"Większy bufor dźwięku PulseAudio/PipeWire (60 ms) dla gier, w których dźwięk trzeszczy lub się rwie.",
+         L"A larger PulseAudio/PipeWire sound buffer (60 ms) for games whose sound crackles or stutters."},
+        "PULSE_LATENCY_MSEC=60"),
+    toggle<&O::old_gl_string>("old_gl_string", Section::proton, {L"Krótka lista rozszerzeń OpenGL", L"Short OpenGL extension list"},
+        {L"Dla starych gier OpenGL, które zawieszają się przy starcie przez zbyt długą listę rozszerzeń.",
+         L"For old OpenGL games that crash at start on a too long extension list."},
+        "PROTON_OLD_GL_STRING=1; Wine: MESA_EXTENSION_MAX_YEAR=2003 __GL_ExtensionStringVersion=17700"),
     toggle<&O::log>("log", Section::proton, {L"Zapisuj szczegółowy log", L"Write a detailed log"},
         {L"Log Protona lub Wine w folderze logów Launchme (logs/wine). Spowalnia grę: włączaj tylko do diagnozy.",
          L"The Proton or Wine log in Launchme's logs folder (logs/wine). Slows the game: enable it only to diagnose."},
@@ -442,6 +458,75 @@ constexpr Verb verb_table[] = {
     {"corefonts", {L"Czcionki Microsoft (corefonts)", L"Microsoft fonts (corefonts)"}},
     {"cjkfonts", {L"Czcionki chińskie, japońskie i koreańskie", L"Chinese, Japanese and Korean fonts"}},
 };
+
+// The DLLs mod loaders and injectors replace, with what loads them (as Heroic and Lutris users set them).
+constexpr DllPreset dll_table[] = {
+    {"winhttp", "n,b", {L"winhttp: BepInEx (mody gier Unity)", L"winhttp: BepInEx (Unity game mods)"}},
+    {"version", "n,b", {L"version: ładowarki modów (Cyber Engine Tweaks, RED4ext)", L"version: mod loaders (Cyber Engine Tweaks, RED4ext)"}},
+    {"dinput8", "n,b", {L"dinput8: Ultimate ASI Loader, Script Hook", L"dinput8: Ultimate ASI Loader, Script Hook"}},
+    {"winmm", "n,b", {L"winmm: ASI Loader, poprawki starych gier", L"winmm: ASI Loader, fixes for old games"}},
+    {"dsound", "n,b", {L"dsound: DSOAL (dźwięk 3D), ASI Loader", L"dsound: DSOAL (3D sound), ASI Loader"}},
+    {"dxgi", "n,b", {L"dxgi: ReShade, Special K (DirectX 10–12)", L"dxgi: ReShade, Special K (DirectX 10–12)"}},
+    {"d3d9", "n,b", {L"d3d9: ReShade (DirectX 9)", L"d3d9: ReShade (DirectX 9)"}},
+    {"d3d11", "n,b", {L"d3d11: ReShade, Special K (DirectX 11)", L"d3d11: ReShade, Special K (DirectX 11)"}},
+    {"d3dcompiler_47", "n", {L"d3dcompiler_47: kompilator shaderów gry (ReShade)", L"d3dcompiler_47: the game's shader compiler (ReShade)"}},
+    {"dwmapi", "n,b", {L"dwmapi: UE4SS (mody Unreal Engine)", L"dwmapi: UE4SS (Unreal Engine mods)"}},
+    {"xinput1_3", "n,b", {L"xinput1_3: x360ce, UE4SS", L"xinput1_3: x360ce, UE4SS"}},
+    {"mscoree,mshtml", "", {L"Bez Wine Mono i Gecko (szybszy nowy prefiks)", L"No Wine Mono and Gecko (a faster new prefix)"}},
+};
+
+// Variables often found on ProtonDB and the PCGamingWiki, beyond the switches above.
+constexpr VariablePreset variable_table[] = {
+    {"PROTON_NO_D3D11", "1", {L"Bez DirectX 11 (gra wybierze DirectX 9)", L"No DirectX 11 (the game picks DirectX 9)"}},
+    {"PROTON_HEAP_DELAY_FREE", "1", {L"Opóźnione zwalnianie pamięci (losowe awarie)", L"Delayed memory release (random crashes)"}},
+    {"VKD3D_CONFIG", "dxr11", {L"Ray tracing w DirectX 12 (VKD3D-Proton)", L"Ray tracing in DirectX 12 (VKD3D-Proton)"}},
+    {"WINE_CPU_TOPOLOGY", "4:0,1,2,3", {L"Najwyżej 4 rdzenie procesora (stare gry)", L"At most 4 CPU cores (old games)"}},
+    {"SteamDeck", "1", {L"Gra myśli, że działa na Steam Decku", L"The game thinks it runs on a Steam Deck"}},
+    {"vblank_mode", "0", {L"Bez synchronizacji pionowej OpenGL (Mesa)", L"No OpenGL vertical sync (Mesa)"}},
+    {"__GL_SYNC_TO_VBLANK", "0", {L"Bez synchronizacji pionowej OpenGL (NVIDIA)", L"No OpenGL vertical sync (NVIDIA)"}},
+    {"MANGOHUD_CONFIG", "fps_limit=60", {L"Limit 60 klatek w MangoHud", L"A 60 frames limit in MangoHud"}},
+    {"WINEDEBUG", "-all", {L"Bez komunikatów diagnostycznych Wine", L"No Wine debug messages"}},
+};
+
+// WINEDLLOVERRIDES entries: "names=mode" separated by ';' (names by ',', lowercase, without ".dll").
+struct OverrideEntry {
+    std::vector<std::string> names;
+    std::string mode;
+    bool has_mode = false;
+};
+std::string dllName(std::string_view name) {
+    while (!name.empty() && (name.front() == ' ' || name.front() == '\t')) name.remove_prefix(1);
+    while (!name.empty() && (name.back() == ' ' || name.back() == '\t')) name.remove_suffix(1);
+    std::string result(name);
+    for (char& ch : result) if (ch >= 'A' && ch <= 'Z') ch = static_cast<char>(ch - 'A' + 'a');
+    if (result.size() > 4 && result.ends_with(".dll")) result.resize(result.size() - 4);
+    return result;
+}
+std::vector<OverrideEntry> overrideEntries(std::string_view text) {
+    std::vector<OverrideEntry> result;
+    while (!text.empty()) {
+        const auto end = std::min(text.find(';'), text.size());
+        const auto part = text.substr(0, end);
+        text.remove_prefix(std::min(end + 1, text.size()));
+        OverrideEntry entry;
+        const auto equals = part.find('=');
+        auto names = part.substr(0, equals);
+        if (equals != std::string_view::npos) { entry.has_mode = true; entry.mode = dllName(part.substr(equals + 1)); }
+        while (!names.empty()) {
+            const auto comma = std::min(names.find(','), names.size());
+            if (auto name = dllName(names.substr(0, comma)); !name.empty()) entry.names.push_back(std::move(name));
+            names.remove_prefix(std::min(comma + 1, names.size()));
+        }
+        if (!entry.names.empty()) result.push_back(std::move(entry));
+    }
+    return result;
+}
+std::vector<std::string> presetNames(std::string_view dlls) {
+    std::vector<std::string> result;
+    for (const auto& entry : overrideEntries(std::string(dlls) + "=x"))
+        for (const auto& name : entry.names) result.push_back(name);
+    return result;
+}
 }
 
 const wchar_t* text(const Text& value) { return i18n::english() ? value.english : value.polish; }
@@ -475,4 +560,39 @@ bool variableName(std::string_view name) {
 }
 
 std::span<const Verb> winetricksVerbs() { return verb_table; }
+std::span<const DllPreset> dllPresets() { return dll_table; }
+std::span<const VariablePreset> variablePresets() { return variable_table; }
+
+std::optional<std::string> dllOverride(std::string_view overrides, std::string_view dll) {
+    const auto wanted = dllName(dll);
+    std::optional<std::string> result; // The last entry naming it wins, as in Wine.
+    for (const auto& entry : overrideEntries(overrides))
+        if (std::find(entry.names.begin(), entry.names.end(), wanted) != entry.names.end()) result = entry.mode;
+    return result;
+}
+
+bool presetSet(std::string_view overrides, const DllPreset& preset) {
+    for (const auto& name : presetNames(preset.dlls)) {
+        const auto mode = dllOverride(overrides, name);
+        if (!mode || *mode != preset.mode) return false;
+    }
+    return true;
+}
+
+std::string withDllOverride(std::string_view overrides, std::string_view dlls, std::optional<std::string_view> mode) {
+    const auto names = presetNames(dlls);
+    std::string result;
+    const auto append = [&](const std::vector<std::string>& list, bool has_mode, const std::string& entry_mode) {
+        if (list.empty()) return;
+        if (!result.empty()) result += ';';
+        for (size_t i = 0; i < list.size(); ++i) result += (i ? "," : "") + list[i];
+        if (has_mode) result += '=' + entry_mode;
+    };
+    for (auto entry : overrideEntries(overrides)) {
+        std::erase_if(entry.names, [&](const std::string& name) { return std::find(names.begin(), names.end(), name) != names.end(); });
+        append(entry.names, entry.has_mode, entry.mode);
+    }
+    if (mode) append(names, true, dllName(*mode));
+    return result;
+}
 }

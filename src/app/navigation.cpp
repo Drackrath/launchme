@@ -270,8 +270,20 @@ void Launcher::back() {
             if (!editing) settings_state_.close();
             settings_motion_.valid = false; buildSettingsRows(); return;
         }
-        // A page → the row it was opened from (a value being edited closes first, below).
-        if (settings_state_.subpage() && !settings_state_.editing) { closeSettingsPage(); return; }
+        // A page → the row it was opened from (a value being edited closes first, below); a page
+        // opened from outside Settings (a game's Proton / Wine…) → where it was opened.
+        if (settings_state_.subpage() && !settings_state_.editing) {
+            if (settings_page_exits_ && settings_state_.pages.size() == 1) {
+                settings_page_exits_ = false;
+                settings_state_.closeAll();
+                settings_state_.options = false;
+                saveSettings();
+                showCategory(category_);
+                return;
+            }
+            closeSettingsPage();
+            return;
+        }
         if (gog_state_.state == gog::State::preparing || gog_state_.state == gog::State::signing_in || gog_state_.state == gog::State::verifying) gogCommand(gog::Command::cancel);
         if (epic_state_.state == epic::State::preparing || epic_state_.state == epic::State::signing_in || epic_state_.state == epic::State::verifying) epicCommand(epic::Command::cancel);
         if (settings_state_.back()) { clearSecretInput(); InvalidateRect(hwnd_, nullptr, FALSE); return; }
@@ -866,6 +878,7 @@ void Launcher::menuAccept() {
     case Item::uninstall: uninstallGame(game); break;
     case Item::remove: askRemoveFromLibrary(game); break;
     case Item::launch: dismissMenu(); openLaunchEditor(game); break;
+    case Item::compat: dismissMenu(); openGameCompatSettings(game); break;
     case Item::metadata: dismissMenu(); if (desktop_mode_) desktopMetaOpen(game); else openMetadata(game); break;
     case Item::aurelia: dismissMenu(); openAurelia(&game); break;
     case Item::steam_account: cycleSteamAccount(game); break; // The menu stays: the row shows the next choice.
@@ -1027,6 +1040,10 @@ void Launcher::finishLaunch() {
         action = steamOptionsAction(std::move(action), steam_executable_(), pending_game_.app_id, options, settings_.steam_silent_launch);
     if (settings_.steam_silent_launch && pending_game_.source == GameSource::steam && action.kind == ActionKind::play)
         action = silentSteamAction(std::move(action), steam_executable_());
+#ifndef _WIN32
+    // A Windows program runs through umu/Proton/Wine with the game's options in its prefix.
+    if (compatGame(pending_game_)) action.compat = launch_options_store::compatLaunch(pending_game_);
+#endif
     auto result = execute_(hwnd_, action);
     if (result <= 32 && result != launch_error::cancelled && action.keep_focus) {
         // steam.exe refused (moved, blocked): the plain steam:// URL still starts the game.

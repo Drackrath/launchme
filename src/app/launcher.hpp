@@ -76,6 +76,10 @@
 #include "../ui/browser_window.hpp"
 #include "../ui/guide_motion.hpp"
 #include "../platform/game_overlay_monitor.hpp"
+#ifndef _WIN32
+#include "../library/compat_tools.hpp"
+#include "../library/launch_options_store.hpp"
+#endif
 
 #include <Windows.h>
 #include <shellapi.h> // HDROP: files dropped on the desktop window.
@@ -86,10 +90,12 @@
 #include <cstdint>
 #include <deque>
 #include <functional>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <random>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -1593,6 +1599,28 @@ private:
     void cancelPlatformSignIn(GameSource source);
     void setMultimcPath(const std::filesystem::path& picked); // Empty: forget it.
     bool pluginSettingsActivate(const settings_ui::Row& row);
+    // A game that runs a Windows program on Linux (a store's, a .exe added by hand or found in a
+    // DRM-free folder): its Wine/Proton options apply. Always false on Windows.
+    bool compatGame(const Game& game) const;
+    // Linux: Ustawienia → Biblioteka → Proton i Wine with a game's own options open (its menu's
+    // "Proton / Wine…"); Back from that page leaves Settings.
+    void openGameCompatSettings(const Game& game);
+#ifndef _WIN32
+    // Ustawienia → Proton i Wine (src/app/compat_settings.cpp): the tools, their downloads, the
+    // prefix manager and the Wine/Proton options as an accordion.
+    bool compatSettingsPage() const;
+    void compatSettingsRows();
+    bool compatSettingsActivate(const settings_ui::Row& row);
+    void compatLoadTools();
+    void compatLoadReleases(const std::string& source, bool refresh);
+    void compatInstall(const compat_tools::Release& release);
+    void compatMeasure(const std::filesystem::path& prefix);
+    void compatPrefixAction(const std::filesystem::path& prefix, const std::string& action, const std::vector<std::string>& arguments = {});
+    std::wstring compatPrefixName(const launch_options_store::PrefixEntry& entry) const;
+    std::wstring compatToolName(const std::string& id) const;
+    bool compatSaveOptions(const std::string& key, const std::function<bool(LaunchOptions&)>& change);
+    CompatLaunch compatPrefixLaunch(const std::filesystem::path& prefix) const;
+#endif
     // query: a plugin page's search text (params.query). background: the page's periodic refresh,
     // which neither blocks nor outlives a command picked meanwhile.
     void pluginAction(const plugins::Action& action, const Game& game = {}, bool refresh = false,
@@ -2305,6 +2333,33 @@ private:
     bool settings_secret_selected_ = false;
     bool settings_secret_cancel_ = false; // The key/text dialog's Cancel has the focus (Left), else Save.
     bool settings_secret_browse_ = false; // Import-path dialog: Browse, before Cancel and Save.
+    // The innermost page was opened from outside Settings (a game's "Proton / Wine…"): Back from it
+    // leaves Settings instead of showing the page's parent.
+    bool settings_page_exits_ = false;
+#ifndef _WIN32
+    // Ustawienia → Proton i Wine (compat_settings.cpp): what workers found and are doing.
+    struct CompatSettings {
+        std::vector<compat_tools::Tool> tools;   // compat_tools::discover(), best first within each kind.
+        bool tools_loading = false, tools_loaded = false;
+        std::filesystem::path umu_run;           // Empty: umu-launcher is not installed.
+        std::map<std::string, compat_tools::ReleaseList> releases; // By Source::id.
+        std::set<std::string> releases_loading;
+        struct Install {
+            std::string source, tag;
+            compat_tools::Progress progress;
+            std::shared_ptr<std::atomic<bool>> cancel;
+        };
+        std::optional<Install> install;          // One download at a time.
+        std::wstring status;                     // The last download's or prefix tool's result.
+        std::vector<launch_options_store::PrefixEntry> prefixes;
+        std::map<std::filesystem::path, uint64_t> sizes; // Measured on a worker.
+        std::set<std::filesystem::path> measuring;
+        std::set<std::string> expanded{"runner"}; // The accordion's open sections.
+        std::string confirm;                     // A destructive row asked to confirm (its key).
+        bool steam_target = false;               // Proton downloads also into Steam's compatibilitytools.d.
+        Game game;                               // The game whose options page is open.
+    } compat_;
+#endif
     AppSettings settings_;
     LibraryState library_state_;
     std::unique_ptr<LibraryStateWriter> library_writer_;

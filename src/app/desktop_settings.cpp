@@ -312,6 +312,7 @@ SheetHit Launcher::desktopSettingsHit(float x, float y) const {
         return {L.field(index, s).contains(x, y) ? K::field : K::row, index};
     case Control::action: case Control::count: case Control::page:
         return {L.action(index, s).contains(x, y) ? K::action : K::row, index};
+    case Control::fold: return {K::row, index}; // The whole heading opens or closes its section.
     case Control::collection:
         if (L.reorder(index, s, false).contains(x, y)) return {K::up, index};
         if (L.reorder(index, s, true).contains(x, y)) return {K::down, index};
@@ -456,7 +457,8 @@ void Launcher::desktopSettingsActivate(const SheetHit& hit) {
         // A switch row flips from anywhere on it; a choice opens its list; tall rows and sliders keep
         // their own controls.
         if (item.control == Control::slider || settings_sheet::tall(item.control)) { InvalidateRect(hwnd_, nullptr, FALSE); return; }
-        if (item.locked && item.control != Control::action && item.control != Control::count && item.control != Control::page) { navigationBoundary(); return; }
+        if (item.locked && item.control != Control::action && item.control != Control::count && item.control != Control::page &&
+            item.control != Control::fold) { navigationBoundary(); return; }
         settingsActivate();
         return;
     default: return;

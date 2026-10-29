@@ -274,6 +274,7 @@ void Launcher::paint(bool overlay) {
     // A game added by hand: its launch options are the game's own editor.
     context.menu_edit_game = selected_ < cards_.size() && cards_[selected_].game.source == GameSource::custom;
     context.menu_launch = menu_rows.launch;
+    context.menu_compat = menu_rows.compat;
     context.menu_metadata = menu_rows.metadata;
     context.menu_aurelia = menu_rows.aurelia;
     if (menu_rows.steam_account && selected_ < cards_.size()) context.menu_steam_account = steamAccountLabel(cards_[selected_].game);

@@ -117,6 +117,7 @@ void Launcher::inputHints(ViewContext& context) const {
         else if (row->control == settings_ui::Control::toggle || row->control == settings_ui::Control::collection) add(HintButton::accept, tr(L"Przełącz"));
         else if (row->control == settings_ui::Control::slider) add(HintButton::accept, settings_state_.editing ? tr(L"Gotowe") : tr(L"Zmień"));
         else if (row->control == settings_ui::Control::page || row->control == settings_ui::Control::count) add(HintButton::accept, tr(L"Otwórz"));
+        else if (row->control == settings_ui::Control::fold) add(HintButton::accept, row->checked ? tr(L"Zwiń") : tr(L"Rozwiń"));
         else add(HintButton::accept, tr(L"Wybierz"));
         if (settings_state_.at(settings_ui::Page::collections) && row && row->control == settings_ui::Control::collection)
             hints.push_back({HintButton::shoulders, tr(L"Przesuń"), L"Shift ↑↓"});

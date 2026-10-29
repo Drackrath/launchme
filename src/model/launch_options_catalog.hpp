@@ -7,9 +7,11 @@
 #include "launch_options.hpp"
 
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace launch_options_catalog {
 struct Text {
@@ -77,4 +79,29 @@ struct Verb {
     Text label;
 };
 std::span<const Verb> winetricksVerbs();
+
+// WINEDLLOVERRIDES presets for the settings' check list: the DLLs ("winhttp", "mscoree,mshtml") and
+// the mode they get ("n,b": the game's own first; "": disabled), with what needs them.
+struct DllPreset {
+    const char* dlls;
+    const char* mode;
+    Text label;
+};
+std::span<const DllPreset> dllPresets();
+// The mode WINEDLLOVERRIDES text gives a DLL (names compare without case and ".dll"; the last entry
+// wins); nullopt when it is not named.
+std::optional<std::string> dllOverride(std::string_view overrides, std::string_view dll);
+// Whether every DLL of the preset has its mode.
+bool presetSet(std::string_view overrides, const DllPreset& preset);
+// The text with the DLLs (comma separated) set to `mode` in one entry at its end, or removed
+// (nullopt); every other entry keeps its order.
+std::string withDllOverride(std::string_view overrides, std::string_view dlls, std::optional<std::string_view> mode);
+
+// Popular environment variables the settings offer to add to a game's list.
+struct VariablePreset {
+    const char* name;
+    const char* value;
+    Text label;
+};
+std::span<const VariablePreset> variablePresets();
 }
