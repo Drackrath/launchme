@@ -2438,7 +2438,6 @@ constexpr Entry entries[] = {
     {L"Utwórz…", L"Create…"},
     {L"Wersja Protona / Wine", L"Proton / Wine version"},
     {L"Wersja Protona lub Wine, prefiks gry i umu-launcher.", L"The Proton or Wine version, the game's prefix and umu-launcher."},
-    {L"Wersje Protona i Wine, prefiksy i domyślne opcje gier Windows.", L"Proton and Wine versions, prefixes and Windows games' default options."},
     {L"Wine bez Steam Linux Runtime", L"Wine without the Steam Linux Runtime"},
     {L"winecfg, regedit, panel sterowania i inne, w tym prefiksie.", L"winecfg, regedit, the control panel and more, in this prefix."},
     {L"wineserver -k: gdy gra albo instalator się zawiesi.", L"wineserver -k: when a game or an installer hangs."},
@@ -2466,6 +2465,8 @@ constexpr Entry entries[] = {
     {L"Zwiń", L"Collapse"},
     {L"żadna gra go nie używa", L"no game uses it"},
     {L"Żadna gra go nie używa.", L"No game uses it."},
+    {L"Zgodność", L"Compatibility"},
+    {L"Proton, Wine, prefiksy i domyślne opcje gier Windows.", L"Proton, Wine, prefixes and Windows games' default options."},
     // Entries of extras built only on this machine (local/i18n), when present.
 #if __has_include("strings_en_local.inc")
 #include "strings_en_local.inc"

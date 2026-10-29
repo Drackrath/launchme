@@ -207,6 +207,14 @@ void Renderer::drawSettingsIcon(int category, float cx, float cy, D2D1_COLOR_F i
         for (int dot = -1; dot <= 1; ++dot)
             target_->FillEllipse(D2D1::Ellipse(D2D1::Point2F(cx + dot * 5.0f, cy - 1.5f), 1.3f, 1.3f), solid_.Get());
         break;
+#ifndef _WIN32
+    case Category::compat: // A program window over another: Windows programs on Linux.
+        rounded(-11, -4, 5, 10, 2.5f);
+        line(cx - 11, cy, cx + 5, cy, ink, 1.6f);
+        line(cx - 5, cy - 4, cx - 5, cy - 9, ink, 1.7f); line(cx - 5, cy - 9, cx + 11, cy - 9, ink, 1.7f);
+        line(cx + 11, cy - 9, cx + 11, cy + 5, ink, 1.7f); line(cx + 11, cy + 5, cx + 5, cy + 5, ink, 1.7f);
+        break;
+#endif
     case Category::system: // A cog.
         target_->DrawEllipse(D2D1::Ellipse(D2D1::Point2F(cx, cy), 7, 7), solid_.Get(), 1.7f);
         target_->DrawEllipse(D2D1::Ellipse(D2D1::Point2F(cx, cy), 2.6f, 2.6f), solid_.Get(), 1.5f);

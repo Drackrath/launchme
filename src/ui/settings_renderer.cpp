@@ -94,13 +94,13 @@ void Renderer::drawSettings() {
     // labels under it turn dark as it passes.
     const auto& motion = context_->settings_motion;
     const auto back = layout.backButton();
-    const auto pill_target = state.backFocused() ? back : layout.rail(state.category);
+    const auto pill_target = state.backFocused() ? back : layout.categoryRail(state.category);
     const float solid = motion ? motion->rail_focus : state.options ? 0.0f : 1.0f;
     const Rect pill{pill_target.left, motion ? motion->pill_top : pill_target.top, pill_target.right, motion ? motion->pill_bottom : pill_target.bottom};
     drawButtonGlass(rect(back), 1, false); // Back: a glass pill, the rail's white pill glides onto it.
     fill(pill, gray(std::lerp(1.0f, 0.91f, solid), std::lerp(0.07f, 1.0f, solid)), (pill.bottom - pill.top) * 0.5f);
     for (int i = 0; i < static_cast<int>(categories.size()); ++i) {
-        const auto r = layout.rail(i);
+        const auto r = layout.categoryRail(i);
         const float y = middle(r);
         if (state.category == i && solid < 0.999f)
             fill({r.left + 10, y - 10, r.left + 13, y + 10}, D2D1::ColorF(accent.r, accent.g, accent.b, 1.0f - solid), 1.5f);
@@ -109,7 +109,7 @@ void Renderer::drawSettings() {
     // under the pill's edge while it slides.
     const auto labels = [&](bool on_pill) {
         for (int i = 0; i < static_cast<int>(categories.size()); ++i) {
-            const auto r = layout.rail(i);
+            const auto r = layout.categoryRail(i);
             const float y = middle(r);
             const bool active = state.category == i;
             const float base = active ? 0.96f : 0.57f;

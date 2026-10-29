@@ -108,6 +108,9 @@ void Launcher::settingsMove(int amount) {
     if (color_editor_.open) { colorEditorMove(amount); return; }
     if (editingSecret()) return;
     if (!drm_confirm_.empty()) { drm_confirm_.clear(); buildSettingsRows(); } // Moving away cancels "Potwierdź".
+#ifndef _WIN32
+    if (!compat_.confirm.empty() && !settings_state_.editing) { compat_.confirm.clear(); buildSettingsRows(); }
+#endif
     if (settings_state_.editing && !settings_rows_.empty() && settings_rows_[settings_state_.row()].picker()) {
         const auto count = static_cast<int>(settings_rows_[settings_state_.row()].pickList(settings_state_.tile).size());
         const int before = settings_state_.choice;

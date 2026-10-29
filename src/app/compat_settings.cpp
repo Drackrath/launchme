@@ -124,7 +124,7 @@ void Launcher::openGameCompatSettings(const Game& game) {
     compat_.confirm.clear();
     if (!settingsOpen()) openSettings();
     if (!settingsOpen()) return;
-    settings_state_.selectCategory(static_cast<int>(settings_ui::Category::library));
+    settings_state_.selectCategory(static_cast<int>(settings_ui::Category::compat));
     settings_state_.open(Page::launch_options, key, 0, std::nullopt);
     settings_page_exits_ = true;
     clearSecretInput();
@@ -134,11 +134,8 @@ void Launcher::openGameCompatSettings(const Game& game) {
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
-bool Launcher::compatSettingsPage() const {
-    const auto* frame = settings_state_.top();
-    return frame && (frame->page == Page::compat || frame->page == Page::compat_source || frame->page == Page::prefixes ||
-                     frame->page == Page::prefix || frame->page == Page::launch_options);
-}
+// Ustawienia → Zgodność, its own list or one of its pages.
+bool Launcher::compatSettingsPage() const { return settings_state_.category == static_cast<int>(settings_ui::Category::compat); }
 
 std::wstring Launcher::compatToolName(const std::string& id) const {
     if (!chosen(id)) {
@@ -328,8 +325,9 @@ void Launcher::compatPrefixAction(const std::filesystem::path& prefix, const std
 // ---- Rows ------------------------------------------------------------------------------------------
 
 void Launcher::compatSettingsRows() {
-    const auto* frame = settings_state_.top();
-    if (!frame) return;
+    // The category's own list is the overview (Page::compat); its pages open from it.
+    const PageFrame overview{Page::compat};
+    const auto* frame = settings_state_.top() ? settings_state_.top() : &overview;
     if (!compat_.tools_loaded) compatLoadTools();
     std::wstring next_section;
     const auto section = [&](std::wstring title) { next_section = std::move(title); };

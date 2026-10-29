@@ -15,7 +15,12 @@ namespace settings_ui {
 // Settings 2.0: eight categories, each split into titled sections (Row::section).
 // Biblioteka holds the PC platforms (their pages behind the cog), "Moje gry" and the
 // collections page; Media i dane the background videos, emulation data and API keys.
+#ifdef _WIN32
 enum class Category { appearance, library, media, audio, controllers, plugins, companion, system };
+#else
+// Linux: Zgodność (compat) after Biblioteka: Proton and Wine, their prefixes and Windows games' options.
+enum class Category { appearance, library, compat, media, audio, controllers, plugins, companion, system };
+#endif
 enum class Id { font, home_layout, ui_accent, accent, uninstalled, emulation, collection, music, music_theme, ui_sound, toast_sound, boot_sound, opacity, fade, pc_platform, gog_callback, gog_refresh, gog_logout, quick_resume, guide_menu, guide_overlay, game_fps, game_fps_low, language, custom_add, custom_game,
                 screensaver, screensaver_style, screensaver_minutes, screensaver_start, steam_key, sgdb_key, epic_callback, epic_refresh, epic_logout, tile_shape, rawg_key, show_categories, xmb_posters, xmb_size,
                 ea_callback, ea_refresh, ea_remove, battlenet_import, battlenet_callback, battlenet_remove, steam_controller, focus_spring, flix_size,
@@ -130,16 +135,20 @@ inline constexpr std::array<const wchar_t*, 3> grid_styles{trKey(L"Kropki"), trK
 // Indexed like AppSettings::TileShape.
 inline constexpr std::array<const wchar_t*, 3> tile_shapes{L"Squircle", trKey(L"Zaokrąglone"), trKey(L"Kwadratowe")};
 struct CategoryInfo { const wchar_t* title; const wchar_t* description; };
-inline constexpr std::array<CategoryInfo, 8> categories{{
+// Indexed like Category.
+inline constexpr auto categories = std::to_array<CategoryInfo>({
     {trKey(L"Interfejs"), trKey(L"Układ ekranu, wygląd, kolory i animacje.")},
     {trKey(L"Biblioteka"), trKey(L"Platformy, gry spoza sklepów i kolekcje.")},
+#ifndef _WIN32
+    {trKey(L"Zgodność"), trKey(L"Proton, Wine, prefiksy i domyślne opcje gier Windows.")},
+#endif
     {trKey(L"Media i dane"), trKey(L"Filmy w tle, dane emulacji i klucze usług.")},
     {trKey(L"Dźwięk"), trKey(L"Urządzenia audio, głośność, muzyka i dźwięki interfejsu.")},
     {trKey(L"Kontrolery"), trKey(L"Połączone pady, parowanie i przycisk Guide.")},
     {trKey(L"Pluginy"), trKey(L"Rozszerzenia launchera i ich ustawienia.")},
     {trKey(L"Asystent"), trKey(L"Postać, model AI, głos, zdjęcia i Launchfeed.")},
     {trKey(L"System"), trKey(L"Okno, język, wygaszacz i funkcje systemowe.")}
-}};
+});
 // Indexed like AppSettings::HintGlyphs.
 inline constexpr std::array<const wchar_t*, 4> hint_glyph_styles{trKey(L"Automatycznie"), L"Xbox", L"PlayStation", L"Nintendo"};
 inline constexpr std::array<const wchar_t*, 4> fonts{L"SST", L"Segoe UI", L"Consolas", L"Arial"};
@@ -482,6 +491,16 @@ struct Layout {
     float contentRight() const { return width - 64; }
     float listBottom() const { return height - 138; }
     Rect rail(int index) const { return {56, rail_top + index * 74, railRight() - 22, rail_top + 64 + index * 74}; }
+    // Settings' categories down the rail: 74 apart, closer (and their pills lower) when they would
+    // reach Back (Linux has a ninth, Zgodność, on the 900-high canvas).
+    float categoryStep() const {
+        const int count = static_cast<int>(categories.size());
+        return count > 1 ? std::min(74.0f, (height - 110 - 12 - rail_top - 64) / static_cast<float>(count - 1)) : 74.0f;
+    }
+    Rect categoryRail(int index) const {
+        const float step = categoryStep(), pill = std::min(64.0f, step - 8);
+        return {56, rail_top + index * step, railRight() - 22, rail_top + pill + index * step};
+    }
     Rect backButton() const { return {56, height - 110, railRight() - 22, height - 62}; }
     Rect saveStatus() const { return {contentRight() - 340, height - 100, contentRight(), height - 58}; }
     Rect row(int index, float scroll) const {
@@ -607,7 +626,7 @@ struct Layout {
         return {r.right - 192, y - 22, r.right - 140, y + 22};
     }
     int hitRail(float x, float y) const {
-        for (int i = 0; i < static_cast<int>(categories.size()); ++i) if (rail(i).contains(x, y)) return i;
+        for (int i = 0; i < static_cast<int>(categories.size()); ++i) if (categoryRail(i).contains(x, y)) return i;
         return -1;
     }
     int hitRow(float x, float y, int count, float scroll) const {

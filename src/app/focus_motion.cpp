@@ -61,7 +61,7 @@ void Launcher::animateFocus(float dt, float target_x, float target_y, float targ
         auto& motion = settings_motion_;
         const auto& state = settings_state_;
         const auto layout = Layout::of(view.width, view.height, state, settings_rows_);
-        const auto pill = state.backFocused() ? layout.backButton() : layout.rail(state.category);
+        const auto pill = state.backFocused() ? layout.backButton() : layout.categoryRail(state.category);
         const float rail_focus = state.options ? 0.0f : 1.0f;
         const float row = layout.rowOffset(state.row()), scroll = state.offset(), height = layout.rowHeight(state.row());
         if (!motion.valid) {

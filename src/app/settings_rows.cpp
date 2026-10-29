@@ -285,10 +285,10 @@ void Launcher::buildSettingsRows() {
         }
         break;
     }
-    case settings_ui::Category::library:
 #ifndef _WIN32
-        if (compatSettingsPage()) { compatSettingsRows(); break; } // Proton i Wine, its pages, a game's options.
+    case settings_ui::Category::compat: compatSettingsRows(); break; // Proton i Wine, its pages, a game's options.
 #endif
+    case settings_ui::Category::library:
         if (settings_state_.platform()) { pcSettingsRows(); break; } // A platform's page (DRM-free: its folders and games).
         if (settings_state_.at(Page::custom_games)) {
             // "Gry dodane ręcznie" page: adding first, then each game with its editor (which also removes it).
@@ -373,12 +373,6 @@ void Launcher::buildSettingsRows() {
         add({Id::hide_while_playing, Control::toggle, tr(L"Chowaj do zasobnika podczas gry"),
             tr(L"Gdy gra działa, launcher znika z paska zadań i Alt+Tab, a jego ikona czeka w zasobniku. Wraca po zamknięciu gry."),
             {}, settings_.hide_while_playing});
-#ifndef _WIN32
-        // Windows games on Linux: the tools, their downloads, the prefixes and the default options.
-        pageRow(Page::compat, tr(L"Proton i Wine"), tr(L"Wersje Protona i Wine, prefiksy i domyślne opcje gier Windows."),
-                compat_.tools_loaded ? compatToolName(launch_options_store::defaultTool()) : std::wstring{});
-        if (!compat_.tools_loaded) compatLoadTools();
-#endif
         break;
     case settings_ui::Category::media: {
         if (settings_state_.at(Page::screenscraper)) {

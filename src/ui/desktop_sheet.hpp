@@ -118,10 +118,22 @@ inline constexpr float dropdown_row = 32, dropdown_width = 280;
 inline constexpr int dropdown_visible = 10;
 inline constexpr float pad_tile = 196, tile_gap = 12;
 
-// Segoe Fluent / MDL2 glyphs of the categories (settings_ui::categories order).
+// Segoe Fluent / MDL2 glyphs of the categories.
 inline wchar_t categoryGlyph(int category) {
-    constexpr wchar_t glyphs[] = {0xE771, 0xE8F1, 0xE8B9, 0xE767, 0xE7FC, 0xEA86, 0xE8F2, 0xE770};
-    return glyphs[std::clamp(category, 0, static_cast<int>(std::size(glyphs)) - 1)];
+    using settings_ui::Category;
+    switch (static_cast<Category>(category)) {
+    case Category::appearance: return 0xE771;
+    case Category::library: return 0xE8F1;
+#ifndef _WIN32
+    case Category::compat: return 0xE923; // Windows on top of each other: Windows programs here.
+#endif
+    case Category::media: return 0xE8B9;
+    case Category::audio: return 0xE767;
+    case Category::controllers: return 0xE7FC;
+    case Category::plugins: return 0xEA86;
+    case Category::companion: return 0xE8F2;
+    default: return 0xE770;
+    }
 }
 
 inline float rowHeight(const Row& row, bool compact) {
