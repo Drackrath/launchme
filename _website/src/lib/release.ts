@@ -23,21 +23,21 @@ export type Release = {
 
 // Snapshot used when neither the build nor the browser can reach the GitHub API.
 export const FALLBACK_RELEASE: Release = {
-  tag: "v0.4.2",
-  version: "0.4.2",
-  date: "2026-10-29T19:58:17Z",
-  url: `${GITHUB_URL}/releases/tag/v0.4.2`,
+  tag: "v0.4.5",
+  version: "0.4.5",
+  date: "2026-10-30T18:37:04Z",
+  url: `${GITHUB_URL}/releases/tag/v0.4.5`,
   windows: {
-    name: "launchme-0.4.2-win64.zip",
-    size: 214637796,
-    url: `${GITHUB_URL}/releases/download/v0.4.2/launchme-0.4.2-win64.zip`,
+    name: "launchme-0.4.5-win64.zip",
+    size: 214654010,
+    url: `${GITHUB_URL}/releases/download/v0.4.5/launchme-0.4.5-win64.zip`,
   },
   linux: {
-    name: "launchme-0.4.2-x86_64.AppImage",
-    size: 282012152,
-    url: `${GITHUB_URL}/releases/download/v0.4.2/launchme-0.4.2-x86_64.AppImage`,
+    name: "launchme-0.4.5-x86_64.AppImage",
+    size: 282118648,
+    url: `${GITHUB_URL}/releases/download/v0.4.5/launchme-0.4.5-x86_64.AppImage`,
   },
-  stars: 44,
+  stars: 46,
 };
 
 type GhAsset = { name: string; size: number; browser_download_url: string };
