@@ -124,5 +124,5 @@ export function formatSize(bytes: number | undefined | null): string {
 export function formatDate(iso: string | null, lang: "en" | "pl"): string {
   if (!iso) return "";
   const date = new Date(iso);
-  return date.toLocaleDateString(lang === "pl" ? "pl-PL" : "en-GB", { day: "numeric", month: "short", year: "numeric" });
+  return date.toLocaleDateString(lang === "pl" ? "pl-PL" : "en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
 }
