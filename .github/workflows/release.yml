@@ -27,6 +27,15 @@ jobs:
   windows:
     name: Windows installer and ZIP
     runs-on: windows-2025
+    # Code signing through SignPath Foundation (free for open source):
+    # launchme.exe before it is packed, then the installer. Until the SIGNPATH_API_TOKEN secret
+    # exists the steps are skipped and the files stay unsigned (setup: .signpath/README.md).
+    env:
+      SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+      SIGNPATH_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+      SIGNPATH_PROJECT_SLUG: launchme
+      # Tags: the release certificate; manual runs: SignPath's test certificate.
+      SIGNPATH_POLICY_SLUG: ${{ startsWith(github.ref, 'refs/tags/') && 'release-signing' || 'test-signing' }}
     steps:
       - uses: actions/checkout@v7
 
@@ -50,12 +59,83 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           cmake --install build/temp/ci --config Release --component Runtime --prefix build/vs
 
+      - name: Upload launchme.exe for signing
+        id: unsigned-exe
+        if: env.SIGNPATH_API_TOKEN != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: unsigned-launchme
+          path: build/vs/launchme.exe
+          retention-days: 1
+
+      - name: Sign launchme.exe
+        if: env.SIGNPATH_API_TOKEN != ''
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ env.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ env.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ env.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ env.SIGNPATH_POLICY_SLUG }}
+          artifact-configuration-slug: launchme-exe
+          github-artifact-id: ${{ steps.unsigned-exe.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 1800
+          output-artifact-directory: build/signed-exe
+
+      # The installer and the ZIP are built from the signed program.
+      - name: Restore the signed launchme.exe
+        if: env.SIGNPATH_API_TOKEN != ''
+        shell: pwsh
+        run: Copy-Item build/signed-exe/launchme.exe build/vs/launchme.exe -Force
+
       - name: Install Inno Setup
         run: choco upgrade innosetup -y --no-progress
 
       - name: Build the installer
         shell: pwsh
         run: ./tools/build-installer.ps1 -SkipBuild
+
+      - name: Upload the installer for signing
+        id: unsigned-setup
+        if: env.SIGNPATH_API_TOKEN != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: unsigned-setup
+          path: build/installer/launchme-${{ steps.version.outputs.version }}-win64-setup.exe
+          retention-days: 1
+
+      - name: Sign the installer
+        if: env.SIGNPATH_API_TOKEN != ''
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ env.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ env.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ env.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ env.SIGNPATH_POLICY_SLUG }}
+          artifact-configuration-slug: launchme-setup
+          github-artifact-id: ${{ steps.unsigned-setup.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 1800
+          output-artifact-directory: build/signed-setup
+
+      - name: Restore the signed installer
+        if: env.SIGNPATH_API_TOKEN != ''
+        shell: pwsh
+        run: Copy-Item build/signed-setup/*.exe build/installer/ -Force
+
+      # A release must not go out with an unsigned file once signing is set up.
+      - name: Check the signatures
+        if: env.SIGNPATH_API_TOKEN != ''
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          foreach ($file in @('build/vs/launchme.exe', "build/installer/launchme-$env:VERSION-win64-setup.exe")) {
+            $signature = Get-AuthenticodeSignature -LiteralPath $file
+            "$file : $($signature.Status) $($signature.SignerCertificate.Subject)"
+            if (!$signature.SignerCertificate) { throw "$file is not signed" }
+            if ($env:GITHUB_REF -like 'refs/tags/*' -and $signature.Status -ne 'Valid') { throw "$file : $($signature.StatusMessage)" }
+          }
 
       # The same files under one launchme/ folder with forward slashes, as src/platform/updater.cpp
       # unpacks it (cmake -E tar, like the plugin packages; Compress-Archive can write backslashes).
