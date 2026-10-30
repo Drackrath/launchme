@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.24)
-project(launchme VERSION 0.4.4 LANGUAGES C CXX)
+project(launchme VERSION 0.4.5 LANGUAGES C CXX)
 
 if(NOT WIN32)
-    # Linux port in progress (docs/linux-port.md): the shared core and its tests, no launcher UI yet.
+    # Linux (highly experimental, docs/linux-port.md): the shared core, its tests and the launcher on SDL3 + Skia.
     include(cmake/Linux.cmake)
     return()
 endif()
