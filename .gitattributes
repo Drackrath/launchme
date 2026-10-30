@@ -1,0 +1,2 @@
+# Shell scripts keep LF everywhere, also in a Windows checkout (.github/workflows/release.yml runs them in Git Bash).
+*.sh text eol=lf
