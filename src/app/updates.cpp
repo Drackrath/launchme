@@ -72,6 +72,11 @@ void Launcher::initializeUpdates() {
         updater::recordInstalledVersion(update_app_dir_, app_version_); // An installed copy's uninstall entry.
 #endif
     }
+#ifdef _WIN32
+    // A system-wide install updates through its Setup, downloaded beside the settings.
+    update_.system = updater::systemInstall(update_app_dir_);
+    if (std::filesystem::exists(userConfigDirectory() / updater::work_folder, ec)) std::filesystem::remove_all(userConfigDirectory() / updater::work_folder, ec);
+#endif
     // Co nowego: written by the version that installed this one, shown once.
     const auto file = whatsNewFile();
     if (std::filesystem::exists(file, ec)) {
@@ -175,8 +180,24 @@ void Launcher::startUpdate() {
     update_.error.clear();
     update_.files.clear();
     const auto generation = ++update_.generation;
+    if (update_.system) { // The download is the release's Setup (also for the row's percent).
+        auto& available = *update_.available;
+        if (available.installer_url.empty()) {
+            update_.phase = Phase::failed;
+            update_.error = tr(L"Ta wersja nie ma instalatora. Pobierz ją ze strony wydania.");
+            showNotification(NotificationKind::error, tr(L"Aktualizacja nie powiodła się"), update_.error);
+            if (settingsOpen()) buildSettingsRows();
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            return;
+        }
+        available.package_url = available.installer_url;
+        available.package_size = available.installer_size;
+        available.sha256 = available.installer_sha256;
+    }
     const auto release = *update_.available;
+    const bool machine = update_.system;
     const auto app = update_app_dir_.empty() ? moduleFolder() : update_app_dir_;
+    const auto setup_folder = userConfigDirectory() / updater::work_folder; // Program Files is not writable.
     const auto alive = alive_;
     const auto window = hwnd_;
     const auto post = [alive, window](std::function<void(Launcher&)> run) {
@@ -185,10 +206,10 @@ void Launcher::startUpdate() {
         message->run = std::move(run);
         if (PostMessageW(window, remote_message, 0, reinterpret_cast<LPARAM>(message.get()))) message.release();
     };
-    work_.start([generation, release, app, alive, post, download = update_download_] {
-        const auto folder = app / updater::work_folder;
+    work_.start([generation, release, machine, app, setup_folder, alive, post, download = update_download_] {
+        const auto folder = machine ? setup_folder : app / updater::work_folder;
 #ifdef _WIN32
-        const auto zip = folder / (L"launchme-" + release.version + L"-win64.zip");
+        const auto zip = folder / (L"launchme-" + release.version + (machine ? L"-win64-setup.exe" : L"-win64.zip"));
 #else
         const auto zip = folder / (L"launchme-" + release.version + L"-x86_64.AppImage"); // The package is the AppImage.
 #endif
@@ -209,7 +230,10 @@ void Launcher::startUpdate() {
                    httpDownload(release.package_url, part, release.package_size, [alive] { return !alive->load(); }, progress, updater::allowedDownload) == DownloadError::none))
             error = tr(L"Nie udało się pobrać paczki z GitHuba.");
         else if (updater::sha256File(part) != release.sha256) { error = tr(L"Pobrana paczka jest uszkodzona (inna suma SHA-256)."); DeleteFileW(part.wstring().c_str()); }
-        else {
+        else if (machine) {
+            if (MoveFileExW(part.wstring().c_str(), zip.wstring().c_str(), MOVEFILE_REPLACE_EXISTING)) files = {zip}; // Run by installUpdate.
+            else error = tr(L"Brak zapisu w folderze Launchme: ") + folder.wstring();
+        } else {
             MoveFileExW(part.wstring().c_str(), zip.wstring().c_str(), MOVEFILE_REPLACE_EXISTING);
             std::wstring detail;
             if (auto unpacked = updater::unpack(zip, folder / L"staging", detail)) files = std::move(*unpacked);
@@ -263,6 +287,28 @@ void Launcher::installUpdate() {
         if (settingsOpen()) buildSettingsRows();
         InvalidateRect(hwnd_, nullptr, FALSE);
     };
+#ifdef _WIN32
+    if (update_.system) {
+        // The new Setup, elevated, closes this launcher (Restart Manager),
+        // installs for all users and starts the new version as this user (/RELAUNCH, runasoriginaluser).
+        atomic_file::write(whatsNewFile(), text_encoding::utf8Lenient(release.version + L"\n" + release.notes));
+        const auto setup = update_.files.front().wstring();
+        SHELLEXECUTEINFOW info{sizeof(info)};
+        info.fMask = SEE_MASK_NOASYNC;
+        info.lpVerb = L"runas";
+        info.lpFile = setup.c_str();
+        info.lpParameters = L"/SILENT /SUPPRESSMSGBOXES /NORESTART /ALLUSERS /RELAUNCH=1";
+        info.nShow = SW_SHOWNORMAL;
+        if (!ShellExecuteExW(&info)) { // Also when the administrator prompt was declined.
+            DeleteFileW(whatsNewFile().wstring().c_str());
+            fail(tr(L"Aktualizacja wymaga zgody administratora."));
+            return;
+        }
+        diagnostics::log("info", L"Running the " + release.version + L" installer; closing");
+        beginClose();
+        return;
+    }
+#endif
     std::wstring error;
     if (!updater::apply(app / updater::work_folder / L"staging", update_.files, app, error)) { fail(error); return; }
     // Its changes, for the new version's first start.
@@ -304,7 +350,8 @@ std::tuple<std::wstring, std::wstring, std::wstring> Launcher::updateRow() const
         break;
     case Phase::idle:
         if (available) {
-            help = tr(L"Pobierze paczkę z GitHuba, sprawdzi ją i uruchomi Launchme ponownie. Zmiany zobaczysz po aktualizacji.");
+            help = update_.system ? tr(L"Pobierze instalator z GitHuba, sprawdzi go i poprosi o zgodę administratora (instalacja dla wszystkich użytkowników).")
+                                  : tr(L"Pobierze paczkę z GitHuba, sprawdzi ją i uruchomi Launchme ponownie. Zmiany zobaczysz po aktualizacji.");
             button = tr(L"Aktualizuj");
         } else {
             help = tr(L"Sprawdza, czy na GitHubie jest nowsza wersja.");

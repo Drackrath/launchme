@@ -21,5 +21,6 @@ struct UpdateState {
     ULONGLONG next_check = 0;                   // GetTickCount64 of the next look; 0: not scheduled yet.
     uint32_t generation = 0;
     bool manual = false;                        // Sprawdź teraz: also say when there is none.
+    bool system = false;                        // A system-wide install: files = {the downloaded Setup}, run elevated.
 };
 } // namespace launcher_state
