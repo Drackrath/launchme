@@ -1,6 +1,7 @@
 ![launchme](docs/branding/readme-banner.svg)
 
-**[Changelog](changelog/)** · **[Download](../../releases/latest)**
+**[Website](https://uxandai.github.io/launchme/)** · **[Changelog](changelog/)** · **[Download](../../releases/latest)** ·
+**[Architecture](docs/ARCHITECTURE.md)**
 
 A full-screen, console-style game launcher for Windows 10/11, built for a gamepad.
 It merges Steam (collections and non-Steam shortcuts), GOG, Battle.net, EA app, Ubisoft Connect,
@@ -32,28 +33,35 @@ The AI companion and Tarot speak English or Polish.
 ## Download
 
 Grab `launchme-<version>-win64.zip` from [Releases](../../releases), unpack it anywhere and run
-`launchme.exe`. No installer and no Visual C++ Redistributable are needed. The bundled plugins
-(`plugin-packages/`) install themselves on first start; manage plugins in Settings → Plugins.
+`launchme.exe`. No installer and no Visual C++ Redistributable are needed (the WebView2 Evergreen Runtime that
+Windows 10/11 ship is used for Glance's pages). The bundled plugins (`plugin-packages/`) install themselves on
+first start; manage plugins in Settings → Plugins.
+
+Linux (highly experimental): `launchme-<version>-x86_64.AppImage` from the same release; make it executable and
+run it.
 
 ## Where settings and cache are stored
 
 Everything launchme writes goes to **`%LOCALAPPDATA%\Launchme`** (e.g. `C:\Users\<you>\AppData\Local\Launchme`),
-never next to the EXE:
+never next to the EXE. On Linux the folder is `$XDG_DATA_HOME/launchme` (usually `~/.local/share/launchme`).
 
 | What | Where |
 | --- | --- |
 | Settings | `settings.ini` |
-| API keys | `*_api_key.txt` (plain text) or `*.dat` (encrypted with Windows DPAPI for your account) |
-| Store accounts (GOG, Epic, EA) | `accounts\` (DPAPI) |
+| API keys | `*_api_key.txt` (plain text) or `*.dat` (encrypted: Windows DPAPI for your account; on Linux AES-256-GCM with the key in the desktop keyring, else in a `0600` file) |
+| Store accounts (GOG, Epic, EA, Battle.net imports) | `accounts\` (encrypted as above) |
 | Optional Aurelia binary / isolated session | `helpers\aurelia\` / `aurelia\` |
-| Optional Nile binary / Amazon Games session | `tools\nile-1.2.0.exe` / `amazon\` |
-| Optional Xbox helper / Xbox account session | `tools\launchme-xbox-0.1.0.exe` / `xbox\` |
+| Optional Nile binary / Amazon Games session | `tools\nile-1.2.0.exe` (Linux: `tools/nile-1.2.0`) / `amazon\` |
+| Optional Xbox helper / Xbox account session | `tools\launchme-xbox-0.1.0.exe` (Linux: next to the launcher or `$LAUNCHME_XBOX_HELPER`) / `xbox\` |
+| Optional Ludusavi (save backups) | `tools\ludusavi\` |
+| Installed plugins | `plugins\` |
 | Artwork cache | `covers`, `heroes`, `logos`, `posters`, `landscapes`, `stores`, `artwork` |
 | Metadata and ratings cache | `metadata`, `ratings`, `knowledge`, `glance` |
 | Downloaded game videos | `media\` (folder can be changed in Settings → Media & data) |
 | Glance browser profile | `browser\` |
 | Play journal and achievement history (Profile) | `play-journal.tsv`, `achievement-history.json` |
 | Logs and crash dumps | `launchme.log`, `crashes\` |
+| Linux: Proton/Wine tools, options and logs | `compatibilitytools/`, `linux/`, `logs/wine/` |
 
 Cache folders can be deleted — they are rebuilt from disk or the network — except your manual choices
 (`artwork\selections`, `*.manual-focus` crops, `metadata\*.rawg.json`). Set `LAUNCHME_CONFIG_DIR`
@@ -66,7 +74,8 @@ Settings → System → Help → **Open folder** (the version row) opens it.
   entrance, frosted glass, button colour themes and several focus-outline styles. In Flix, resting
   on a game for a few seconds unfolds its poster into a wide card with its background, logo and facts,
   pushing the neighbouring tiles aside.
-- **Made for a pad**: XInput, DualSense, DualShock 4 and generic HID pads, an on-screen keyboard, and a bottom
+- **Made for a pad**: XInput, DualSense, DualShock 4, Nintendo (Switch Pro, Joy-Con), Steam Controller and generic
+  HID pads, an on-screen keyboard, and a bottom
   bar with Search, All games, plugins, Downloads, Controllers, Sound, Widgets, Settings and Power. Keyboard and
   mouse work everywhere too. Paired Bluetooth pads stay listed, greyed, while Bluetooth is off.
 - **Launch screen**: starting a game shows its background, slowly zooming in, with its logo until the game's
@@ -81,6 +90,9 @@ Settings → System → Help → **Open folder** (the version row) opens it.
   gets its own (Settings → Interface → *Library views in TV mode*, with a reset for each). With game videos on, the video plays in List+'s picture, in Cinematic's focused tile
   and in the desktop window's details pane; PC games from other stores play the Steam trailer of the same game.
   Games you hide, and Steam's hidden and private games, stay out of sight until you show them.
+- **Collections**: Steam's collections (synced with the running client) and your own ones (create them from a
+  game's menu or the desktop window's sidebar, drag games onto them); each can be hidden from the home screen or
+  reordered, and your own ones deleted (Settings → Library → *Collections*).
 - **Playing**: Play on a game installed by another remembered Steam account switches Steam to that account
   first, and a Steam game can be tied to one account (game menu → *Steam account*); Install picks the Steam
   library (with its free space) in Launchme's own dialog. While a game runs, *Close game* sits next to Play.
@@ -107,7 +119,7 @@ Settings → System → Help → **Open folder** (the version row) opens it.
   (off by default) or by hand from its menu → *Saves*, and restored from there.
 - **Recently played** can also list games not installed, by the date they were added (Settings → Library →
   Visibility → *Not installed in Recently played*).
-- **Extended Aurelia integration** (Windows, optional, off by default): install/update the latest x64 helper
+- **Extended Aurelia integration** (Windows and Linux, optional, off by default): install/update the latest helper
   from Settings → Library → Steam → *Manage Aurelia*, and sign in there with a QR code from the Steam Mobile app or
   the account name and password. It manages only the games you choose (or all, by default)
   and adds managed Steam downloads, cloud saves synced before and after playing, cloud-save status and conflict
@@ -145,8 +157,8 @@ Settings → System → Help → **Open folder** (the version row) opens it.
   achievements, a year of achievement history, the games closest to 100 % and every platform with its hours.
 - **In-game Guide overlay** (experimental): back to the dashboard, close the game, optional FPS from PresentMon.
 - **Plugins** (ZIP + native DLL): HowLongToBeat (completion times in game details) and Achievements
-  (after [SuccessStory](https://github.com/Lacro59/playnite-successstory-plugin), MIT) ship with the build;
-  write your own with the [Plugin SDK](docs/plugins/README.md).
+  (after [SuccessStory](https://github.com/Lacro59/playnite-successstory-plugin), MIT) ship with the Windows build;
+  write your own with the [Plugin SDK](docs/plugins/README.md) (Windows DLLs; the host also loads Linux `.so` plugins).
 - **Updates**: Launchme looks for a new release on GitHub, says so, and updates itself with one click
   (Settings → System → Updates, or the icon on the desktop window's top bar), then shows what is new.
 - **Low memory mode** (Settings → System → Performance, on by default): artwork decoded at its size on
@@ -199,9 +211,10 @@ sets when she sleeps, and she makes up her neighbourhood there herself.
 
 ## Building
 
-Requirements: Windows 10/11 x64, Visual Studio 2026 (18) with the C++ workload and Windows SDK,
-Git and network access on the first configure (miniz, PresentMon and WebView2 SDK are fetched).
-The build uses the CMake bundled with Visual Studio.
+Requirements: Windows 10/11 x64, Visual Studio 2026 (18) Community with the C++ workload and Windows SDK
+(`tools\build.ps1` looks for the Community edition's bundled CMake), Git and network access on the first
+configure: miniz, PresentMon, the WebView2 SDK, QR Code generator, ONNX Runtime, SentencePiece, SQLite and the
+companion's MiniLM embedding model (about 118 MB) are fetched. Node.js is optional (one Steam bridge test).
 
 ```powershell
 .\tools\build.ps1          # Release build, runtime published to build\vs
@@ -211,7 +224,8 @@ The build uses the CMake bundled with Visual Studio.
 
 Close a running launcher before rebuilding. The C++ runtime is linked statically. Tests never launch
 games, store clients, installers or change system settings; `*_live_test.exe` and `tools/` probes are
-manual (network, real accounts).
+manual (network, real accounts). How the code is organised, the threading rules and how to add a setting,
+a screen or a test: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ### Linux (highly experimental, WIP)
 
@@ -230,10 +244,14 @@ Status, building (Skia is built from source by `tools/linux/build-skia.sh`) and 
 [docs/linux-port.md](docs/linux-port.md).
 
 ```sh
+tools/linux/build-skia.sh                  # once: Skia into ~/skia (or -DLAUNCHME_SKIA_DIR=<checkout>)
 cmake -S . -B build/linux -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build/linux
+ctest --test-dir build/linux               # optional
 ./build/linux/launchme
 ```
+
+`tools/linux/make-appimage.sh` packs a build into the release's AppImage.
 
 ## License
 
@@ -246,7 +264,9 @@ but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY o
 PURPOSE. The license text ships next to `launchme.exe` as `LICENSE.txt`. Releases up to 0.3.2 were
 published under the MIT License.
 
-Third-party licenses (miniz, PresentMon, WebView2 SDK, SuccessStory for the Achievements
-plugin, see [its notice](plugins/achievements/NOTICE.md)) ship in `plugin-packages/licenses/`. The publisher and
-developer logos are from HVR88's [Monochrome Gaming Logos](https://github.com/HVR88/Monochrome-Gaming-Logos)
-(their note: `assets/studios/LICENSE.txt`); the trademarks belong to their owners.
+Third-party licenses (miniz, PresentMon, WebView2 SDK, QR Code generator, SuccessStory for the Achievements
+plugin, see [its notice](plugins/achievements/NOTICE.md)) ship in `plugin-packages/licenses/`; those of ONNX
+Runtime and SentencePiece, used with the MiniLM model by the companion's memory, in `assets/companion-embeddings/`
+(SQLite is public domain). The publisher and developer logos
+are from HVR88's [Monochrome Gaming Logos](https://github.com/HVR88/Monochrome-Gaming-Logos) (their note:
+`res/studios/LICENSE.txt`, installed as `assets/studios/LICENSE.txt`); the trademarks belong to their owners.

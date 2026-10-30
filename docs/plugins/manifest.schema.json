@@ -4,12 +4,16 @@
   "title": "Launchme plugin manifest v1",
   "type": "object",
   "required": ["apiVersion", "architecture", "id", "version", "entry", "name"],
+  "allOf": [
+    {"if": {"properties": {"architecture": {"const": "windows-x64"}}}, "then": {"properties": {"entry": {"pattern": "\\.dll$"}}}},
+    {"if": {"properties": {"architecture": {"const": "linux-x64"}}}, "then": {"properties": {"entry": {"pattern": "\\.so$"}}}}
+  ],
   "properties": {
     "apiVersion": {"const": 1},
-    "architecture": {"const": "windows-x64"},
+    "architecture": {"enum": ["windows-x64", "linux-x64"], "description": "The host's: windows-x64 loads a .dll, linux-x64 a .so."},
     "id": {"$ref": "#/$defs/id"},
     "version": {"type": "string", "pattern": "^[0-9a-z.-]{1,40}$"},
-    "entry": {"type": "string", "maxLength": 200, "pattern": "^[A-Za-z0-9_./-]+\\.dll$", "description": "Relative package path; runtime additionally rejects traversal, device names, aliases and trailing dots."},
+    "entry": {"type": "string", "maxLength": 200, "pattern": "^[A-Za-z0-9_./-]+\\.(dll|so)$", "description": "Relative package path (.dll on windows-x64, .so on linux-x64); runtime additionally rejects traversal, device names, aliases and trailing dots."},
     "name": {"$ref": "#/$defs/text"},
     "description": {"$ref": "#/$defs/text"},
     "icon": {"type": "string", "maxLength": 200, "pattern": "^[A-Za-z0-9_./-]+\\.png$", "description": "Optional package-local PNG, up to 256 KiB; circle crop in widgets. Same path restrictions as entry."},

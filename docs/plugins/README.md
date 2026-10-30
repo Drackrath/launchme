@@ -1,6 +1,7 @@
-# Launchme plugins — SDK v1 (Windows x64)
+# Launchme plugins — SDK v1 (Windows x64, Linux x64)
 
-A plugin is a **ZIP containing a `plugin.json` manifest and a native DLL**. The launcher provides installation,
+A plugin is a **ZIP containing a `plugin.json` manifest and a native library** (a DLL on Windows; on Linux,
+where the launcher is highly experimental, a `.so` built for `linux-x64`). The launcher provides installation,
 updates, enabling/disabling, settings, gamepad navigation and native UI rendering.
 Plugin code communicates through a small C ABI using UTF-8 JSON messages.
 
@@ -26,6 +27,9 @@ After a build, the packages are in `build/vs/plugin-packages/`:
 | Package | Features |
 | --- | --- |
 | `launchme.howlongtobeat.zip` | block below playtime/achievements in Details, percentage relative to the main story, active-game widget and match-selection drawer; [usage](HOWLONGTOBEAT.md) |
+| `launchme.achievements.zip` | achievements of games outside Steam in Details: GOG and Epic (connected accounts), RetroAchievements for emulated games, RPCS3 and shadPS4 trophies; based on SuccessStory ([notice](../../plugins/achievements/NOTICE.md)) |
+
+The Linux build does not package plugins yet; the host there loads `linux-x64` packages installed from a ZIP.
 
 **Packages in `plugin-packages/` next to the EXE are automatically installed and enabled
 on first launch** (the file name `<id>.zip` must match the manifest `id`).
@@ -37,7 +41,7 @@ version at startup, keeping its settings and enabled state. It does not restore 
 plugin and does not downgrade a manually installed version.
 
 The `tags` manifest field adds labels to the tile: `widget`, `screen`, `integration`,
-`menu`, `context`, `drawer`. The labels are descriptive and have
+`menu`, `context`, `drawer`, `details`. The labels are descriptive and have
 no side effects: feature registration is still determined solely by `contributions`.
 
 The optional `icon` points to a PNG in the package (up to 256 KiB, path rules as for `entry`), and `iconText`
@@ -49,7 +53,8 @@ to the host, is shared with Guide and requires no changes on the DLL side.
 `tools/build.ps1` builds the modules, packs the ZIPs and publishes the finished Runtime to `build/vs`.
 The CMake working directory is `build/temp/vs`. Changing only the manifest also refreshes the package.
 The `Runtime` install component contains the EXE, launchme's `LICENSE.txt` (GPL-3.0-or-later), the HowLongToBeat
-ZIP and the miniz/PresentMon/WebView2 licenses.
+and Achievements ZIPs, the third-party licenses (`plugin-packages/licenses/`), the companion's embedding model
+with ONNX Runtime, the music and the studio logos.
 A custom plugin added to the build via `launchme_plugin(... COMPONENT <name>)` goes into a separate component.
 
 ## How to create a new plugin
@@ -64,10 +69,13 @@ A custom plugin added to the build via `launchme_plugin(... COMPONENT <name>)` g
 
 ```powershell
 $vs = 'C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin'
-& "$vs\cmake.exe" -S sdk/examples/hello -B build/vs/plugin-hello -G 'Visual Studio 18 2026' -A x64
-& "$vs\cmake.exe" --build build/vs/plugin-hello --config Release
-# ZIP: build/vs/plugin-hello/Release/example.hello.zip
+& "$vs\cmake.exe" -S sdk/examples/hello -B build/temp/plugin-hello -G 'Visual Studio 18 2026' -A x64
+& "$vs\cmake.exe" --build build/temp/plugin-hello --config Release
+# ZIP: build/temp/plugin-hello/Release/example.hello.zip
 ```
+
+`python tools/validate_plugin_contracts.py` (needs `pip install jsonschema`) checks every manifest in the
+repository and the SDK's request/response examples against the schemas.
 
 A real-world example: [`plugins/howlongtobeat`](../../plugins/howlongtobeat). C++ and Rust are both suitable as long as they implement
 the same C ABI; C++ compiler compatibility and passing STL types are not required.
@@ -75,8 +83,10 @@ the same C ABI; C++ compiler compatibility and passing STL types are not require
 ## v1 format and limits
 
 - `plugin.json` in the ZIP root, max. 64 KiB. Schema: [manifest.schema.json](manifest.schema.json).
-- `apiVersion: 1`, `architecture: "windows-x64"`, `entry` points to the DLL inside the package.
-- A new package does not run any code during installation. The host checks the manifest and PE/x64;
+- `apiVersion: 1`, `architecture: "windows-x64"` (`entry`: a `.dll`) or `"linux-x64"` (`entry`: a `.so`), the
+  host's own; `entry` points to the library inside the package.
+- A new package does not run any code during installation. The host checks the manifest and the library's
+  header (PE x64 on Windows, ELF x86-64 on Linux);
   ABI export compatibility and `activate` are checked only when the plugin is enabled. When an
   active plugin is updated, the new module is checked before the change is committed.
 - ZIP: max. 64 MiB, 256 entries, 32 MiB per file and 64 MiB in total after extraction;
@@ -101,10 +111,10 @@ I/O time, not block in `deactivate`, and not leave their own threads running whe
 
 ## Data and lifecycle
 
-In `%LOCALAPPDATA%\Launchme\plugins` (or the `LAUNCHME_CONFIG_DIR` profile):
+In `%LOCALAPPDATA%\Launchme\plugins` (Linux: `~/.local/share/launchme/plugins`; or the `LAUNCHME_CONFIG_DIR` profile):
 
 ```text
-registry.dat                    # atomic registry and settings, DPAPI-encrypted
+registry.dat                    # atomic registry and settings, encrypted (DPAPI; AES-GCM on Linux)
 packages/<id>/<revision>/        # immutable ZIP release, manifest and DLL
 data/<id>/                      # plugin-owned data/cache
 ```
@@ -112,7 +122,7 @@ data/<id>/                      # plugin-owned data/cache
 Installation extracts into a new staging directory, validates it, and then atomically updates the
 registry. A failure during extraction, the ABI check of an active update, or saving leaves the previous
 release and settings active. Old release files are deleted after that release's DLL is unloaded.
-Stored secrets are DPAPI-encrypted; the UI snapshot only indicates whether they are present.
+Stored secrets are encrypted (DPAPI; AES-GCM on Linux); the UI snapshot only indicates whether they are present.
 
 All extraction, loading and DLL calls happen on a single serialized worker.
 The UI uses snapshots; results from an old generation are discarded after the plugin's state changes.
@@ -131,6 +141,9 @@ prepare resources rather than perform irreversible operations.
 - `plugin_library_supplement_merge`: deduplication, installation/collection precedence, hiding,
   the not-installed filter, plugin disabling/removal and discarding of stale results.
 - `howlongtobeat_search_and_plugin_cache`: parser, cache and the real HowLongToBeat DLL without network access.
+- `hltb_details_and_active_game_widget`: HowLongToBeat in Details and its active-game widget.
+- `achievements_plugin_sources_and_rounds`, `plugin_achievements_for_other_stores`: the Achievements plugin's
+  sources and its lists in Details.
 
 OpenAPI is not needed: the interface is not HTTP. The machine-readable contracts are JSON Schema
 ([manifest](manifest.schema.json), [messages](api.schema.json)) and the C ABI header.

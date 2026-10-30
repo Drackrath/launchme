@@ -1,3 +1,6 @@
+> **Historical record.** The plan below was implemented and released in 0.3.1-0.3.2; the branches it names were
+> merged into `main` and deleted. Current behaviour: [AURELIA.md](../AURELIA.md).
+
 # Aurelia Windows integration: review plan
 
 Approved for implementation and pull-request review on 2026-10-27. Target release: 0.4.0,

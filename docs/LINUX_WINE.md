@@ -13,14 +13,20 @@ Everything below is Linux-only; the Windows build is unchanged.
 | Installed tools, downloads, archives, umu-database | `src/library/compat_tools.hpp/.cpp` |
 | The command, its environment, prefix tools | `src/platform/wine_runner.hpp/.cpp` |
 | Launching (`executeGameAction`) | `src/platform/launch.cpp` (Linux branch) |
-| Build and tests | `cmake/linux/Wine.cmake`, `tests/wine_runner_tests.cpp`, `tests/compat_tools_tests.cpp`, `tests/wine_smoke_test.cpp` |
+| The settings page (tools, prefixes, store launchers, options) and Steam-style launch options | `src/app/compat_settings.cpp`, `compat_rows.cpp`, `compat_activate.cpp`, `compat_workers.cpp` (shared: `compat_internal.hpp`, state: `compat_state.hpp`) |
+| ProtonDB and Steam Deck ratings | `src/net/protondb.hpp/.cpp`, `src/app/compat_ratings.cpp` |
+| Save backups | `src/library/ludusavi.hpp/.cpp` |
+| Shortcuts outside Launchme (desktop, applications menu, Steam) | `src/platform/game_shortcuts.hpp/.cpp`, `src/library/shortcuts.hpp/.cpp` |
+| Build and tests | `cmake/linux/Wine.cmake`, `tests/wine_runner_tests.cpp`, `tests/compat_tools_tests.cpp`, `tests/protondb_tests.cpp`, `tests/ludusavi_tests.cpp`, `tests/wine_smoke_test.cpp` |
 
 ## How a launch works
 
 1. The app attaches the game's context to its action: `action.compat = launch_options_store::compatLaunch(game)`.
    It holds the game key, title, umu `STORE` and store ID, Steam app ID, install folder, the effective
-   options (the game's own, else the global default; `compat_tool` "default" replaced by the global
-   choice) and the prefix (assigned on first use, see below).
+   options and the prefix (assigned on first use, see below). Since 0.4.1 a game keeps only its overrides:
+   the effective options are the global defaults with the fields and environment variables the game sets
+   itself (`launch_options_store::inherit`), so a later change of a default reaches every game that does not
+   override it. The tool is the game's own choice, else its prefix's, else the global one.
 2. `executeGameAction` sees a Windows extension and calls `wine_runner`: `.lnk` shortcuts are resolved
    inside the prefix first (MS-SHLLINK parser, path matched without case), `context()` reads the
    machine (installed tools, umu-run, gamemoderun/mangohud/gamescope, components, Steam's runtimes,
@@ -161,7 +167,9 @@ store (`egs`, `gog`, `amazon` with or without `amzn1.adg.product.`, `ubisoft`, `
 
 ## Options
 
-Every option, by its catalog ID (the JSON key). "Proton" means umu-run and Proton run directly;
+The main options, by their catalog ID (the JSON key); the complete list, with the extras (CachyOS and GE-Proton
+switches, lsfg-vk, NVIDIA and wrapper options), is `launch_options_catalog::options()` in
+`src/model/launch_options_catalog.cpp`. "Proton" means umu-run and Proton run directly;
 "Wine" a plain Wine build. Toggles set nothing while off.
 
 | ID | Section | Sets |
@@ -237,13 +245,16 @@ choice, number with limits, text, path, tool, environment), Polish and English l
 (`proton`, `wine`), the toggle it depends on (`fsr`, `gamescope`, `prefer_umu`), and `value()` /
 `setValue()` through canonical text. `winetricksVerbs()` lists popular verbs with labels.
 
-The store file `<config>/linux/launch_options.json` lists only options that differ from the defaults:
+The store file `<config>/linux/launch_options.json` (version 2) lists only what differs: the default's fields
+that differ from `LaunchOptions{}`, and for each game only its overrides (`environment` for the variables it sets,
+`environment_unset` for the default's variables it goes without). Version 1 files, with a full copy per game, are
+read as overrides of whatever differs from the default:
 
 ```json
 {"default":{"compat_tool":"launchme:GE-Proton11-11-x86_64","gamemode":true},
  "games":{"epic:Catnip":{"mangohud":true,"environment":[{"name":"DXVK_HUD","value":"fps"}]}},
  "prefix_root":"/home/u/Games/launchme/prefixes",
- "prefixes":{"epic:Catnip":"/home/u/Games/launchme/prefixes/borderlands-3"},"version":1}
+ "prefixes":{"epic:Catnip":"/home/u/Games/launchme/prefixes/borderlands-3"},"version":2}
 ```
 
 ## Prefix tools

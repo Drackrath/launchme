@@ -1,4 +1,4 @@
-# Aurelia integration (Windows)
+# Aurelia integration (Windows and Linux)
 
 An optional, out-of-process integration with [Drackrath/Aurelia](https://github.com/Drackrath/Aurelia).
 It is off by default and offered during first-run setup and in **Settings → Library → Steam** (its cog), in the
@@ -163,3 +163,12 @@ are reported rather than guessed. QR codes are drawn with Nayuki's
 Aurelia remains a separately downloaded GPL-3.0 program. Launchme's adapter communicates through its
 public CLI and contains no copied Aurelia implementation. Steam and Valve trademarks belong to Valve;
 Aurelia is an independent project.
+
+## Linux
+
+The same integration runs on the Linux build (highly experimental). Launchme installs
+`aurelia_linux_x86_64` (or `aurelia_linux_arm64`) from the same release, checks it as a 64-bit ELF executable and keeps it as
+`~/.local/share/launchme/helpers/aurelia/<release>/aurelia`; its isolated profile is `~/.local/share/launchme/aurelia`.
+The daemon's socket goes to the user's runtime folder (`$XDG_RUNTIME_DIR`), else to a private folder under `/tmp`.
+A game installed through Aurelia starts natively when it has a Linux build, otherwise through Aurelia's own
+Proton/Wine.

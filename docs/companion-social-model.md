@@ -1,7 +1,7 @@
 # Companion social dynamics (Generative Agents / Ensemble-inspired)
 
-This branch implements the nine requested improvements around the existing Gemini
-conversation model. It adds no new language model or inference dependency.
+These mechanisms (shipped in 0.3.0) sit around the existing conversation model, whichever provider
+answers (Gemini, Claude, Grok or Ollama). They add no new language model or inference dependency.
 
 ## Implemented mechanisms
 
@@ -86,37 +86,9 @@ Background consolidation uses the existing diary path, with bounded evidence and
 640 output tokens. It does not block the visible reply. No external service is
 called by automated tests.
 
-## Integration handoff
-
-- Branch: `generativeagents_ensemble`.
-- Base: `65f9a0c` (`main`, already including semantic memory).
-- Worktree: `build/generativeagents_ensemble` under the original checkout.
-- Build tree: `out` inside that worktree.
-- New core: `src/net/companion_social.*`; app bridge: `src/app/companion_social.cpp`.
-- Review and commit the worktree changes before merging the branch. An uncommitted
-  worktree diff is not transferred by `git merge`.
-- Preserve the semantic-memory implementation when resolving any later changes.
-- Run `companion_*` tests and the complete CTest suite after integration. The new
-  tests are `companion_social_rules_history_and_plans` and
-  `companion_social_dialogue_and_persistence`.
-
-### Local verification and installation (2026-10-27)
-
-- Release build succeeded. The companion group passed 19/19 before the full run.
-- Full CTest: 109/110 passed. `companion_clipboard_input` subsequently crashed with
-  `0xc000041d`; Windows recorded the faulting module as `ole32.dll`. Its isolated
-  rerun also crashed. This remains unresolved and must be checked before release.
-- The social UI scenario passed after its capture was made animation-independent.
-  `out/ui-captures/companion-social-journal.png` was generated and visually inspected.
-- Memory-reset stale responses, failed-diary retry, two same-second conversations
-  belonging to different characters, and serialization round trips have regression coverage.
-- The owner requested local chat testing instead of further release work. Runtime
-  was installed from this worktree into the original checkout's `build/vs`.
-  Its `launchme.exe` was verified byte-identical to `out/Release/launchme.exe`.
-  Existing local plugin packages are still present; they were not rebuilt here.
-- Changes remain uncommitted in this worktree; no release, merge, push, or version
-  bump was performed. A release agent must first review and include this diff.
-
 The implementation borrows architectural ideas, not source code, from Ensemble's
 social record/volition model, Generative Agents' reflection/planning loop,
 AI Town's contextual recall, and SillyTavern's timed context entries.
+
+Core: `src/net/companion_social.*`; app bridge: `src/app/companion_social.cpp`. Tests:
+`companion_social_rules_history_and_plans` and `companion_social_dialogue_and_persistence`.

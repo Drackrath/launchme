@@ -24,8 +24,8 @@ Short-lived state keeps its smaller limits: 30 recent remarks and 120 hidden tho
 in total, and 80 named emotional moments per companion. Notes are shortened to about 200
 characters, summaries to 300. Complete chat archives occupy additional disk space.
 
-The primary note/summary file is encrypted with Windows DPAPI. Its read/parse
-ceiling is 32 MiB, allowing the expanded archive to survive a restart. This is an
+The primary note/summary file is encrypted (Windows DPAPI; AES-256-GCM on Linux). Its read/parse
+ceiling is 128 MiB, allowing the expanded archive to survive a restart. This is an
 input ceiling, not preallocated space. Older saves remain readable; missing
 confirmation counts default to one. Portable backups preserve the new metadata.
 
@@ -63,15 +63,7 @@ bonus. An unrelated memory cannot become a keyword match merely because it is
 important. The explicit recall tool uses the same scoring, and associative recall
 also factors in memory importance. Owner filtering happens before selection.
 
-## Semantic retrieval: a possible next step
+## Semantic retrieval
 
-Current retrieval uses words/stems plus a two-hop association graph, not embeddings.
-A semantic index could match paraphrases such as “an exhausting day” and “feeling
-worn out” without shared keywords.
-
-For this scale, a local embedding index is sufficient; a separate database server
-is optional. A future implementation should combine keyword and vector results,
-then rank by relevance, importance, evidence quality and recency. It needs an
-explicit embedding model/provider, versioned vectors, invalidation after edits or
-deletion, and the same companion ownership filters. Retrieval must keep the current
-bounded prompt budget. No embedding model or vector database is installed by this change.
+Since 0.2.6 keyword recall is combined with a local vector index (a small multilingual embedding model on
+the CPU, no service): see [companion-semantic-memory.md](companion-semantic-memory.md).

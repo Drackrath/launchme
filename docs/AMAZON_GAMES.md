@@ -1,4 +1,4 @@
-# Amazon Games (Windows)
+# Amazon Games
 
 Amazon Games is one of the PC platforms in **Settings → Library**. It works through
 [Nile](https://github.com/imLinguin/nile), an open-source (GPL-3.0) command-line client that is **not bundled**:
@@ -46,3 +46,10 @@ files (`current_user.json`, `library.json`, `installed.json`) for the library; t
 - `src/app/amazon.cpp`, `src/app/platform_settings.cpp`: the platform page, sign-in, install dialog.
 - `amazon_tests` (fixture files and a fake Nile) and `launcher_ui_tests --amazon` (settings, sign-in, install
   dialog, uninstall question and launch; PNGs with `LAUNCHME_UI_CAPTURE_DIR`). No real account or helper.
+
+## Linux
+
+On the Linux build (highly experimental) **Download** fetches Nile's Linux binary of the same pinned release
+(`nile_linux_x86_64` or `nile_linux_arm64`, size and SHA-256 checked) as `~/.local/share/launchme/tools/nile-1.2.0`.
+Games install to `~/Games/Amazon/<title>` and run through Proton or Wine with the game's options
+(Settings â†’ Library â†’ Proton i Wine, [LINUX_WINE.md](LINUX_WINE.md)).

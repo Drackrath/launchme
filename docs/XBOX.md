@@ -1,4 +1,4 @@
-# Xbox (Windows)
+# Xbox
 
 Xbox is one of the PC platforms in **Settings → Library**. Games the **Xbox app** installed are found without
 anything else (Gaming Services' own records) and start through Windows like from the Start menu.
@@ -58,3 +58,10 @@ Microsoft (as Windows itself does). **Account connection → Sign out** removes 
 - `xbox_account_tests` (fixture files and a fake helper) and `launcher_ui_tests --xbox` (settings, sign-in, the
   Xbox app hand-off, the own install dialog, uninstall and launch; PNGs with `LAUNCHME_UI_CAPTURE_DIR`). No real
   account or helper.
+
+## Linux
+
+On the Linux build (highly experimental) the helper is not downloaded: `tools/build-xbox-helper.sh` builds
+`launchme-xbox` (Rust; its sign-in window is GTK 4 with WebKitGTK 6.0), the AppImage ships it next to the launcher, and
+`LAUNCHME_XBOX_HELPER` can name another build. Games install to `~/Games/Xbox/<title>` and run through Proton or
+Wine like other Windows games ([LINUX_WINE.md](LINUX_WINE.md)).

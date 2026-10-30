@@ -2,7 +2,8 @@
 
 ## ABI and memory ownership
 
-DLL export: `const LaunchmePluginV1* __cdecl launchme_plugin_v1(uint32_t host_abi)`.
+Library export: `const LaunchmePluginV1* LAUNCHME_CALL launchme_plugin_v1(uint32_t host_abi)` (`LAUNCHME_CALL` is
+`__cdecl` on Windows and empty elsewhere; see `sdk/launchme_plugin.h`).
 Return a stable pointer to the `{size, abi, invoke}` table, or `NULL` if the host version
 is not supported. `size >= sizeof(LaunchmePluginV1)`, `abi == 1`.
 
@@ -37,7 +38,8 @@ void emit(void* context, const char* json, uint32_t length);
 ```
 
 Settings are a current snapshot on **every** call. Changing them does not require
-restarting the DLL or a separate event. `locale` is `pl` or `en`; lifecycle calls use `en`.
+restarting the DLL or a separate event. `locale` is `pl` or `en` (users of the other interface languages get
+`en`); lifecycle calls use `en`.
 
 | Method | `params` | Response |
 | --- | --- | --- |

@@ -13,7 +13,7 @@ or if the model is unavailable. The setting can be disabled without deleting mem
   schemas, learned concepts, key relationship memories, shared phrases and named
   entities. Private off-screen episodes and hidden thoughts are not indexed.
 - Only `companion_vectors.dat` is new: a SQLite database serialized and encrypted
-  using Windows DPAPI. SQLite runs in memory; there is no plaintext database or WAL
+  (Windows DPAPI; AES-256-GCM on Linux). SQLite runs in memory; there is no plaintext database or WAL
   on disk. It contains content hashes, normalized vectors and the encoder identity,
   not raw conversation text.
 - The first chat schedules existing memories on a background worker. Later changes
@@ -65,8 +65,8 @@ the language model.
 
 The model is approximately 118 MB, and the tokenizer approximately 5 MB; ONNX
 Runtime adds its DLL. These are downloaded and digest-verified during configuration,
-copied beside the executable, and included in the Runtime install component with
-license notices. The original model/tokenizer digests are also checked before loading.
+installed with the Runtime component (ONNX Runtime beside the executable, the model,
+tokenizer and license notices in `assets/companion-embeddings/`). The original model/tokenizer digests are also checked before loading.
 10,000 cached vectors require about 15.4 MB before SQLite/encryption overhead.
 
 Build normally with CMake/Visual Studio. Tests named `companion_semantic_*` cover
@@ -75,6 +75,5 @@ missing/corrupt model-cache fallback, original-data preservation, real Polish an
 cross-language retrieval, the actual prompt/tool path, settings, and a fresh Runtime
 installation. The real-model test uses synthetic examples and never reads a real profile.
 
-For an isolated branch preview, set `LAUNCHME_CONFIG_DIR` to a fresh absolute test
-directory before launching. To use existing memories later, run normally after
-closing the other launcher; the new index is added alongside the existing files.
+To try it on a separate profile, set `LAUNCHME_CONFIG_DIR` to a fresh absolute directory before launching;
+an existing profile gets the index added alongside its files on the first chat.
