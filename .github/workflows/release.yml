@@ -1,6 +1,7 @@
 # Builds the release assets on native runners and attaches them to a GitHub Release, after
 # Aurelia's release workflow (https://github.com/Drackrath/Aurelia):
 #   launchme-<version>-win64-setup.exe   Windows installer (installer/launchme.iss)
+#   launchme-<version>-win64.zip         Windows without installer, the Windows updater's package (launchme/...)
 #   launchme-<version>-x86_64.AppImage   Linux (tools/linux/make-appimage.sh), the Linux updater's package
 #   SHA256SUMS (+ .sig/.pem)             every asset's SHA-256, signed keylessly with Sigstore cosign
 #
@@ -24,7 +25,7 @@ permissions:
 
 jobs:
   windows:
-    name: Windows installer
+    name: Windows installer and ZIP
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@v7
@@ -56,10 +57,27 @@ jobs:
         shell: pwsh
         run: ./tools/build-installer.ps1 -SkipBuild
 
+      # The same files under one launchme/ folder with forward slashes, as src/platform/updater.cpp
+      # unpacks it (cmake -E tar, like the plugin packages; Compress-Archive can write backslashes).
+      - name: Build the ZIP
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          New-Item -ItemType Directory -Force build/zip | Out-Null
+          Copy-Item -Recurse build/vs build/zip/launchme
+          Push-Location build/zip
+          cmake -E tar cf "../installer/launchme-$env:VERSION-win64.zip" --format=zip launchme
+          $code = $LASTEXITCODE
+          Pop-Location
+          if ($code) { exit $code }
+
       - uses: actions/upload-artifact@v7
         with:
-          name: windows-installer
-          path: build/installer/launchme-${{ steps.version.outputs.version }}-win64-setup.exe
+          name: windows
+          path: |
+            build/installer/launchme-${{ steps.version.outputs.version }}-win64-setup.exe
+            build/installer/launchme-${{ steps.version.outputs.version }}-win64.zip
 
       - name: Publish to the release
         if: startsWith(github.ref, 'refs/tags/')
@@ -67,7 +85,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.version }}
-        run: bash tools/release-upload.sh "build/installer/launchme-$VERSION-win64-setup.exe"
+        run: bash tools/release-upload.sh "build/installer/launchme-$VERSION-win64-setup.exe" "build/installer/launchme-$VERSION-win64.zip"
 
   linux:
     name: Linux AppImage
