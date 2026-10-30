@@ -78,17 +78,20 @@ Name: "pl"; MessagesFile: "compiler:Languages\Polish.isl"
 Name: "ptbr"; MessagesFile: "compiler:Languages\BrazilianPortuguese.isl"
 Name: "es"; MessagesFile: "compiler:Languages\Spanish.isl"
 Name: "de"; MessagesFile: "compiler:Languages\German.isl"
+Name: "ru"; MessagesFile: "compiler:Languages\Russian.isl"
 
 [CustomMessages]
 en.RemoveData=Also remove your Launchme settings, accounts and caches?%n%n%1%n%nChoose No to keep them for a later install.
 pl.RemoveData=Usunąć także ustawienia, konta i pamięć podręczną Launchme?%n%n%1%n%nWybierz Nie, aby zachować je na później.
 ptbr.RemoveData=Remover também as configurações, contas e caches do Launchme?%n%n%1%n%nEscolha Não para mantê-los para uma instalação futura.
 de.RemoveData=Auch die Einstellungen, Konten und Caches von Launchme entfernen?%n%n%1%n%nWähle Nein, um sie für eine spätere Installation zu behalten.
+ru.RemoveData=Удалить также настройки, учётные записи и кэш Launchme?%n%n%1%n%nВыберите «Нет», чтобы сохранить их для следующей установки.
 es.RemoveData=¿Eliminar también la configuración, las cuentas y la caché de Launchme?%n%n%1%n%nElige No para conservarlas para una instalación posterior.
 en.CloseLaunchme=Launchme is running. Close it, then choose OK to continue.
 pl.CloseLaunchme=Launchme jest uruchomiony. Zamknij go, a potem wybierz OK.
 ptbr.CloseLaunchme=O Launchme está em execução. Feche-o e escolha OK para continuar.
 de.CloseLaunchme=Launchme läuft gerade. Schließe es und wähle dann OK, um fortzufahren.
+ru.CloseLaunchme=Launchme запущен. Закройте его, затем нажмите OK, чтобы продолжить.
 es.CloseLaunchme=Launchme se está ejecutando. Ciérralo y elige Aceptar para continuar.
 
 [Tasks]
