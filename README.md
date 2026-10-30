@@ -32,9 +32,11 @@ The AI companion and Tarot speak English or Polish.
 
 ## Download
 
-Grab `launchme-<version>-win64-setup.exe` from [Releases](../../releases) and run it: it installs for your
-account only (no administrator prompt) into `%LOCALAPPDATA%\Programs\Launchme`, adds a Start menu entry and an
-uninstaller in Settings → Apps, and keeps updating itself from there. Silent install: `/VERYSILENT /SUPPRESSMSGBOXES`.
+Grab `launchme-<version>-win64-setup.exe` from [Releases](../../releases) and run it: by default it installs for
+your account only (no administrator prompt) into `%LOCALAPPDATA%\Programs\Launchme`, adds a Start menu entry and an
+uninstaller in Settings → Apps, and keeps updating itself from there. Choose **Install for all users** at the start
+(or pass `/ALLUSERS`) to install into `Program Files` instead; that copy updates by downloading the next installer
+and asking for administrator approval. Settings stay per user either way. Silent install: `/VERYSILENT /SUPPRESSMSGBOXES`.
 Prefer no installer? Unpack `launchme-<version>-win64.zip` anywhere and run `launchme.exe`; both update the same way.
 No Visual C++ Redistributable is needed (the WebView2 Evergreen Runtime that Windows 10/11 ship is used for
 Glance's pages). The bundled plugins (`plugin-packages/`) install themselves on first start; manage plugins in
