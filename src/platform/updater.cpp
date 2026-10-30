@@ -133,21 +133,31 @@ std::optional<Release> parseRelease(std::string_view text) {
     out.notes = plainNotes(body);
 #ifdef _WIN32
     const auto wanted = "launchme-" + tag + "-win64.zip";
+    const auto setup = "launchme-" + tag + "-win64-setup.exe";
 #else
     const auto wanted = "launchme-" + tag + "-x86_64.AppImage";
+    const std::string setup; // No installer.
 #endif
     if (const auto* assets = root->get("assets"); assets && assets->type == json::Value::Type::array) {
         for (const auto& asset : assets->elements) {
-            if (!asset.get("name") || asset.get("name")->stringOr() != wanted) continue;
+            const auto name = asset.get("name") ? asset.get("name")->stringOr() : std::string{};
+            const bool package = name == wanted, installer = !setup.empty() && name == setup;
+            if (!package && !installer) continue;
             const auto url = text_encoding::wideLenient(asset.get("browser_download_url") ? asset.get("browser_download_url")->stringOr() : std::string{});
             const auto* size = asset.get("size");
             if (!allowedDownload(url) || !size || size->type != json::Value::Type::number || size->numeric < 1 || size->numeric > 1024.0 * 1024 * 1024) continue;
-            out.package_url = url;
-            out.package_size = static_cast<uint64_t>(size->numeric);
             auto digest = asset.get("digest") ? asset.get("digest")->stringOr() : std::string{};
             if (digest.starts_with("sha256:")) digest = lowered(digest.substr(7));
-            out.sha256 = hex64(digest) ? digest : std::string{};
-            break;
+            if (!hex64(digest)) digest.clear();
+            if (package && out.package_url.empty()) {
+                out.package_url = url;
+                out.package_size = static_cast<uint64_t>(size->numeric);
+                out.sha256 = digest;
+            } else if (installer && out.installer_url.empty() && !digest.empty()) { // The notes' hash is the ZIP's.
+                out.installer_url = url;
+                out.installer_size = static_cast<uint64_t>(size->numeric);
+                out.installer_sha256 = digest;
+            }
         }
     }
     if (out.sha256.empty()) out.sha256 = bodyHash(body);
@@ -284,6 +294,35 @@ void rollback(const std::filesystem::path& app, const std::vector<std::filesyste
             MoveFileExW(old.c_str(), target.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
         } else DeleteFileW(target.c_str()); // A file the package added.
     }
+}
+
+namespace {
+// The uninstall entry's InstallLocation is `app`.
+bool installedAt(HKEY key, const std::filesystem::path& app) {
+    wchar_t location[4096]{};
+    DWORD size = sizeof(location) - sizeof(wchar_t), type = 0;
+    std::error_code ec;
+    return RegQueryValueExW(key, L"InstallLocation", nullptr, &type, reinterpret_cast<BYTE*>(location), &size) == ERROR_SUCCESS && type == REG_SZ &&
+           std::filesystem::equivalent(std::filesystem::path(location), app, ec);
+}
+}
+
+void recordInstalledVersion(const std::filesystem::path& app, std::wstring_view version) {
+    HKEY key = nullptr;
+    if (version.empty() || RegOpenKeyExW(HKEY_CURRENT_USER, uninstall_key, 0, KEY_QUERY_VALUE | KEY_SET_VALUE, &key) != ERROR_SUCCESS) return;
+    if (installedAt(key, app)) {
+        const std::wstring value(version);
+        RegSetValueExW(key, L"DisplayVersion", 0, REG_SZ, reinterpret_cast<const BYTE*>(value.c_str()), static_cast<DWORD>((value.size() + 1) * sizeof(wchar_t)));
+    }
+    RegCloseKey(key);
+}
+
+bool systemInstall(const std::filesystem::path& app) {
+    HKEY key = nullptr; // A 64-bit install's entry, in the registry's 64-bit view.
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, uninstall_key, 0, KEY_QUERY_VALUE | KEY_WOW64_64KEY, &key) != ERROR_SUCCESS) return false;
+    const bool here = installedAt(key, app);
+    RegCloseKey(key);
+    return here;
 }
 
 bool apply(const std::filesystem::path& staging, const std::vector<std::filesystem::path>& files, const std::filesystem::path& app, std::wstring& error) {

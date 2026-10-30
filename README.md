@@ -32,10 +32,18 @@ The AI companion and Tarot speak English or Polish.
 
 ## Download
 
-Grab `launchme-<version>-win64.zip` from [Releases](../../releases), unpack it anywhere and run
-`launchme.exe`. No installer and no Visual C++ Redistributable are needed (the WebView2 Evergreen Runtime that
-Windows 10/11 ship is used for Glance's pages). The bundled plugins (`plugin-packages/`) install themselves on
-first start; manage plugins in Settings → Plugins.
+Grab `launchme-<version>-win64-setup.exe` from [Releases](../../releases) and run it: by default it installs for
+your account only (no administrator prompt) into `%LOCALAPPDATA%\Programs\Launchme`, adds a Start menu entry and an
+uninstaller in Settings → Apps, and keeps updating itself from there. Choose **Install for all users** at the start
+(or pass `/ALLUSERS`) to install into `Program Files` instead; that copy updates by downloading the next installer
+and asking for administrator approval. Settings stay per user either way. Silent install: `/VERYSILENT /SUPPRESSMSGBOXES`.
+Prefer no installer? Unpack `launchme-<version>-win64.zip` anywhere and run `launchme.exe`; both update the same way.
+No Visual C++ Redistributable is needed (the WebView2 Evergreen Runtime that Windows 10/11 ship is used for
+Glance's pages). The bundled plugins (`plugin-packages/`) install themselves on first start; manage plugins in
+Settings → Plugins. Uninstalling keeps your settings unless you choose to remove them too.
+
+Building the installer: `tools\build-installer.ps1` (Inno Setup 6.6 or newer; `-SkipBuild` packs an existing
+`build\vs`, `-Sign` signs Setup and its uninstaller).
 
 Linux (highly experimental): `launchme-<version>-x86_64.AppImage` from the same release; make it executable and
 run it.

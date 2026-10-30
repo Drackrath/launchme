@@ -64,6 +64,19 @@ int releases() {
     CHECK(!parseRelease(release("v0.1.8", "launchme-0.1.9" + suffix, "sha256:" + hash, notes))); // Not this version's package.
     CHECK(!parseRelease(release("v0.1.8", "launchme-0.1.8" + suffix, "sha256:" + hash, notes, true))); // A pre-release.
     CHECK(!parseRelease(release("nightly", "launchme-nightly" + suffix, "sha256:" + hash, notes)) && !parseRelease("not json") && !parseRelease("{}"));
+#ifdef _WIN32
+    // The installer beside the package, for a system-wide install: only with its own digest.
+    const std::string setup = R"({"name":"launchme-0.1.8-win64-setup.exe","browser_download_url":"https://github.com/uxandai/launchme/releases/download/v0.1.8/launchme-0.1.8-win64-setup.exe","size":4096,"digest":)";
+    auto both = release("v0.1.8", "launchme-0.1.8" + suffix, "sha256:" + hash, notes);
+    both.replace(both.find(R"("assets":[)"), 10, R"("assets":[)" + setup + R"("sha256:)" + hash + R"("},)");
+    const auto with_setup = parseRelease(both);
+    CHECK(with_setup && with_setup->sha256 == hash && with_setup->installer_size == 4096 && with_setup->installer_sha256 == hash);
+    CHECK(with_setup->installer_url == L"https://github.com/uxandai/launchme/releases/download/v0.1.8/launchme-0.1.8-win64-setup.exe");
+    both = release("v0.1.8", "launchme-0.1.8" + suffix, "sha256:" + hash, notes);
+    both.replace(both.find(R"("assets":[)"), 10, R"("assets":[)" + setup + R"(""},)");
+    CHECK(parseRelease(both) && parseRelease(both)->installer_url.empty()); // The notes' hash is the ZIP's, not the installer's.
+    CHECK(parsed->installer_url.empty());
+#endif
     CHECK(allowedDownload(L"https://github.com/uxandai/launchme/releases/download/v1/a.zip") && allowedDownload(L"https://release-assets.githubusercontent.com/x"));
     CHECK(!allowedDownload(L"https://github.com/other/launchme/releases/download/v1/a.zip") && !allowedDownload(L"http://github.com/uxandai/launchme/releases/download/"));
     CHECK(newer(L"0.1.10", L"0.1.9") && newer(L"1.0.0", L"0.9.9") && !newer(L"0.1.7", L"0.1.7") && !newer(L"0.1.6", L"0.1.7"));

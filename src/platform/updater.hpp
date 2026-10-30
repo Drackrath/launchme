@@ -27,6 +27,11 @@ struct Release {
     uint64_t package_size = 0;
     std::string sha256;       // Lower-case hex; from the asset's digest, else the notes' "SHA-256:" line.
     std::wstring notes;       // The changelog as plain text (sections, bullets).
+    // launchme-<version>-win64-setup.exe (installer/launchme.iss) and its asset digest, for a
+    // system-wide install, which cannot swap its own files; empty when the release has none.
+    std::wstring installer_url;
+    uint64_t installer_size = 0;
+    std::string installer_sha256;
 };
 // GitHub's releases/latest answer. nullopt: not a release with the Windows package and its hash
 // (Linux: the AppImage and its hash, or this launcher is not running as an AppImage).
@@ -58,6 +63,15 @@ bool apply(const std::filesystem::path& staging, const std::vector<std::filesyst
 void rollback(const std::filesystem::path& app, const std::vector<std::filesystem::path>& files);
 // After the restart: every "*.update-old" under `app` and the staging folder removed (best effort).
 void cleanup(const std::filesystem::path& app);
+#ifdef _WIN32
+// installer/launchme.iss's per-user uninstall entry (its AppId). When `app` is the folder it
+// installed to, its DisplayVersion follows a self-update, so Settings → Apps and winget see it.
+inline constexpr wchar_t uninstall_key[] = L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{97E152F6-543A-4A06-B825-E709B1738F2A}_is1";
+void recordInstalledVersion(const std::filesystem::path& app, std::wstring_view version);
+// `app` is the installer's system-wide copy (its entry under HKLM, Program Files): it updates by
+// running the new Setup elevated.
+bool systemInstall(const std::filesystem::path& app);
+#endif
 inline constexpr wchar_t old_suffix[] = L".update-old";
 inline constexpr wchar_t work_folder[] = L".update"; // <app>\.update: the package and its staging.
 }
