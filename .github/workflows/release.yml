@@ -202,14 +202,16 @@ jobs:
             libavformat-dev libavcodec-dev libavutil-dev libswresample-dev libswscale-dev \
             libfontconfig-dev libfreetype-dev libharfbuzz-dev libgl-dev libegl-dev \
             libgtk-4-dev libwebkitgtk-6.0-dev libsoup-3.0-dev libx11-dev \
-            libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxss-dev libxfixes-dev libxkbcommon-dev \
-            libwayland-dev wayland-protocols libdrm-dev libgbm-dev libasound2-dev libudev-dev libdbus-1-dev
+            libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxss-dev libxfixes-dev libxtst-dev libxkbcommon-dev \
+            libwayland-dev wayland-protocols libdecor-0-dev libdrm-dev libgbm-dev libgles-dev \
+            libasound2-dev libpipewire-0.3-dev libudev-dev libdbus-1-dev libusb-1.0-0-dev
 
       # Skia takes the longest; it is rebuilt only when tools/linux/build-skia.sh changes. ~/skia is
-      # where build-skia.sh puts it and where CMake (LAUNCHME_SKIA_DIR) looks by default.
-      - name: Cache Skia
+      # where build-skia.sh puts it and where CMake (LAUNCHME_SKIA_DIR) looks by default. Restore and
+      # save are separate steps so a build is kept even when a later step fails.
+      - name: Restore Skia
         id: skia
-        uses: actions/cache@v6
+        uses: actions/cache/restore@v6
         with:
           path: |
             ~/skia
@@ -221,10 +223,21 @@ jobs:
         if: steps.skia.outputs.cache-hit != 'true'
         run: bash tools/linux/build-skia.sh
 
-      # SDL3 is not packaged in Ubuntu 24.04: the version tools/linux/wsl-build-sdl3.sh builds.
-      - name: Cache SDL3
+      - name: Save Skia
+        if: steps.skia.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ~/skia
+            !~/skia/.git
+            !~/skia/out/Release/obj
+          key: ${{ steps.skia.outputs.cache-primary-key }}
+
+      # SDL3 is not packaged in Ubuntu 24.04: the version tools/linux/wsl-build-sdl3.sh builds, with
+      # the X11, Wayland and audio back ends of SDL's README-linux.
+      - name: Restore SDL3
         id: sdl3
-        uses: actions/cache@v6
+        uses: actions/cache/restore@v6
         with:
           path: ~/sdl3
           key: sdl3-${{ runner.os }}-${{ env.SDL3_TAG }}
@@ -237,6 +250,13 @@ jobs:
             "-DCMAKE_INSTALL_PREFIX=$HOME/sdl3" -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF
           cmake --build "$RUNNER_TEMP/SDL/build"
           cmake --install "$RUNNER_TEMP/SDL/build"
+
+      - name: Save SDL3
+        if: steps.sdl3.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ~/sdl3
+          key: ${{ steps.sdl3.outputs.cache-primary-key }}
 
       - name: Build launchme (Release)
         run: |
