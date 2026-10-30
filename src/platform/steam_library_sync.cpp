@@ -1,4 +1,5 @@
 #include "steam_library_sync.hpp"
+#include "ascii_text.hpp"
 #include "steam_library_bridge.hpp"
 #include "text_encoding.hpp"
 #include "../net/json.hpp"
@@ -236,11 +237,7 @@ private:
         out.resize(length > 0 ? static_cast<size_t>(length) : 0);
         return out;
     }
-    static std::string lower(std::string_view text) {
-        std::string out(text);
-        for (auto& c : out) if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
-        return out;
-    }
+    static std::string lower(std::string_view text) { return ascii_text::lower(text); }
     static std::string header(std::string_view head, std::string_view name) {
         for (size_t at = head.find("\r\n"); at != std::string_view::npos;) {
             const auto end = head.find("\r\n", at + 2);

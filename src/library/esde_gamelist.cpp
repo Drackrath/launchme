@@ -1,4 +1,5 @@
 #include "esde_gamelist.hpp"
+#include "../platform/file_io.hpp"
 #include "../platform/system.hpp"
 #include "../platform/unicode_text.hpp"
 #include "emulation_platforms.hpp"
@@ -15,14 +16,7 @@
 
 namespace esde {
 namespace {
-std::string fileText(const std::filesystem::path& path, size_t limit) {
-    std::ifstream input(path, std::ios::binary | std::ios::ate);
-    if (!input || input.tellg() < 1 || input.tellg() > static_cast<std::streamoff>(limit)) return {};
-    const size_t size = static_cast<size_t>(input.tellg());
-    input.seekg(0);
-    std::string text(size, '\0');
-    return input.read(text.data(), static_cast<std::streamsize>(size)) ? text : std::string{};
-}
+std::string fileText(const std::filesystem::path& path, size_t limit) { return file_io::readText(path, limit); }
 
 void appendUtf8(std::string& out, uint32_t code) {
     if (!code || code > 0x10FFFF || (code >= 0xD800 && code <= 0xDFFF)) return;

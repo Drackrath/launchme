@@ -1,4 +1,5 @@
 #include "steamgriddb_search.hpp"
+#include "../platform/ascii_text.hpp"
 #include "../net/json.hpp"
 #include "../net/url_encoding.hpp"
 #include "../platform/text_encoding.hpp"
@@ -184,9 +185,7 @@ GridSearch search(const std::wstring& title, const std::wstring& key, const Artw
     return result;
 }
 bool validKey(const std::wstring& key) { return !key.empty() && key.size() <= 1024 && key.find_first_of(L"\r\n\0", 0, 3) == key.npos; }
-std::wstring trimmed(const std::wstring& text) {
-    const auto first = text.find_first_not_of(L" \r\n\t"); return first == text.npos ? L"" : text.substr(first, text.find_last_not_of(L" \r\n\t") - first + 1);
-}
+std::wstring trimmed(const std::wstring& text) { return std::wstring(ascii_text::trim(text)); }
 }
 int gridTitleScore(std::wstring_view title, std::wstring_view candidate) {
     const auto full_a = words(title), full_b = words(candidate);

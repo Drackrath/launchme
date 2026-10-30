@@ -5,7 +5,7 @@
 // friend who noticed, never as a report (no numbers: "a few hours", "quite a lot").
 // <config>/companion_week.txt keeps the snapshot it compares with: "day=<yyyymmdd>" and
 // "<gameKey> <minutes>" per owned game. Pure logic here; the app reads the index and the file on
-// its companion worker (src/app/companion.cpp).
+// its companion worker (src/app/companion_request.cpp).
 #include <algorithm>
 #include <charconv>
 #include <chrono>

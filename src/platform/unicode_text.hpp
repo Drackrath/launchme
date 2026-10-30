@@ -28,6 +28,15 @@ inline bool startsWithIgnoreCase(std::wstring_view text, std::wstring_view prefi
 inline bool endsWithIgnoreCase(std::wstring_view text, std::wstring_view suffix) {
     return text.size() >= suffix.size() && equalIgnoreCase(text.substr(text.size() - suffix.size()), suffix);
 }
+// Shortens text to at most `length` code units without splitting a UTF-16 surrogate pair (an
+// emoji at the cut goes whole); wchar_t is UTF-32 on Linux, where every unit is a character.
+inline void truncate(std::wstring& text, size_t length) {
+    if (text.size() <= length) return;
+    if constexpr (sizeof(wchar_t) == 2) {
+        if (length && text[length - 1] >= 0xD800 && text[length - 1] <= 0xDBFF) --length;
+    }
+    text.resize(length);
+}
 // The user's language order, ignoring case, numbers by value ("Part 2" before "Part 10"); ties
 // broken by compareIgnoreCase. <0, 0, >0.
 int compareNatural(std::wstring_view a, std::wstring_view b);

@@ -180,7 +180,7 @@ enum class Target {
     none, caption, minimize, maximize, close, search, search_clear, tool, sidebar_row, sidebar_add, companion_card,
     companion_bubble, card, card_play, card_check, popover_clear, popover_action, scrollbar, sort, installed, size_slider, pane_primary, pane_favorite,
     pane_more, pane_quick, pane_chip, pane_chip_add, pane_rating, pane_studio, bulk, menu_item, submenu_item, popover_row, popover_all,
-    empty_primary, empty_secondary, grid, widget_friend, widget_item, widget_all, widget_panel, library_add, library_refresh, companion_more,
+    empty_primary, empty_secondary, grid, library_add, library_refresh, companion_more,
     sidebar_toggle, pane_resize, pane_achievements, pane_cloud,
     pane_protondb // Linux: ProtonDB and Steam Deck ratings, opening ProtonDB's page.
 };
@@ -378,12 +378,6 @@ struct View {
     bool library_empty = false; // No games at all: the pane says so instead of "Wybierz grę".
     EmptyState empty;
     float launch = 0;
-    // Widżety under their shortcut: friends online (Steam) and the plugins' widgets.
-    struct WidgetFriend { std::wstring name, status; bool playing = false; };
-    bool widgets_open = false, widgets_loading = false;
-    std::wstring widgets_error;
-    std::vector<WidgetFriend> widget_friends;
-    std::vector<std::pair<std::wstring, std::wstring>> widget_items; // Title, text.
     bool companion_card = false;   // Her card at the sidebar's foot (Layout::companion_card).
     float sidebar_narrow = 0;      // 0 wide … 1 narrow (icons only): the toggle's animation (Layout::narrow).
     float pane_width = 0;          // The pane's width the user dragged it to; 0 automatic (Layout::pane_width).

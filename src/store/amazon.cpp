@@ -1,4 +1,5 @@
 #include "amazon.hpp"
+#include "../platform/file_io.hpp"
 #include "../net/http_download.hpp"
 #include "../net/json.hpp"
 #include "../platform/command_line.hpp"
@@ -45,16 +46,9 @@ constexpr auto helper_url = L"https://github.com/imLinguin/nile/releases/downloa
 
 std::string field(const json::Value& value, const char* key) { const auto* p = value.get(key); return p ? p->stringOr() : std::string{}; }
 const json::Value* child(const json::Value* value, const char* key) { return value ? value->get(key) : nullptr; }
-std::string readText(const std::filesystem::path& path, size_t limit = 32 * 1024 * 1024) {
-    std::ifstream in(path, std::ios::binary | std::ios::ate);
-    if (!in || in.tellg() <= 0 || in.tellg() > static_cast<std::streamoff>(limit)) return {};
-    std::string text(static_cast<size_t>(in.tellg()), '\0'); in.seekg(0);
-    if (!in.read(text.data(), static_cast<std::streamsize>(text.size()))) return {};
-    if (text.starts_with("\xef\xbb\xbf")) text.erase(0, 3);
-    return text;
-}
-bool regular(const std::filesystem::path& path) { std::error_code ec; return std::filesystem::is_regular_file(path, ec); }
-bool folder(const std::filesystem::path& path) { std::error_code ec; return std::filesystem::is_directory(path, ec); }
+std::string readText(const std::filesystem::path& path, size_t limit = 32 * 1024 * 1024) { return file_io::readTextWithoutBom(path, limit); }
+bool regular(const std::filesystem::path& path) { return file_io::isFile(path); }
+bool folder(const std::filesystem::path& path) { return file_io::isFolder(path); }
 bool token(std::string_view text, size_t minimum, size_t maximum, std::string_view extra = {}) {
     return text.size() >= minimum && text.size() <= maximum && std::all_of(text.begin(), text.end(), [&](unsigned char c) {
         return (c < 128 && std::isalnum(c)) || extra.find(static_cast<char>(c)) != std::string_view::npos;

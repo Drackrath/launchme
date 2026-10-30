@@ -1,4 +1,5 @@
 #include "steam_stats.hpp"
+#include "../platform/ascii_text.hpp"
 #include "steam_achievements.hpp"
 #include "../i18n/i18n.hpp"
 #include "../net/json.hpp"
@@ -15,11 +16,7 @@
 namespace {
 constexpr uint64_t steam_id_offset = 76561197960265728ULL;
 
-std::string lower(std::string_view text) {
-    std::string result(text);
-    for (auto& ch : result) if (ch >= 'A' && ch <= 'Z') ch = static_cast<char>(ch - 'A' + 'a');
-    return result;
-}
+std::string lower(std::string_view text) { return ascii_text::lower(text); }
 uint32_t number(std::string_view text) {
     uint32_t value = 0;
     const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);

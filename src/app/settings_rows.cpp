@@ -330,7 +330,7 @@ void Launcher::buildSettingsRows() {
             add({Id::custom_add, Control::action, tr(L"Dodaj grę"),
                 tr(L"Program, skrót lub skrypt spoza sklepów."), tr(L"Dodaj")});
 #ifndef _WIN32
-            // A Windows game from its installer: installed into a prefix of its own (compat_settings.cpp).
+            // A Windows game from its installer: installed into a prefix of its own (compat_workers.cpp).
             add({Id::compat_install_game, Control::action, tr(L"Dodaj grę z instalatora"),
                 tr(L"Instalator Windows (.exe, .msi) w nowym prefiksie; potem wskazujesz plik gry."), tr(L"Wybierz…")});
 #endif

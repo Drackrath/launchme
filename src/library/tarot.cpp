@@ -1,4 +1,5 @@
 #include "tarot.hpp"
+#include "../platform/file_io.hpp"
 #include "steam_tags_builtin.hpp"
 #include "../i18n/i18n.hpp"
 #include "../platform/atomic_file.hpp"
@@ -164,14 +165,7 @@ std::wstring pageName(const std::wstring& url) {
     swprintf_s(text, L"%016llx", static_cast<unsigned long long>(hash));
     return text;
 }
-std::string readPage(const std::filesystem::path& file, size_t limit) {
-    std::error_code error;
-    const auto size = std::filesystem::file_size(file, error);
-    if (error || !size || size > limit) return {};
-    std::string bytes(static_cast<size_t>(size), '\0');
-    std::ifstream input(file, std::ios::binary);
-    return input.read(bytes.data(), static_cast<std::streamsize>(bytes.size())) ? bytes : std::string{};
-}
+std::string readPage(const std::filesystem::path& file, size_t limit) { return file_io::readText(file, limit); }
 bool fresh(const std::filesystem::path& file) {
     std::error_code error;
     const auto stamp = std::filesystem::last_write_time(file, error);

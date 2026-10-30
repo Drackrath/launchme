@@ -5,6 +5,7 @@
 // to show the games' posters. Every card is laid out at 240 units wide and scaled, so its type
 // grows and shrinks with it.
 #include "renderer.hpp"
+#include "renderer_internal.hpp"
 
 #include <cmath>
 #include <numbers>
@@ -21,7 +22,7 @@ D2D1_COLOR_F gold(float a) { return rgba(0.89f, 0.73f, 0.44f, a); }
 D2D1_COLOR_F brightGold(float a) { return rgba(1.0f, 0.88f, 0.60f, a); }
 D2D1_COLOR_F parchment(float a) { return rgba(0.96f, 0.91f, 0.81f, a); }
 D2D1_COLOR_F lavender(float a) { return rgba(0.76f, 0.70f, 0.84f, a); }
-D2D1_RECT_F box(settings_ui::Rect r) { return D2D1::RectF(r.left, r.top, r.right, r.bottom); }
+using render_detail::box;
 D2D1_RECT_F inflate(D2D1_RECT_F r, float by) { return D2D1::RectF(r.left - by, r.top - by, r.right + by, r.bottom + by); }
 float lerp(float a, float b, float t) { return a + (b - a) * t; }
 float hash(uint32_t i) {

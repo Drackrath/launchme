@@ -1,4 +1,5 @@
 #include "renderer.hpp"
+#include "renderer_internal.hpp"
 #include "brand_icons.hpp"
 
 #include <algorithm>
@@ -8,7 +9,7 @@
 
 namespace {
 using palette::gray;
-D2D1_RECT_F rect(settings_ui::Rect r) { return D2D1::RectF(r.left, r.top, r.right, r.bottom); }
+using render_detail::box;
 D2D1_COLOR_F rgb(uint32_t color) {
     return D2D1::ColorF(((color >> 16) & 255) / 255.0f, ((color >> 8) & 255) / 255.0f, (color & 255) / 255.0f);
 }
@@ -35,11 +36,11 @@ void Renderer::drawSettings() {
     const auto accent = uiAccent();
     const auto fill = [&](Rect r, D2D1_COLOR_F ink, float radius = 12) {
         brush(ink);
-        target_->FillRoundedRectangle(D2D1::RoundedRect(rect(r), radius, radius), solid_.Get());
+        target_->FillRoundedRectangle(D2D1::RoundedRect(box(r), radius, radius), solid_.Get());
     };
     const auto outline = [&](Rect r, D2D1_COLOR_F ink, float thickness = 1.0f, float radius = 12) {
         brush(ink);
-        target_->DrawRoundedRectangle(D2D1::RoundedRect(rect(r), radius, radius), solid_.Get(), thickness);
+        target_->DrawRoundedRectangle(D2D1::RoundedRect(box(r), radius, radius), solid_.Get(), thickness);
     };
     // button_font_ is centre-aligned: a caption centred in its rectangle.
     const auto centered = [&](const std::wstring& value, Rect r, D2D1_COLOR_F ink) {
@@ -47,7 +48,7 @@ void Renderer::drawSettings() {
     };
     // PSfive's pills: glass over the frosted backdrop, the focused one white. Returns the ink.
     const auto button = [&](Rect r, bool focused, bool hovered, bool enabled = true) {
-        return drawButton(rect(r), focused && enabled ? 1.0f : 0.0f, 1, false, hovered, enabled);
+        return drawButton(box(r), focused && enabled ? 1.0f : 0.0f, 1, false, hovered, enabled);
     };
     const auto faint = [](D2D1_COLOR_F ink, float alpha) { ink.a *= alpha; return ink; };
     const auto chevron = [&](float x, float y, int direction, D2D1_COLOR_F ink) {
@@ -97,7 +98,7 @@ void Renderer::drawSettings() {
     const auto pill_target = state.backFocused() ? back : layout.categoryRail(state.category);
     const float solid = motion ? motion->rail_focus : state.options ? 0.0f : 1.0f;
     const Rect pill{pill_target.left, motion ? motion->pill_top : pill_target.top, pill_target.right, motion ? motion->pill_bottom : pill_target.bottom};
-    drawButtonGlass(rect(back), 1, false); // Back: a glass pill, the rail's white pill glides onto it.
+    drawButtonGlass(box(back), 1, false); // Back: a glass pill, the rail's white pill glides onto it.
     fill(pill, gray(std::lerp(1.0f, 0.91f, solid), std::lerp(0.07f, 1.0f, solid)), (pill.bottom - pill.top) * 0.5f);
     for (int i = 0; i < static_cast<int>(categories.size()); ++i) {
         const auto r = layout.categoryRail(i);
@@ -122,7 +123,7 @@ void Renderer::drawSettings() {
     };
     labels(false);
     if (solid > 0.004f) {
-        target_->PushAxisAlignedClip(rect(pill), D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+        target_->PushAxisAlignedClip(box(pill), D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
         labels(true);
         target_->PopAxisAlignedClip();
     }

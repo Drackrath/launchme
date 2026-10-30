@@ -16,15 +16,12 @@ using Kind = desktop_ui::SheetHit::Kind;
 namespace {
 using palette::gray;
 D2D1_COLOR_F rgb(float r, float g, float b, float a = 1) { return D2D1::ColorF(r, g, b, a); }
-D2D1_RECT_F box(Rect r) { return D2D1::RectF(r.left, r.top, r.right, r.bottom); }
+using render_detail::box;
+using render_detail::upper;
 float middle(Rect r) { return (r.top + r.bottom) * 0.5f; }
 const D2D1_COLOR_F panel_bg = rgb(0.071f, 0.076f, 0.089f);
 const D2D1_COLOR_F popup_bg = rgb(0.094f, 0.1f, 0.115f);
 const D2D1_COLOR_F card_bg = rgb(1, 1, 1, 0.035f);
-std::wstring upper(std::wstring value) {
-    if (!value.empty()) CharUpperBuffW(value.data(), static_cast<DWORD>(value.size()));
-    return value;
-}
 }
 
 // ---- Szczegóły ---------------------------------------------------------------------------------

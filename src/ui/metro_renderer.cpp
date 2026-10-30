@@ -3,6 +3,7 @@
 // store and console shortcuts are solid tiles of their own colour with a drawn glyph; Towarzyszka's
 // tile shows her close-up, and her line in a bubble beside it.
 #include "renderer.hpp"
+#include "renderer_internal.hpp"
 #include "metro_layout.hpp"
 
 #include <algorithm>
@@ -12,7 +13,7 @@
 
 namespace {
 using palette::gray;
-float smooth(float value) { const float t = std::clamp(value, 0.0f, 1.0f); return t * t * (3.0f - 2.0f * t); }
+using render_detail::smoothFade;
 D2D1_COLOR_F mix(D2D1_COLOR_F a, D2D1_COLOR_F b, float t, float alpha) {
     return D2D1::ColorF(std::lerp(a.r, b.r, t), std::lerp(a.g, b.g, t), std::lerp(a.b, b.b, t), alpha);
 }
@@ -29,7 +30,7 @@ void Renderer::drawMetro() {
     drawQuickShade();
     companion_tile_mouth_.reset();
     for (size_t i = 0; i < cards.size(); ++i) if (i != selected_) drawMetroTile(cards[i], i);
-    const float focus = smooth(context_->launch_progress);
+    const float focus = smoothFade(context_->launch_progress);
     if (focus > 0.001f) {
         brush(D2D1::ColorF(0.008f, 0.012f, 0.016f, focus * 0.82f));
         target_->FillRectangle(D2D1::RectF(0, 0, viewport_.width, viewport_.height), solid_.Get());
@@ -60,14 +61,14 @@ void Renderer::drawMetroTabs() {
     const auto below = static_cast<size_t>(std::floor(position));
     const auto above = std::min(below + 1, tabs.size() - 1);
     const float offset = std::lerp(lefts[below], lefts[above], position - static_cast<float>(below));
-    const float quiet = 1.0f - 0.6f * smooth(context_->quick_progress);
+    const float quiet = 1.0f - 0.6f * smoothFade(context_->quick_progress);
     metro_tab_rects_.assign(tabs.size(), {});
     for (size_t i = 0; i < tabs.size(); ++i) {
         const float left = metro_layout::left + lefts[i] - offset;
         metro_tab_rects_[i] = {left - 8, metro_layout::tabs_center - 34, left + widths[i] + 8, metro_layout::tabs_center + 30};
         if (left > viewport_.width || left + widths[i] < 0) continue;
         const float active = std::max(0.0f, 1.0f - std::abs(static_cast<float>(i) - position));
-        const float alpha = (left < metro_layout::left ? smooth((left + widths[i]) / (metro_layout::left + 60)) : 1.0f) * quiet;
+        const float alpha = (left < metro_layout::left ? smoothFade((left + widths[i]) / (metro_layout::left + 60)) : 1.0f) * quiet;
         if (alpha < 0.01f) continue;
         textLine(tabs[i], left, metro_layout::tabs_center, widths[i] + 8, metro_tab_font_.Get(), gray(std::lerp(0.42f, 0.97f, active), alpha));
         // The strip has the focus: an accent bar under the current tab, gliding with it.
@@ -129,7 +130,7 @@ void Renderer::drawMetroTile(const GameCard& card, size_t index) {
     const bool focused = index == selected_;
     // `card.emphasis` eases with the selection: the focused tile grows a little, the previous settles.
     const float emphasis = card.emphasis;
-    const float launch = focused ? smooth(context_->launch_progress) : 0.0f;
+    const float launch = focused ? smoothFade(context_->launch_progress) : 0.0f;
     const float scale = 1.0f + 0.035f * emphasis + 0.06f * launch;
     const float tile_w = w * scale, tile_h = h * scale;
     const float x = card.x - (tile_w - w) * 0.5f, y = card.y - (tile_h - h) * 0.5f;

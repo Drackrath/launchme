@@ -1,4 +1,6 @@
 #include "game_ratings.hpp"
+#include "../platform/file_io.hpp"
+#include "../platform/unix_time.hpp"
 #include "../net/json.hpp"
 #include "../net/url_encoding.hpp"
 #include "../platform/unicode_text.hpp"
@@ -18,9 +20,6 @@
 namespace ratings {
 namespace {
 constexpr uint64_t missing_lifetime = 7 * 24 * 60 * 60;
-uint64_t nowSeconds() {
-    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count());
-}
 std::optional<uint64_t> number(const json::Value* value, uint64_t maximum = UINT32_MAX) {
     if (!value || value->type != json::Value::Type::number || !std::isfinite(value->numeric) ||
         value->numeric < 0 || value->numeric > static_cast<double>(maximum) || std::floor(value->numeric) != value->numeric) return {};
@@ -35,13 +34,7 @@ bool safeSlug(std::string_view value) {
         return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-';
     });
 }
-std::string readSmall(const std::filesystem::path& file) {
-    std::ifstream input(file, std::ios::binary | std::ios::ate);
-    if (!input || input.tellg() <= 0 || input.tellg() > 16384) return {};
-    std::string bytes(static_cast<size_t>(input.tellg()), '\0'); input.seekg(0);
-    if (!input.read(bytes.data(), static_cast<std::streamsize>(bytes.size()))) return {};
-    return bytes;
-}
+std::string readSmall(const std::filesystem::path& file) { return file_io::readText(file, 16384); }
 Source source(const Game& game) { return steamArtwork(game) ? Source::steam : Source::rawg; }
 std::string identity(const Game& game) {
     // A renamed user shortcut must not inherit the previous title's rating.
@@ -113,7 +106,7 @@ std::wstring normalizedTitle(std::wstring_view name) {
 }
 bool saveIdentified(const std::filesystem::path& cache, const Game& game, const Rating& rating) {
     if (steamArtwork(game) || gameKey(game).empty() || rating.source != Source::rawg || !rating.rawg_id || !safeSlug(rating.slug)) return false;
-    return save(cache, game, {true, rating.available() ? std::optional<Rating>{rating} : std::nullopt}, nowSeconds(), true);
+    return save(cache, game, {true, rating.available() ? std::optional<Rating>{rating} : std::nullopt}, unix_time::now(), true);
 }
 int rawgPlatform(const Game& game) {
     if (game.kind != GameKind::nonsteam || game.platform.empty()) return 4; // PC stores and user-added PC games.
@@ -199,7 +192,7 @@ std::wstring url(const Rating& rating, uint32_t steam_id) {
 
 void collect(std::vector<Game> games, const std::filesystem::path& cache, const std::wstring& rawg_key,
              const std::atomic_bool& alive, const Publish& publish, const Backend& backend, Limits limits) {
-    const auto now = backend.now ? backend.now : std::function<uint64_t()>{nowSeconds};
+    const auto now = backend.now ? backend.now : std::function<uint64_t()>{unix_time::now};
     const auto wait = [&](std::chrono::milliseconds duration) {
         if (backend.wait) return backend.wait(duration) && alive.load();
         const auto until = std::chrono::steady_clock::now() + duration;

@@ -297,6 +297,7 @@ std::vector<uint8_t> artworkForGame(const Game& game, ArtworkKind kind,
         case ArtworkKind::hero: return heroForSteamApp(game.app_id, game.name, cache);
         case ArtworkKind::poster: return posterForSteamApp(game.app_id, game.name, cache, steam_root);
         case ArtworkKind::landscape: return landscapeForSteamApp(game.app_id, game.name, cache, steam_root);
+        case ArtworkKind::disc: break; // Discs have no Steam variant: the game's own folder below.
         }
     }
     const auto directory = gameArtworkDirectory(game, cache);

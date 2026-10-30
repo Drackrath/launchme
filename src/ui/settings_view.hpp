@@ -78,7 +78,7 @@ enum class Id { font, home_layout, ui_accent, accent, uninstalled, emulation, co
                    xbox_helper, xbox_refresh, xbox_logout, xbox_own_install,
                    // Biblioteka → Gry dodane ręcznie: find and download their missing covers.
                    custom_covers,
-                   // Linux: Biblioteka → Proton i Wine (src/app/compat_settings.cpp): the default tool, the
+                   // Linux: Biblioteka → Proton i Wine (src/app/compat_rows.cpp): the default tool, the
                    // installed tools and components, umu-launcher, downloads, the prefixes folder.
                    compat_default_tool, compat_defaults, compat_prefixes, compat_prefix_root, compat_umu, compat_tool,
                    compat_source, compat_release, compat_steam_target, compat_source_refresh, compat_status,
@@ -551,12 +551,12 @@ struct Layout {
     }
     float rowHeight(int index) const {
         if (compact) return compact_height;
-        for (const auto& [row, height] : talls) if (row == index) return height;
+        for (const auto& [row, tall] : talls) if (row == index) return tall;
         return row_height;
     }
     float rowOffset(int index) const {
         float extra = 0;
-        for (const auto& [row, height] : talls) if (row < index) extra += height - row_height;
+        for (const auto& [row, tall] : talls) if (row < index) extra += tall - row_height;
         return index * rowStep() + (plugin_list && index > 0 ? 80.0f : 0.0f) + extra + sectionOffset(index);
     }
     // Tiles of a Control::sources row (two halves) or Control::pads row (a sliding gallery whose

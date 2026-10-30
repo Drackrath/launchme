@@ -1,4 +1,5 @@
 #include "ubisoft.hpp"
+#include "../platform/file_io.hpp"
 #include "../net/json.hpp"
 #include "../platform/text_encoding.hpp"
 
@@ -52,14 +53,7 @@ uint32_t littleEndian(std::string_view bytes, size_t offset) {
     std::memcpy(&value, bytes.data() + offset, sizeof(value));
     return value;
 }
-std::string readFile(const std::filesystem::path& path, size_t limit) {
-    std::ifstream input(path, std::ios::binary | std::ios::ate);
-    if (!input || input.tellg() <= 0 || input.tellg() > static_cast<std::streamoff>(limit)) return {};
-    std::string bytes(static_cast<size_t>(input.tellg()), '\0');
-    input.seekg(0);
-    if (!input.read(bytes.data(), static_cast<std::streamsize>(bytes.size()))) return {};
-    return bytes;
-}
+std::string readFile(const std::filesystem::path& path, size_t limit) { return file_io::readText(path, limit); }
 bool decimalId(std::string_view text) {
     return !text.empty() && text.size() <= 10 && text.front() != '0' &&
            std::all_of(text.begin(), text.end(), [](char ch) { return ch >= '0' && ch <= '9'; });

@@ -1,6 +1,7 @@
 // Co nowego after an update (src/app/updates.cpp): a panel over the dimmed screen with the new
 // version, its changes as wrapped text that scrolls, and OK. Geometry: ui/update_view.hpp.
 #include "renderer.hpp"
+#include "renderer_internal.hpp"
 
 #include <algorithm>
 
@@ -8,7 +9,7 @@ using Microsoft::WRL::ComPtr;
 
 namespace {
 using palette::gray;
-D2D1_RECT_F box(settings_ui::Rect r) { return D2D1::RectF(r.left, r.top, r.right, r.bottom); }
+using render_detail::box;
 }
 
 void Renderer::drawWhatsNew() {

@@ -310,19 +310,19 @@ int LauncherUiTest::desktop(HWND window) {
             app.showAchievementList(list, true);
             app.paint();
             const auto& spots = app.renderer_.desktopHotspots();
-            const auto row = std::find_if(spots.begin(), spots.end(), [](const SheetHotspot& s) { return s.hit.kind == SheetHit::Kind::row && s.hit.index == 0; });
-            if (row == spots.end()) return 7660;
-            const float rx = (row->rect.left + row->rect.right) * 0.5f, ry = (row->rect.top + row->rect.bottom) * 0.5f;
-            const auto hit = app.desktopHotspotHit(rx, ry);
-            if (hit.kind != SheetHit::Kind::row || hit.index != 0) return 7661;
-            app.desktopPageActivate(hit, false);
+            const auto first = std::find_if(spots.begin(), spots.end(), [](const SheetHotspot& s) { return s.hit.kind == SheetHit::Kind::row && s.hit.index == 0; });
+            if (first == spots.end()) return 7660;
+            const float rx = (first->rect.left + first->rect.right) * 0.5f, ry = (first->rect.top + first->rect.bottom) * 0.5f;
+            const auto first_hit = app.desktopHotspotHit(rx, ry);
+            if (first_hit.kind != SheetHit::Kind::row || first_hit.index != 0) return 7661;
+            app.desktopPageActivate(first_hit, false);
             if (!app.achievements_.card || app.achievements_.selected != 0) return 7662;
             if (!capture(L"desktop-achievement-card.png")) return 7663;
             app.navigate(1);
             if (!app.achievements_.card || app.achievements_.selected != 1) return 7664;
             app.desktopPageActivate({SheetHit::Kind::dialog_cancel, 1}, false);
             if (app.achievements_.card || !app.achievementsOpen()) return 7665;
-            app.desktopPageActivate(hit, false);
+            app.desktopPageActivate(first_hit, false);
             app.back(); // Esc: the card first, then the list.
             if (app.achievements_.card || !app.achievementsOpen()) return 7666;
         }

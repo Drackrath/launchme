@@ -31,15 +31,15 @@ int main() {
     ludusavi::Query gog{0, "1207664663", L"The Witcher 3"};
     check(ludusavi::findArguments(gog) == std::vector<std::wstring>{L"find", L"--api", L"--gog-id", L"1207664663"}, "GOG ID");
     ludusavi::Query title{0, "", L"The Witcher 3 Wild Hunt"};
-    check(ludusavi::findArguments(title) == std::vector<std::wstring>{L"find", L"--api", L"--normalized", L"The Witcher 3 Wild Hunt"}, "title");
+    check(ludusavi::findArguments(title) == std::vector<std::wstring>{L"find", L"--api", L"--normalized", L"--", L"The Witcher 3 Wild Hunt"}, "title");
     check(ludusavi::parseFind(R"({"games":{"The Witcher 3: Wild Hunt":{"score":1.0}}})") == std::optional<std::wstring>(L"The Witcher 3: Wild Hunt"), "found");
     check(ludusavi::parseFind(R"({"games":{"A":{"score":0.5},"B":{"score":0.9}}})") == std::optional<std::wstring>(L"B"), "best score");
     check(!ludusavi::parseFind(R"({"errors":{"unknownGames":["x"]},"games":{}})") && !ludusavi::parseFind("No info"), "unknown game");
 
     // Backups and restores.
-    check(ludusavi::operationArguments(false, L"Game", "/pfx") == std::vector<std::wstring>{L"backup", L"--api", L"--force", L"--wine-prefix", L"/pfx", L"Game"},
+    check(ludusavi::operationArguments(false, L"Game", "/pfx") == std::vector<std::wstring>{L"backup", L"--api", L"--force", L"--wine-prefix", L"/pfx", L"--", L"Game"},
           "backup with a prefix");
-    check(ludusavi::operationArguments(true, L"Game", "/pfx") == std::vector<std::wstring>{L"restore", L"--api", L"--force", L"Game"}, "restore");
+    check(ludusavi::operationArguments(true, L"Game", "/pfx") == std::vector<std::wstring>{L"restore", L"--api", L"--force", L"--", L"Game"}, "restore");
     const auto done = ludusavi::parseOperation(R"({"overall":{"totalGames":1,"totalBytes":150,"processedGames":1,"processedBytes":150},
         "games":{"Game":{"decision":"Processed","files":{"/a/save1":{"bytes":100},"/a/save2":{"bytes":50}},"registry":{}}}})");
     check(done.ok && done.games == 1 && done.bytes == 150 && done.files == 2, "backup outcome");

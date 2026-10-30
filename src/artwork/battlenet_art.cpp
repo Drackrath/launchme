@@ -1,4 +1,5 @@
 #include "battlenet_art.hpp"
+#include "../platform/ascii_text.hpp"
 #include "../net/json.hpp"
 #include "../platform/atomic_file.hpp"
 
@@ -19,10 +20,7 @@ constexpr uint64_t lifetime_ms = 30ull * 24 * 60 * 60 * 1000;
 bool md5(std::string_view text) {
     return text.size() == 32 && std::all_of(text.begin(), text.end(), [](char ch) { return (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f'); });
 }
-std::string lower(std::string text) {
-    for (char& ch : text) if (ch >= 'A' && ch <= 'Z') ch += 'a' - 'A';
-    return text;
-}
+std::string lower(std::string text) { return ascii_text::lower(text); }
 std::string pathUrl(std::string_view kind, std::string_view hash) {
     return std::string(data_root) + std::string(kind) + "/" + std::string(hash.substr(0, 2)) + "/" + std::string(hash.substr(2, 2)) + "/" + std::string(hash);
 }

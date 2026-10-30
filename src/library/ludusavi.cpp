@@ -1,4 +1,5 @@
 #include "ludusavi.hpp"
+#include "../platform/file_io.hpp"
 #include "../net/http.hpp"
 #include "../net/json.hpp"
 #include "../platform/atomic_file.hpp"
@@ -22,7 +23,7 @@ constexpr const wchar_t* program_name = L"ludusavi";
 constexpr std::string_view asset_suffix = "-linux.tar.gz";
 #endif
 
-bool isFile(const std::filesystem::path& path) { std::error_code ec; return std::filesystem::is_regular_file(path, ec); }
+bool isFile(const std::filesystem::path& path) { return file_io::isFile(path); }
 
 // PATH's ludusavi (Windows: also with its .exe).
 std::filesystem::path onPath() {
@@ -80,10 +81,14 @@ std::wstring install(const std::filesystem::path& data) {
     if (!release) return L"No Ludusavi package for this system";
     const auto package = httpGet(release->url, L"", 128 * 1024 * 1024);
     if (package.status != 200 || package.body.size() < 1024) return L"Download failed: " + std::to_wstring(package.status);
+    // Unpacked beside the tool's folder first: a failed or partial unpack never leaves a program
+    // that find() would pick up (and that would hide the download button).
     const auto folder = ownFolder(data);
+    auto staging = folder; staging += L".part";
     std::error_code ec;
-    std::filesystem::create_directories(folder, ec);
-    const auto archive = folder / text_encoding::wideLenient(release->asset);
+    std::filesystem::remove_all(staging, ec);
+    std::filesystem::create_directories(staging, ec);
+    const auto archive = staging / text_encoding::wideLenient(release->asset);
     if (!atomic_file::write(archive, std::span<const uint8_t>(package.body))) return L"Cannot write " + archive.wstring();
     // tar unpacks both: Windows 10's bsdtar reads the zip, Linux's the tar.gz.
 #ifdef _WIN32
@@ -92,13 +97,16 @@ std::wstring install(const std::filesystem::path& data) {
 #else
     const std::filesystem::path tar = xdg_paths::findProgram({L"tar"});
 #endif
-    const auto result = helper_process::run(tar, folder, {L"-xf", archive.wstring(), L"-C", folder.wstring()}, {}, [] { return false; });
+    const auto result = helper_process::run(tar, staging, {L"-xf", archive.wstring(), L"-C", staging.wstring()}, {}, [] { return false; });
     std::filesystem::remove(archive, ec);
-    const auto program = folder / program_name;
-    if (!result.ok || !isFile(program)) return L"Cannot unpack " + text_encoding::wideLenient(release->asset);
+    const auto program = staging / program_name;
+    if (!result.ok || !isFile(program)) { std::filesystem::remove_all(staging, ec); return L"Cannot unpack " + text_encoding::wideLenient(release->asset); }
 #ifndef _WIN32
     ::chmod(program.c_str(), 0755);
 #endif
+    std::filesystem::remove_all(folder, ec);
+    std::filesystem::rename(staging, folder, ec);
+    if (ec) { std::filesystem::remove_all(staging, ec); return L"Cannot replace " + folder.wstring(); }
     return {};
 }
 
@@ -106,7 +114,7 @@ std::vector<std::wstring> findArguments(const Query& query) {
     std::vector<std::wstring> arguments{L"find", L"--api"};
     if (query.steam_id) arguments.insert(arguments.end(), {L"--steam-id", std::to_wstring(query.steam_id)});
     else if (!query.gog_id.empty()) arguments.insert(arguments.end(), {L"--gog-id", text_encoding::wideLenient(query.gog_id)});
-    else arguments.insert(arguments.end(), {L"--normalized", query.title});
+    else arguments.insert(arguments.end(), {L"--normalized", L"--", query.title}); // "--": a title may start with "-".
     return arguments;
 }
 
@@ -128,7 +136,7 @@ std::optional<std::wstring> parseFind(std::string_view json) {
 std::vector<std::wstring> operationArguments(bool restore, const std::wstring& title, const std::filesystem::path& wine_prefix) {
     std::vector<std::wstring> arguments{restore ? L"restore" : L"backup", L"--api", L"--force"};
     if (!restore && !wine_prefix.empty()) arguments.insert(arguments.end(), {L"--wine-prefix", wine_prefix.wstring()});
-    arguments.push_back(title);
+    arguments.insert(arguments.end(), {L"--", title}); // A title is never read as an option.
     return arguments;
 }
 
@@ -141,8 +149,9 @@ Outcome parseOperation(std::string_view json) {
         const auto* value = overall->get(name);
         return value && value->type == json::Value::Type::number && value->numeric >= 0 ? value->numeric : 0.0;
     };
-    result.games = static_cast<uint32_t>(number("processedGames"));
-    result.bytes = static_cast<uint64_t>(number("processedBytes"));
+    // Clamped before the cast: a value past the type's range would be undefined behaviour.
+    result.games = static_cast<uint32_t>(std::min(number("processedGames"), 4294967295.0));
+    result.bytes = static_cast<uint64_t>(std::min(number("processedBytes"), 1.8e19));
     if (const auto* games = root->get("games"); games && games->type == json::Value::Type::object)
         for (const auto& [title, game] : games->properties)
             if (const auto* files = game.get("files"); files && files->type == json::Value::Type::object) result.files += static_cast<uint32_t>(files->properties.size());

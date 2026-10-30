@@ -1,4 +1,5 @@
 #include "battlenet.hpp"
+#include "../platform/ascii_text.hpp"
 #include "store_adapter.hpp"
 #include "../net/json.hpp"
 #include "../platform/text_encoding.hpp"
@@ -53,7 +54,7 @@ std::optional<Fields> decode(std::string_view bytes) {
 // Known singular fields must have the expected wire type and occur once.
 // Ignoring a malformed state would otherwise turn a torn write into "ready".
 bool schema(const Fields& fields, std::initializer_list<std::pair<unsigned, unsigned>> types) {
-    for (const auto [id, wire] : types) {
+    for (const auto& [id, wire] : types) {
         unsigned count = 0;
         for (const auto& f : fields) if (f.id == id && (++count > 1 || f.wire != wire)) return false;
     }
@@ -67,10 +68,7 @@ std::optional<bool> flag(const Fields& fields, unsigned id) {
     for (const auto& f : fields) if (f.id == id && f.wire == 0 && f.number <= 1) return f.number == 1;
     return {};
 }
-std::string fold(std::string value) {
-    for (char& c : value) if (c >= 'A' && c <= 'Z') c += 'a' - 'A';
-    return value;
-}
+std::string fold(std::string value) { return ascii_text::lower(value); }
 bool identifier(std::string_view value) {
     return !value.empty() && value.size() <= 96 && std::all_of(value.begin(), value.end(), [](char c) {
         return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '.' || c == '-';

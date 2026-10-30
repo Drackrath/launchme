@@ -1,4 +1,5 @@
 #include "companion_characters.hpp"
+#include "../platform/ascii_text.hpp"
 #include "companion_affinity.hpp"
 #include "../platform/text_encoding.hpp"
 
@@ -15,11 +16,7 @@ constexpr const char* manifest_text =
 #include "companion_manifest.inc"
     ;
 
-std::string_view trimmed(std::string_view text) {
-    while (!text.empty() && (text.front() == ' ' || text.front() == '\t' || text.front() == '\r')) text.remove_prefix(1);
-    while (!text.empty() && (text.back() == ' ' || text.back() == '\t' || text.back() == '\r')) text.remove_suffix(1);
-    return text;
-}
+std::string_view trimmed(std::string_view text) { return ascii_text::trim(text, " \t\r"); }
 std::wstring wide(std::string_view text) { return text_encoding::wideLenient(text); }
 int hex(char ch) { return ch >= '0' && ch <= '9' ? ch - '0' : ch >= 'a' && ch <= 'f' ? ch - 'a' + 10 : ch >= 'A' && ch <= 'F' ? ch - 'A' + 10 : -1; }
 

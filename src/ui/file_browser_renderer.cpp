@@ -1,4 +1,5 @@
 #include "renderer.hpp"
+#include "renderer_internal.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -6,7 +7,7 @@
 
 namespace {
 using palette::gray;
-D2D1_RECT_F rect(settings_ui::Rect r) { return D2D1::RectF(r.left, r.top, r.right, r.bottom); }
+using render_detail::box;
 float middle(settings_ui::Rect r) { return (r.top + r.bottom) * 0.5f; }
 }
 
@@ -117,12 +118,12 @@ void Renderer::drawFileBrowser() {
     const auto body = settings_body_font_.Get();
     const auto fill = [&](settings_ui::Rect r, D2D1_COLOR_F ink, float radius = 12) {
         brush(ink);
-        target_->FillRoundedRectangle(D2D1::RoundedRect(rect(r), radius, radius), solid_.Get());
+        target_->FillRoundedRectangle(D2D1::RoundedRect(box(r), radius, radius), solid_.Get());
     };
     // Rail places and list rows: pills without an outline.
     const auto fillPill = [&](settings_ui::Rect r, D2D1_COLOR_F ink) {
         brush(ink);
-        target_->FillRoundedRectangle(pill(rect(r)), solid_.Get());
+        target_->FillRoundedRectangle(pill(box(r)), solid_.Get());
     };
     const auto chevron = [&](float x, float y, D2D1_COLOR_F ink) {
         line(x - 4, y - 6, x + 2, y, ink, 1.8f);
@@ -152,7 +153,7 @@ void Renderer::drawFileBrowser() {
     }
     const auto back = layout.back();
     const bool back_focus = ui.focus == Focus::back;
-    brush(drawButton(rect(back), back_focus ? 1.0f : 0.0f, 1, false));
+    brush(drawButton(box(back), back_focus ? 1.0f : 0.0f, 1, false));
     target_->FillEllipse(D2D1::Ellipse(D2D1::Point2F((back.left + back.right) * 0.5f, middle(back)), 4, 4), solid_.Get());
 
     // Rows.
@@ -207,7 +208,7 @@ void Renderer::drawFileBrowser() {
         const auto r = layout.button(i, static_cast<int>(buttons.size()));
         const bool focused = ui.focus == Focus::buttons && ui.button == i;
         const bool enabled = buttons[i] != Button::choose_folder || !ui.root();
-        const auto ink = drawButton(rect(r), focused ? 1.0f : 0.0f, 1, false, false, enabled);
+        const auto ink = drawButton(box(r), focused ? 1.0f : 0.0f, 1, false, false, enabled);
         std::wstring label;
         switch (buttons[i]) {
         case Button::choose_folder: label = tr(L"Wybierz ten folder"); break;

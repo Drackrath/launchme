@@ -1,7 +1,7 @@
 #pragma once
 // Towarzyszka: her home tile (her close-up picture and a speech bubble; where each layout puts
 // it: home_widgets.hpp) and her chat screen. Geometry here is shared by drawing
-// (companion_renderer.cpp), clicks and keyboard/pad focus (src/app/companion.cpp).
+// (companion_renderer.cpp), clicks and keyboard/pad focus (src/app/companion_input.cpp).
 #include "settings_view.hpp"
 #include "../net/companion_characters.hpp"
 #include "avatar.hpp"

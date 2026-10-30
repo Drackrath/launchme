@@ -3,8 +3,9 @@
 // her memories pop in shell by shell and threads reach them — and one column of cards on the right
 // (her profile, four counters, the selected memory over the list of all of them). Her hidden
 // thoughts are masked there like spoilers until the player shows one (Pokaż). Geometry:
-// companion_ui::Layout (companion_view.hpp); the nodes and her telemetry: src/app/companion.cpp.
+// companion_ui::Layout (companion_view.hpp); the nodes and her telemetry: src/app/companion_mind_view.cpp.
 #include "renderer.hpp"
+#include "renderer_internal.hpp"
 #include "../net/companion_memory.hpp"
 
 #include <array>
@@ -17,7 +18,7 @@ using Microsoft::WRL::ComPtr;
 
 namespace {
 using palette::gray;
-D2D1_RECT_F box(settings_ui::Rect r) { return D2D1::RectF(r.left, r.top, r.right, r.bottom); }
+using render_detail::box;
 float clamp01(float t) { return std::clamp(t, 0.0f, 1.0f); }
 float span(float t, float from, float to) { return clamp01((t - from) / (to - from)); }
 float easeOut(float t) { const float u = 1 - clamp01(t); return 1 - u * u * u; }

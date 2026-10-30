@@ -1,8 +1,9 @@
 #include "renderer.hpp"
+#include "renderer_internal.hpp"
 
 namespace {
 D2D1_COLOR_F shade(float value, float alpha = 1) { return D2D1::ColorF(value, value, value, alpha); }
-D2D1_RECT_F box(settings_ui::Rect r) { return D2D1::RectF(r.left, r.top, r.right, r.bottom); }
+using render_detail::box;
 }
 
 void Renderer::resetArtworkThumbnails(size_t count) {

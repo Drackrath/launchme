@@ -251,9 +251,9 @@ bool discImage(const std::vector<uint8_t>& bytes) {
     if (!image) return false;
     const uint32_t w = image->width, h = image->height;
     const auto alpha = [&](uint32_t x, uint32_t y) { return static_cast<int>(image->pixels[(size_t(y) * w + x) * 4 + 3]); };
-    for (const auto [x, y] : {std::pair{0u, 0u}, {w - 1, 0u}, {0u, h - 1}, {w - 1, h - 1}, {w / 2, h / 2}})
+    for (const auto& [x, y] : {std::pair{0u, 0u}, {w - 1, 0u}, {0u, h - 1}, {w - 1, h - 1}, {w / 2, h / 2}})
         if (const int a = alpha(x, y); a < 0 || a > 32) return false;
-    for (const auto [x, y] : {std::pair{w / 4, h / 2}, {w * 3 / 4, h / 2}, {w / 2, h / 4}, {w / 2, h * 3 / 4}})
+    for (const auto& [x, y] : {std::pair{w / 4, h / 2}, {w * 3 / 4, h / 2}, {w / 2, h / 4}, {w / 2, h * 3 / 4}})
         if (alpha(x, y) < 180) return false;
     return true;
 }

@@ -1,4 +1,5 @@
 #include "companion_feed.hpp"
+#include "../platform/file_io.hpp"
 #include "../platform/hashing.hpp"
 #include "companion_photos.hpp"
 #include "json.hpp"
@@ -31,14 +32,7 @@ bool validImage(std::span<const uint8_t> bytes, uint32_t* width = nullptr, uint3
 bool hashId(std::string_view id) {
     return id.size() == 64 && std::all_of(id.begin(), id.end(), [](char c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'); });
 }
-std::string read(const std::filesystem::path& file) {
-    std::ifstream in(file, std::ios::binary | std::ios::ate);
-    if (!in || in.tellg() <= 0 || in.tellg() > 32768) return {};
-    std::string bytes(static_cast<size_t>(in.tellg()), '\0');
-    in.seekg(0);
-    if (!in.read(bytes.data(), static_cast<std::streamsize>(bytes.size()))) return {};
-    return bytes;
-}
+std::string read(const std::filesystem::path& file) { return file_io::readText(file, 32768); }
 std::wstring folded(std::wstring_view text) {
     std::wstring out(text);
     for (auto& c : out) c = static_cast<wchar_t>(std::towlower(c));

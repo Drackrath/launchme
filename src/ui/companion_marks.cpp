@@ -4,6 +4,7 @@
 // head), pop in when the feeling starts and fade after a few seconds, except sleeping and thinking,
 // which last.
 #include "renderer.hpp"
+#include "renderer_internal.hpp"
 
 #include <array>
 #include <cmath>
@@ -14,7 +15,7 @@ using companion::Emotion;
 
 namespace {
 constexpr float pi = 3.14159265f;
-float smooth(float t) { t = std::clamp(t, 0.0f, 1.0f); return t * t * (3 - 2 * t); }
+using render_detail::smoothFade;
 // Overshooting pop (ease-out back) for a mark appearing.
 float pop(float t) {
     t = std::clamp(t, 0.0f, 1.0f);
@@ -31,7 +32,7 @@ void Renderer::drawCompanionMarks(const avatar::Pose& pose, D2D1_POINT_2F face, 
     if (emotion == Emotion::cool || alpha <= 0.01f) return;
     const float age = pose.emotion_age, t = pose.time;
     const bool lasting = emotion == Emotion::sleepy || emotion == Emotion::thinking;
-    const float shown = alpha * smooth(age / 0.18f) * (lasting ? 1.0f : 1 - smooth((age - 5.0f) / 1.2f));
+    const float shown = alpha * smoothFade(age / 0.18f) * (lasting ? 1.0f : 1 - smoothFade((age - 5.0f) / 1.2f));
     if (shown <= 0.01f) return;
     if (!companion_stroke_)
         factory_->CreateStrokeStyle(D2D1::StrokeStyleProperties(D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND, D2D1_LINE_JOIN_ROUND),
@@ -136,7 +137,7 @@ void Renderer::drawCompanionMarks(const avatar::Pose& pose, D2D1_POINT_2F face, 
             sink->AddBezier(D2D1::BezierSegment(c + D2D1::Point2F(-1.1f * k, 0), c + D2D1::Point2F(-0.5f * k, -0.7f * k), c + D2D1::Point2F(0, -1.6f * k)));
             sink->EndFigure(D2D1_FIGURE_END_CLOSED);
         });
-        const float fade = 1 - smooth((phase - 0.75f) / 0.25f);
+        const float fade = 1 - smoothFade((phase - 0.75f) / 0.25f);
         fill(drop.Get(), rgba(0.62f, 0.84f, 1, fade));
         brush(rgba(1, 1, 1, 0.85f * fade * shown));
         target_->FillEllipse(D2D1::Ellipse(c + D2D1::Point2F(-0.35f * k, 0.15f * k), 0.22f * k, 0.32f * k), solid_.Get());

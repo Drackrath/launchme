@@ -194,7 +194,7 @@ int LauncherUiTest::profilePage(HWND window) {
     const auto tools = app.desktopTools();
     if (tools.empty() || tools.front() != desktop_ui::Tool::friends) return 9733;
     app.desktopToolPick(desktop_ui::Tool::friends);
-    if (!app.friendsOpen() || app.desktop_widgets_open_) return 9734;
+    if (!app.friendsOpen()) return 9734;
     app.friends_progress_ = 1;
     if (!capture(L"desktop-widgets-drawer.png")) return 9735;
     app.dashboardActivate(static_cast<int>(board::Tile::profile));

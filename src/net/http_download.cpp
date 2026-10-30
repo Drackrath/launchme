@@ -1,5 +1,6 @@
 #include "http_download.hpp"
 #ifdef _WIN32
+#include "http_internal.hpp"
 #include "winhttp_session.hpp"
 #endif
 #include <algorithm>
@@ -76,7 +77,10 @@ DownloadError httpDownload(const std::wstring& original_url, const std::filesyst
             if (!WinHttpQueryHeaders(request.value, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
                 WINHTTP_HEADER_NAME_BY_INDEX, &status, &size, WINHTTP_NO_HEADER_INDEX)) break;
             if (status == 301 || status == 302 || status == 303 || status == 307 || status == 308) {
-                url = header(request.value, WINHTTP_QUERY_LOCATION); continue;
+                // Location may be relative (RFC 7231): resolved against the current URL; allowed_url checks it.
+                url = http_detail::combineUrl(url, header(request.value, WINHTTP_QUERY_LOCATION));
+                if (url.empty()) return DownloadError::invalid_response;
+                continue;
             }
             if (status == 429 || status == 503) {
                 if (const auto seconds = number(header(request.value, WINHTTP_QUERY_RETRY_AFTER))) {

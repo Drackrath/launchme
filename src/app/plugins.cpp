@@ -1,4 +1,5 @@
 #include "launcher.hpp"
+#include "../platform/unix_time.hpp"
 #include "../platform/text_encoding.hpp"
 #include "../ui/quick_menu.hpp"
 #include "../library/steam_stats.hpp"
@@ -11,7 +12,7 @@
 
 using namespace plugins::wire;
 namespace {
-uint64_t pluginTime() { return gog::nowSeconds(); }
+uint64_t pluginTime() { return unix_time::now(); }
 #ifndef _WIN32
 // The file manager shows the file selected (org.freedesktop.FileManager1.ShowItems, as Explorer's
 // SHOpenFolderAndSelectItems); without one, the desktop opens its folder.

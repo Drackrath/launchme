@@ -257,8 +257,8 @@ void Renderer::drawDesktopCustomEditor() {
             auto* font = desktop_small_font_.Get();
             const auto alignment = font->GetTextAlignment();
             font->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-            const float width = box.right - box.left - 20, lines = paragraph(caption, box.left + 10, 0, width, font, gray(0), 3, false);
-            paragraph(caption, box.left + 10, middle(box) - lines * 0.5f, width, font, custom_poster_.bitmap ? palette::text() : palette::muted(), 3);
+            const float caption_width = box.right - box.left - 20, lines = paragraph(caption, box.left + 10, 0, caption_width, font, gray(0), 3, false);
+            paragraph(caption, box.left + 10, middle(box) - lines * 0.5f, caption_width, font, custom_poster_.bitmap ? palette::text() : palette::muted(), 3);
             font->SetTextAlignment(alignment);
         }
         desktopStroke(box, 10, gray(1, hover == SheetHit{Kind::action, static_cast<int>(Item::identify)} ? 0.28f : 0.1f));

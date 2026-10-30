@@ -1,4 +1,6 @@
 #include "steam_achievements.hpp"
+#include "../platform/ascii_text.hpp"
+#include "../platform/file_io.hpp"
 #include "../net/json.hpp"
 #include "../platform/text_encoding.hpp"
 
@@ -37,19 +39,8 @@ std::optional<json::Value> fetchJson(const SteamHttp& get, const std::wstring& u
     if (reply.status != 200) return std::nullopt;
     return json::parse(std::string_view(reinterpret_cast<const char*>(reply.body.data()), reply.body.size()));
 }
-std::vector<uint8_t> readBytes(const std::filesystem::path& file, size_t limit) {
-    std::ifstream input(file, std::ios::binary | std::ios::ate);
-    if (!input || input.tellg() <= 0 || static_cast<size_t>(input.tellg()) > limit) return {};
-    std::vector<uint8_t> bytes(static_cast<size_t>(input.tellg()));
-    input.seekg(0);
-    if (!input.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()))) return {};
-    return bytes;
-}
-bool sameKey(std::string_view a, std::string_view b) {
-    return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(), [](char x, char y) {
-        return (x >= 'A' && x <= 'Z' ? x - 'A' + 'a' : x) == (y >= 'A' && y <= 'Z' ? y - 'A' + 'a' : y);
-    });
-}
+std::vector<uint8_t> readBytes(const std::filesystem::path& file, size_t limit) { return file_io::readBytes(file, limit); }
+bool sameKey(std::string_view a, std::string_view b) { return ascii_text::equalIgnoreCase(a, b); }
 int64_t integer(std::string_view text) {
     int64_t value = -1;
     const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);

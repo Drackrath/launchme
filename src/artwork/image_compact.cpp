@@ -1,4 +1,5 @@
 #include "image_compact.hpp"
+#include "../platform/file_io.hpp"
 #include "text_crop.hpp"
 #include "image_codec.hpp"
 #include "../platform/atomic_file.hpp"
@@ -25,14 +26,7 @@ std::wstring lower(std::wstring text) {
     return text;
 }
 
-std::vector<uint8_t> readFile(const std::filesystem::path& file) {
-    std::ifstream input(file, std::ios::binary | std::ios::ate);
-    if (!input || input.tellg() <= 0 || input.tellg() > 64 * 1024 * 1024) return {};
-    std::vector<uint8_t> bytes(static_cast<size_t>(input.tellg()));
-    input.seekg(0);
-    if (!input.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()))) return {};
-    return bytes;
-}
+std::vector<uint8_t> readFile(const std::filesystem::path& file) { return file_io::readBytes(file, 64 * 1024 * 1024); }
 }
 
 double compactScale(uint32_t width, uint32_t height, ImageRole role) {

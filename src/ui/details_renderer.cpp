@@ -3,6 +3,7 @@
 // white pill gliding to the focus, and frosted cards at the bottom (description, facts,
 // achievements, the plugin's comparison). Geometry: ui/game_details_layout.hpp.
 #include "renderer.hpp"
+#include "renderer_internal.hpp"
 #include "game_details_layout.hpp"
 #include "../library/steam_stats.hpp"
 
@@ -15,11 +16,8 @@ using Microsoft::WRL::ComPtr;
 
 namespace {
 using palette::gray;
-D2D1_RECT_F box(settings_ui::Rect r) { return D2D1::RectF(r.left, r.top, r.right, r.bottom); }
-std::wstring upper(std::wstring value) {
-    if (!value.empty()) CharUpperBuffW(value.data(), static_cast<DWORD>(value.size()));
-    return value;
-}
+using render_detail::box;
+using render_detail::upper;
 // The year of a release date in any format ("12 Mar, 2019", "2019-03-12"); the date itself otherwise.
 std::wstring releaseYear(const std::wstring& date) {
     for (size_t i = date.size(); i >= 4; --i) {

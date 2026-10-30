@@ -61,7 +61,7 @@ inline Standing standing(int64_t points) {
 }
 inline int level(int64_t points) { return standing(points).level; }
 
-// The stage of their relationship (companion.cpp words it for her prompt; her mind reads it too):
+// The stage of their relationship (companion_prompt_character.cpp words it for her prompt; her mind reads it too):
 // strangers, a light flirt from 5, more flirt from 10, flirty friends from 20, a crush from 30 and,
 // at the top, a long-distance relationship — they stop there (she lives in her own city). Non-romantic
 // tracks (friend, coworker) word the same six steps their own way.
@@ -204,7 +204,7 @@ inline constexpr Jealousy jealousy(Stage stage, Exclusivity exclusivity, int lev
 // now — at least a light flirt's top (level 9), at most a flirt's (19).
 inline constexpr int distanceCap(int level) { return std::clamp(level, 9, 19); }
 
-// Her boundaries (her [granica] tag, companion.cpp): below this level (a crush and beyond) someone
+// Her boundaries (her [granica] tag, companion_reply.cpp): below this level (a crush and beyond) someone
 // who goes much too far gets a card; from it on nothing he says is too forward any more.
 inline constexpr int boundary_level = 30;
 inline constexpr int card_days = 1;        // A card stays live the day it is given and the next.

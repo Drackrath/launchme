@@ -1,4 +1,5 @@
 #include "launcher.hpp"
+#include "../platform/unix_time.hpp"
 #include "../platform/atomic_file.hpp"
 #include "../platform/text_encoding.hpp"
 #include "../library/search.hpp"
@@ -9,7 +10,6 @@
 #include "../ui/snitch_layout.hpp"
 
 namespace {
-uint64_t nowSeconds() { return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count()); }
 // Vertical moves closer than this belong to one run (a held key or stick repeats faster).
 constexpr auto fast_scroll_gap = std::chrono::milliseconds(330);
 // The kind of library a saved scope is (libraryScope: "<account>:console:PS2", "<account>:category:<id>",
@@ -21,8 +21,11 @@ std::string_view viewKind(std::string_view scope) {
     if (scope.starts_with("console:publisher:") || scope.starts_with("console:developer:")) return "studio";
     if (scope.starts_with("console:")) return "console";
     if (scope.starts_with("category:")) {
+        // Shelves the launcher builds itself (src/app/shelves.cpp) are not collections; publishers and
+        // developers are boards of logos.
+        constexpr std::string_view built_in[] = {"recent", "pc-platforms", "emulation", "updated", "discovery", "private", "publishers", "developers"};
         scope.remove_prefix(9);
-        return scope == "publishers" || scope == "developers" ? std::string_view{} : std::string_view("collection"); // Boards of logos.
+        return std::find(std::begin(built_in), std::end(built_in), scope) != std::end(built_in) ? std::string_view{} : std::string_view("collection");
     }
     return {};
 }
@@ -372,7 +375,7 @@ void Launcher::resetLibraryViews(std::string_view kind) {
     if (settingsOpen()) buildSettingsRows();
 }
 void Launcher::recordLibraryGames() {
-    const auto now = nowSeconds();
+    const auto now = unix_time::now();
     // The very first library is no news to her; later first sightings are new games.
     const bool first_library = library_state_.first_seen.empty();
     std::unordered_set<std::string> detected;

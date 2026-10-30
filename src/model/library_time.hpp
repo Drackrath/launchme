@@ -1,5 +1,6 @@
 #pragma once
 #include <charconv>
+#include "../platform/unix_time.hpp"
 #include <chrono>
 #include <cstdint>
 #include <string_view>
@@ -7,7 +8,7 @@
 // Acquisition dates only: never substitute a file mtime, catalog release or metadata update.
 namespace library_time {
 inline uint64_t now() {
-    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count());
+    return unix_time::now();
 }
 inline uint64_t seconds(uint64_t value, uint64_t current = now()) { return value <= current ? value : 0; }
 inline uint64_t seconds(std::string_view text, uint64_t current = now()) {

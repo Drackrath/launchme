@@ -1,4 +1,5 @@
 #include "steam_registry.hpp"
+#include "../platform/ascii_text.hpp"
 #include "../platform/atomic_file.hpp"
 #include "../platform/system.hpp"
 
@@ -8,11 +9,7 @@
 
 namespace steam_registry {
 namespace {
-bool same(std::string_view a, std::string_view b) {
-    return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(), [](char x, char y) {
-        return (x >= 'A' && x <= 'Z' ? x + 32 : x) == (y >= 'A' && y <= 'Z' ? y + 32 : y);
-    });
-}
+bool same(std::string_view a, std::string_view b) { return ascii_text::equalIgnoreCase(a, b); }
 std::optional<std::string> readText(const std::filesystem::path& file) {
     std::ifstream input(file, std::ios::binary | std::ios::ate);
     if (!input || input.tellg() < 0 || input.tellg() > 8 * 1024 * 1024) return {};

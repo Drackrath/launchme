@@ -12,7 +12,7 @@ using Kind = desktop_ui::SheetHit::Kind;
 namespace {
 using palette::gray;
 using settings_ui::Rect;
-D2D1_RECT_F box(Rect r) { return D2D1::RectF(r.left, r.top, r.right, r.bottom); }
+using render_detail::box;
 float middle(Rect r) { return (r.top + r.bottom) * 0.5f; }
 }
 

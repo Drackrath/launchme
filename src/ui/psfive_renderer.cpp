@@ -4,6 +4,7 @@
 // white) and name beside the focused tile, and low on the left the game's logo over frosted
 // "Graj" and "…" buttons.
 #include "renderer.hpp"
+#include "renderer_internal.hpp"
 #include "psfive_layout.hpp"
 #include "../i18n/i18n.hpp"
 
@@ -12,15 +13,15 @@
 
 namespace {
 using palette::gray;
-float smooth(float value) { const float t = std::clamp(value, 0.0f, 1.0f); return t * t * (3.0f - 2.0f * t); }
-D2D1_RECT_F rect(const settings_ui::Rect& r) { return D2D1::RectF(r.left, r.top, r.right, r.bottom); }
+using render_detail::box;
+using render_detail::smoothFade;
 }
 
 void Renderer::drawPsfive() {
     const auto& cards = *cards_;
     const float width = viewport_.width, height = viewport_.height;
     // The buttons and the logo rise over the quick bar while it opens.
-    const float lift = smooth(context_->quick_progress);
+    const float lift = smoothFade(context_->quick_progress);
     drawBackground();
     if (psfive_shade_) {
         psfive_shade_->SetEndPoint(D2D1::Point2F(0, height));
@@ -40,13 +41,13 @@ void Renderer::drawPsfive() {
         const auto& card = cards[i];
         if (card.opacity < 0.01f || card.size <= 0 || card.x > width + 45 || card.x + card.size < -45) continue;
         const bool focused = i == selected_;
-        const float zoom = focused ? 1.0f + 0.13f * smooth(context_->launch_progress) : 1.0f;
+        const float zoom = focused ? 1.0f + 0.13f * smoothFade(context_->launch_progress) : 1.0f;
         const float size = card.size * zoom;
         drawSquareShadow(card.x - (size - card.size) * 0.5f, card.y - (size - card.size) * 0.5f, size, focused, card.opacity);
     }
     for (size_t i = 0; i < cards.size(); ++i) if (i != selected_) drawCard(cards[i], i);
     target_->PopAxisAlignedClip();
-    const float launch = smooth(context_->launch_progress);
+    const float launch = smoothFade(context_->launch_progress);
     if (launch > 0.001f) {
         brush(D2D1::ColorF(0.008f, 0.012f, 0.016f, launch * 0.82f));
         target_->FillRectangle(D2D1::RectF(0, 0, width, height), solid_.Get());
@@ -99,7 +100,7 @@ void Renderer::drawPsfiveLabel() {
     if (selected_ >= cards_->size()) return;
     const auto& card = (*cards_)[selected_];
     const auto& game = card.game;
-    const float alpha = smooth(detail_ * 2.5f) * card.opacity;
+    const float alpha = smoothFade(detail_ * 2.5f) * card.opacity;
     if (alpha < 0.01f || !psfive_name_font_) return;
     const float center = psfive_layout::labelCenter(context_->psfive_scale) + (card.y - psfive_layout::row_top);
     const float right = viewport_.width - psfive_layout::bar_margin;
@@ -176,7 +177,7 @@ void Renderer::drawPsfiveTopBar() {
 
 void Renderer::drawPsfiveMoreMenu() {
     if (!context_->categories || context_->categories->size() <= psfive_layout::visible_tabs) return;
-    const float alpha = smooth(context_->category_menu_progress);
+    const float alpha = smoothFade(context_->category_menu_progress);
     if (alpha < 0.004f) return;
     const auto layout = psfiveMoreMenu(context_->categories->size());
     const auto r = layout.revealed(context_->category_menu_progress);
@@ -226,7 +227,7 @@ void Renderer::drawPsfiveLogo(float lift) {
     }
     const auto& logo = logos_[selected_];
     if (logo.bitmap || logo.decoding || context_->logo_pending) return; // Wait for the lookup and the decode.
-    const float fade = smooth(detail_) * (1.0f - smooth(context_->quick_progress));
+    const float fade = smoothFade(detail_) * (1.0f - smoothFade(context_->quick_progress));
     if (fade < 0.01f) return;
     text((*cards_)[selected_].game.name, left, bottom - 76 + (1.0f - fade) * 10.0f, std::min(width * 0.5f, width - left - 64), 76,
          hero_font_.Get(), gray(0.97f, fade));
@@ -240,13 +241,13 @@ void Renderer::drawPsfiveButtons() {
     const auto& game = (*cards_)[selected_].game;
     if (!isGame(game) || game.kind == GameKind::catalog) return;
     const float height = viewport_.height, scale = context_->psfive_scale;
-    const float lift = smooth(context_->quick_progress), rise = psfive_layout::quick_lift * lift;
+    const float lift = smoothFade(context_->quick_progress), rise = psfive_layout::quick_lift * lift;
     // The quick bar takes the focus: the white pill fades while it is open (and returns after).
     const int focus = lift < 0.5f ? context_->psfive_action : -1;
     const float pill_alpha = 1.0f - lift;
     const auto play_rect = psfive_layout::action(0, height, scale, lift), more_rect = psfive_layout::action(1, height, scale, lift);
     // One copy and blur for both (a second copy would already hold the first button's glass).
-    const D2D1_ROUNDED_RECT pills[] = {pill(rect(play_rect)), pill(rect(more_rect))};
+    const D2D1_ROUNDED_RECT pills[] = {pill(box(play_rect)), pill(box(more_rect))};
     Microsoft::WRL::ComPtr<ID2D1RoundedRectangleGeometry> glass[2];
     Microsoft::WRL::ComPtr<ID2D1GeometryGroup> both;
     if (glass_level_ > 0.01f && SUCCEEDED(factory_->CreateRoundedRectangleGeometry(pills[0], glass[0].GetAddressOf())) &&
@@ -266,7 +267,7 @@ void Renderer::drawPsfiveButtons() {
             const auto& glide = *context_->psfive_action_glide;
             r = {glide.left, glide.top - rise, glide.right, glide.bottom - rise};
         }
-        drawButtonFocus(rect(r), pill_alpha);
+        drawButtonFocus(box(r), pill_alpha);
     }
     const auto ink = [&](int i, bool enabled) {
         if (!enabled) return gray(focus == i ? 0.42f : 0.56f);
@@ -274,7 +275,7 @@ void Renderer::drawPsfiveButtons() {
     };
     const auto play = psfive_layout::action(0, height, scale, lift);
     // In place of the large "Pobieranie w Steam" label: a small status above a thin track.
-    if (!drawInstallProgress(game, rect(play), ink(0, true), focus == 0 ? gray(0.05f, 0.15f) : gray(1, 0.20f), settings_body_font_.Get()))
+    if (!drawInstallProgress(game, box(play), ink(0, true), focus == 0 ? gray(0.05f, 0.15f) : gray(1, 0.20f), settings_body_font_.Get()))
         text(context_->primary_action, play.left + 18, play.top, play.right - play.left - 36, play.bottom - play.top,
              psfive_button_font_.Get(), ink(0, context_->primary_enabled));
     const auto more = psfive_layout::action(1, height, scale, lift);

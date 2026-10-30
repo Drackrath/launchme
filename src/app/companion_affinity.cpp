@@ -10,6 +10,7 @@
 // (companion_costumes.hpp). Points and cards live in companion_affinity.txt, written on a worker in
 // order. Who she talks with (name, gender) comes from Settings and what she learnt (companionPerson).
 #include "launcher.hpp"
+#include "../platform/unix_time.hpp"
 #include "../net/companion_person.hpp"
 #include "../platform/atomic_file.hpp"
 
@@ -131,7 +132,7 @@ void Launcher::companionLevelUp(companion::Look look, int from, int level) {
     const bool stage_crossed = (!social_self || !social_self->social.initialized) &&
         companion::affinity::effectiveStage(from, rel, style) != companion::affinity::effectiveStage(level, rel, style);
     if (stage_crossed && settings_.companion_memory && companion_.persist) {
-        const auto now_sec = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count());
+        const auto now_sec = unix_time::now();
         companionCognition().postGossip(companion::lookKey(look), "level", std::to_wstring(level), now_sec);
         saveCompanionCognition();
     }
@@ -173,7 +174,7 @@ void Launcher::companionBoundary() {
     saveCompanionAffinity();
     companion_.affinity_card_pulse = 1;
     if (settings_.companion_memory && companion_.persist) {
-        const auto now_sec = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count());
+        const auto now_sec = unix_time::now();
         companionCognition().postGossip(companion::lookKey(look), "card", booked.card == companion::affinity::Card::red ? L"red" : L"yellow", now_sec);
         saveCompanionCognition();
     }
@@ -265,7 +266,7 @@ void Launcher::companionRelationshipShift(const companion::Reply& reply) {
         }
         showNotification(NotificationKind::launch, companion::name(look) + std::wstring(L" · ") + head, sub);
         if (settings_.companion_memory && companion_.persist) {
-            const auto now_sec = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count());
+            const auto now_sec = unix_time::now();
             companionCognition().postGossip(key, "stance", text_encoding::wideLenient(companion::relationStanceKey(*reply.stance_change)), now_sec);
             saveCompanionCognition();
         }

@@ -1,4 +1,5 @@
 #include "epic_account.hpp"
+#include "../platform/unix_time.hpp"
 #include "../net/json.hpp"
 #include "../net/url_encoding.hpp"
 #include "../model/library_time.hpp"
@@ -236,7 +237,7 @@ public:
     }
 };
 }
-uint64_t nowSeconds() { return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count()); }
+uint64_t nowSeconds() { return unix_time::now(); }
 bool identifier(std::string_view s) {
     return !s.empty() && s.size() <= 96 && s != "." && s != ".." && s.front() != '-' &&
         std::all_of(s.begin(), s.end(), [](unsigned char c) { return (c < 128 && isalnum(c)) || c == '-' || c == '_' || c == '.'; });

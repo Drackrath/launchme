@@ -185,7 +185,7 @@ int LauncherUiTest::launchAnimation(HWND window) {
             game.installed = installed; game.steam_owner = owner; game.installation = {};
             return game.app_id;
         };
-        const auto url = L"steam://rungameid/" + std::to_wstring(prepare(steam_id_offset + 2, true));
+        const auto switched_url = L"steam://rungameid/" + std::to_wstring(prepare(steam_id_offset + 2, true));
         app.launch();
         if (!app.pending_launch_ || !app.steam_switch_pending_) return 5111;
         for (int i = 0; i < 6; ++i) { app.last_frame_ -= std::chrono::milliseconds(200); app.tick(); }
@@ -194,7 +194,7 @@ int LauncherUiTest::launchAnimation(HWND window) {
         if (switched != std::vector<std::string>{"second"}) return 5113;
         app.steamSwitchFinished(app.steam_switch_generation_, true, L"Second");
         for (int i = 0; i < 15 && app.pending_launch_; ++i) { app.last_frame_ -= std::chrono::milliseconds(50); app.tick(); }
-        if (app.pending_launch_ || dispatched.size() != 1 || dispatched.back() != url) return 5114;
+        if (app.pending_launch_ || dispatched.size() != 1 || dispatched.back() != switched_url) return 5114;
         // A failed switch cancels the launch; an account Steam has not remembered is left to Steam.
         app.game_sessions_.clear(); app.cancelGameFocus(); dispatched.clear();
         prepare(steam_id_offset + 2, true);

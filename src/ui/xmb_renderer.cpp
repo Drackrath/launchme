@@ -1,4 +1,5 @@
 #include "renderer.hpp"
+#include "renderer_internal.hpp"
 #include "xmb_layout.hpp"
 #include "occlusion_mask.hpp"
 
@@ -8,7 +9,7 @@
 
 namespace {
 using palette::gray;
-float smoothFade(float value) { const float t = std::clamp(value, 0.0f, 1.0f); return t * t * (3.0f - 2.0f * t); }
+using render_detail::smoothFade;
 }
 
 void Renderer::drawXmb() {

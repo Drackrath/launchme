@@ -800,9 +800,9 @@ int toolsAndMemory() {
 int providers() {
     using namespace companion;
     // Plain HTTP only to this machine and the home network.
-    for (const auto* host : {L"127.0.0.1", L"localhost", L"192.168.1.10", L"10.0.0.5", L"172.20.1.1", L"169.254.3.4", L"nas", L"box.local", L"pc.lan"})
+    for (const auto* host : {L"127.0.0.1", L"localhost", L"192.168.1.10", L"10.0.0.5", L"172.20.1.1", L"169.254.3.4", L"nas", L"box.local", L"pc.lan", L"::1", L"[::1]", L"fe80::1", L"fd12:3456::1"})
         if (!lanHost(host)) return 500;
-    for (const auto* host : {L"172.32.0.1", L"8.8.8.8", L"example.com", L"999.1.1.1", L"ollama.com", L""})
+    for (const auto* host : {L"172.32.0.1", L"8.8.8.8", L"example.com", L"999.1.1.1", L"ollama.com", L"", L"10.0.0.1.example.com", L"192.168.1.10.sslip.io", L"2606:4700::1111", L"[2001:db8::1]", L"fcd::1"})
         if (lanHost(host)) return 501;
     if (normalizeServer(L"127.0.0.1:11434") != L"http://127.0.0.1:11434/" || normalizeServer(L"ollama.com") != L"https://ollama.com/" ||
         normalizeServer(L"http://192.168.1.5:11434/api/tags") != L"http://192.168.1.5:11434/" || !normalizeServer(L"ftp://x.y").empty() ||
@@ -1363,8 +1363,8 @@ int intelligence() {
         mood::begin(close, "rin", t0 + 10 * day + 60, false, name);
         if (!mood::begin(close, "hana", t0 + 10 * day + 120, false, name, stranger).empty()) return 1227;
         mood::begin(close, "rin", t0 + 10 * day + 180, false, name);
-        const auto calm = mood::begin(close, "hana", t0 + 10 * day + 240, true, name, open_top);
-        if (calm.find(L"chatted with Rin") == npos || calm.find(L"jealous") != npos) return 1228;
+        const auto relaxed = mood::begin(close, "hana", t0 + 10 * day + 240, true, name, open_top);
+        if (relaxed.find(L"chatted with Rin") == npos || relaxed.find(L"jealous") != npos) return 1228;
     }
 
     // The week: a snapshot, a week later her small talk in words (never numbers).

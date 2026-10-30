@@ -20,7 +20,6 @@
 #endif
 
 namespace {
-float ease(float seconds, float speed) { return 1.0f - std::exp(-seconds * speed); }
 std::wstring monitorName(HMONITOR monitor) {
     MONITORINFOEXW info{}; info.cbSize = sizeof(info);
     return monitor && GetMonitorInfoW(monitor, &info) ? std::wstring(info.szDevice) : std::wstring{};
@@ -874,6 +873,7 @@ void Launcher::tick() {
 
 // Library scan/poller and artwork downloaders: src/app/library_worker.cpp.
 // Library -> categories/cards: src/app/shelves.cpp; artwork requests: src/app/artwork_requests.cpp.
-// Keyboard/pad navigation, menus and launching: src/app/navigation.cpp; mouse: src/app/pointer.cpp.
+// Keyboard/pad navigation: src/app/navigation.cpp, menus: navigation_menus.cpp, launching:
+// game_launch.cpp; mouse: src/app/pointer.cpp.
 // Friends drawer: src/app/friends.cpp; ViewContext, notifications and window state: src/app/paint.cpp.
 // Gamepad/keyboard dispatch, Guide/Start gestures and the power menu: src/app/input.cpp.

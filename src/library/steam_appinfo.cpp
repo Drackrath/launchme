@@ -1,4 +1,5 @@
 #include "steam_appinfo.hpp"
+#include "../platform/file_io.hpp"
 #include "binary_kv.hpp"
 #include "../platform/text_encoding.hpp"
 
@@ -12,14 +13,7 @@ namespace steam_appinfo {
 namespace {
 constexpr uint32_t v27 = 0x07564427, v28 = 0x07564428, v29 = 0x07564429;
 
-std::vector<uint8_t> bytes(const std::filesystem::path& path, size_t limit) {
-    std::ifstream input(path, std::ios::binary | std::ios::ate);
-    if (!input || input.tellg() <= 0 || static_cast<uint64_t>(input.tellg()) > limit) return {};
-    std::vector<uint8_t> result(static_cast<size_t>(input.tellg()));
-    input.seekg(0);
-    if (!input.read(reinterpret_cast<char*>(result.data()), static_cast<std::streamsize>(result.size()))) return {};
-    return result;
-}
+std::vector<uint8_t> bytes(const std::filesystem::path& path, size_t limit) { return file_io::readBytes(path, limit); }
 std::wstring wide(const binary_kv::Node* node) {
     return node && !node->object ? text_encoding::wideLenient(node->text) : std::wstring{};
 }

@@ -16,7 +16,6 @@ using palette::gray;
 D2D1_COLOR_F rgb(float r, float g, float b, float a = 1) { return D2D1::ColorF(r, g, b, a); }
 const D2D1_COLOR_F panel_bg = rgb(0.082f, 0.088f, 0.102f);
 float luminance(D2D1_COLOR_F c) { return 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b; }
-float middle(Rect r) { return (r.top + r.bottom) * 0.5f; }
 }
 
 // ---- Menus -----------------------------------------------------------------------------------
@@ -250,68 +249,6 @@ void Renderer::drawWindowStrip() {
     target_->SetTransform(base);
 }
 
-// ---- Widżety -----------------------------------------------------------------------------------
-// Under their shortcut: friends online (a click opens the Steam chat), each plugin widget's line, and
-// "Wszystkie widżety" for the full drawer (dashboard, sensors). Controls recorded as hotspots.
-
-void Renderer::drawDesktopWidgets(const Layout& layout, const View& view) {
-    const auto at = std::find(view.tools.begin(), view.tools.end(), Tool::friends);
-    if (at == view.tools.end()) return;
-    const auto anchor = layout.tool(static_cast<int>(at - view.tools.begin()));
-    const float item_h = 46, width = 340;
-    const int friends = static_cast<int>(view.widget_friends.size());
-    const float friends_h = friends ? static_cast<float>(friends) * item_h : 44.0f;
-    const float items_h = static_cast<float>(view.widget_items.size()) * 58.0f;
-    const float height = 52 + 26 + friends_h + (view.widget_items.empty() ? 0.0f : 16 + items_h) + 56;
-    const float right = std::min(layout.width - 8, anchor.right + 6), left = std::max(8.0f, right - width);
-    const Rect p{left, anchor.bottom + 6, right, anchor.bottom + 6 + height};
-    desktopShadow(p, 12, 1);
-    desktopFill(p, 12, panel_bg);
-    desktopStroke(p, 12, gray(1, 0.1f));
-    desktopHot({SheetHit::Kind::dialog}, p);
-    textLine(tr(L"Widżety"), p.left + 18, p.top + 26, 200, desktop_strong_font_.Get(), palette::text());
-    brush(gray(1, 0.06f));
-    target_->FillRectangle(D2D1::RectF(p.left + 1, p.top + 51, p.right - 1, p.top + 52), solid_.Get());
-    float y = p.top + 52 + 18;
-    textLine(tr(L"Znajomi online"), p.left + 18, y, p.right - p.left - 36, desktop_label_font_.Get(), gray(0.52f));
-    y += 12;
-    if (!friends) {
-        const auto message = view.widgets_loading ? std::wstring(tr(L"Wczytywanie…")) : !view.widgets_error.empty() ? view.widgets_error :
-                              std::wstring(tr(L"Nikt ze znajomych nie jest teraz online"));
-        textLine(message, p.left + 18, y + 20, p.right - p.left - 36, desktop_small_font_.Get(), palette::muted());
-        y += 44;
-    }
-    for (int i = 0; i < friends; ++i) {
-        const auto& person = view.widget_friends[static_cast<size_t>(i)];
-        const Rect r{p.left + 8, y, p.right - 8, y + item_h - 4};
-        if (view.hover == Hit{Target::widget_friend, i}) desktopFill(r, 8, gray(1, 0.06f));
-        const float cy = middle(r);
-        brush(rgb(0.36f, 0.86f, 0.52f)); // Online: green (in a game, its name says so in green too).
-        target_->FillEllipse(D2D1::Ellipse(D2D1::Point2F(r.left + 16, cy), 4, 4), solid_.Get());
-        textLine(person.name, r.left + 30, cy - 8, r.right - r.left - 40, desktop_strong_font_.Get(), palette::text());
-        textLine(person.status, r.left + 30, cy + 10, r.right - r.left - 40, desktop_small_font_.Get(), person.playing ? rgb(0.36f, 0.86f, 0.52f, 0.9f) : palette::muted());
-        desktopHot({SheetHit::Kind::row, i}, r);
-        y += item_h;
-    }
-    if (!view.widget_items.empty()) {
-        y += 4;
-        brush(gray(1, 0.06f));
-        target_->FillRectangle(D2D1::RectF(p.left + 18, y, p.right - 18, y + 1), solid_.Get());
-        y += 12;
-        for (size_t i = 0; i < view.widget_items.size(); ++i) {
-            const auto& [title, text] = view.widget_items[i];
-            const Rect r{p.left + 10, y, p.right - 10, y + 52};
-            desktopFill(r, 8, gray(1, 0.035f));
-            textLine(title, r.left + 12, r.top + 17, r.right - r.left - 24, desktop_small_font_.Get(), palette::muted());
-            textLine(text, r.left + 12, r.top + 36, r.right - r.left - 24, desktop_strong_font_.Get(), palette::text());
-            desktopHot({SheetHit::Kind::tile, static_cast<int>(i)}, r);
-            y += 58;
-        }
-    }
-    const Rect all{p.left + 12, p.bottom - 48, p.right - 12, p.bottom - 12};
-    desktopButton(all, 1, view.hover.target == Target::widget_all ? 1.0f : 0.0f, false, true, 0, tr(L"Wszystkie widżety"));
-    desktopHot({SheetHit::Kind::action, 0}, all);
-}
 
 // ---- Ctrl+K ----------------------------------------------------------------------------------
 

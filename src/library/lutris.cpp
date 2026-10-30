@@ -1,4 +1,6 @@
 #include "lutris.hpp"
+#include "../platform/ascii_text.hpp"
+#include "../platform/file_io.hpp"
 #include "battlenet.hpp"
 #include "store_adapter.hpp"
 #include "xdg_paths.hpp"
@@ -17,19 +19,8 @@ constexpr size_t max_rows = 20000;
 
 bool isFolder(const std::filesystem::path& path) { std::error_code ec; return !path.empty() && path.is_absolute() && std::filesystem::is_directory(path, ec); }
 bool isFile(const std::filesystem::path& path) { std::error_code ec; return !path.empty() && path.is_absolute() && std::filesystem::is_regular_file(path, ec); }
-std::string readFile(const std::filesystem::path& path, size_t limit = 1024 * 1024) {
-    std::ifstream input(path, std::ios::binary | std::ios::ate);
-    if (!input || input.tellg() <= 0 || input.tellg() > static_cast<std::streamoff>(limit)) return {};
-    std::string bytes(static_cast<size_t>(input.tellg()), '\0');
-    input.seekg(0);
-    if (!input.read(bytes.data(), static_cast<std::streamsize>(bytes.size()))) return {};
-    return bytes;
-}
-std::string_view trim(std::string_view text) {
-    while (!text.empty() && (text.front() == ' ' || text.front() == '\t')) text.remove_prefix(1);
-    while (!text.empty() && (text.back() == ' ' || text.back() == '\t' || text.back() == '\r')) text.remove_suffix(1);
-    return text;
-}
+std::string readFile(const std::filesystem::path& path, size_t limit = 1024 * 1024) { return file_io::readText(path, limit); }
+std::string_view trim(std::string_view text) { return ascii_text::trim(text, " \t\r"); }
 std::filesystem::path absolute(std::string_view text) {
     const std::filesystem::path path(text_encoding::wideLenient(text));
     return path.is_absolute() ? path.lexically_normal() : std::filesystem::path{};

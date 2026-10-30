@@ -1,4 +1,5 @@
 #include "companion_feed.hpp"
+#include "../platform/ascii_text.hpp"
 #include "json.hpp"
 #include "../platform/atomic_file.hpp"
 #include "../platform/text_encoding.hpp"
@@ -15,11 +16,7 @@ bool validId(std::string_view id) {
 std::filesystem::path socialFile(const std::filesystem::path& folder, std::string_view id) {
     return folder / L"social" / (text_encoding::wideLenient(id) + L".json");
 }
-std::wstring trim(std::wstring text) {
-    const auto first = text.find_first_not_of(L" \t\r\n");
-    if (first == std::wstring::npos) return {};
-    return text.substr(first, text.find_last_not_of(L" \t\r\n") - first + 1);
-}
+std::wstring trim(std::wstring text) { return std::wstring(ascii_text::trim(text)); }
 std::string serialize(const Social& s, std::string_view id) {
     auto root = json::object();
     root.properties["version"] = json::number(1);

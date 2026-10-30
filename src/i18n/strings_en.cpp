@@ -1544,7 +1544,7 @@ constexpr Entry entries[] = {
     {L"Ścieżka jest za długa", L"The path is too long"},
     {L"Dodano do kolejki pobierania", L"Added to the download queue"},
     {L"Pobieranie zakończone", L"Download completed"},
-    // Towarzyszka (src/app/companion.cpp, src/ui/companion_renderer.cpp).
+    // Towarzyszka (src/app/companion*.cpp, src/ui/companion*_renderer.cpp).
     {L"W co mam zagrać?", L"What should I play?"},
     {L"Zroastuj moją kupkę wstydu", L"Roast my backlog"},
     {L"Opowiedz żart", L"Tell me a joke"},
@@ -2325,7 +2325,7 @@ constexpr Entry entries[] = {
     {L"Szukanie okładki…", L"Looking for a cover…"},
     {L"Nie znaleziono okładki", L"No cover found"},
     {L"Okładka według nazwy", L"Cover found by name"},
-    // Linux: Ustawienia → Proton i Wine, the prefix manager and a game's options (src/app/compat_settings.cpp).
+    // Linux: Ustawienia → Proton i Wine, the prefix manager and a game's options (src/app/compat_*.cpp).
     {L" (nie ma go już)", L" (gone)"},
     {L"AMD i Mesa", L"AMD and Mesa"},
     {L"automatycznie", L"automatic"},

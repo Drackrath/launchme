@@ -3,6 +3,7 @@
 // tiles and its chart, the most played games, the latest achievements as a sliding row, the year
 // of achievements, the games closest to 100 % and the platforms.
 #include "renderer.hpp"
+#include "renderer_internal.hpp"
 #include "brand_icons.hpp"
 
 #include <algorithm>
@@ -16,11 +17,10 @@ using profile_ui::Section;
 namespace {
 using palette::gray;
 D2D1_COLOR_F rgba(float r, float g, float b, float a) { return D2D1::ColorF(r, g, b, std::clamp(a, 0.0f, 1.0f)); }
-D2D1_RECT_F box(settings_ui::Rect r) { return D2D1::RectF(r.left, r.top, r.right, r.bottom); }
+using render_detail::box;
 D2D1_RECT_F shifted(settings_ui::Rect r, float dy) { return D2D1::RectF(r.left, r.top + dy, r.right, r.bottom + dy); }
 const D2D1_COLOR_F gold_ink = D2D1::ColorF(1.0f, 0.80f, 0.38f, 1);
 const D2D1_COLOR_F good_ink = D2D1::ColorF(0.52f, 0.86f, 0.62f, 1);
-D2D1_COLOR_F with(D2D1_COLOR_F ink, float alpha) { ink.a *= alpha; return ink; }
 } // namespace
 
 void Renderer::setProfileImage(size_t index, ImageBytes pixels) {

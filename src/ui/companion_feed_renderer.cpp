@@ -1,11 +1,12 @@
 // Launchfeed's iPhone: a titanium rim, Dynamic Island, native-looking social cards, continuous
 // scrolling and a home indicator. The whole chat disappears; only the active profile is shown.
 #include "renderer.hpp"
+#include "renderer_internal.hpp"
 #include "../net/companion_chats.hpp"
 
 using Microsoft::WRL::ComPtr;
 namespace {
-D2D1_RECT_F feedBox(settings_ui::Rect r) { return D2D1::RectF(r.left, r.top, r.right, r.bottom); }
+using render_detail::box;
 }
 
 void Renderer::drawCompanionFeed() {
@@ -83,7 +84,7 @@ void Renderer::drawCompanionFeed() {
     }
     textLine(L"Launchfeed", 30, 91, 310, feed_title_font_.Get(), gray(0.98f));
     const auto close = L::close();
-    round(feedBox(close), 24, gray(1, feed.hover == L::close_hit ? 0.14f : 0.06f));
+    round(box(close), 24, gray(1, feed.hover == L::close_hit ? 0.14f : 0.06f));
     line(390, 84, 402, 96, gray(0.82f), 1.8f); line(390, 96, 402, 84, gray(0.82f), 1.8f);
     round(D2D1::RectF(30, 123, 38, 131), 4, accent);
     textLine(view->name + L"  ·  " + tr(L"Tylko ten profil"), 47, 127, 350, feed_small_font_.Get(), gray(0.64f));
@@ -91,19 +92,19 @@ void Renderer::drawCompanionFeed() {
 
     std::erase_if(companion_feed_images_, [&](const auto& item) { return !feed.images.contains(item.first); });
     const auto [first, last] = L::visible(feed.archive, feed.motion.value, feed.thread);
-    target_->PushAxisAlignedClip(feedBox(L::content(feed.thread)), D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+    target_->PushAxisAlignedClip(box(L::content(feed.thread)), D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
     for (int i = first; i < last; ++i) {
         const auto& post = feed.archive.posts[i];
         const auto card = L::card(feed.archive, i, feed.motion.value, feed.thread);
-        round(feedBox(card), 19, D2D1::ColorF(0.085f, 0.092f, 0.108f));
-        brush(gray(1, 0.065f)); target_->DrawRoundedRectangle(D2D1::RoundedRect(feedBox(card), 19, 19), solid_.Get(), 1);
+        round(box(card), 19, D2D1::ColorF(0.085f, 0.092f, 0.108f));
+        brush(gray(1, 0.065f)); target_->DrawRoundedRectangle(D2D1::RoundedRect(box(card), 19, 19), solid_.Get(), 1);
         const float y = card.top;
         round(D2D1::RectF(38, y + 12, 74, y + 48), 18, D2D1::ColorF(tint.r, tint.g, tint.b, 0.18f));
         textLine(view->name.substr(0, 1), 38, y + 30, 36, feed_body_font_.Get(), accent, DWRITE_TEXT_ALIGNMENT_CENTER);
         textLine(view->name, 86, y + 23, 290, feed_body_font_.Get(), gray(0.96f));
         textLine(companion::chats::label(post.at, i18n::english()), 86, y + 43, 290, feed_small_font_.Get(), gray(0.52f));
         const auto photo = L::photo(feed.archive, i, feed.motion.value, feed.thread);
-        round(feedBox(photo), 0, gray(0.035f));
+        round(box(photo), 0, gray(0.035f));
         const auto bytes = feed.images.find(post.id);
         auto& image = companion_feed_images_[post.id];
         if (bytes != feed.images.end() && image.pixels != bytes->second) { image = {}; image.pixels = bytes->second; image.short_edge = 960; }
@@ -132,8 +133,8 @@ void Renderer::drawCompanionFeed() {
             const auto r = L::action(feed.archive, i, action, feed.motion.value, feed.thread);
             const bool hovered = feed.hover == i * 3 + action;
             const bool focused = feed.thread.empty() && action == feed.focus && i == L::visible(feed.archive, feed.motion.value + 160, feed.thread).first;
-            round(feedBox(r), 12, gray(1, hovered ? 0.1f : focused ? 0.065f : 0.025f));
-            if (focused) { brush(gray(1, 0.22f)); target_->DrawRoundedRectangle(D2D1::RoundedRect(feedBox(r), 12, 12), solid_.Get(), 1); }
+            round(box(r), 12, gray(1, hovered ? 0.1f : focused ? 0.065f : 0.025f));
+            if (focused) { brush(gray(1, 0.22f)); target_->DrawRoundedRectangle(D2D1::RoundedRect(box(r), 12, 12), solid_.Get(), 1); }
             const float x = r.left + 24, cy = (r.top + r.bottom) * 0.5f;
             const D2D1_COLOR_F ink = action == 0 && post.social.liked ? D2D1::ColorF(1, 0.32f, 0.47f) : action == 2 && !feed.can_discuss ? gray(0.38f) : gray(0.78f);
             if (action == 0) {
@@ -198,8 +199,8 @@ void Renderer::drawCompanionFeed() {
         round(D2D1::RectF(16, 716, 424, 818), 0, D2D1::ColorF(0.055f, 0.06f, 0.073f));
         textLine(tr(L"‹ Wróć do postów"), 30, 731, 380, feed_small_font_.Get(), gray(0.64f));
         const auto field = L::input(), submit = L::send();
-        round(feedBox(field), 15, gray(1, 0.055f));
-        if (feed.focus == 3) { brush(D2D1::ColorF(tint.r, tint.g, tint.b, 0.4f)); target_->DrawRoundedRectangle(D2D1::RoundedRect(feedBox(field), 15, 15), solid_.Get(), 1); }
+        round(box(field), 15, gray(1, 0.055f));
+        if (feed.focus == 3) { brush(D2D1::ColorF(tint.r, tint.g, tint.b, 0.4f)); target_->DrawRoundedRectangle(D2D1::RoundedRect(box(field), 15, 15), solid_.Get(), 1); }
         const auto value = feed.input.empty() ? std::wstring(tr(L"Dodaj komentarz…")) : feed.input;
         std::wstring shown = value;
         while (shown.size() > 1 && textAdvance(shown, feed_body_font_.Get()) > 290) shown.erase(shown.begin());
@@ -208,7 +209,7 @@ void Renderer::drawCompanionFeed() {
             const float x = field.left + 14 + (feed.input.empty() ? 0 : textAdvance(shown, feed_body_font_.Get()));
             line(x, 766, x, 788, accent, 1.2f);
         }
-        round(feedBox(submit), 15, D2D1::ColorF(tint.r, tint.g, tint.b, feed.focus == 4 || feed.hover == L::send_hit ? 0.25f : 0.13f));
+        round(box(submit), 15, D2D1::ColorF(tint.r, tint.g, tint.b, feed.focus == 4 || feed.hover == L::send_hit ? 0.25f : 0.13f));
         textLine(feed.social_busy ? L"…" : L"↑", submit.left, 778, submit.right - submit.left, feed_title_font_.Get(), accent, DWRITE_TEXT_ALIGNMENT_CENTER);
     }
     if (!feed.archive.posts.empty()) textLine(feed.busy ? tr(L"Pisze nowy post…") : !feed.status.empty() ? feed.status : L"Launchfeed · " + view->name,

@@ -308,7 +308,7 @@ void Launcher::settingsActivate() {
     if (settings_rows_.empty()) return;
     const auto row = settings_rows_[settings_state_.row()];
 #ifndef _WIN32
-    if (compatSettingsActivate(row)) return; // Proton i Wine and its pages (compat_settings.cpp).
+    if (compatSettingsActivate(row)) return; // Proton i Wine and its pages (compat_activate.cpp).
     if (row.id == Id::compat_install_game) { compatInstallGame(); return; } // Also on Gry dodane ręcznie.
 #endif
     if (row.id == Id::ludusavi) { if (row.locked) navigationBoundary(); else openLudusavi(); return; }
@@ -601,7 +601,7 @@ void Launcher::settingsChoose(const Row& row) {
     settingsChanged(relabel);
 }
 
-// A row's badge button (Row::reset): its value back to the default (a game's option, compat_settings.cpp).
+// A row's badge button (Row::reset): its value back to the default (a game's option, compat_activate.cpp).
 bool Launcher::settingsResetRow(const Row& row) {
     if (row.reset.empty()) return false;
     // Interfejs → Widoki biblioteki: every library of the kind follows the default view again.

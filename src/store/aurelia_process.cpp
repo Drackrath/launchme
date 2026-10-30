@@ -1,4 +1,5 @@
 #include "aurelia.hpp"
+#include "../platform/file_io.hpp"
 #include "aurelia_stream.hpp"
 #include "../platform/command_line.hpp"
 #include "../platform/text_encoding.hpp"
@@ -318,12 +319,7 @@ bool longCommand(Command c) {
     return c == Command::install || c == Command::update || c == Command::verify || c == Command::downgrade ||
            c == Command::move || c == Command::workshop_install || c == Command::workshop_subscribe || c == Command::play || c == Command::chat_live;
 }
-std::string readSmall(const std::filesystem::path& file, std::streamoff limit) {
-    std::ifstream in(file, std::ios::binary | std::ios::ate);
-    if (!in || in.tellg() <= 0 || in.tellg() > limit) return {};
-    std::string content(static_cast<size_t>(in.tellg()), '\0'); in.seekg(0);
-    return in.read(content.data(), static_cast<std::streamsize>(content.size())) ? content : std::string{};
-}
+std::string readSmall(const std::filesystem::path& file, std::streamoff limit) { return file_io::readText(file, static_cast<size_t>(limit)); }
 // The daemon sockets' folder: the user's runtime folder, else a private one under /tmp.
 std::filesystem::path socketFolder() {
     struct stat status{};

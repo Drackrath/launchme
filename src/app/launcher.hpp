@@ -70,6 +70,10 @@
 #include "hold_gesture.hpp"
 #include "worker_messages.hpp"
 #include "launcher_queues.hpp"
+#include "launcher_backends.hpp"
+#include "screensaver_state.hpp"
+#include "tour_state.hpp"
+#include "update_state.hpp"
 #include "companion_state.hpp"
 #include "library_preview.hpp"
 #include "profile_scan.hpp"
@@ -80,6 +84,7 @@
 #ifndef _WIN32
 #include "../library/compat_tools.hpp"
 #include "../library/launch_options_store.hpp"
+#include "compat_state.hpp"
 #endif
 
 #include <Windows.h>
@@ -101,36 +106,6 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
-
-// Experimental quick resume. Injectable, so UI tests never touch real processes.
-struct QuickResumeBackend {
-    std::function<std::vector<GameProcess>(const Game&)> find = findGameProcesses;
-    std::function<process_freeze::Result(std::vector<GameProcess>&)> suspend = process_freeze::suspend;
-    std::function<process_freeze::Result(const std::vector<GameProcess>&)> resume = process_freeze::resume;
-    std::function<process_freeze::Result(const std::vector<GameProcess>&)> terminate = process_freeze::terminate;
-    std::function<bool(const std::vector<GameProcess>&)> alive = process_freeze::alive;
-    std::function<bool(const std::vector<GameProcess>&)> focus = process_freeze::focus;
-    std::function<bool(const std::filesystem::path&, const std::vector<FrozenGame>&)> save = process_freeze::save;
-};
-
-// Discord dashboard tile: launch/focus only. Injectable, so UI tests never touch a real client.
-// `running` is called on the dashboard worker; `focus` and `locate` on the UI thread.
-struct DiscordBackend {
-    std::function<bool()> running = discord::running;
-    std::function<bool()> focus = discord::focus;
-    std::function<std::optional<GameAction>()> locate = discord::launchAction;
-};
-
-// Window actions are injectable: UI regression tests never steal the user's
-// foreground, activate a real game, or start performance tracing.
-struct GameOverlayBackend {
-    GameOverlayBackend();
-    std::function<bool(const GameWindow&)> valid;
-    std::function<HWND()> foreground;
-    std::function<bool(OverlayWindow&, const RECT&)> show;
-    std::function<void(HWND)> focus;
-    std::function<GameOverlayMonitor::Snapshot()> read;
-};
 
 class Launcher {
     friend class LauncherUiTest;
@@ -273,7 +248,9 @@ public:
     int empty_focus_ = 0, empty_hover_ = -1;
     // Glance's shortcut on the default home: atop the right column, or under the companion's tile while she is on.
     float glanceTop() const { return settings_.companion ? companion_ui::glance_top : glance_ui::shortcut_top; }
-    // Towarzyszka (src/app/companion.cpp): her home tile and her chat screen.
+    // Towarzyszka: her home tile and tick (companion.cpp), requests to her model
+    // (companion_request.cpp), her answers (companion_answer.cpp), the chat (companion_chat.cpp,
+    // companion_input.cpp) and her mind's screen (companion_mind_view.cpp).
     bool companionOpen() const { return screen_ == ScreenMode::companion; }
     bool companionAvailable(bool allow_closing = false) const;
     bool companionTyping() const {
@@ -354,7 +331,7 @@ public:
     std::optional<companion::mind::Night> companionNight(companion::Look look) const;
     bool companionAsleep(companion::Look look) const;
     bool companionBedtime() const;            // The host is off to bed now (or within the hour): her goodbye is goodnight.
-    struct CompanionAway { uint64_t seconds = 0; bool sleeping = false; };
+    using CompanionAway = ::CompanionAway; // companion_state.hpp
     CompanionAway companionAway() const;      // Until the host can talk again (her rest after a conversation, her night).
     // The conversation ends: her goodbye (said already, or `farewell` added now) and her rest.
     void companionEnd(bool farewell);
@@ -420,16 +397,7 @@ public:
     void companionChips(const std::vector<std::wstring>& titles, const std::vector<std::wstring>& prompts = {});
     // A title she wrote in [[ ]] → its library game: the digest she saw, else the game index.
     std::string companionGameKey(const std::wstring& title) const;
-    // Her provider as Settings choose it; a worker resolves its credentials (DPAPI file,
-    // environment, opencode) with resolve().
-    struct CompanionAccess {
-        companion::Provider provider = companion::Provider::foundry;
-        std::wstring host;  // Foundry's stack or the Ollama server; empty: the environment/default.
-        std::string model;
-        std::filesystem::path config;
-        std::function<companion::Probe()> probe;
-        companion::Connection resolve() const;
-    };
+    using CompanionAccess = ::CompanionAccess; // companion_state.hpp
     CompanionAccess companionAccess() const;
     // Her memory (src/net/companion_memory.hpp): loaded on first use, saved on a worker.
     companion::Memory& companionMemory();
@@ -466,16 +434,7 @@ public:
     std::wstring companionMindLife(companion::Look look, bool* invite);
     std::wstring companionPlanRules(companion::Look look) const;  // Her diary's plans: mind::planRules (empty: her day is planned).
     bool companionMindPeek(std::string_view id);                  // The Mind view's Odkryj: a private episode opened.
-    struct CompanionMindItem {
-        std::wstring label, category, detail, when;
-        uint64_t at = 0;
-        bool locked = false; // A private episode not yet told or opened: the Mind view keeps it closed.
-        std::string key;     // Its episode id.
-        bool inner = false;  // Her mood: the inner shell; the rest is her life.
-        bool short_term = false; // True when stored in working / short-term memory, false when consolidated in long-term memory.
-        bool thought = false;    // A mental act (her curiosity): drawn as a thought (the Myśli filter), never masked.
-        bool active = false;     // What she is doing right now (about to ask, waiting for his answer): lit up.
-    };
+    using CompanionMindItem = ::CompanionMindItem; // companion_state.hpp
     std::vector<CompanionMindItem> companionMindItems(companion::Look look) const;
     // The real weather where she is (src/net/companion_weather.hpp): her trip's town or her home city
     // (`travelling` says which), refreshed in the background every 45 minutes or when she moves.
@@ -543,7 +502,6 @@ public:
     // Her voice (src/app/companion_voice.cpp): ElevenLabs reads her line in the interface's
     // language while her text appears; in a duet each companion speaks with her own voice.
     bool companionVoiceFor(bool chat) const; // Voice on for the chat, or for her home remarks too.
-    void companionSpeak(const std::wstring& text, companion::Emotion emotion);
     void companionSpeakLines(const std::vector<companion::Line>& lines);
     void companionHush();
     void companionVoiceTest();
@@ -944,7 +902,7 @@ private:
     void installAurelia();
     void aureliaRows();
     void aureliaPage(aurelia_ui::Page page);
-    void aureliaActivate(const aurelia_ui::Row& row, bool confirmed = false);
+    void aureliaActivate(aurelia_ui::Row row, bool confirmed = false);
     void aureliaSubmit();
     // The in-app sign-in page (Steam's QR code and the account's name and password together, Steam
     // Guard by stdin): one `login` runs at a time; its stdin and cancel flag, and its generation (a
@@ -1090,17 +1048,8 @@ private:
     // latest release now and then, a notification pointing to Ustawienia → System → Aktualizacje
     // (and the desktop top bar's icon), then one click downloads, checks, swaps the files in and
     // restarts; the new version shows its changes once (Modal::whats_new).
-    struct UpdateState {
-        enum class Phase { idle, checking, downloading, ready, installing, failed } phase = Phase::idle;
-        std::optional<updater::Release> available; // Newer than this version.
-        std::vector<std::filesystem::path> files;   // Phase::ready: the unpacked package.
-        uint64_t done = 0;                          // Downloaded bytes.
-        std::wstring error;
-        std::wstring announced;                     // The version already notified in this run.
-        ULONGLONG next_check = 0;                   // GetTickCount64 of the next look; 0: not scheduled yet.
-        uint32_t generation = 0;
-        bool manual = false;                        // Sprawdź teraz: also say when there is none.
-    } update_;
+    using UpdateState = launcher_state::UpdateState; // update_state.hpp
+    UpdateState update_;
     std::wstring app_version_;                      // diagnostics::version(); tests set their own.
     std::filesystem::path update_app_dir_;          // Where launchme.exe lives; tests use a folder of theirs.
     std::function<HttpResponse(const std::wstring&)> update_get_;  // Tests: GitHub's answers.
@@ -1374,8 +1323,8 @@ private:
     power_menu::Geometry powerMenuGeometry() const; // Tryb TV's Zasilanie on the current canvas.
     // Steam scan, installation/account poller and artwork downloaders (src/app/library_worker.cpp).
     void startLibraryWorker();
-    void initializeMusic();
-    void initializeGameSessions();
+    void initializeMusic();        // music.cpp
+    void initializeGameSessions(); // game_sessions.cpp
     // How long a started game's window is handed the focus: normally 15 s; a silent Steam
     // launch (Steam has no foreground permission) waits up to a minute for slow starts.
     static constexpr uint64_t default_focus_ms = 15000, silent_focus_ms = 60000;
@@ -1394,7 +1343,6 @@ private:
     void pollTray();
     void removeTrayIcon();
     bool addTrayIcon();
-    void trayMenu();
     bool in_tray_ = false, tray_icon_ = false;
     std::wstring tray_game_;
     // Shell_NotifyIconW; UI tests record the calls instead of touching the notification area.
@@ -1577,7 +1525,7 @@ private:
     void fileBrowserHover(float x, float y);
     void fileBrowserPreview();
     void pollFileBrowserPreview();
-    // Settings → "Inny…" colour (settings.cpp): live preview, saved by A/Save, dropped by B.
+    // Settings → "Inny…" colour (settings_color.cpp): live preview, saved by A/Save, dropped by B.
     void openColorEditor(const settings_ui::Row& row);
     void closeColorEditor(bool save);
     void colorEditorPreview();
@@ -1646,8 +1594,9 @@ private:
     void compatEditorFill(custom_game_ui::State& ui, const Game& game) const;
     bool compatEditorApply(const custom_game_ui::State& ui, bool write, std::wstring& error, custom_game_ui::Item& field);
 #ifndef _WIN32
-    // Ustawienia → Proton i Wine (src/app/compat_settings.cpp): the tools, their downloads, the
-    // prefix manager and the Wine/Proton options as an accordion.
+    // Ustawienia → Proton i Wine: the tools, their downloads, the prefix manager and the Wine/Proton
+    // options as an accordion (compat_settings.cpp; workers and installers: compat_workers.cpp;
+    // rows: compat_rows.cpp; actions: compat_activate.cpp).
     bool compatSettingsPage() const;
     void compatSettingsRows();
     bool compatSettingsActivate(const settings_ui::Row& row);
@@ -2007,29 +1956,9 @@ private:
     uint64_t memory_hidden_since_ = 0;
     std::function<HWND()> foreground_window_; // Tests: the window in front; GetForegroundWindow otherwise.
     void startArtworkWorkers(bool network = true); // Tests can run the actual disk lane alone.
-    // One game of the slideshow bound to a renderer image slot (0-2; the three items
-    // keep distinct slots and swap them as the show advances).
-    struct ScreensaverItem {
-        std::string key;
-        std::wstring title;
-        int slot = -1;
-        uint32_t sequence = 0; // Image request; answers for another sequence are stale.
-        uint32_t seed = 0;
-        bool poster = false, hero = false;
-        bool loaded = false;   // Bytes handed to the renderer.
-        float shown_at = -1;   // Screensaver time it became current; -1 = waiting for its image.
-        void clear() { const int keep = slot; *this = {}; slot = keep; }
-    };
-    struct ScreensaverState {
-        bool active = false;
-        screensaver::Style style = screensaver::Style::backgrounds;
-        screensaver::Playlist playlist;
-        std::unordered_map<std::string, std::pair<Game, screensaver::Artwork>> games;
-        bool scanned = false;
-        float time = 0;
-        uint32_t next_sequence = 0;
-        ScreensaverItem previous{.slot = 0}, current{.slot = 1}, upcoming{.slot = 2};
-    };
+    // The screensaver's slideshow (screensaver_state.hpp).
+    using ScreensaverItem = launcher_state::ScreensaverItem;
+    using ScreensaverState = launcher_state::ScreensaverState;
     void startScreensaver();
     // `woken`: ended by input, whose remaining messages the gate keeps swallowing.
     void stopScreensaver(bool woken);
@@ -2421,17 +2350,8 @@ private:
     int settings_hover_row_ = -1;
     int settings_hover_badge_ = -1; // The row whose badge button (Row::reset) the pointer is over.
     int settings_hover_trash_ = -1; // The collection row whose trash (Row::removable) the pointer is over.
-    struct TourState {
-        bool open = false;
-        int step = 0;            // tour::Step.
-        int button = 2;          // tour::Button with keyboard/pad focus.
-        bool tiles = true;       // Last step: the layout tiles have the focus (false: the buttons).
-        int icon = 0;            // Quick bar step: the icon being described.
-        uint64_t step_at = 0, icon_at = 0;
-        float alpha = 0;         // Overlay fade in and out.
-        int hover_button = -1, hover_tile = -1;
-        settings_ui::LayoutPreview preview;
-    } tour_;
+    using TourState = launcher_state::TourState; // tour_state.hpp
+    TourState tour_;
     std::chrono::steady_clock::time_point settings_edited_{};
     std::wstring settings_secret_input_;
     bool settings_secret_selected_ = false;
@@ -2441,34 +2361,10 @@ private:
     // leaves Settings instead of showing the page's parent.
     bool settings_page_exits_ = false;
 #ifndef _WIN32
-    // Ustawienia → Proton i Wine (compat_settings.cpp): what workers found and are doing.
-    struct CompatSettings {
-        std::vector<compat_tools::Tool> tools;   // compat_tools::discover(), best first within each kind.
-        bool tools_loading = false, tools_loaded = false;
-        std::filesystem::path umu_run;           // Empty: umu-launcher is not installed.
-        std::map<std::string, compat_tools::ReleaseList> releases; // By Source::id.
-        std::set<std::string> releases_loading;
-        struct Install {
-            std::string source, tag;
-            compat_tools::Progress progress;
-            std::shared_ptr<std::atomic<bool>> cancel;
-        };
-        std::optional<Install> install;          // One download at a time.
-        std::wstring status;                     // The last download's or prefix tool's result.
-        std::vector<launch_options_store::PrefixEntry> prefixes;
-        std::map<std::filesystem::path, uint64_t> sizes; // Measured on a worker.
-        std::set<std::filesystem::path> measuring;
-        std::set<std::string> expanded{"runner"}; // The accordion's open sections.
-        std::wstring query;                      // Szukaj: the options page shows the matching options instead.
-        std::string confirm;                     // A destructive row asked to confirm (its key).
-        bool steam_target = false;               // Proton downloads also into Steam's compatibilitytools.d.
-        Game game;                               // The game whose options page is open.
-        struct Installer { std::filesystem::path prefix, installer; std::wstring name; std::string store; };
-        std::optional<Installer> installer;      // Dodaj grę z instalatora: the one running (store: a store launcher's id).
-        std::string launch_after;                // The game that starts once the download (compatProvision) ends.
-        std::string store_download;              // Sklepy i launchery: the launcher whose installer is downloading.
-    } compat_;
-    struct ProtonDbEntry { uint32_t app = 0; protondb::Summary summary; };
+    // Ustawienia → Proton i Wine (compat_workers.cpp): what workers found and are doing.
+    using CompatSettings = launcher_state::CompatSettings; // compat_state.hpp
+    CompatSettings compat_;
+    using ProtonDbEntry = launcher_state::ProtonDbEntry;
     std::map<std::string, ProtonDbEntry> protondb_;  // By game key, once fetched.
     std::set<std::string> protondb_requested_;
 #endif
@@ -2751,7 +2647,6 @@ private:
     std::string desktop_focus_key_, desktop_restore_key_;
     float desktop_arrived_ = 10;
     bool desktop_max_hover_ = false, desktop_max_pressed_ = false, desktop_window_active_ = true;
-    bool desktop_bubble_hover_ = false;
     GameDetails desktop_details_;
     std::string desktop_details_key_;
     uint64_t desktop_details_revision_ = ~uint64_t{0};
@@ -2767,7 +2662,6 @@ private:
     std::vector<Game> desktopGames() const;
     void rebuildDesktop(bool preserve_background);
     void desktopShowSection(const std::string& id);
-    void desktopStepSection(int amount);
     void desktopFocus(size_t index, bool reveal = true);
     void desktopRequestArt();
     // The grid's cards around the view, in the order their art is wanted (desktop.cpp).
@@ -2825,16 +2719,11 @@ private:
     std::wstring desktopTooltip(const desktop_ui::Hit& hit) const;
     desktop_ui::Rect desktopTooltipAnchor(const desktop_ui::Hit& hit) const;
     void desktopSaveState();
-    // Widżety under their shortcut (desktop_input.cpp): friends online, the plugins' widgets.
-    bool desktop_widgets_open_ = false;
-    std::vector<uint64_t> desktop_widget_friend_ids_; // Steam IDs of View::widget_friends, in order.
-    void desktopToggleWidgets();
-    void desktopRefreshLibraries(); // F5 and Biblioteka's refresh button.
+    void desktopRefreshLibraries(); // F5 and Biblioteka's refresh button (desktop_actions.cpp).
     // Pobierania's "Wyczyść listę": game key → its state when put away (shown again once it changes).
     std::unordered_map<std::string, std::wstring> desktop_cleared_downloads_;
     void openDownloadSource(const Game& game, const downloads_ui::Row& row); // Pobierania's row action (downloads.cpp).
     bool desktopDownloadsClearable() const; // The popover's Wyczyść listę: something is not moving.
-    // Ctrl+K (desktop_quick.cpp): the quick search over the library window.
     // Text selection in the desktop window's fields (desktop_text.cpp).
     struct DesktopText { std::wstring* text = nullptr; size_t* caret = nullptr; bool* all = nullptr; size_t limit = 0; bool multiline = false; int owner = 0; };
     DesktopText desktopText();
@@ -2875,6 +2764,7 @@ private:
     void desktopMetaChar(wchar_t character);
     bool desktopMetaKey(WPARAM key);
     bool desktopMetaPointer(float mouse_x, float mouse_y, bool press, bool double_click = false);
+    // Ctrl+K (desktop_quick.cpp): the quick search over the library window.
     desktop_ui::QuickView desktop_quick_;
     ULONGLONG desktop_quick_blink_ = 0; // Its caret's phase.
     void desktopQuickOpen();

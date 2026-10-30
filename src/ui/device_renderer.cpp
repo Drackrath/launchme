@@ -1,4 +1,5 @@
 #include "renderer.hpp"
+#include "renderer_internal.hpp"
 #include "controller_picture.hpp"
 
 #include <algorithm>
@@ -6,7 +7,7 @@
 
 namespace {
 using palette::gray;
-D2D1_RECT_F box(settings_ui::Rect r) { return D2D1::RectF(r.left, r.top, r.right, r.bottom); }
+using render_detail::box;
 // How far the gliding focus frame has reached a button (1 without the frame): the button's white
 // pill fades in as the frame arrives. audio_renderer.cpp has the same.
 float arrival(const std::optional<ViewContext::GlideBox>& glide, settings_ui::Rect r) {

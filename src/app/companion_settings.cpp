@@ -1,6 +1,7 @@
 // Settings → Asystent: her rows (the switch, look, model and connection, voice
 // and memory; her photos' rows are in companion_photos.cpp) and their actions.
 #include "launcher.hpp"
+#include "../platform/unix_time.hpp"
 #include "../net/web_search.hpp"
 #include "../platform/text_encoding.hpp"
 
@@ -25,9 +26,6 @@ std::vector<companion::ModelInfo> companionModelChoices(companion::Provider prov
     return out;
 }
 bool english() { return i18n::english(); }
-uint64_t unixNow() {
-    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count());
-}
 // "UTC−8", "UTC+5:30", "UTC" (standard time).
 std::wstring utcLabel(int minutes) {
     if (minutes == 0) return L"UTC";
@@ -115,7 +113,7 @@ std::vector<settings_ui::Row> Launcher::companionSettingsRows() const {
         city.value = city.choices[city.choice].label;
         city.description = tr(L"Tylko dla niej, ponad wspólnym wyborem.");
         if (her)
-            if (const auto clock = companion::localClock(*her, unixNow())) {
+            if (const auto clock = companion::localClock(*her, unix_time::now())) {
                 const auto two = [](int value) { return (value < 10 ? L"0" : L"") + std::to_wstring(value); };
                 const auto& home = her->home(en);
                 city.description += std::wstring(tr(L" Teraz: ")) + home.substr(0, std::min(home.find(L','), home.find(L" -"))) + tr(L", godz. ") +

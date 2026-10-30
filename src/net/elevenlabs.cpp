@@ -1,4 +1,5 @@
 #include "elevenlabs.hpp"
+#include "../platform/ascii_text.hpp"
 #include "../platform/system.hpp"
 #include "json.hpp"
 #include "../platform/protected_file.hpp"
@@ -24,11 +25,7 @@ std::wstring trimmed(std::wstring_view text) {
     if (first == std::wstring_view::npos) return {};
     return std::wstring(text.substr(first, text.find_last_not_of(L" \t\r\n　") - first + 1));
 }
-std::string_view trimmed(std::string_view text) {
-    while (!text.empty() && (text.front() == ' ' || text.front() == '\t')) text.remove_prefix(1);
-    while (!text.empty() && (text.back() == ' ' || text.back() == '\t' || text.back() == '\r')) text.remove_suffix(1);
-    return text;
-}
+std::string_view trimmed(std::string_view text) { return ascii_text::trim(text, " \t\r"); }
 bool endsSentence(std::wstring_view text, size_t i) {
     const wchar_t ch = text[i];
     if (ch == L'\n' || ch == L'!' || ch == L'?' || ch == L'…' || ch == L'。' || ch == L'！' || ch == L'？') return true;

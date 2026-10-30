@@ -135,7 +135,7 @@ void Launcher::rememberDesktopWindow() {
     auto rect = settings_.desktop_window;
     if (!zoomed) {
         RECT window{};
-        if (GetWindowRect(hwnd_, &window)) rect = {window.left, window.top, window.right - window.left, window.bottom - window.top};
+        if (GetWindowRect(hwnd_, &window)) rect = {static_cast<int>(window.left), static_cast<int>(window.top), static_cast<int>(window.right - window.left), static_cast<int>(window.bottom - window.top)};
     }
     if (rect != settings_.desktop_window || zoomed != settings_.desktop_maximized) {
         settings_.desktop_window = rect;

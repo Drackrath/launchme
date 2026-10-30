@@ -133,6 +133,12 @@ void Launcher::deleteCollection(const SteamCollection& collection) {
     library_state_.collections.members.erase(scope);
     if (!library_state_.collections.creates.contains(scope)) library_state_.collections.names.erase(scope);
     settings_.hidden_collections.erase(scope); std::erase(settings_.collection_order, scope);
+    // Its library's own view, order and filter ("<account>:category:<id>", libraryScope) go too.
+    const auto library = "category:" + collection.id;
+    std::erase_if(library_state_.options, [&](const auto& entry) {
+        const auto colon = entry.first.find(':');
+        return colon != std::string::npos && std::string_view(entry.first).substr(colon + 1) == library;
+    });
     settingsChanged();
     collectionChanged();
 }

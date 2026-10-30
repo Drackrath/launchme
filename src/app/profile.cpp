@@ -7,6 +7,7 @@
 // own files say was unlocked since the last look, the Steam account's picture and the latest
 // achievements' icons; the page fills in as they come.
 #include "launcher.hpp"
+#include "../platform/unix_time.hpp"
 #include "profile_scan.hpp"
 #include "../library/steam.hpp"
 #include "../library/steam_achievements.hpp"
@@ -25,9 +26,6 @@ using profile_ui::Focus;
 using profile_ui::Section;
 
 namespace {
-uint64_t unixNow() {
-    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count());
-}
 std::filesystem::path journalFile() { return userConfigDirectory() / L"play-journal.tsv"; }
 std::filesystem::path historyFile() { return userConfigDirectory() / L"achievement-history.json"; }
 std::vector<uint8_t> readPicture(const std::filesystem::path& file) {
@@ -152,13 +150,13 @@ void Launcher::loadProfileData() {
 
 void Launcher::journalPlayed(const std::string& key, const std::wstring& name, uint64_t ms) {
     loadProfileData();
-    play_journal::played(journal_, play_journal::dateOf(unixNow()), key, name, ms);
+    play_journal::played(journal_, play_journal::dateOf(unix_time::now()), key, name, ms);
     journal_dirty_ = true;
 }
 
 void Launcher::journalLaunched(const std::string& key, const std::wstring& name) {
     loadProfileData();
-    play_journal::launched(journal_, play_journal::dateOf(unixNow()), key, name);
+    play_journal::launched(journal_, play_journal::dateOf(unix_time::now()), key, name);
     journal_dirty_ = true;
 }
 
@@ -256,7 +254,7 @@ void Launcher::profileTile(DrawerDashboard& tile) {
     const auto tick = GetTickCount64();
     if (profile_tile_.profile_name.empty() || tick >= profile_tile_at_) {
         loadProfileData();
-        const uint64_t now = unixNow();
+        const uint64_t now = unix_time::now();
         const auto week = play_journal::week(journal_, play_journal::dateOf(now));
         const auto minutes = week.total_ms / 60000;
         auto& c = profile_tile_;
@@ -279,7 +277,7 @@ void Launcher::profileTile(DrawerDashboard& tile) {
 
 void Launcher::rebuildProfile() {
     auto& p = profile_;
-    const uint64_t now = unixNow();
+    const uint64_t now = unix_time::now();
     const int today = play_journal::dateOf(now);
     // The library by key: names, covers and platforms.
     std::unordered_map<std::string, const Game*> games;

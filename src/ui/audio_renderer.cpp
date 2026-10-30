@@ -1,10 +1,11 @@
 #include "renderer.hpp"
+#include "renderer_internal.hpp"
 
 #include <algorithm>
 #include <cmath>
 
 namespace {
-D2D1_RECT_F box(settings_ui::Rect r) { return D2D1::RectF(r.left, r.top, r.right, r.bottom); }
+using render_detail::box;
 using palette::gray;
 // How far the gliding focus frame has reached a button (1 without the frame): the button's white
 // pill fades in as the frame arrives (as in device_renderer.cpp).

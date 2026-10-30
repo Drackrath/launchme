@@ -1,4 +1,5 @@
 #include "image_codec.hpp"
+#include "../platform/file_io.hpp"
 
 #include <png.h>
 #include <turbojpeg.h>
@@ -91,14 +92,7 @@ std::optional<Image> decodeBmp(std::span<const uint8_t> bytes, const Fit& fit, s
     return image;
 }
 
-std::vector<uint8_t> readFile(const std::filesystem::path& file) {
-    std::ifstream input(file, std::ios::binary | std::ios::ate);
-    if (!input || input.tellg() <= 0 || static_cast<size_t>(input.tellg()) > max_file) return {};
-    std::vector<uint8_t> bytes(static_cast<size_t>(input.tellg()));
-    input.seekg(0);
-    if (!input.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()))) return {};
-    return bytes;
-}
+std::vector<uint8_t> readFile(const std::filesystem::path& file) { return file_io::readBytes(file, max_file); }
 
 // PNG. libpng reports errors with longjmp, so the function holding setjmp owns no objects with
 // destructors; its buffers belong to the caller.

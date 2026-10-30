@@ -11,8 +11,8 @@
 namespace dashboard = friends_layout::dashboard;
 
 void Launcher::onFriends(std::unique_ptr<FriendsMessage> message) {
-    // The drawer, or desktop mode's Widżety under its shortcut.
-    if ((!friends_open_ && !desktop_widgets_open_) || message->generation != friends_generation_) return;
+    // Only for the open drawer's latest request.
+    if (!friends_open_ || message->generation != friends_generation_) return;
     friends_ = std::move(message->result);
     friends_loading_ = false;
     friends_scroll_ = 0;

@@ -686,7 +686,7 @@ void Launcher::artworkAccept() {
 void Launcher::artworkPage(int amount) {
     if (artwork_state_.results_mode || artwork_state_.search_focus) return;
     if (!artworkOpen() || artwork_state_.loading || artwork_state_.applying || !amount) return;
-    if (amount < 0 && artwork_state_.page == 0 || amount > 0 && !artwork_state_.more) return;
+    if ((amount < 0 && artwork_state_.page == 0) || (amount > 0 && !artwork_state_.more)) return;
     artwork_state_.page += amount > 0 ? 1 : -1;
     loadArtworkPage();
 }

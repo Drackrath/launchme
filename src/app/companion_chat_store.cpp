@@ -6,6 +6,7 @@
 // late, her goodbye is goodnight and she is back in her morning. "…" → "Historia czatu" shows the
 // older ones read-only.
 #include "launcher.hpp"
+#include "../platform/unix_time.hpp"
 #include "../net/companion_person.hpp"
 #include "../platform/user_config.hpp"
 
@@ -222,7 +223,7 @@ void Launcher::companionEnd(bool farewell) {
     const int level = settings_.companion_gamification ? companionLevel(companionLook()) : 10; // Off: a fifth of the way.
     companion_.rest_until = companionNow() + chats::restSeconds(companionPersona(), level, seed);
     if (const auto night = bedtime ? companionNight(companionLook()) : std::nullopt) {
-        const auto now = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count());
+        const auto now = unix_time::now();
         if (night->to > now) companion_.rest_until = std::max(companion_.rest_until, companionNow() + (night->to - now));
     }
     companion_.photo_pending.reset(); companion_.photo_file_pending.clear(); companion_.photo_description.clear();

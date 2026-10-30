@@ -1,6 +1,7 @@
 // First-run walkthrough over the home screen (src/app/tour.cpp): everything dimmed except the
 // panel the step opened, a bubble beside that panel and the card with the stepper.
 #include "renderer.hpp"
+#include "renderer_internal.hpp"
 #include "snitch_layout.hpp"
 #include "category_menu.hpp"
 #include "category_rail.hpp"
@@ -16,8 +17,8 @@ using Microsoft::WRL::ComPtr;
 
 namespace {
 using palette::gray;
-float smooth(float value) { const float t = std::clamp(value, 0.0f, 1.0f); return t * t * (3.0f - 2.0f * t); }
-D2D1_RECT_F box(settings_ui::Rect r) { return D2D1::RectF(r.left, r.top, r.right, r.bottom); }
+using render_detail::box;
+using render_detail::smoothFade;
 D2D1_RECT_F unite(D2D1_RECT_F a, D2D1_RECT_F b) {
     return D2D1::RectF(std::min(a.left, b.left), std::min(a.top, b.top), std::max(a.right, b.right), std::max(a.bottom, b.bottom));
 }
@@ -52,7 +53,7 @@ std::optional<D2D1_RECT_F> Renderer::tourSpot(const TourView& tour, float& opene
     opened = 1;
     switch (tour.target) {
     case TourView::Target::category_menu: {
-        const float progress = smooth(context_->category_menu_progress);
+        const float progress = smoothFade(context_->category_menu_progress);
         if (progress < 0.01f) return std::nullopt;
         constexpr float drawer = 350;
         opened = progress;
@@ -88,7 +89,7 @@ std::optional<D2D1_RECT_F> Renderer::tourSpot(const TourView& tour, float& opene
         return spot;
     }
     case TourView::Target::drawer: {
-        const float progress = smooth(context_->friends_progress);
+        const float progress = smoothFade(context_->friends_progress);
         if (progress < 0.01f) return std::nullopt;
         opened = progress;
         const float left = width - friends_layout::drawer_width * progress;
@@ -97,7 +98,7 @@ std::optional<D2D1_RECT_F> Renderer::tourSpot(const TourView& tour, float& opene
         return D2D1::RectF(left, -40, width + 40, height + 40);
     }
     case TourView::Target::quick_bar: {
-        const float progress = smooth(context_->quick_progress);
+        const float progress = smoothFade(context_->quick_progress);
         if (progress < 0.01f) return std::nullopt;
         opened = progress;
         const int plugins = static_cast<int>(context_->plugin_menu.size());
@@ -116,7 +117,7 @@ std::optional<D2D1_RECT_F> Renderer::tourSpot(const TourView& tour, float& opene
                            quick_menu::center(width, quick_menu::count(plugins) - 1, plugins) + 58, y + 70);
     }
     case TourView::Target::menu: {
-        const float progress = smooth(context_->menu_progress);
+        const float progress = smoothFade(context_->menu_progress);
         if (progress < 0.01f || !cards_ || selected_ >= cards_->size() || !isGame((*cards_)[selected_].game)) return std::nullopt;
         opened = progress;
         const auto& active = (*cards_)[selected_];
@@ -141,7 +142,7 @@ void Renderer::drawTour() {
     if (!tour || tour->alpha < 0.004f) return;
     const float width = viewport_.width, height = viewport_.height;
     // Opening and closing fade the whole overlay as one picture.
-    const float alpha = smooth(tour->alpha);
+    const float alpha = smoothFade(tour->alpha);
     ComPtr<ID2D1Layer> layer;
     const bool fading = alpha < 0.996f && SUCCEEDED(target_->CreateLayer(layer.GetAddressOf()));
     if (fading) target_->PushLayer(D2D1::LayerParameters(D2D1::InfiniteRect(), nullptr, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
@@ -152,7 +153,7 @@ void Renderer::drawTour() {
     const auto spot = tourSpot(*tour, opened, anchor, side);
     const float dim = tour->layouts ? 0.88f : 0.74f;
     // The spotlight clears with the step's fade-in and with its panel sliding in.
-    const float clear = smooth(tour->fade) * opened;
+    const float clear = smoothFade(tour->fade) * opened;
     const auto screen = D2D1::RectF(-10, -10, width + 10, height + 10);
     ComPtr<ID2D1RoundedRectangleGeometry> hole;
     ComPtr<ID2D1RectangleGeometry> whole;
@@ -254,7 +255,7 @@ void Renderer::drawTourBubble(const TourView& tour, D2D1_POINT_2F anchor, int si
 void Renderer::drawTourCard(const TourView& tour) {
     using tour::Layout;
     const Layout layout{viewport_.width, viewport_.height, tour.card_bottom};
-    const float content = smooth(tour.fade);
+    const float content = smoothFade(tour.fade);
     const float text_left = layout.cardLeft() + Layout::padding, text_width = layout.cardRight() - Layout::padding - text_left;
     const int max_lines = tour.card_bottom ? Layout::bottom_body_lines : Layout::body_lines;
     const float body = paragraph(tour.body, 0, 0, text_width, settings_body_font_.Get(), {}, max_lines, false);

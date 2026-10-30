@@ -1,4 +1,5 @@
 #include "steam_owned.hpp"
+#include "../platform/file_io.hpp"
 #include "visibility.hpp"
 #include "../model/library_time.hpp"
 #include "../platform/atomic_file.hpp"
@@ -21,14 +22,7 @@
 
 namespace {
 constexpr uint64_t steam_id_offset = 76561197960265728ULL;
-std::vector<uint8_t> bytes(const std::filesystem::path& path, size_t limit) {
-    std::ifstream input(path, std::ios::binary | std::ios::ate);
-    if (!input || input.tellg() <= 0 || static_cast<uint64_t>(input.tellg()) > limit) return {};
-    std::vector<uint8_t> result(static_cast<size_t>(input.tellg()));
-    input.seekg(0);
-    if (!input.read(reinterpret_cast<char*>(result.data()), static_cast<std::streamsize>(result.size()))) return {};
-    return result;
-}
+std::vector<uint8_t> bytes(const std::filesystem::path& path, size_t limit) { return file_io::readBytes(path, limit); }
 #if defined(_WIN32)
 template<class Return, class... Args> Return invoke(void* object, size_t slot, Args... args) {
     using Method = Return(__thiscall*)(void*, Args...);

@@ -88,7 +88,12 @@ std::wstring normalize(std::wstring_view text, const icu::Normalizer2* (*instanc
 icu::Collator* collator() {
     thread_local std::unique_ptr<icu::Collator> value = [] {
         UErrorCode status = U_ZERO_ERROR;
-        std::unique_ptr<icu::Collator> made(icu::Collator::createInstance(icu::Locale::getDefault(), status));
+        // C and POSIX environments (LANG=C.UTF-8 in containers and WSL) map to en_US_POSIX, whose
+        // collation is code-point order ("Beta" before "alpha", "Łódź" after "Zelda"); the root
+        // collation orders letters as people read them.
+        auto locale = icu::Locale::getDefault();
+        if (std::string_view(locale.getVariant()) == "POSIX" || !*locale.getLanguage()) locale = icu::Locale::getRoot();
+        std::unique_ptr<icu::Collator> made(icu::Collator::createInstance(locale, status));
         if (U_FAILURE(status) || !made) return std::unique_ptr<icu::Collator>{};
         made->setStrength(icu::Collator::SECONDARY); // Accents count, case does not.
         made->setAttribute(UCOL_NUMERIC_COLLATION, UCOL_ON, status);

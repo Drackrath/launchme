@@ -1,4 +1,6 @@
 #include "game_index_service.hpp"
+#include "../platform/file_io.hpp"
+#include "../platform/unix_time.hpp"
 #include "steam_tags_builtin.hpp"
 #include "../net/json.hpp"
 #include "../net/url_encoding.hpp"
@@ -12,14 +14,7 @@
 namespace game_index {
 namespace {
 constexpr uint64_t day = 86400;
-std::string readFile(const std::filesystem::path& file, size_t limit) {
-    std::ifstream input(file, std::ios::binary | std::ios::ate);
-    if (!input || input.tellg() <= 0 || static_cast<uint64_t>(input.tellg()) > limit) return {};
-    std::string bytes(static_cast<size_t>(input.tellg()), '\0');
-    input.seekg(0);
-    if (!input.read(bytes.data(), static_cast<std::streamsize>(bytes.size()))) return {};
-    return bytes;
-}
+std::string readFile(const std::filesystem::path& file, size_t limit) { return file_io::readText(file, limit); }
 std::string text(const HttpResponse& response) { return std::string(response.body.begin(), response.body.end()); }
 uint64_t modifiedSeconds(const std::filesystem::path& file) {
     std::error_code ec;
@@ -29,7 +24,7 @@ uint64_t modifiedSeconds(const std::filesystem::path& file) {
     return value > 0 ? static_cast<uint64_t>(value) : 0;
 }
 uint64_t systemNow() {
-    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count());
+    return unix_time::now();
 }
 }
 
@@ -288,7 +283,7 @@ bool Service::fillStep() {
         if (response.status == 200 && !fromGogProduct(body).empty()) {
             atomic_file::write(knowledge() / L"gog" / (text_encoding::wideLenient(item.gog_id) + L".json"), body);
             readOffline({pick.key});
-        } else markMissed(item.cache_key, "gog");
+        } else if (response.status == 200 || response.status == 404) markMissed(item.cache_key, "gog"); // Not a passing server error.
         return true;
     }
     case Kind::rawg: {
@@ -318,7 +313,7 @@ bool Service::fillStep() {
         if (response.status == 200 && !fromRawg(body).empty()) {
             atomic_file::write(knowledge() / L"rawg" / (text_encoding::wideLenient(item.cache_key) + L".json"), body);
             readOffline({pick.key});
-        } else markMissed(item.cache_key, "rawg");
+        } else if (response.status == 200 || response.status == 404) markMissed(item.cache_key, "rawg");
         return true;
     }
     }

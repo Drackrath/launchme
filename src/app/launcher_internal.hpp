@@ -3,8 +3,23 @@
 // Launcher interface; main.cpp and the tests never include this header.
 #include "launcher.hpp"
 #include "../artwork/platform_logo.hpp"
+#include "../platform/ascii_text.hpp"
 
+#include <cmath>
 #include <string>
+
+// The share of the remaining way an animation covers in seconds at speed (per second):
+// exponential easing that never overshoots, frame-rate independent.
+inline float ease(float seconds, float speed) { return 1.0f - std::exp(-seconds * speed); }
+
+// "1 gra", "3 gry", "12 gier" (English: games).
+inline std::wstring gamesLabel(size_t n) {
+    return std::to_wstring(n) + (n == 1 ? tr(L" gra") : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? tr(L" gry") : tr(L" gier"));
+}
+// A search query without the spaces around it.
+inline std::wstring trimmedQuery(const std::wstring& text) { return std::wstring(ascii_text::trim(text, L" ")); }
+// A key held right now (Ctrl, Shift with a click or an arrow).
+inline bool keyDown(int key) { return (GetKeyState(key) & 0x8000) != 0; }
 
 // Holding Enter at least this long on a game opens its context menu instead of launching.
 inline constexpr float enter_hold_seconds = 0.48f;

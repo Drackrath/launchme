@@ -312,7 +312,8 @@ void Launcher::aureliaBrowseLibrary() {
     });
 }
 
-void Launcher::aureliaActivate(const Row& row, bool confirmed) {
+// By value: some actions rebuild aurelia_ui_.rows, which the callers' row may point into.
+void Launcher::aureliaActivate(Row row, bool confirmed) {
     auto& s = aurelia_ui_; if (!s.open || row.locked || row.action == A::none) return;
     if (row.action == A::close) { closeAurelia(); return; }
     if (row.action == A::toggle) { toggleAurelia(); return; }

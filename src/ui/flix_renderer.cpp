@@ -1,6 +1,7 @@
 // Flix home layout (src/app/flix.cpp): the focused game's background, its logo above the
 // resting first row, then the rows of capsules and posters with their titles.
 #include "renderer.hpp"
+#include "renderer_internal.hpp"
 #include "flix_layout.hpp"
 
 #include <algorithm>
@@ -10,7 +11,7 @@ using Microsoft::WRL::ComPtr;
 
 namespace {
 using palette::gray;
-float smooth(float value) { const float t = std::clamp(value, 0.0f, 1.0f); return t * t * (3.0f - 2.0f * t); }
+using render_detail::smoothFade;
 constexpr float tile_radius = 12;
 }
 
@@ -23,12 +24,12 @@ void Renderer::drawFlix() {
     const float first_top = rows.empty() || rows[0].begin >= cards.size() ? 0.0f : cards[rows[0].begin].y - flix_layout::header;
     const float scale = context_->flix_scale;
     const float lift = flix_layout::lift(first_top, height, scale);
-    brush(D2D1::ColorF(0.008f, 0.011f, 0.015f, 0.18f + 0.55f * smooth(lift)));
+    brush(D2D1::ColorF(0.008f, 0.011f, 0.015f, 0.18f + 0.55f * smoothFade(lift)));
     target_->FillRectangle(D2D1::RectF(0, 0, width, height), solid_.Get());
     beginScreenForeground();
     // The focused game's logo (or title) above the resting first row.
-    const float rest_alpha = (1.0f - smooth(lift * 3.0f)) * (1.0f - smooth(context_->quick_progress)) * smooth(detail_) *
-                             (1.0f - smooth(context_->category_menu_progress));
+    const float rest_alpha = (1.0f - smoothFade(lift * 3.0f)) * (1.0f - smoothFade(context_->quick_progress)) * smoothFade(detail_) *
+                             (1.0f - smoothFade(context_->category_menu_progress));
     if (rest_alpha > 0.01f && selected_ < cards.size() && !gameKey(cards[selected_].game).empty()) {
         const float bottom = first_top - 34;
         const auto& logo = logos_[selected_];
@@ -57,7 +58,7 @@ void Renderer::drawFlix() {
         const float tile_top = cards[row.begin].y, tile_height = flix_layout::tileHeight(row.landscape, scale);
         if (tile_top > height + 10 || tile_top + tile_height < -flix_layout::header) continue;
         // Rows scrolled above the focused one fade away under the top edge.
-        const float alpha = smooth((tile_top + tile_height - 30) / focus_zone);
+        const float alpha = smoothFade((tile_top + tile_height - 30) / focus_zone);
         if (alpha < 0.01f) continue;
         const bool focused_row = r == context_->flix_row;
         const float header_y = tile_top - flix_layout::header;
@@ -76,7 +77,7 @@ void Renderer::drawFlix() {
             if (i != selected_ && i != unfolded) drawRectangularCard(cards[i], i, alpha);
         if (in_row && unfolded != selected_ && unfolded < cards.size()) drawFlixUnfolded(cards[unfolded], unfolded, alpha);
         if (focused_row && selected_ >= row.begin && selected_ < row.begin + row.count) {
-            const float focus = smooth(context_->launch_progress);
+            const float focus = smoothFade(context_->launch_progress);
             if (focus > 0.001f) {
                 brush(D2D1::ColorF(0.008f, 0.012f, 0.016f, focus * 0.82f));
                 target_->FillRectangle(D2D1::RectF(0, 0, width, height), solid_.Get());
@@ -106,8 +107,8 @@ void Renderer::drawRectangularCard(const GameCard& card, size_t index, float alp
     const bool cinematic = (library_view::landscape(context_->library_mode) && context_->screen == ScreenMode::library) ||
         (gridScreen(context_->screen) && context_->library_mode == library_view::View::grid && context_->library_options.grid_landscape);
     const bool xmb = context_->xmb && !cinematic;
-    const float emphasis = xmb ? (focused ? 1.0f - smooth(context_->quick_progress) : 0.0f) : card.emphasis;
-    const float launch = focused ? smooth(context_->launch_progress) : 0.0f;
+    const float emphasis = xmb ? (focused ? 1.0f - smoothFade(context_->quick_progress) : 0.0f) : card.emphasis;
+    const float launch = focused ? smoothFade(context_->launch_progress) : 0.0f;
     const float scale = xmb ? 1.0f + 0.13f * launch : 1.0f + 0.045f * emphasis + 0.08f * launch;
     const float tile_w = w * scale, tile_h = h * scale;
     const float x = card.x - (tile_w - w) * 0.5f, y = card.y - (tile_h - h) * 0.5f;
@@ -274,7 +275,7 @@ void Renderer::drawRectangularCard(const GameCard& card, size_t index, float alp
 void Renderer::drawFlixUnfolded(const GameCard& card, size_t index, float alpha) {
     const float w = card.width(), h = card.size;
     if (card.opacity < 0.01f || card.x > viewport_.width + 20 || card.x + w < -20 || card.y > viewport_.height + 20 || card.y + h < -20) return;
-    const float open = smooth(context_->flix_unfold), transparency = card.opacity * alpha;
+    const float open = smoothFade(context_->flix_unfold), transparency = card.opacity * alpha;
     const float x = card.x, y = card.y;
     const auto frame = D2D1::RectF(x, y, x + w, y + h);
     const auto shape = tileShape(frame, tile_shape_);
@@ -310,7 +311,7 @@ void Renderer::drawFlixUnfolded(const GameCard& card, size_t index, float alpha)
                                                     stops.Get(), shade.GetAddressOf())))
         target_->FillRectangle(D2D1::RectF(x, y + image_h * 0.45f, x + w, y + image_h + 1), shade.Get());
     // The logo (or title) bottom-left on the picture, appearing with the card.
-    const float content = transparency * smooth((open - 0.35f) / 0.65f);
+    const float content = transparency * smoothFade((open - 0.35f) / 0.65f);
     const float pad = 18;
     if (content > 0.01f) {
         if (logo) {

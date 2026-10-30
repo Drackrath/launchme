@@ -34,6 +34,30 @@
 #include <string>
 #include <vector>
 
+// Until the host can talk again (Launcher::companionAway): her rest after a conversation, her night.
+struct CompanionAway { uint64_t seconds = 0; bool sleeping = false; };
+// Her provider as Settings choose it; a worker resolves its credentials (DPAPI file,
+// environment, opencode) with resolve() (src/app/companion_request.cpp).
+struct CompanionAccess {
+    companion::Provider provider = companion::Provider::foundry;
+    std::wstring host;  // Foundry's stack or the Ollama server; empty: the environment/default.
+    std::string model;
+    std::filesystem::path config;
+    std::function<companion::Probe()> probe;
+    companion::Connection resolve() const;
+};
+// One item of her mind's screen (Launcher::companionMindItems).
+struct CompanionMindItem {
+    std::wstring label, category, detail, when;
+    uint64_t at = 0;
+    bool locked = false; // A private episode not yet told or opened: the Mind view keeps it closed.
+    std::string key;     // Its episode id.
+    bool inner = false;  // Her mood: the inner shell; the rest is her life.
+    bool short_term = false; // True when stored in working / short-term memory, false when consolidated in long-term memory.
+    bool thought = false;    // A mental act (her curiosity): drawn as a thought (the Myśli filter), never masked.
+    bool active = false;     // What she is doing right now (about to ask, waiting for his answer): lit up.
+};
+
 // Her voice (src/app/companion_voice.cpp): the ElevenLabs key's check and her current line.
 struct CompanionVoice {
     // missing: no key; failed: the key's check or her last line went wrong (`problem`).

@@ -1,4 +1,5 @@
 #include "steam_trailer.hpp"
+#include "../platform/file_io.hpp"
 #include "game_details.hpp"
 #include "../net/json.hpp"
 #include "../platform/atomic_file.hpp"
@@ -14,13 +15,7 @@
 #include <fstream>
 
 namespace {
-std::string readText(const std::filesystem::path& file) {
-    std::ifstream input(file, std::ios::binary | std::ios::ate);
-    if (!input || input.tellg() <= 0 || input.tellg() > 4 * 1024 * 1024) return {};
-    std::string text(static_cast<size_t>(input.tellg()), '\0');
-    input.seekg(0);
-    return input.read(text.data(), static_cast<std::streamsize>(text.size())) ? text : std::string{};
-}
+std::string readText(const std::filesystem::path& file) { return file_io::readText(file, 4 * 1024 * 1024); }
 uint64_t unixMs() {
     return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count());

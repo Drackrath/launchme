@@ -16,7 +16,7 @@ using Kind = desktop_ui::SheetHit::Kind;
 namespace {
 using palette::gray;
 D2D1_COLOR_F rgb(float r, float g, float b, float a = 1) { return D2D1::ColorF(r, g, b, a); }
-D2D1_RECT_F box(Rect r) { return D2D1::RectF(r.left, r.top, r.right, r.bottom); }
+using render_detail::box;
 float middle(Rect r) { return (r.top + r.bottom) * 0.5f; }
 }
 

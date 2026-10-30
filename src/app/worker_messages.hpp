@@ -78,7 +78,8 @@ struct GlanceMessage {
     std::vector<uint8_t> bytes;
     bool failed = false;
 };
-// Towarzyszka (src/app/companion.cpp): one answer, from the model or offline.
+// Towarzyszka (src/app/companion_request.cpp, received by companion_answer.cpp): one answer, from
+// the model or offline.
 struct CompanionMessage {
     // summary: a finished chat in a sentence or two, for her memory (no reply shown); reading: her
     // background web reading (daily_readings, no reply); life: her diary filling in what she did

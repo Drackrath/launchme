@@ -273,7 +273,12 @@ void Launcher::startLibraryWorker() {
                 posted = sent;
                 previous = next; // A failed account scan must be retried in full.
                 reload = false;
-            } catch (...) { library_error(std::current_exception()); }
+            } catch (...) {
+                library_error(std::current_exception());
+                // A file that throws on every read (a broken shortcuts.vdf) is retried in 30 s, not
+                // at once: owned_due with a past next_owned would make the wait return immediately.
+                next_owned = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+            }
         }
     }, library_error);
     startArtworkWorkers();

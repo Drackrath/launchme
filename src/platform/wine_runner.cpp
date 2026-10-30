@@ -42,10 +42,10 @@ void add(Environment& environment, std::string name, std::string value) { enviro
 bool lsfgLayerInstalled() {
     std::vector<fs::path> folders;
     const auto data = xdg_paths::dataHome();
-    for (const fs::path base : {fs::path("/usr/share/vulkan"), fs::path("/usr/local/share/vulkan"), fs::path("/etc/vulkan"),
+    for (const fs::path& base : {fs::path("/usr/share/vulkan"), fs::path("/usr/local/share/vulkan"), fs::path("/etc/vulkan"),
                                 data.empty() ? fs::path{} : data / "vulkan"})
         if (!base.empty()) for (const auto* kind : {"implicit_layer.d", "explicit_layer.d"}) folders.push_back(base / kind);
-    for (const fs::path runtime : {fs::path("/var/lib/flatpak/runtime"), data.empty() ? fs::path{} : data / "flatpak" / "runtime"})
+    for (const fs::path& runtime : {fs::path("/var/lib/flatpak/runtime"), data.empty() ? fs::path{} : data / "flatpak" / "runtime"})
         if (!runtime.empty()) folders.push_back(runtime);
     for (const auto& folder : folders) {
         std::error_code ec;
@@ -514,6 +514,10 @@ int start(const Plan& plan, pid_t& pid) {
             if (!fs::exists(fs::symlink_status(pfx, ec))) fs::create_directory_symlink(".", pfx, ec);
         }
     }
+    // Proton's script opens $PROTON_LOG_DIR/steam-<id>.log without creating the folder: a missing
+    // folder would stop the game from starting. DXVK writes into its log path the same way.
+    for (const auto& [name, value] : plan.environment)
+        if ((name == "PROTON_LOG_DIR" || name == "DXVK_LOG_PATH") && !value.empty()) fs::create_directories(value, ec);
     int log = -1;
     if (!plan.log_file.empty()) {
         fs::create_directories(plan.log_file.parent_path(), ec);

@@ -24,7 +24,7 @@ constexpr size_t max_games = 6, max_sections = 4, max_settings = 3;
 void Launcher::desktopQuickOpen() {
     if (!desktopActive()) return;
     desktopCloseMenu();
-    desktop_downloads_open_ = desktop_widgets_open_ = false;
+    desktop_downloads_open_ = false;
     desktopSearchFocus(false);
     desktop_quick_ = {};
     desktop_quick_.open = true;

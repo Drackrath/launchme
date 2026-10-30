@@ -3,6 +3,7 @@
 // console game it came from). Only fields changed in the dialog become overrides; an emptied field
 // goes back to the automatic value, and Przywróć automatyczne forgets them all.
 #include "launcher.hpp"
+#include "../platform/ascii_text.hpp"
 
 #include "../library/steam_stats.hpp"
 #include "../platform/text_encoding.hpp"
@@ -81,13 +82,7 @@ std::vector<std::wstring> ownList(const std::wstring& text) {
     flush();
     return items;
 }
-std::wstring trimmed(std::wstring text) {
-    const auto space = [](wchar_t c) { return c == L' ' || c == L'\t' || c == L'\n' || c == L'\r'; };
-    while (!text.empty() && space(text.back())) text.pop_back();
-    size_t start = 0;
-    while (start < text.size() && space(text[start])) ++start;
-    return text.substr(start);
-}
+std::wstring trimmed(std::wstring text) { return std::wstring(ascii_text::trim(text)); }
 } // namespace
 
 const metadata::Override* Launcher::metadataOverride(const Game& game) const {
@@ -168,7 +163,7 @@ void Launcher::desktopMetaOpen(const Game& game) {
     if (desktop_mode_) {
         desktopCloseMenu();
         desktopQuickClose();
-        desktop_downloads_open_ = desktop_widgets_open_ = false;
+        desktop_downloads_open_ = false;
         desktopSearchFocus(false);
     }
     bool loading = false;

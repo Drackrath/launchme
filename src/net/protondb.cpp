@@ -44,8 +44,8 @@ int parseDeck(std::string_view json) {
     const auto* results = root ? root->get("results") : nullptr;
     const auto* category = results ? results->get("resolved_category") : nullptr;
     if (!category || category->type != json::Value::Type::number) return 0;
-    const int value = static_cast<int>(category->numeric);
-    return value >= 0 && value <= 3 ? value : 0;
+    // Checked as a double first: casting an out-of-range value to int is undefined behaviour.
+    return category->numeric >= 0 && category->numeric <= 3 ? static_cast<int>(category->numeric) : 0;
 }
 
 uint32_t steamAppOf(std::string_view umu_id) {
@@ -66,8 +66,10 @@ std::optional<Summary> cached(const std::filesystem::path& folder, uint32_t app,
     Summary result;
     if (const auto* tier = root->get("tier"); tier && knownTier(tier->stringOr())) result.tier = tier->stringOr();
     if (const auto* trending = root->get("trending"); trending && knownTier(trending->stringOr())) result.trending = trending->stringOr();
-    if (const auto* reports = root->get("reports"); reports && reports->type == json::Value::Type::number) result.reports = static_cast<uint32_t>(reports->numeric);
-    if (const auto* deck = root->get("deck"); deck && deck->type == json::Value::Type::number) result.deck = static_cast<int>(deck->numeric);
+    if (const auto* reports = root->get("reports"); reports && reports->type == json::Value::Type::number && reports->numeric >= 0 && reports->numeric < 1e9)
+        result.reports = static_cast<uint32_t>(reports->numeric);
+    if (const auto* deck = root->get("deck"); deck && deck->type == json::Value::Type::number && deck->numeric >= 0 && deck->numeric <= 3)
+        result.deck = static_cast<int>(deck->numeric);
     return result;
 }
 

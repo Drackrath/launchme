@@ -1,4 +1,5 @@
 #include "aurelia.hpp"
+#include "../platform/file_io.hpp"
 #include "../net/http_download.hpp"
 #include "../platform/atomic_file.hpp"
 #include "../platform/updater.hpp"
@@ -16,12 +17,7 @@ bool version(std::wstring_view value) {
     if (value.empty() || value.size() > 64 || value.front() == L'.') return false;
     return std::all_of(value.begin(), value.end(), [](wchar_t c) { return (c >= L'0' && c <= L'9') || c == L'.' || c == L'v' || c == L'-' || (c >= L'a' && c <= L'z'); }) && value.find(L"..") == value.npos;
 }
-std::string readSmall(const std::filesystem::path& file) {
-    std::ifstream in(file, std::ios::binary | std::ios::ate);
-    if (!in || in.tellg() <= 0 || in.tellg() > 4096) return {};
-    std::string out(static_cast<size_t>(in.tellg()), '\0'); in.seekg(0);
-    return in.read(out.data(), out.size()) ? out : std::string{};
-}
+std::string readSmall(const std::filesystem::path& file) { return file_io::readText(file, 4096); }
 #ifdef _WIN32
 bool pe64(const std::filesystem::path& file) {
     std::ifstream in(file, std::ios::binary); IMAGE_DOS_HEADER dos{}; DWORD sig = 0; IMAGE_FILE_HEADER header{};
@@ -69,7 +65,8 @@ std::optional<Release> parseRelease(std::string_view body) {
     bool found = false;
     const auto asset = text_encoding::utf8(asset_name);
     for (const auto& a : assets->elements) if (text(a, "name") == asset) {
-        if (found) return {}; found = true;
+        if (found) return {};
+        found = true;
         r.url = text_encoding::wideLenient(text(a, "browser_download_url"));
         const auto expected = L"https://github.com/Drackrath/Aurelia/releases/download/" + r.version + L"/" + asset_name;
         if (r.url != expected) return {};

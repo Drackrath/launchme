@@ -112,11 +112,6 @@ void Launcher::companionHush() {
     audio_.stopSpeaking();
 }
 
-void Launcher::companionSpeak(const std::wstring& text, companion::Emotion emotion) {
-    companion::Line single{companionLook(), text, {{0, emotion}}, {}};
-    companionSpeakLines({std::move(single)});
-}
-
 void Launcher::companionSpeakLines(const std::vector<companion::Line>& lines) {
     companionHush();
     auto& voice = companion_.voice;

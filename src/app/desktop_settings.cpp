@@ -17,7 +17,6 @@ using settings_ui::Id;
 using K = desktop_ui::SheetHit::Kind;
 
 namespace {
-float ease(float seconds, float speed) { return 1.0f - std::exp(-seconds * speed); }
 settings_ui::Rect inflate(settings_ui::Rect r, float x, float y) { return {r.left - x, r.top - y, r.right + x, r.bottom + y}; }
 }
 

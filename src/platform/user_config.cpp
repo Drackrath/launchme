@@ -4,6 +4,7 @@
 #include "music_themes.hpp"
 #include "text_encoding.hpp"
 #include "system.hpp"
+#include "unicode_text.hpp"
 
 #ifdef _WIN32
 #include <Windows.h>
@@ -107,7 +108,7 @@ std::wstring companionUserName(std::wstring_view text) {
         out += ch;
     }
     while (!out.empty() && out.back() == L' ') out.pop_back();
-    if (out.size() > 40) out.resize(40);
+    unicode_text::truncate(out, 40);
     while (!out.empty() && out.back() == L' ') out.pop_back();
     return out;
 }
@@ -250,7 +251,7 @@ AppSettings parseAppSettings(std::string_view text) {
                 rest = rest.substr(comma + 1);
             }
             if (valid && index == parts.size() && parts[2] >= 320 && parts[3] >= 240 && parts[2] <= 32768 && parts[3] <= 32768 &&
-                std::abs(parts[0]) <= 65536 && std::abs(parts[1]) <= 65536) settings.desktop_window = parts;
+                parts[0] >= -65536 && parts[0] <= 65536 && parts[1] >= -65536 && parts[1] <= 65536) settings.desktop_window = parts;
         }
         else if (key == "desktop_poster") {
             int width = 0;

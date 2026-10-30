@@ -1,4 +1,5 @@
 #include "renderer.hpp"
+#include "renderer_internal.hpp"
 #include "tour_view.hpp"
 
 #include <algorithm>
@@ -19,7 +20,7 @@ float transition(float time, float start, float end) {
     const float t = std::clamp((time - start) / (end - start), 0.0f, 1.0f);
     return t * t * (3 - 2 * t);
 }
-float smooth(float value) { const float t = std::clamp(value, 0.0f, 1.0f); return t * t * (3 - 2 * t); }
+using render_detail::smoothFade;
 D2D1_COLOR_F mix(D2D1_COLOR_F a, D2D1_COLOR_F b, float t) {
     t = std::clamp(t, 0.0f, 1.0f);
     return D2D1::ColorF(std::lerp(a.r, b.r, t), std::lerp(a.g, b.g, t), std::lerp(a.b, b.b, t), std::lerp(a.a, b.a, t));
@@ -83,9 +84,9 @@ void Renderer::drawLayoutScene(int option, D2D1_RECT_F picture, float time, floa
                 if (x > scene_width || x + size < 0) continue;
                 float alpha = 1, rise = 0;
                 if (next) {
-                    const float shown = smooth((vertical - 0.15f - card * 0.07f) / 0.45f);
+                    const float shown = smoothFade((vertical - 0.15f - card * 0.07f) / 0.45f);
                     alpha = shown; rise = (1 - shown) * 8;
-                } else alpha = 1 - smooth(vertical / 0.35f);
+                } else alpha = 1 - smoothFade(vertical / 0.35f);
                 if (alpha < 0.004f) continue;
                 const float focused = closeness(offset);
                 const auto base = mix(muted, dim, next ? 0.3f + 0.2f * (card % 2) : 0.15f * (card % 3));
@@ -96,9 +97,9 @@ void Renderer::drawLayoutScene(int option, D2D1_RECT_F picture, float time, floa
             }
         };
         // The focused game's title above the row changes with the focus.
-        const float first_title = (1 - smooth(vertical / 0.35f)) * smooth(std::abs(horizontal - 0.5f) * 2);
+        const float first_title = (1 - smoothFade(vertical / 0.35f)) * smoothFade(std::abs(horizontal - 0.5f) * 2);
         rect(14, 18, name_widths[horizontal < 0.5f ? 0 : 1], 7, faded(label, first_title), 2);
-        rect(14, 18, name_widths[3], 7, faded(label, smooth((vertical - 0.5f) / 0.3f)), 2);
+        rect(14, 18, name_widths[3], 7, faded(label, smoothFade((vertical - 0.5f) / 0.3f)), 2);
         if (vertical < 0.999f) shelf(horizontal, false);
         if (vertical > 0.001f) shelf(0, true);
     } else if (option == 1) {
@@ -133,9 +134,9 @@ void Renderer::drawLayoutScene(int option, D2D1_RECT_F picture, float time, floa
                 float y = along(offset, list_top, focus_item + item_gap, item + item_gap, item + item_gap + 8);
                 float alpha = 1;
                 if (next) {
-                    const float shown = smooth((horizontal - 0.3f - game * 0.06f) / 0.4f);
+                    const float shown = smoothFade((horizontal - 0.3f - game * 0.06f) / 0.4f);
                     alpha = shown; y += (1 - shown) * 7;
-                } else alpha = 1 - smooth(horizontal * 2.5f);
+                } else alpha = 1 - smoothFade(horizontal * 2.5f);
                 if (offset < 0) alpha *= std::max(0.0f, 1 + offset); // Earlier games leave above the tiles.
                 if (alpha < 0.004f || y > scene_height) continue;
                 const float focused = closeness(offset);
@@ -219,7 +220,7 @@ void Renderer::drawLayoutScene(int option, D2D1_RECT_F picture, float time, floa
         // and name beside it; then the focus goes down to "Graj" low on the left, the logo in the corner.
         constexpr float tile = 15.6f, focus_tile = 24.7f, gap = 2.5f, row_top = 13;
         constexpr float anchor = 8, buttons = scene_height - 15;
-        const float settled = smooth(std::abs(horizontal - 0.5f) * 2); // Dips while the focus changes.
+        const float settled = smoothFade(std::abs(horizontal - 0.5f) * 2); // Dips while the focus changes.
         const float down = vertical;
         rect(0, 0, scene_width, scene_height, white(0.05f + 0.05f * settled), 4);
         rect(112, 22, 116, 58, faded(white(0.15f), settled), 12); // The background's art.
@@ -266,14 +267,14 @@ void Renderer::drawLayoutScene(int option, D2D1_RECT_F picture, float time, floa
         const float name = name_widths[horizontal < 0.5f ? 0 : 1];
         // The focused game's background and logo above the resting row, gone once the page rises.
         rect(0, 0, scene_width, rest, faded(white(0.035f), 1 - lift), 0);
-        rect(edge, rest - 14, name * 0.8f, 8, faded(label, (1 - smooth(lift * 3)) * smooth(std::abs(horizontal - 0.5f) * 2)), 2);
+        rect(edge, rest - 14, name * 0.8f, 8, faded(label, (1 - smoothFade(lift * 3)) * smoothFade(std::abs(horizontal - 0.5f) * 2)), 2);
         for (int row = 0; row < 4; ++row) {
             const float header_top = std::lerp(rest + offset(row) + (row ? 6.0f : 0.0f), raised + offset(row) - offset(1), lift);
             if (header_top > scene_height) continue;
             const bool landscape = row == 0;
             const float h = landscape ? capsule_h : poster_h, w = landscape ? capsule_w : poster_w;
             const float tiles = header_top + header;
-            const float alpha = smooth((tiles + h - 2) / 16); // Rows above the focused one fade under the top edge.
+            const float alpha = smoothFade((tiles + h - 2) / 16); // Rows above the focused one fade under the top edge.
             if (alpha < 0.01f) continue;
             const float focus_row = row == 0 ? 1 - lift : row == 1 ? lift : 0.0f;
             const float title = 22.0f + row * 4.0f;

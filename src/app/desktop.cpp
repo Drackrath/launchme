@@ -1,7 +1,10 @@
 // Desktop mode, the library side (src/ui/desktop_view.hpp): the sidebar's sections, the section's
 // games as the poster grid (sorted, filtered, searched), the selection and its artwork, the pane's
-// data, the frame's motion and the ViewContext. Input: desktop_input.cpp; the window: desktop_window.cpp.
+// data, the frame's motion and the ViewContext. Input: desktop_input.cpp (pointer), desktop_keys.cpp,
+// desktop_actions.cpp, desktop_menus.cpp; the window: desktop_window.cpp.
 #include "launcher.hpp"
+#include "../platform/ascii_text.hpp"
+#include "../platform/unix_time.hpp"
 #include "launcher_internal.hpp"
 #include "../library/organization.hpp"
 #include "../library/emulation_platforms.hpp"
@@ -18,10 +21,6 @@
 using namespace desktop_ui;
 
 namespace {
-float ease(float seconds, float speed) { return 1.0f - std::exp(-seconds * speed); }
-uint64_t unixNow() {
-    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count());
-}
 // "Dzisiaj", "Wczoraj", "3 dni temu", else the date in the interface language; 0: never.
 std::wstring playedWhen(uint64_t seconds) {
     if (!seconds) return tr(L"Nigdy");
@@ -33,7 +32,7 @@ std::wstring playedWhen(uint64_t seconds) {
         local.tm_hour = local.tm_min = local.tm_sec = 0; local.tm_isdst = -1;
         return std::mktime(&local);
     };
-    const auto now = unixNow();
+    const auto now = unix_time::now();
     const auto days = static_cast<int64_t>(std::llround(std::difftime(midnight(now), midnight(std::min(seconds, now))) / 86400.0));
     if (days <= 0) return tr(L"Dzisiaj");
     if (days == 1) return tr(L"Wczoraj");
@@ -47,10 +46,7 @@ std::wstring playedWhen(uint64_t seconds) {
     if (!GetDateFormatEx(i18n::localeName(), 0, &system, L"d MMM yyyy", text, 64, nullptr)) return {};
     return text;
 }
-std::wstring trimmed(const std::wstring& text) {
-    const auto first = text.find_first_not_of(L' ');
-    return first == std::wstring::npos ? std::wstring{} : text.substr(first, text.find_last_not_of(L' ') - first + 1);
-}
+std::wstring trimmed(const std::wstring& text) { return std::wstring(ascii_text::trim(text, L" ")); }
 bool gameEntry(EntryKind kind) { return kind != EntryKind::hidden; }
 }
 
@@ -333,19 +329,6 @@ void Launcher::desktopShowSection(const std::string& id) {
     }
     settings_.desktop_section = id;
     if (screen_ == ScreenMode::shelves) rebuildCards(true);
-}
-
-void Launcher::desktopStepSection(int amount) {
-    const auto rows = desktopRows();
-    std::vector<int> order;
-    for (const auto& row : rows) if (!row.heading) order.push_back(row.entry);
-    if (order.empty()) return;
-    const auto at = std::find(order.begin(), order.end(), desktopEntryIndex(desktop_section_));
-    const int current = at == order.end() ? 0 : static_cast<int>(at - order.begin());
-    const int next = std::clamp(current + amount, 0, static_cast<int>(order.size()) - 1);
-    if (next == current) { navigationBoundary(); return; }
-    desktop_sidebar_focus_ = -1;
-    desktopShowSection(desktop_entries_[static_cast<size_t>(order[static_cast<size_t>(next)])].id);
 }
 
 void Launcher::desktopFocus(size_t index, bool reveal) {
@@ -722,22 +705,6 @@ void Launcher::desktopView(desktop_ui::View& view) {
     }
     view.downloads_fraction = shares ? static_cast<float>(share / shares) : -1.0f;
     view.update_progress = updateFraction();
-    // Widżety: friends online (playing first, at most eight), then each plugin widget's line.
-    view.widgets_open = desktop_widgets_open_;
-    desktop_widget_friend_ids_.clear();
-    if (desktop_widgets_open_) {
-        view.widgets_loading = friends_loading_;
-        view.widgets_error = friends_.error;
-        std::vector<const SteamFriend*> online;
-        for (const auto& person : friends_.friends) if (person.status > 0) online.push_back(&person);
-        std::stable_sort(online.begin(), online.end(), [](const SteamFriend* a, const SteamFriend* b) { return !a->game.empty() && b->game.empty(); });
-        for (const auto* person : online) {
-            if (view.widget_friends.size() >= 8) break;
-            view.widget_friends.push_back({person->name, person->game.empty() ? std::wstring(L"Online") : person->game, !person->game.empty()});
-            desktop_widget_friend_ids_.push_back(person->id);
-        }
-        for (size_t i = 0; i < plugin_widgets_.size(); ++i) view.widget_items.emplace_back(plugin_widgets_[i].item.title.localized(), pluginWidgetText(i));
-    }
     if (desktop_tooltip_ > 0.01f) {
         view.tooltip = desktopTooltip(desktop_hover_);
         view.tooltip_anchor = desktopTooltipAnchor(desktop_hover_);

@@ -28,6 +28,8 @@ set(LAUNCHME_APP_SOURCES
     src/app/bulk_covers.cpp
     src/ui/bulk_covers_renderer.cpp
     src/app/navigation.cpp
+    src/app/navigation_menus.cpp
+    src/app/game_launch.cpp
     src/app/pointer.cpp
     src/app/friends.cpp
     src/app/friend_chat.cpp
@@ -46,6 +48,9 @@ set(LAUNCHME_APP_SOURCES
     src/app/tour.cpp
     src/app/platform_settings.cpp
     src/app/compat_settings.cpp
+    src/app/compat_workers.cpp
+    src/app/compat_rows.cpp
+    src/app/compat_activate.cpp
     src/app/ratings.cpp
     src/app/game_video.cpp
     src/app/memory.cpp
@@ -64,6 +69,11 @@ set(LAUNCHME_APP_SOURCES
     src/app/profile.cpp
     src/app/studio_libraries.cpp
     src/app/companion.cpp
+    src/app/companion_request.cpp
+    src/app/companion_answer.cpp
+    src/app/companion_chat.cpp
+    src/app/companion_input.cpp
+    src/app/companion_mind_view.cpp
     src/app/companion_picker.cpp
     src/app/companion_events.cpp
     src/app/companion_roulette.cpp
@@ -83,6 +93,9 @@ set(LAUNCHME_APP_SOURCES
     src/net/remote_server.cpp
     src/app/desktop.cpp
     src/app/desktop_input.cpp
+    src/app/desktop_actions.cpp
+    src/app/desktop_keys.cpp
+    src/app/desktop_menus.cpp
     src/app/desktop_window.cpp
     src/app/jump_list.cpp
     src/app/game_links.cpp
@@ -94,6 +107,9 @@ set(LAUNCHME_APP_SOURCES
     src/app/desktop_settings.cpp
     src/app/desktop_dialogs.cpp
     src/ui/desktop_renderer.cpp
+    src/ui/desktop_chrome_renderer.cpp
+    src/ui/desktop_grid_renderer.cpp
+    src/ui/desktop_pane_renderer.cpp
     src/ui/desktop_popups_renderer.cpp
     src/ui/desktop_settings_renderer.cpp
     src/ui/desktop_details_renderer.cpp
@@ -105,6 +121,8 @@ set(LAUNCHME_APP_SOURCES
     src/ui/tarot_renderer.cpp
     src/ui/profile_renderer.cpp
     src/ui/companion_renderer.cpp
+    src/ui/companion_chat_renderer.cpp
+    src/ui/companion_cards_renderer.cpp
     src/ui/companion_mind_renderer.cpp
     src/ui/companion_feed_renderer.cpp
     src/ui/companion_marks.cpp
@@ -112,6 +130,10 @@ set(LAUNCHME_APP_SOURCES
     src/net/protondb.cpp
     src/net/steam_upcoming.cpp
     src/net/companion.cpp
+    src/net/companion_prompt.cpp
+    src/net/companion_prompt_character.cpp
+    src/net/companion_reply.cpp
+    src/net/companion_transport.cpp
     src/net/companion_events.cpp
     src/net/companion_lines.cpp
     src/net/companion_providers.cpp
@@ -128,6 +150,11 @@ set(LAUNCHME_APP_SOURCES
     src/net/companion_semantic.cpp
     src/net/companion_cognition.cpp
     src/net/companion_mind.cpp
+    src/net/companion_mind_appraisal.cpp
+    src/net/companion_mind_life.cpp
+    src/net/companion_mind_store.cpp
+    src/net/companion_mind_turns.cpp
+    src/net/companion_mind_workspace.cpp
     src/net/companion_social.cpp
     src/net/companion_chats.cpp
     src/net/companion_characters.cpp

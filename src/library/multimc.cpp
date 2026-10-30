@@ -1,4 +1,5 @@
 #include "multimc.hpp"
+#include "../platform/file_io.hpp"
 #include "../net/json.hpp"
 #include "../platform/command_line.hpp"
 #include "../platform/text_encoding.hpp"
@@ -25,14 +26,7 @@ std::wstring lower(std::wstring value) {
 }
 bool isFile(const std::filesystem::path& path) { std::error_code ec; return !path.empty() && path.is_absolute() && std::filesystem::is_regular_file(path, ec); }
 bool isFolder(const std::filesystem::path& path) { std::error_code ec; return !path.empty() && path.is_absolute() && std::filesystem::is_directory(path, ec); }
-std::string readFile(const std::filesystem::path& path, size_t limit = 1024 * 1024) {
-    std::ifstream input(path, std::ios::binary | std::ios::ate);
-    if (!input || input.tellg() <= 0 || input.tellg() > static_cast<std::streamoff>(limit)) return {};
-    std::string bytes(static_cast<size_t>(input.tellg()), '\0');
-    input.seekg(0);
-    if (!input.read(bytes.data(), static_cast<std::streamsize>(bytes.size()))) return {};
-    return bytes;
-}
+std::string readFile(const std::filesystem::path& path, size_t limit = 1024 * 1024) { return file_io::readText(path, limit); }
 #ifdef _WIN32
 std::filesystem::path environment(const wchar_t* name) {
     wchar_t value[4096]{};

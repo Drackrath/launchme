@@ -1,7 +1,9 @@
 #include "game_index_sources.hpp"
+#include "../platform/file_io.hpp"
 #include "../model/key_codec.hpp"
 #include "../net/json.hpp"
 #include "../platform/text_encoding.hpp"
+#include "../platform/unicode_text.hpp"
 
 #include <algorithm>
 #include <array>
@@ -14,14 +16,7 @@
 namespace game_index {
 namespace {
 std::wstring wide(std::string_view text) { return text_encoding::wideLenient(text); }
-std::string readFile(const std::filesystem::path& file, size_t limit) {
-    std::ifstream input(file, std::ios::binary | std::ios::ate);
-    if (!input || input.tellg() <= 0 || static_cast<uint64_t>(input.tellg()) > limit) return {};
-    std::string bytes(static_cast<size_t>(input.tellg()), '\0');
-    input.seekg(0);
-    if (!input.read(bytes.data(), static_cast<std::streamsize>(bytes.size()))) return {};
-    return bytes;
-}
+std::string readFile(const std::filesystem::path& file, size_t limit) { return file_io::readText(file, limit); }
 uint64_t modified(const std::filesystem::path& file) {
     std::error_code ec;
     const auto time = std::filesystem::last_write_time(file, ec);
@@ -126,7 +121,7 @@ std::wstring plainDescription(std::string_view html, size_t limit) {
     if (collapsed.size() > limit) {
         auto cut = collapsed.rfind(L' ', limit);
         if (cut == std::wstring::npos || cut < limit / 2) cut = limit;
-        collapsed.resize(cut);
+        unicode_text::truncate(collapsed, cut);
         collapsed += L"…";
     }
     return collapsed;

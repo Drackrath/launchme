@@ -1,15 +1,12 @@
 #include "binary_kv.hpp"
+#include "../platform/ascii_text.hpp"
 
 #include <charconv>
 #include <cstring>
 
 namespace binary_kv {
 namespace {
-bool sameKey(std::string_view a, std::string_view b) {
-    return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(), [](char x, char y) {
-        return (x >= 'A' && x <= 'Z' ? x - 'A' + 'a' : x) == (y >= 'A' && y <= 'Z' ? y - 'A' + 'a' : y);
-    });
-}
+bool sameKey(std::string_view a, std::string_view b) { return ascii_text::equalIgnoreCase(a, b); }
 bool readString(std::span<const uint8_t> bytes, size_t& at, std::string& out) {
     const size_t start = at;
     while (at < bytes.size() && bytes[at]) ++at;

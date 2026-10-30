@@ -77,6 +77,17 @@ uint32_t steamGridDbWaitSeconds() {
 bool lanHost(std::wstring_view host) {
     if (host.empty()) return false;
     if (host == L"127.0.0.1" || unicode_text::equalIgnoreCase(host, L"localhost")) return true;
+    if (host.find(L':') != std::wstring_view::npos) {
+        // IPv6 literals (with or without the URL's brackets): loopback, link-local fe80::/10 and
+        // unique-local fc00::/7 only; every other address is public.
+        if (host.starts_with(L'[') && host.ends_with(L']')) host = host.substr(1, host.size() - 2);
+        std::wstring address(host);
+        for (auto& ch : address) ch = static_cast<wchar_t>(std::towlower(ch));
+        if (address == L"::1") return true;
+        const auto group = std::wstring_view(address).substr(0, address.find(L':'));
+        return group.size() == 4 && (group.starts_with(L"fc") || group.starts_with(L"fd") || group.starts_with(L"fe8") ||
+                                     group.starts_with(L"fe9") || group.starts_with(L"fea") || group.starts_with(L"feb"));
+    }
     // Private IPv4 literals: 10/8, 172.16/12, 192.168/16, 169.254/16.
     int parts[4]{}, count = 0;
     size_t at = 0;
@@ -87,6 +98,7 @@ bool lanHost(std::wstring_view host) {
         parts[count] = std::stoi(std::wstring(piece));
         if (parts[count] > 255) { count = -1; break; }
         if (dot == std::wstring_view::npos) { ++count; break; }
+        if (count == 3) { count = -1; break; } // More after four numbers: "10.0.0.1.example.com" is a public name.
         at = dot + 1;
     }
     if (count == 4) return parts[0] == 10 || parts[0] == 127 || (parts[0] == 172 && parts[1] >= 16 && parts[1] <= 31) ||
@@ -151,26 +163,34 @@ HttpResponse httpDownloadFile(const std::wstring& url, const std::wstring& heade
     std::filesystem::create_directories(file.parent_path(), ec);
     uint64_t have = std::filesystem::is_regular_file(part, ec) ? std::filesystem::file_size(part, ec) : 0;
     if (ec) have = 0;
+    // max_bytes caps the whole file, not each resumed request: a part past it is dropped.
+    if (have > max_bytes) { std::filesystem::remove(part, ec); return {}; }
     std::wstring request_headers = headers;
     if (have) request_headers += L"Range: bytes=" + std::to_wstring(have) + L"-\r\n";
     std::ofstream output;
-    bool opened = false;
+    bool opened = false, too_big = false;
+    uint64_t received = 0;
     HttpResponse response;
     {
         HttpBudget budget(timeout_ms);
-        response = request(url, request_headers, max_bytes, private_request, nullptr, timeout_ms,
+        // The sink checks the cap (the part it continues plus this response); the transport's own
+        // limit is one byte larger, so it never fires first.
+        response = request(url, request_headers, max_bytes < std::numeric_limits<size_t>::max() ? max_bytes + 1 : max_bytes, private_request, nullptr, timeout_ms,
             [&](uint32_t status, const uint8_t* data, size_t size) {
+                if ((status == 206 ? have : 0) + received + size > max_bytes) { too_big = true; return false; }
                 if (!opened) { // 206 continues the part file, 200 (Range ignored) starts it over.
                     output.open(part, std::ios::binary | (status == 206 ? std::ios::app : std::ios::trunc));
                     opened = output.is_open();
                     if (!opened) return false;
                 }
                 output.write(reinterpret_cast<const char*>(data), static_cast<std::streamsize>(size));
+                received += size;
                 return output.good();
             });
     }
     const bool written = opened && output.good();
     if (opened) output.close();
+    if (too_big) { std::filesystem::remove(part, ec); return {}; } // Larger than allowed: not kept for a retry.
     if ((response.status == 200 || response.status == 206) && written && atomic_file::replace(part, file)) return {200};
     if (response.status == 416) std::filesystem::remove(part, ec); // A part that no longer fits: start over next time.
     return {response.status == 200 || response.status == 206 ? 0u : response.status};

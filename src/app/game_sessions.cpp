@@ -1,4 +1,5 @@
 #include "launcher.hpp"
+#include "../platform/unix_time.hpp"
 #include "../platform/game_activity.hpp"
 #ifndef _WIN32
 #include "../library/steam_registry.hpp"
@@ -198,7 +199,7 @@ void Launcher::onRunningGames(std::unique_ptr<RunningGamesMessage> message) {
         companionSessionStarted(game, false);
         const auto history_key = recent_games::historyKey(game, account_, gog_state_.account, epic_state_.account);
         if (!history_key.empty() && game.visibility == GameVisibility::public_game) {
-            library_state_.last_played[history_key] = gog::nowSeconds();
+            library_state_.last_played[history_key] = unix_time::now();
             library_state_dirty_ = history_changed = true;
         }
         adopted = true;
@@ -220,7 +221,7 @@ void Launcher::beginGameSession(const Game& game, uint64_t focus_ms, std::shared
     if (game.kind == GameKind::nonsteam && game.visibility == GameVisibility::public_game) {
         const auto history_key = recent_games::historyKey(game, account_, gog_state_.account, epic_state_.account);
         if (!history_key.empty()) {
-            library_state_.last_played[history_key] = gog::nowSeconds();
+            library_state_.last_played[history_key] = unix_time::now();
             library_state_dirty_ = true;
             saveLibraryPreferences();
         }
@@ -290,7 +291,7 @@ void Launcher::onGameActivity(std::unique_ptr<GameActivityMessage> message) {
             if (tracked != game_activity_jobs_->active.end() && !tracked->second.history_key.empty() &&
                 tracked->second.game.visibility == GameVisibility::public_game) {
                 // A client handoff, installer or failed start is not playtime.
-                library_state_.last_played[tracked->second.history_key] = gog::nowSeconds();
+                library_state_.last_played[tracked->second.history_key] = unix_time::now();
                 library_state_dirty_ = history_changed = true;
                 journal_name = tracked->second.game.name;
             }

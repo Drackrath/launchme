@@ -1,4 +1,5 @@
 #include "epic_legendary.hpp"
+#include "../platform/file_io.hpp"
 #include "../platform/hashing.hpp"
 #include "../platform/unicode_text.hpp"
 #include "../net/http_download.hpp"
@@ -55,7 +56,7 @@ std::string readText(const std::filesystem::path& p, size_t limit = 8 * 1024 * 1
     std::string text(static_cast<size_t>(f.tellg()), '\0'); f.seekg(0);
     return f.read(text.data(), static_cast<std::streamsize>(text.size())) ? text : std::string{};
 }
-bool regular(const std::filesystem::path& p) { std::error_code ec; return std::filesystem::is_regular_file(p, ec); }
+bool regular(const std::filesystem::path& p) { return file_io::isFile(p); }
 std::filesystem::path childPath(const std::filesystem::path& root, std::wstring_view relative) {
     const std::filesystem::path part(relative);
     if (!root.is_absolute() || part.empty() || part.is_absolute() || part.has_root_name()) return {};

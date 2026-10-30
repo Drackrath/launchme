@@ -66,8 +66,10 @@ public:
 
 private:
     struct Playing {
-        std::unique_ptr<audio_output::Voice> voice;
+        // Declared before `voice`, so it is destroyed after it: the voice's destructor (DestroyVoice)
+        // waits for the audio thread, which reads these samples until then.
         std::vector<uint8_t> samples;
+        std::unique_ptr<audio_output::Voice> voice;
         bool startup_boot = false;
     };
     void play(bool confirm);

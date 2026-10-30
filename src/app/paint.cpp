@@ -1,6 +1,7 @@
 // Frame output and window state: ViewContext assembly for the renderer, notifications,
 // system volume polling, resize/fullscreen/focus handling and the performance overlay.
 #include "launcher.hpp"
+#include "launcher_internal.hpp"
 #include "../ui/drawer_clock.hpp"
 #include "../ui/flix_layout.hpp"
 #include "../ui/xmb_layout.hpp"
@@ -13,10 +14,6 @@
 std::wstring desktopPlayedWhen(uint64_t seconds); // desktop.cpp: "Dzisiaj", "3 dni temu", a date; 0: "Nigdy".
 
 namespace {
-// "12 gier": Polish plural forms; English has "game" only for 1.
-std::wstring gameCount(size_t n) {
-    return std::to_wstring(n) + (n == 1 ? tr(L" gra") : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? tr(L" gry") : tr(L" gier"));
-}
 // Metro tabs are lower case, like the dashboard they follow.
 std::wstring lowered(std::wstring text) {
     if (!text.empty())
@@ -375,8 +372,8 @@ void Launcher::paint(bool overlay) {
         context.xmb_row = xmb_row_;
         const auto& tile = xmb_top_[xmb_column_];
         context.xmb_caption = tile.name;
-        if (const auto* column = xmbColumn(tile)) context.xmb_subcaption = gameCount(column->size());
-        else if (tile.kind == GameKind::all) context.xmb_subcaption = gameCount(public_library_.size());
+        if (const auto* column = xmbColumn(tile)) context.xmb_subcaption = gamesLabel(column->size());
+        else if (tile.kind == GameKind::all) context.xmb_subcaption = gamesLabel(public_library_.size());
         else if (isGame(tile)) context.xmb_subcaption = tr(L"Ostatnio grane");
         else if (tile.kind == GameKind::glance) context.xmb_subcaption = tr(L"Nowości i premiery");
         else if (tile.kind == GameKind::companion && context.companion) {
@@ -454,9 +451,9 @@ void Launcher::paint(bool overlay) {
                     categories_[category].games.end(), [](const Game& item) { return isGame(item); })) : size_t{0};
             };
             if (role == Role::recent_large) tile.sub = tr(L"Ostatnio grane");
-            else if (role == Role::library) tile.sub = gameCount(public_library_.size());
+            else if (role == Role::library) tile.sub = gamesLabel(public_library_.size());
             else if (role == Role::install) tile.sub = game.installation.active() ? tr(L"Instalacja") : tr(L"Ostatnio dodana");
-            else if (role == Role::all) tile.sub = gameCount(games(game.app_id));
+            else if (role == Role::all) tile.sub = gamesLabel(games(game.app_id));
             else if (role == Role::glance) tile.sub = tr(L"Nowości i premiery");
             else if (role == Role::companion && context.companion) { tile.caption = context.companion->name; tile.sub = context.companion->persona; }
             context.metro_tiles.push_back(std::move(tile));
@@ -495,15 +492,15 @@ void Launcher::paint(bool overlay) {
         // Beside the library tile: how many games; beside a category's "Wszystkie": which category.
         if (selected_ < cards_.size()) {
             const auto& game = cards_[selected_].game;
-            if (game.kind == GameKind::all) context.psfive_caption = gameCount(public_library_.size());
+            if (game.kind == GameKind::all) context.psfive_caption = gamesLabel(public_library_.size());
             else if (game.kind == GameKind::category && game.app_id < categories_.size()) {
                 // A row's "Wszystkie": which category; a tile named after its category: only how many games.
                 const auto& category = categories_[game.app_id];
-                const auto count = gameCount(static_cast<size_t>(
+                const auto count = gamesLabel(static_cast<size_t>(
                     std::count_if(category.games.begin(), category.games.end(), [](const Game& item) { return isGame(item); })));
                 context.psfive_caption = game.name == category.title ? count : category.title + L" · " + count;
             } else if (game.kind == GameKind::platform) { // A console tile (Emulacja from the category menu): its games.
-                if (const auto* games = consoleGames(game.platform)) context.psfive_caption = gameCount(games->size());
+                if (const auto* games = consoleGames(game.platform)) context.psfive_caption = gamesLabel(games->size());
             }
         }
     }

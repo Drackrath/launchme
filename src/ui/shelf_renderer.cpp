@@ -19,7 +19,7 @@ using Microsoft::WRL::ComPtr;
 using palette::gray;
 
 namespace {
-float smooth(float value) { const float t = std::clamp(value, 0.0f, 1.0f); return t * t * (3 - 2 * t); }
+using render_detail::smoothFade;
 ComPtr<ID2D1PathGeometry> quadGeometry(ID2D1Factory* factory, const D2D1_POINT_2F (&corners)[4]) {
     ComPtr<ID2D1PathGeometry> path;
     ComPtr<ID2D1GeometrySink> sink;
@@ -184,7 +184,7 @@ void Renderer::drawLibraryShelf() {
     const float flow = std::clamp(context_->library_flow.value_or(static_cast<float>(selected_)), -4.0f, static_cast<float>(count) + 3);
     const float scale = viewport_.scale, h = layout.coverHeight(), w = layout.coverWidth(), floor = layout.floor();
     const auto camera = layout.camera(scale);
-    const float launch = smooth(context_->launch_progress);
+    const float launch = smoothFade(context_->launch_progress);
 
     // Far covers first: the nearer the middle, the later (on top).
     std::vector<size_t> order;
@@ -201,7 +201,7 @@ void Renderer::drawLibraryShelf() {
     const auto spot = D2D1::Point2F(layout.centreX(), layout.top() + h * 0.55f);
     const float reach_x = h * 1.3f, reach_y = std::max(40.0f, spot.y - 186);
     shelf_glow_->SetCenter(spot); shelf_glow_->SetRadiusX(reach_x); shelf_glow_->SetRadiusY(reach_y);
-    shelf_glow_->SetOpacity(0.8f + 0.2f * smooth(detail_));
+    shelf_glow_->SetOpacity(0.8f + 0.2f * smoothFade(detail_));
     target_->FillRectangle(D2D1::RectF(spot.x - reach_x, spot.y - reach_y, spot.x + reach_x, spot.y + reach_y), shelf_glow_.Get());
     target_->PushAxisAlignedClip(D2D1::RectF(0, 180, viewport_.width, viewport_.height), D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
     shelf_floor_->SetStartPoint({0, floor - h * 0.34f}); shelf_floor_->SetEndPoint({0, floor + h * 0.62f});
@@ -277,7 +277,7 @@ void Renderer::drawLibraryShelf() {
             if (!grey.bitmap && grayBrush(*image)) grey = {image->gray_bitmap.Get(), image->gray_brush.Get()};
         }
         // Full colour only in the middle unless the view's option keeps every case in colour (a suspended game stays grey, as everywhere).
-        const float colourful = frozen ? 0.0f : context_->library_options.bookshelf_gray ? smooth(1 - along * 1.6f) : 1.0f;
+        const float colourful = frozen ? 0.0f : context_->library_options.bookshelf_gray ? smoothFade(1 - along * 1.6f) : 1.0f;
         const float shown = image ? alpha * reveal(*image) : 0;
         // A picture onto (a part of) a face: in perspective, or without Direct2D 1.1 an affine fill
         // through the part's outline (its first three corners; close for the moderate turns).
@@ -442,7 +442,7 @@ void Renderer::drawLibraryShelf() {
     target_->PopAxisAlignedClip();
 
     // Title, then year · developer, centred under the cover; they rise in with every new focus.
-    const float fade = smooth(detail_ * 1.6f) * (1 - launch * 0.6f), rise = 10 * (1 - fade);
+    const float fade = smoothFade(detail_ * 1.6f) * (1 - launch * 0.6f), rise = 10 * (1 - fade);
     const float text_left = 68, text_width = viewport_.width - 136;
     textLine(card.game.name, text_left, layout.titleY() + rise, text_width, settings_heading_font_.Get(), gray(0.97f, fade), DWRITE_TEXT_ALIGNMENT_CENTER);
     // Under it, as in PSfive: the platform's badge, then year · developer · playtime, all at once when

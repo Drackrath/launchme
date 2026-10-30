@@ -1,6 +1,7 @@
 // Steam's public search catalog, not featuredcategories.coming_soon (a tiny promotion strip).
 // Dates and artwork arrive with the rows, avoiding a request/deadline per title.
 #include "glance.hpp"
+#include "../platform/ascii_text.hpp"
 #include "../platform/system.hpp"
 #include "json.hpp"
 #include "../platform/atomic_file.hpp"
@@ -15,10 +16,7 @@ namespace glance {
 namespace {
 constexpr size_t max_page = 2*1024*1024;
 constexpr int page_size = 100;
-std::wstring trim(std::wstring_view text) {
-    const auto first=text.find_first_not_of(L" \r\n\t");
-    return first==text.npos ? L"" : std::wstring(text.substr(first,text.find_last_not_of(L" \r\n\t")-first+1));
-}
+std::wstring trim(std::wstring_view text) { return std::wstring(ascii_text::trim(text)); }
 size_t tagEnd(std::wstring_view html,size_t at) {
     wchar_t quote=0;
     for (;at<html.size();++at) {

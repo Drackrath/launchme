@@ -1,4 +1,5 @@
 #include "pc_platforms.hpp"
+#include "../platform/file_io.hpp"
 #include "battlenet.hpp"
 #include "ubisoft.hpp"
 #include "../net/json.hpp"
@@ -29,14 +30,7 @@ std::string utf8(const std::wstring& value) { return text_encoding::utf8(value);
 std::wstring lower(std::wstring value) { std::transform(value.begin(), value.end(), value.begin(), towlower); return value; }
 bool directory(const std::filesystem::path& path) { std::error_code ec; return !path.empty() && path.is_absolute() && std::filesystem::is_directory(path, ec); }
 bool file(const std::filesystem::path& path) { std::error_code ec; return !path.empty() && path.is_absolute() && std::filesystem::is_regular_file(path, ec); }
-std::string readFile(const std::filesystem::path& path, size_t limit = 2 * 1024 * 1024) {
-    std::ifstream input(path, std::ios::binary | std::ios::ate);
-    if (!input || input.tellg() <= 0 || input.tellg() > static_cast<std::streamoff>(limit)) return {};
-    std::string bytes(static_cast<size_t>(input.tellg()), '\0');
-    input.seekg(0);
-    if (!input.read(bytes.data(), static_cast<std::streamsize>(bytes.size()))) return {};
-    return bytes;
-}
+std::string readFile(const std::filesystem::path& path, size_t limit = 2 * 1024 * 1024) { return file_io::readText(path, limit); }
 std::string textFile(const std::filesystem::path& path) {
     auto bytes = readFile(path);
     if (bytes.starts_with("\xef\xbb\xbf")) bytes.erase(0, 3);
@@ -229,6 +223,12 @@ PcDiscovery discoverPcInstallations(const std::vector<std::filesystem::path>& mu
             result.clients.push_back({source, result.multimc.empty() ? std::filesystem::path{} : result.multimc.front().executable});
             continue;
         }
+        if (source == GameSource::amazon) {
+            // Amazon's games go through Nile (src/store/amazon.cpp): no client to find (the defaults
+            // below are Epic's).
+            result.clients.push_back({source, {}});
+            continue;
+        }
         const auto scheme = source == GameSource::gog ? L"goggalaxy" : source == GameSource::battlenet ? L"battlenet" :
                             source == GameSource::ea ? L"origin2" : source == GameSource::ubisoft ? L"uplay" : L"com.epicgames.launcher";
         const auto protocol = protocolClient(scheme);
@@ -247,7 +247,8 @@ PcDiscovery discoverPcInstallations(const std::vector<std::filesystem::path>& mu
                 (source == GameSource::ubisoft && (name == L"ubisoft connect" || name == L"uplay")) ||
                 (source == GameSource::epic && name == L"epic games launcher")) roots.insert(roots.begin(), program.directory);
         }
-        for (const REGSAM view : {KEY_WOW64_32KEY, KEY_WOW64_64KEY}) {
+        // Epic keeps no install folder in the registry (its default key below is Battle.net's).
+        if (source != GameSource::epic) for (const REGSAM view : {KEY_WOW64_32KEY, KEY_WOW64_64KEY}) {
             Key settings(HKEY_LOCAL_MACHINE, source == GameSource::gog ? L"SOFTWARE\\GOG.com\\GalaxyClient\\paths" :
                 source == GameSource::ea ? L"SOFTWARE\\Electronic Arts\\EA Desktop" :
                 source == GameSource::ubisoft ? L"SOFTWARE\\Ubisoft\\Launcher" : L"SOFTWARE\\Blizzard Entertainment\\Battle.net", view);

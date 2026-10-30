@@ -90,11 +90,20 @@ set(LAUNCHME_CORE_SOURCES
     src/net/companion_links.cpp
     src/net/companion_memory.cpp
     src/net/companion_mind.cpp
+    src/net/companion_mind_appraisal.cpp
+    src/net/companion_mind_life.cpp
+    src/net/companion_mind_store.cpp
+    src/net/companion_mind_turns.cpp
+    src/net/companion_mind_workspace.cpp
     src/net/companion_photos.cpp
+    src/net/companion_prompt.cpp
+    src/net/companion_prompt_character.cpp
     src/net/companion_providers.cpp
+    src/net/companion_reply.cpp
     src/net/companion_semantic.cpp
     src/net/companion_social.cpp
     src/net/companion_tools.cpp
+    src/net/companion_transport.cpp
     src/net/companion_weather.cpp
     src/net/elevenlabs.cpp
     src/net/http.cpp

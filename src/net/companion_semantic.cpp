@@ -84,7 +84,7 @@ public:
         sqlite3_int64 size = 0;
         auto* bytes = sqlite3_serialize(db_, "main", &size, 0);
         if (!bytes) return false;
-        const bool result = size > 0 && size < cache_bytes - 4096 && protected_file::write(path,
+        const bool result = size > 0 && static_cast<size_t>(size) < cache_bytes - 4096 && protected_file::write(path,
             std::string_view(reinterpret_cast<const char*>(bytes), static_cast<size_t>(size)), L"Launchme companion vector cache");
         sqlite3_free(bytes);
         return result;

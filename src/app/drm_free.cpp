@@ -2,6 +2,7 @@
 // startup and while the launcher idles), merging its results into the library, and the
 // Settings → Platformy PC → DRM-free page (folders, scan, per-game corrections).
 #include "launcher.hpp"
+#include "../platform/unix_time.hpp"
 #include "../artwork/cover_cache.hpp"
 #include "../library/view_options.hpp"
 #include "../platform/text_encoding.hpp"
@@ -17,10 +18,6 @@ std::filesystem::path drmFreeFile() { return userConfigDirectory() / L"drm-free.
 constexpr auto idle_after = std::chrono::minutes(5);
 constexpr ULONGLONG idle_interval = 30ULL * 60 * 1000;  // Between finished background scans.
 constexpr ULONGLONG idle_retry = 60ULL * 1000;          // After input interrupted one.
-
-uint64_t unixNow() {
-    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count());
-}
 
 std::wstring when(uint64_t seconds) {
     const time_t time = static_cast<time_t>(seconds); tm local{};
@@ -116,7 +113,7 @@ void Launcher::drmIdentified(const Game& game, const rawg::Metadata& metadata) {
     entry->rawg_id = metadata.id;
     if (!metadata.name.empty()) entry->name = metadata.name.substr(0, 200);
     if (metadata.steam_app_id) entry->steam_app_id = metadata.steam_app_id;
-    entry->checked = unixNow();
+    entry->checked = unix_time::now();
     saveDrmFree();
     applyDrmFree();
 }
@@ -135,7 +132,7 @@ void Launcher::startDrmScan(bool manual, bool idle) {
     drm_scanning_ = true; drm_identifying_ = false; drm_idle_scan_ = idle; drm_progress_ = {};
     drm_stop_ = std::make_shared<std::atomic_bool>(false);
     drm_free::ScanOptions options;
-    options.full = manual; options.gentle = !manual; options.now = unixNow();
+    options.full = manual; options.gentle = !manual; options.now = unix_time::now();
     // Folders other sources already own are skipped (Steam libraries, store installs, "Moje gry").
     for (const auto* list : {&installed_library_, &private_category_.games, &store_library_, &store_private_library_, &custom_library_, &shortcut_library_})
         for (const auto& game : *list) {

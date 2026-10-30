@@ -1,4 +1,5 @@
 #include "download_art.hpp"
+#include "../platform/ascii_text.hpp"
 #include "../platform/hashing.hpp"
 #include "image_compact.hpp"
 #include "../platform/atomic_file.hpp"
@@ -15,10 +16,7 @@
 namespace download_art {
 namespace {
 std::wstring lower(std::wstring s) { for (auto& c : s) c = static_cast<wchar_t>(towlower(c)); return s; }
-std::wstring trimmed(std::wstring s) {
-    const auto first = s.find_first_not_of(L" \t\r\n");
-    return first == s.npos ? L"" : s.substr(first, s.find_last_not_of(L" \t\r\n") - first + 1);
-}
+std::wstring trimmed(std::wstring s) { return std::wstring(ascii_text::trim(s)); }
 std::string framed(std::string s) { return std::to_string(s.size()) + ':' + s; }
 std::filesystem::path cacheFile(const Target& t, const std::filesystem::path& root) {
     const auto key = t.key();

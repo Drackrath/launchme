@@ -1,6 +1,7 @@
 // Settings 2.0: tiled rows (sound sources, controller gallery) and the category icons of the rail.
 // Geometry: settings_ui::Layout::tile (shared with clicks and the focus).
 #include "renderer.hpp"
+#include "renderer_internal.hpp"
 #include "controller_picture.hpp"
 
 #include <algorithm>
@@ -9,7 +10,7 @@
 
 namespace {
 using palette::gray;
-D2D1_RECT_F box(settings_ui::Rect r) { return D2D1::RectF(r.left, r.top, r.right, r.bottom); }
+using render_detail::box;
 }
 
 void Renderer::drawControllerPicture(devices::Picture picture, D2D1_RECT_F area) {

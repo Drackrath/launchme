@@ -1,6 +1,7 @@
 // Linux side of memory_usage.hpp: /proc/self/status and the DRM clients' fdinfo
 // (Documentation/gpu/drm-usage-stats.rst). memory_usage.cpp is the Windows one.
 #include "memory_usage.hpp"
+#include "ascii_text.hpp"
 
 #include <charconv>
 #include <filesystem>
@@ -14,11 +15,7 @@
 #endif
 
 namespace {
-std::string_view trim(std::string_view text) {
-    while (!text.empty() && (text.front() == ' ' || text.front() == '\t')) text.remove_prefix(1);
-    while (!text.empty() && (text.back() == ' ' || text.back() == '\t' || text.back() == '\r')) text.remove_suffix(1);
-    return text;
-}
+std::string_view trim(std::string_view text) { return ascii_text::trim(text, " \t\r"); }
 // Each "key:  value" line of a /proc text file.
 template<class Visit> void fields(std::string_view text, Visit visit) {
     while (!text.empty()) {

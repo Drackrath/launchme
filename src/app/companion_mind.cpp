@@ -11,6 +11,7 @@
 // in what she did (companionLifeFill); her relationship and her life's state
 // (companion_affinity) move where her mood rests and her energy.
 #include "launcher.hpp"
+#include "../platform/unix_time.hpp"
 #include "../library/game_index.hpp"
 #include "../net/web_search.hpp"
 
@@ -21,9 +22,6 @@
 namespace {
 bool english() { return i18n::english(); }
 int dateKey(const SYSTEMTIME& time) { return time.wYear * 10000 + time.wMonth * 100 + time.wDay; }
-uint64_t unixNow() {
-    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count());
-}
 std::wstring nameOf(std::string_view key) {
     const auto look = companion::lookFromKey(key);
     return look ? std::wstring(companion::name(*look)) : text_encoding::wideLenient(key);
@@ -51,7 +49,7 @@ companion::mind::Context Launcher::companionMindContext(companion::Look look) co
     context.look = std::string(companion::lookKey(look));
     context.persona = companionPersonaOf(look);
     context.character = companion::character(look);
-    context.now = unixNow();
+    context.now = unix_time::now();
     context.english = english();
     // Her life now and her relationship with the player (companion_affinity; character.txt defaults).
     const auto* c = context.character;
@@ -91,19 +89,19 @@ std::optional<companion::mind::Night> Launcher::companionNight(companion::Look l
     companion::mind::Context context; // Her clock is all a night needs.
     context.look = std::string(companion::lookKey(look));
     context.character = companion::character(look);
-    context.now = unixNow();
+    context.now = unix_time::now();
     return companion::mind::nightAt(context);
 }
 
 bool Launcher::companionAsleep(companion::Look look) const {
     const auto night = companionNight(look);
-    const auto now = unixNow();
+    const auto now = unix_time::now();
     return night && !night->sleepless && now >= night->from && now < night->to;
 }
 
 bool Launcher::companionBedtime() const {
     const auto night = companionNight(companionLook());
-    const auto now = unixNow();
+    const auto now = unix_time::now();
     return night && !night->sleepless && now < night->to && now + 3600 >= night->from;
 }
 
@@ -115,7 +113,7 @@ Launcher::CompanionAway Launcher::companionAway() const {
         away.seconds = companion_.rest_until - local;
     // Her night: in bed now, or gone to bed with her goodbye (her rest runs to her morning).
     const auto night = companionNight(companionLook());
-    const auto now = unixNow();
+    const auto now = unix_time::now();
     if (!night || night->sleepless || now >= night->to) return away;
     away.sleeping = now >= night->from || (away.seconds && now + away.seconds + 60 >= night->to);
     // Asleep before her rest is over: back only in the morning.
@@ -346,7 +344,7 @@ void Launcher::companionMindPlayed(const std::string& key, uint64_t played_ms) {
     for (const auto& game : public_library_)
         if (gameKey(game) == key) { title = game.name; break; }
     const auto minutes = static_cast<uint32_t>(played_ms / 60'000);
-    const auto now = unixNow();
+    const auto now = unix_time::now();
     // Every companion who expected it: each of their minds settles it.
     for (const auto look : companion::availableLooks()) {
         const auto context = companionMindContext(look);
@@ -369,7 +367,7 @@ void Launcher::companionDailyReading() {
     // day spread over it (cognition::dailyReadingDue), only while she is up by her own clock; what
     // she finds waits for her next replies.
     if (!settings_.companion || !companion_.persist || companion_.reading_busy) return;
-    const auto now = unixNow();
+    const auto now = unix_time::now();
     if (now < companion_.reading_tried + 30 * 60) return; // Not again so soon, found or not.
     const auto web_key = web_search::key(userConfigDirectory());
     if (web_key.empty()) return;
@@ -429,7 +427,7 @@ const companion::weather::Report* Launcher::companionWeatherNow(companion::Look 
     bool travelling = false;
     const auto place = companionWeatherPlace(look, &travelling);
     const auto& report = *companion_.weather;
-    if (place.empty() || report.asked != place || unixNow() > report.at + 3 * 3600) return nullptr;
+    if (place.empty() || report.asked != place || unix_time::now() > report.at + 3 * 3600) return nullptr;
     return &report;
 }
 
@@ -437,7 +435,7 @@ void Launcher::companionWeatherRefresh() {
     // In the background, never before her answer: when she has no report for where she is now, or
     // it is older than 45 minutes; one fetch at a time, not more often than every 10 minutes.
     if (!settings_.companion || !settings_.companion_weather || !companion_.persist || companion_.weather_busy) return;
-    const auto now = unixNow();
+    const auto now = unix_time::now();
     const auto look = companionLook();
     bool travelling = false;
     const auto place = companionWeatherPlace(look, &travelling);

@@ -1,4 +1,5 @@
 #include "renderer.hpp"
+#include "renderer_internal.hpp"
 #include "grid_layout.hpp"
 #include "../library/steam_stats.hpp"
 
@@ -7,12 +8,9 @@
 
 namespace {
 using palette::gray;
-D2D1_RECT_F box(settings_ui::Rect r, float dy = 0) { return D2D1::RectF(r.left, r.top + dy, r.right, r.bottom + dy); }
-float smooth(float value) { const float t = std::clamp(value, 0.0f, 1.0f); return t * t * (3.0f - 2.0f * t); }
-std::wstring upper(std::wstring value) {
-    if (!value.empty()) CharUpperBuffW(value.data(), static_cast<DWORD>(value.size()));
-    return value;
-}
+using render_detail::box;
+using render_detail::smoothFade;
+using render_detail::upper;
 std::wstring libraryStatus(const Game& game, SessionState session) {
     return session == SessionState::frozen ? tr(L"Wstrzymana") : session == SessionState::running ? tr(L"W grze") :
         game.installation.active() ? installationText(game.installation) : game.installed ? tr(L"Zainstalowane") :
@@ -95,7 +93,7 @@ void Renderer::drawLibraryControls() {
 
 // Sort orders and the installed filter, in the game context menu's style.
 void Renderer::drawFilterMenu() {
-    const float alpha = smooth(context_->library_menu_progress);
+    const float alpha = smoothFade(context_->library_menu_progress);
     if (alpha < 0.005f || context_->library_panel != library_ui::Panel::filters || !context_->library_controls) return;
     const auto& state = *context_->library_controls;
     const library_ui::Layout layout{viewport_.width};
@@ -131,7 +129,7 @@ void Renderer::drawFilterMenu() {
 
 // View drawer from the left edge (collection menu style).
 void Renderer::drawViewDrawer() {
-    const float progress = smooth(context_->library_views_progress);
+    const float progress = smoothFade(context_->library_views_progress);
     if (progress < 0.004f || context_->library_panel != library_ui::Panel::views || !context_->library_controls) return;
     const auto& state = *context_->library_controls;
     constexpr float width = library_ui::views::width;
@@ -164,7 +162,7 @@ void Renderer::drawViewDrawer() {
     const float flip = 1 - 2 * unfold;
     line(chevron_x - 5, chevron_y - 2 * flip, chevron_x, chevron_y + 3 * flip, selector_ink, 1.7f);
     line(chevron_x, chevron_y + 3 * flip, chevron_x + 5, chevron_y - 2 * flip, selector_ink, 1.7f);
-    const float options_alpha = progress * (1 - smooth(unfold * 4));
+    const float options_alpha = progress * (1 - smoothFade(unfold * 4));
     if (options_alpha > 0.004f) {
         using library_view::View;
         if (!library_ui::views::optionCount(state.options.view))
@@ -395,7 +393,7 @@ void Renderer::drawLibraryListPlus() {
     const list_plus_layout::Layout layout{viewport_.width, viewport_.height};
     const auto& game = (*cards_)[selected_].game;
     const auto* info = context_->preview;
-    const float fade = smooth(detail_), left = layout.infoLeft(), width = layout.infoWidth();
+    const float fade = smoothFade(detail_), left = layout.infoLeft(), width = layout.infoWidth();
     const auto hero = box(layout.hero());
     brush(gray(0.05f));
     target_->FillRoundedRectangle(D2D1::RoundedRect(hero, 12, 12), solid_.Get());
@@ -451,11 +449,11 @@ void Renderer::drawLibraryPreview() {
     const float width = viewport_.width, height = viewport_.height;
     const float left = list_layout::panelLeft(width), right = list_layout::panelRight(width);
     if (right - left < 240) return;
-    const float fade = smooth(detail_);
+    const float fade = smoothFade(detail_);
     const float size = std::min(240.0f, (right - left) * 0.32f), top = list_layout::list_top;
     // The cover is drawn last: while a game launches everything else dims beneath it.
     const auto drawCover = [&] {
-        const float launch = smooth(context_->launch_progress);
+        const float launch = smoothFade(context_->launch_progress);
         if (launch > 0.001f) {
             brush(D2D1::ColorF(0.008f, 0.012f, 0.016f, launch * 0.82f));
             target_->FillRectangle(D2D1::RectF(0, 0, width, height), solid_.Get());
@@ -624,7 +622,7 @@ bool Renderer::drawCinematicFacts(float x, float center_y, float width, float al
 
 void Renderer::drawLibraryCinematic() {
     const float width = viewport_.width, height = viewport_.height;
-    const float fade = smooth(detail_);
+    const float fade = smoothFade(detail_);
     const bool column = context_->library_options.cinematic_column;
     const float list_top = column ? cinematic_column::list_top :
                            context_->library_options.cinematic_horizontal ? cinematic_row::top(width, height) : cinematic_layout::list_top;
@@ -683,11 +681,11 @@ void Renderer::drawLibraryCinematic() {
     const float previous_corner = squircle_corner_;
     squircle_corner_ = 0.4f; // The compact corners shared by capsules and posters.
     const auto rowAlpha = [&](const GameCard& card) {
-        const float top = smooth((card.y + card.size - list_top - 12) / 65);
-        return column ? top * smooth((height - 12 - card.y) / 90) : top;
+        const float top = smoothFade((card.y + card.size - list_top - 12) / 65);
+        return column ? top * smoothFade((height - 12 - card.y) / 90) : top;
     };
     for (size_t i = 0; i < cards_->size(); ++i) if (i != selected_) drawRectangularCard((*cards_)[i], i, rowAlpha((*cards_)[i]));
-    const float launch = smooth(context_->launch_progress);
+    const float launch = smoothFade(context_->launch_progress);
     if (launch > 0.001f) {
         brush(D2D1::ColorF(0.008f, 0.012f, 0.016f, launch * 0.82f));
         target_->FillRectangle(D2D1::RectF(0, list_top - 12, width, height), solid_.Get());
@@ -707,12 +705,12 @@ void Renderer::drawListPlusPoster() {
     if (selected_ >= cards_->size()) return;
     const auto& card = (*cards_)[selected_];
     const auto area = list_plus_layout::Layout{viewport_.width, viewport_.height}.poster();
-    const float launch = smooth(context_->launch_progress);
+    const float launch = smoothFade(context_->launch_progress);
     if (launch > 0.001f) {
         brush(D2D1::ColorF(0.008f, 0.012f, 0.016f, launch * 0.82f));
         target_->FillRectangle(D2D1::RectF(0, 0, viewport_.width, viewport_.height), solid_.Get());
     }
-    const float fade = smooth(detail_), lift = 18 * (1 - fade);
+    const float fade = smoothFade(detail_), lift = 18 * (1 - fade);
     const float grow = (area.bottom - area.top) * (0.025f * launch - 0.025f * (1 - fade));
     const auto rect = D2D1::RectF(area.left - grow * (2.0f / 3.0f), area.top - grow + lift,
                                 area.right + grow * (2.0f / 3.0f), area.bottom + grow + lift);
@@ -752,7 +750,7 @@ void Renderer::drawLibraryAmbient(float opacity) {
         cinematic_previous_hero_ = cinematic_hero_; cinematic_hero_ = candidate;
         cinematic_changed_ = std::chrono::steady_clock::now();
     }
-    const float fade = smooth(std::chrono::duration<float>(std::chrono::steady_clock::now() - cinematic_changed_).count() / 0.35f);
+    const float fade = smoothFade(std::chrono::duration<float>(std::chrono::steady_clock::now() - cinematic_changed_).count() / 0.35f);
     const CropFocus focus = selected_ < heroes_.size() && heroes_[selected_].bitmap.Get() == cinematic_hero_.Get() ? heroes_[selected_].focus : CropFocus{};
     drawWallpaper(cinematic_previous_hero_.Get(), opacity * (1 - fade));
     drawWallpaper(cinematic_hero_.Get(), opacity * fade, 0, focus);
@@ -763,7 +761,7 @@ void Renderer::drawLibraryDetailed() {
     if (selected_ >= cards_->size()) return;
     const library_presentation::Layout layout{viewport_.width, viewport_.height};
     const auto& game = (*cards_)[selected_].game;
-    const float fade = smooth(detail_), left = layout.left(), width = layout.right() - left;
+    const float fade = smoothFade(detail_), left = layout.left(), width = layout.right() - left;
     const auto hero = box(layout.hero());
     const float previous_corner = squircle_corner_;
     squircle_corner_ = 0.2f; // The wide preview banner needs shallower corners than a cover.
@@ -861,7 +859,7 @@ void Renderer::drawLibraryOverview() {
                                  D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
     // Fully shown at the list's top, gone once its bottom passes the tabs.
     const auto fadeIn = [&](const GameCard& card) {
-        return smooth((card.y + card.size - clip_top) / std::max(1.0f, overview_layout::list_top + card.size - clip_top));
+        return smoothFade((card.y + card.size - clip_top) / std::max(1.0f, overview_layout::list_top + card.size - clip_top));
     };
     const float previous_corner = squircle_corner_;
     squircle_corner_ = 0.4f;
@@ -870,7 +868,7 @@ void Renderer::drawLibraryOverview() {
         if (i == selected_ || card.y > height || card.y + card.size < clip_top) continue;
         drawRectangularCard(card, i, fadeIn(card));
     }
-    const float launch = smooth(context_->launch_progress);
+    const float launch = smoothFade(context_->launch_progress);
     if (launch > 0.001f) {
         brush(D2D1::ColorF(0.008f, 0.012f, 0.016f, launch * 0.82f));
         target_->FillRectangle(D2D1::RectF(0, 0, width, height), solid_.Get());
@@ -889,7 +887,7 @@ void Renderer::drawOverviewPanel() {
     const auto& card = (*cards_)[selected_];
     const auto& game = card.game;
     const auto* info = context_->preview;
-    const float fade = smooth(detail_), lift = 14 * (1 - fade);
+    const float fade = smoothFade(detail_), lift = 14 * (1 - fade);
     // The square cover is independent of the landscape art used by the tiles.
     const auto area = panel.cover();
     const auto cover_rect = D2D1::RectF(area.left, area.top + lift, area.right, area.bottom + lift);

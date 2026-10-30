@@ -1,5 +1,5 @@
 #pragma once
-// Towarzyszka's mind between and within conversations (src/net/companion_mind.cpp): the state that
+// Towarzyszka's mind between and within conversations (src/net/companion_mind*.cpp): the state that
 // lives on its own, apart from what the model writes, so she is not reset with every reply.
 //
 // - Affect (Barrett): her mood as valence (unpleasant–pleasant) and arousal (calm–lively). It

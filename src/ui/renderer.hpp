@@ -71,7 +71,7 @@ public:
     void setGlass(float level) { glass_level_ = std::clamp(level, 0.0f, 1.0f); }
     void setConsoleColors(bool enabled) { console_colors_ = enabled; }
     void resize();
-    // Desktop mode (src/ui/desktop_renderer.cpp): its library is laid out in DIPs at the window's DPI
+    // Desktop mode (src/ui/desktop_*renderer.cpp): its library is laid out in DIPs at the window's DPI
     // (a responsive layout) instead of on the 1600 × 900 TV canvas. desktopViewport() is that
     // viewport whatever the current screen (hit tests between two frames).
     void setDesktopViewport(bool desktop) { if (desktop_viewport_ != desktop) { desktop_viewport_ = desktop; updateViewport(); } }
@@ -135,7 +135,8 @@ public:
     void setCoverFocus(size_t index, CropFocus focus) { if (index < covers_.size()) covers_[index].focus = focus; }
     // System → Wydajność → Tryb niskiego zużycia RAM (AppSettings::low_memory): card art is decoded at
     // the size it is drawn (and again larger when drawn larger), and covers, posters, logos and discs let
-    // their encoded bytes go once uploaded (the launcher's cache or the disk has them). lock_compress`n    // (AppSettings::low_memory_bc1): opaque art goes to the GPU as BC1 blocks where the device samples them.
+    // their encoded bytes go once uploaded (the launcher's cache or the disk has them). block_compress
+    // (AppSettings::low_memory_bc1): opaque art goes to the GPU as BC1 blocks where the device samples them.
     // From the next decode on.
     void setLowMemory(bool enabled, bool block_compress = false) { low_memory_ = enabled; block_compress_ = enabled && block_compress; }
     bool lowMemory() const { return low_memory_; }
@@ -785,7 +786,7 @@ private:
     void drawKeyCap(D2D1_RECT_F r, float alpha = 1, bool enabled = true);
     // Black on white: the platform's logo (its alpha as the ink) or its name; returns the width.
     float drawPsfiveBadge(const std::wstring& platform, float x, float center_y, float alpha);
-    // Desktop mode (src/ui/desktop_renderer.cpp).
+    // Desktop mode (src/ui/desktop_renderer.cpp and its desktop_*_renderer.cpp siblings).
     void drawDesktop();
     void drawDesktopTitlebar(const desktop_ui::Layout& layout, const desktop_ui::View& view);
     void drawDesktopSidebar(const desktop_ui::Layout& layout, const desktop_ui::View& view);
@@ -797,7 +798,6 @@ private:
     void drawDesktopPane(const desktop_ui::Layout& layout, const desktop_ui::View& view);
     void drawDesktopBulk(const desktop_ui::Layout& layout, const desktop_ui::View& view);
     void drawDesktopDownloads(const desktop_ui::Layout& layout, const desktop_ui::View& view);
-    void drawDesktopWidgets(const desktop_ui::Layout& layout, const desktop_ui::View& view); // Widżety under their shortcut.
     void drawDesktopMenu(const desktop_ui::Layout& layout, const desktop_ui::Menu& menu);
     void drawDesktopMenuPanel(settings_ui::Rect panel, const std::vector<desktop_ui::MenuItem>& items, int hover, int open);
     void drawDesktopDrag(const desktop_ui::Layout& layout, const desktop_ui::View& view);

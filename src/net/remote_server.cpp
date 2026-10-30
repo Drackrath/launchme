@@ -1,4 +1,5 @@
 #include "remote_server.hpp"
+#include "../platform/ascii_text.hpp"
 #ifdef _WIN32
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -69,16 +70,8 @@ bool sendAll(Socket socket, std::string_view data) {
     }
     return true;
 }
-std::string lower(std::string_view text) {
-    std::string out(text);
-    for (auto& ch : out) if (ch >= 'A' && ch <= 'Z') ch = static_cast<char>(ch - 'A' + 'a');
-    return out;
-}
-std::string_view trim(std::string_view text) {
-    while (!text.empty() && (text.front() == ' ' || text.front() == '\t')) text.remove_prefix(1);
-    while (!text.empty() && (text.back() == ' ' || text.back() == '\t' || text.back() == '\r')) text.remove_suffix(1);
-    return text;
-}
+std::string lower(std::string_view text) { return ascii_text::lower(text); }
+std::string_view trim(std::string_view text) { return ascii_text::trim(text, " \t\r"); }
 } // namespace
 
 std::string Request::param(std::string_view name) const {

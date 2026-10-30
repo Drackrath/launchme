@@ -1,4 +1,5 @@
 #include "companion_photos.hpp"
+#include "../platform/file_io.hpp"
 #include "companion_characters.hpp"
 #include "json.hpp"
 #include "../platform/atomic_file.hpp"
@@ -13,14 +14,7 @@
 namespace companion::photos {
 namespace {
 constexpr size_t image_limit = 16 * 1024 * 1024;
-std::string readText(const std::filesystem::path& file, size_t limit) {
-    std::ifstream input(file, std::ios::binary | std::ios::ate);
-    if (!input || input.tellg() <= 0 || static_cast<uint64_t>(input.tellg()) > limit) return {};
-    std::string bytes(static_cast<size_t>(input.tellg()), '\0');
-    input.seekg(0);
-    if (!input.read(bytes.data(), static_cast<std::streamsize>(bytes.size()))) return {};
-    return bytes;
-}
+std::string readText(const std::filesystem::path& file, size_t limit) { return file_io::readText(file, limit); }
 bool pictureName(const std::filesystem::path& file) {
     auto extension = file.extension().wstring();
     for (auto& ch : extension) ch = static_cast<wchar_t>(std::towlower(ch));

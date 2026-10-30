@@ -1,6 +1,6 @@
 // The game roulette in her chat ("Wylosuj grę"): a reel of the installed games (never played ones
 // twice as likely) spins in a card in the log, slows down and stops on the pick
-// (companion_ui::Roulette, drawn by companion_renderer.cpp). She is asked for her verdict at once;
+// (companion_ui::Roulette, drawn by companion_chat_renderer.cpp). She is asked for her verdict at once;
 // the answer waits in companion_.held until the reel stops, then a ▶ chip starts the game.
 #include "launcher.hpp"
 

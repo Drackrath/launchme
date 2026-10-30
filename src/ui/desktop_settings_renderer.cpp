@@ -20,16 +20,13 @@ D2D1_COLOR_F rgb(float r, float g, float b, float a = 1) { return D2D1::ColorF(r
 D2D1_COLOR_F hex(uint32_t color, float a = 1) {
     return D2D1::ColorF(((color >> 16) & 255) / 255.0f, ((color >> 8) & 255) / 255.0f, (color & 255) / 255.0f, a);
 }
-D2D1_RECT_F box(Rect r) { return D2D1::RectF(r.left, r.top, r.right, r.bottom); }
+using render_detail::box;
+using render_detail::upper;
 Rect inflate(Rect r, float by) { return {r.left - by, r.top - by, r.right + by, r.bottom + by}; }
 float middle(Rect r) { return (r.top + r.bottom) * 0.5f; }
 const D2D1_COLOR_F side_bg = rgb(0.056f, 0.061f, 0.071f);
 const D2D1_COLOR_F panel_bg = rgb(0.071f, 0.076f, 0.089f);
 const D2D1_COLOR_F popup_bg = rgb(0.094f, 0.1f, 0.115f);
-std::wstring upper(std::wstring value) {
-    if (!value.empty()) CharUpperBuffW(value.data(), static_cast<DWORD>(value.size()));
-    return value;
-}
 bool lightAccent(D2D1_COLOR_F c) { return 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b > 0.6f; }
 }
 

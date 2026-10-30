@@ -1,4 +1,5 @@
 #include "gog_account.hpp"
+#include "../platform/unix_time.hpp"
 #include "../net/json.hpp"
 #include "../net/url_encoding.hpp"
 #include "../model/library_time.hpp"
@@ -261,7 +262,7 @@ public:
 };
 }
 uint64_t nowSeconds() {
-    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count());
+    return unix_time::now();
 }
 bool Config::valid() const {
     return printable(client_id, 128) && printable(client_secret, 1024) && printable(redirect_uri, 2048) &&

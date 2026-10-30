@@ -1,6 +1,7 @@
 // DRM-free games' names (src/library/drm_free.hpp): folder names cleaned into titles, engine
 // products told apart from real names, and RAWG matching for the catalog's games (identify).
 #include "drm_free.hpp"
+#include "../platform/unix_time.hpp"
 #include "drm_free_internal.hpp"
 #include "game_ratings.hpp"
 #include "../artwork/cover_cache.hpp"
@@ -17,9 +18,6 @@
 namespace drm_free {
 using namespace detail;
 namespace {
-uint64_t nowSeconds() {
-    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count());
-}
 
 std::wstring joined(const std::vector<std::wstring>& list) {
     std::wstring result;
@@ -224,7 +222,7 @@ bool needsIdentity(const Entry& entry, uint64_t now, const IdentifyLimits& limit
 
 void identify(Catalog& catalog, const std::wstring& key, const IdentifyPaths& paths, const Cancelled& cancelled,
               const std::function<void(const Catalog&)>& changed, const IdentifyBackend& backend, IdentifyLimits limits) {
-    const auto now = backend.now ? backend.now() : nowSeconds();
+    const auto now = backend.now ? backend.now() : unix_time::now();
     const auto stop = [&] { return cancelled && cancelled(); };
     if (key.empty() || catalog.rawg_pause > now || stop()) return;
     const auto wait = [&](std::chrono::milliseconds duration) {

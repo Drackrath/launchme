@@ -2,6 +2,7 @@
 // frosted behind a list of the games being downloaded, each with its cover, store and state, the
 // share done and the bytes, and a bar. The focus glides between Back and the rows.
 #include "renderer.hpp"
+#include "renderer_internal.hpp"
 #include "downloads_view.hpp"
 
 #include <algorithm>
@@ -9,7 +10,7 @@
 
 namespace {
 using palette::gray;
-D2D1_RECT_F box(settings_ui::Rect r) { return D2D1::RectF(r.left, r.top, r.right, r.bottom); }
+using render_detail::box;
 }
 
 void Renderer::drawDownloadGlyph(float x, float cy, float scale, D2D1_COLOR_F ink) {

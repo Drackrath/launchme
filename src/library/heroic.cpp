@@ -1,4 +1,5 @@
 #include "heroic.hpp"
+#include "../platform/file_io.hpp"
 #include "store_adapter.hpp"
 #include "xdg_paths.hpp"
 #include "../net/json.hpp"
@@ -15,14 +16,7 @@ namespace {
 constexpr size_t max_bytes = 32 * 1024 * 1024; // gog_library.json of a large GOG account.
 constexpr size_t max_games = 10000;
 
-std::string readFile(const std::filesystem::path& path) {
-    std::ifstream input(path, std::ios::binary | std::ios::ate);
-    if (!input || input.tellg() <= 0 || input.tellg() > static_cast<std::streamoff>(max_bytes)) return {};
-    std::string bytes(static_cast<size_t>(input.tellg()), '\0');
-    input.seekg(0);
-    if (!input.read(bytes.data(), static_cast<std::streamsize>(bytes.size()))) return {};
-    return bytes;
-}
+std::string readFile(const std::filesystem::path& path) { return file_io::readText(path, max_bytes); }
 std::optional<json::Value> document(std::string_view bytes) {
     if (bytes.starts_with("\xef\xbb\xbf")) bytes.remove_prefix(3);
     return json::parse(bytes, max_bytes);

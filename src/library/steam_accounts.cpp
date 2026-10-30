@@ -1,4 +1,5 @@
 #include "steam_accounts.hpp"
+#include "../platform/ascii_text.hpp"
 #include "steam.hpp"
 #include "../platform/atomic_file.hpp"
 #include "../platform/text_encoding.hpp"
@@ -22,11 +23,7 @@
 
 namespace steam_accounts {
 namespace {
-std::string_view trim(std::string_view text) {
-    while (!text.empty() && (text.front() == ' ' || text.front() == '\t' || text.front() == '\r')) text.remove_prefix(1);
-    while (!text.empty() && (text.back() == ' ' || text.back() == '\t' || text.back() == '\r')) text.remove_suffix(1);
-    return text;
-}
+std::string_view trim(std::string_view text) { return ascii_text::trim(text, " \t\r"); }
 // The quoted strings of a VDF line ("key" or "key" "value"); escapes \\ and \" decoded.
 std::vector<std::string> quoted(std::string_view line) {
     std::vector<std::string> result;
@@ -53,11 +50,7 @@ uint64_t number(std::string_view text) {
     const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
     return error == std::errc{} && end == text.data() + text.size() ? value : 0;
 }
-bool equalsNoCase(std::string_view a, std::string_view b) {
-    return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(), [](char x, char y) {
-        return (x >= 'A' && x <= 'Z' ? x + 32 : x) == (y >= 'A' && y <= 'Z' ? y + 32 : y);
-    });
-}
+bool equalsNoCase(std::string_view a, std::string_view b) { return ascii_text::equalIgnoreCase(a, b); }
 std::string escaped(std::string_view text) {
     std::string result;
     for (const char ch : text) {

@@ -5,6 +5,7 @@
 // all input (main.cpp, input.cpp, pointer.cpp). Finishing or skipping stores
 // AppSettings::tour_done; Settings → Wygląd → "Przewodnik" runs it again.
 #include "launcher.hpp"
+#include "launcher_internal.hpp"
 #include "../ui/quick_menu.hpp"
 #include "../ui/tour_view.hpp"
 
@@ -16,7 +17,6 @@ using tour::Step;
 namespace {
 constexpr uint64_t icon_ms = 2400;   // Quick bar step: the next icon after this long.
 constexpr float fade_seconds = 0.3f; // Step content and spotlight fade-in.
-float ease(float seconds, float speed) { return 1.0f - std::exp(-seconds * speed); }
 Step stepOf(int step) { return static_cast<Step>(std::clamp(step, 0, tour::step_count - 1)); }
 
 const wchar_t* iconText(quick_menu::Action action) {

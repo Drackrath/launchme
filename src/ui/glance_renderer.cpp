@@ -1,9 +1,10 @@
 #include "renderer.hpp"
+#include "renderer_internal.hpp"
 #include <cmath>
 
 namespace {
 using palette::gray;
-D2D1_RECT_F box(settings_ui::Rect r) { return D2D1::RectF(r.left,r.top,r.right,r.bottom); }
+using render_detail::box;
 }
 
 void Renderer::setGlanceThumbnail(size_t index, ImageBytes pixels) {
