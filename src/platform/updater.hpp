@@ -58,6 +58,12 @@ bool apply(const std::filesystem::path& staging, const std::vector<std::filesyst
 void rollback(const std::filesystem::path& app, const std::vector<std::filesystem::path>& files);
 // After the restart: every "*.update-old" under `app` and the staging folder removed (best effort).
 void cleanup(const std::filesystem::path& app);
+#ifdef _WIN32
+// installer/launchme.iss's per-user uninstall entry (its AppId). When `app` is the folder it
+// installed to, its DisplayVersion follows a self-update, so Settings → Apps and winget see it.
+inline constexpr wchar_t uninstall_key[] = L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{97E152F6-543A-4A06-B825-E709B1738F2A}_is1";
+void recordInstalledVersion(const std::filesystem::path& app, std::wstring_view version);
+#endif
 inline constexpr wchar_t old_suffix[] = L".update-old";
 inline constexpr wchar_t work_folder[] = L".update"; // <app>\.update: the package and its staging.
 }

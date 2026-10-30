@@ -286,6 +286,20 @@ void rollback(const std::filesystem::path& app, const std::vector<std::filesyste
     }
 }
 
+void recordInstalledVersion(const std::filesystem::path& app, std::wstring_view version) {
+    HKEY key = nullptr;
+    if (version.empty() || RegOpenKeyExW(HKEY_CURRENT_USER, uninstall_key, 0, KEY_QUERY_VALUE | KEY_SET_VALUE, &key) != ERROR_SUCCESS) return;
+    wchar_t location[4096]{};
+    DWORD size = sizeof(location) - sizeof(wchar_t), type = 0;
+    std::error_code ec;
+    if (RegQueryValueExW(key, L"InstallLocation", nullptr, &type, reinterpret_cast<BYTE*>(location), &size) == ERROR_SUCCESS && type == REG_SZ &&
+        std::filesystem::equivalent(std::filesystem::path(location), app, ec)) {
+        const std::wstring value(version);
+        RegSetValueExW(key, L"DisplayVersion", 0, REG_SZ, reinterpret_cast<const BYTE*>(value.c_str()), static_cast<DWORD>((value.size() + 1) * sizeof(wchar_t)));
+    }
+    RegCloseKey(key);
+}
+
 bool apply(const std::filesystem::path& staging, const std::vector<std::filesystem::path>& files, const std::filesystem::path& app, std::wstring& error) {
     std::vector<std::filesystem::path> done;
     for (const auto& relative : files) {

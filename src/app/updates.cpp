@@ -66,7 +66,12 @@ void Launcher::initializeUpdates() {
     if (update_app_dir_.empty()) update_app_dir_ = moduleFolder();
     std::error_code ec;
     // The previous version's files, renamed when this one moved in (and its staging folder).
-    if (std::filesystem::exists(update_app_dir_ / updater::work_folder, ec)) updater::cleanup(update_app_dir_);
+    if (std::filesystem::exists(update_app_dir_ / updater::work_folder, ec)) {
+        updater::cleanup(update_app_dir_);
+#ifdef _WIN32
+        updater::recordInstalledVersion(update_app_dir_, app_version_); // An installed copy's uninstall entry.
+#endif
+    }
     // Co nowego: written by the version that installed this one, shown once.
     const auto file = whatsNewFile();
     if (std::filesystem::exists(file, ec)) {
