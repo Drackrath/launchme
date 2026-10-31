@@ -30,6 +30,8 @@ void Launcher::paint(bool overlay) {
         if (settings_.low_memory && launcherHidden()) { ValidateRect(hwnd_, nullptr); return; }
         restoreMemory();
     }
+    // Yielding to a game (pollBackgroundMode): no GPU work for a window nobody sees.
+    if (background_mode_ && !overlay && launcherHidden()) { ValidateRect(hwnd_, nullptr); return; }
     // Desktop mode's library is laid out in DIPs at the window's DPI; every other screen (and Tryb
     // TV) on the TV canvas. Switched first: the context below reads the viewport.
     const bool desktop = !overlay && desktopActive() && !launchAnimationActive();

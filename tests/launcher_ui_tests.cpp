@@ -181,7 +181,9 @@ public:
         if (!app.renderer_.initialize(window)) return 1;
         app.renderer_.startDecoderForTest(); // Off-thread decoding, as in the app.
         app.settings_.low_memory = !enabled(L"LAUNCHME_PERF_FULL_RAM"); // The default (low memory), or as before.
-        app.settings_.low_memory_bc1 = enabled(L"LAUNCHME_PERF_BC1"); // Kompresja grafik (BC1), off by default.
+        // Kompresja grafik (BC1) as the app has it (on), or LAUNCHME_PERF_BC1=0/1.
+        if (wchar_t bc1[4]{}; GetEnvironmentVariableW(L"LAUNCHME_PERF_BC1", bc1, 4) == 1 && (bc1[0] == L'0' || bc1[0] == L'1'))
+            app.settings_.texture_compression = bc1[0] == L'1';
         app.applyLowMemory();
         app.initializeLibraryPreferences();
         app.profiler_.configure();

@@ -1,13 +1,14 @@
 // System → Wydajność → Tryb niskiego zużycia RAM (AppSettings::low_memory): the renderer's artwork
 // policy, the artwork cache's budget and the browser window follow the setting; behind a game the
 // launcher gives its graphics and artwork back and builds them again when it is in front once more.
+// Behind a game, whatever the setting, it also yields its CPU and memory priority (pollBackgroundMode).
 #include "launcher.hpp"
 #include "../platform/memory_usage.hpp"
 
 #include <sstream>
 
 void Launcher::applyLowMemory() {
-    renderer_.setLowMemory(settings_.low_memory, settings_.low_memory_bc1);
+    renderer_.setLowMemory(settings_.low_memory, settings_.texture_compression);
     art_.setBudget(settings_.low_memory ? low_memory_art_budget : art_budget);
     trimArt();
     if (browser_) browser_->setLowMemory(settings_.low_memory);
@@ -33,7 +34,9 @@ bool Launcher::launcherHidden() const {
 }
 
 void Launcher::pollMemory() {
-    const bool hidden = settings_.low_memory && launcherHidden();
+    const bool behind = launcherHidden();
+    pollBackgroundMode(behind && anyActiveSession());
+    const bool hidden = settings_.low_memory && behind;
     if (!hidden) {
         memory_hidden_since_ = 0;
         if (memory_released_) restoreMemory();
@@ -74,6 +77,33 @@ void Launcher::restoreMemory() {
     if (!cards_.empty()) requestVisibleArt();
     detail_ = 0;
     if (hwnd_) InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
+// A game in front of the launcher for background_delay_ms (with or without the low memory mode):
+// the process yields to it (setBackgroundPriority: below-normal priority, EcoQoS, low memory
+// priority), the frame clock drops to 10 Hz (frameLimit), nothing is painted, the video stops and
+// the GPU's caches go back; without the low memory mode (which gives everything back) the working
+// set is emptied too. The Guide overlay or the launcher in front again ends it at once.
+void Launcher::pollBackgroundMode(bool behind_game) {
+    if (!behind_game) {
+        background_since_ = 0;
+        if (background_mode_) {
+            background_mode_ = false;
+            setBackgroundPriority(false);
+            if (hwnd_) InvalidateRect(hwnd_, nullptr, FALSE);
+        }
+        return;
+    }
+    if (background_mode_) return;
+    const auto now = GetTickCount64();
+    if (!background_since_) { background_since_ = now; return; }
+    if (now - background_since_ < background_delay_ms) return;
+    background_mode_ = true;
+    setBackgroundPriority(true);
+    stopVideo();
+    renderer_.trimGraphics();
+    if (!settings_.low_memory) trimProcessMemory();
+    diagnostics::log("info", "Behind a game: background priority, 10 Hz frames");
 }
 
 void Launcher::releaseFarHeroes() {

@@ -36,7 +36,7 @@ constexpr Entry entries[] = {
     {L"Tryb niskiego zużycia RAM", L"Modo de pouca memória"},
     {L"Grafiki w rozmiarze z ekranu i mniej trzymanych w pamięci; gdy gra działa, launcher oddaje pamięć.", L"Arte no tamanho exibido na tela e menos dela mantida na memória; enquanto um jogo roda, o launcher libera memória."},
     {L"Kompresja grafik (BC1)", L"Compressão de arte (BC1)"},
-    {L"Grafiki w pamięci karty graficznej 8 razy mniejsze, kosztem dłuższego wczytywania i odrobiny jakości.", L"A arte ocupa 8 vezes menos memória gráfica, ao custo de um carregamento mais lento e um pouco de qualidade."},
+    {L"Okładki i plakaty w pamięci karty graficznej 8 razy mniejsze, loga 4 razy, kosztem odrobiny jakości. W trybie niskiego zużycia RAM także tła.", L"Capas e pôsteres ocupam 8 vezes menos memória gráfica e os logotipos 4 vezes menos, ao custo de um pouco de qualidade. No modo de pouca memória, os fundos também."},
     {L"Odtwórz film", L"Reproduzir vídeo"},
     {L"Odtwórz / Pauza", L"Reproduzir / Pausar"},
     {L"Długość odpowiedzi w czacie", L"Tamanho das respostas no chat"},

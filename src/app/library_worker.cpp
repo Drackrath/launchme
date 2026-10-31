@@ -323,6 +323,15 @@ void Launcher::startArtworkWorkers(bool network) {
                 if (!alive->load()) break;
             }
             try {
+#ifdef _WIN32
+                // Prefetch (the library's art for later, and its compaction) yields the CPU and the disk
+                // to everything else, a game first; the same thread serves the screen's art at full priority.
+                struct BackgroundScope { // Not "Yield": Windows headers define a Yield() macro.
+                    bool on;
+                    explicit BackgroundScope(bool prefetch) : on(prefetch && SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_BEGIN)) {}
+                    ~BackgroundScope() { if (on) SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_END); }
+                } background{job.prefetch};
+#endif
                 auto result = std::make_unique<CoverMessage>();
                 result->key = gameKey(job.game);
                 result->kind = job.kind;

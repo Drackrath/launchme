@@ -68,8 +68,9 @@ enum class Id { font, home_layout, ui_accent, accent, uninstalled, emulation, co
                    update, update_check,
                    // Platformy PC → MultiMC / Prism: the launcher picked by hand (portable MultiMC).
                    multimc_path, studio_libraries, studio_hidden,
-                   // System → Wydajność: the low memory mode (AppSettings::low_memory) and its BC1 option.
-                   low_memory, low_memory_bc1,
+                   // System → Wydajność: the low memory mode (AppSettings::low_memory) and Kompresja grafik
+                   // (AppSettings::texture_compression).
+                   low_memory, texture_compression,
                    // Biblioteka → Uruchamianie: hidden in the notification area while a game runs (src/app/tray.cpp).
                    hide_while_playing, aurelia, aurelia_open, aurelia_cloud, aurelia_default,
                    // Biblioteka → Amazon Games: Nile (the helper), the sign-in address, sync and sign-out.

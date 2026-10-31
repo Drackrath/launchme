@@ -1,4 +1,5 @@
 #pragma once
+#include "../artwork/block_compression.hpp"
 #include "../artwork/ink_bounds.hpp"
 
 #include <Windows.h>
@@ -8,6 +9,7 @@
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
+#include <filesystem>
 #include <memory>
 #include <mutex>
 #include <span>
@@ -18,6 +20,7 @@
 struct IWICImagingFactory;
 struct DecodeMemoryBudget;
 struct DecodeMemoryReservation;
+class TextureCache;
 
 inline constexpr size_t max_decoded_image_bytes = 16u * 1024 * 1024;
 inline constexpr size_t decoded_memory_budget = 64u * 1024 * 1024;
@@ -62,9 +65,11 @@ struct DecodeKind {
     // short_edge is a size wanted on screen rather than a limit: within 25% of it the image is
     // kept at its own size (a resample would cost more than the smaller upload saves).
     bool loose_edge = false;
-    // Low memory mode on a GPU that samples BC1: the size is rounded to whole 4×4 blocks and an
-    // opaque result is kept as BC1 blocks (DecodedImage::blocks) instead of BGRA pixels.
+    // Kompresja grafik (AppSettings::texture_compression) on a GPU that samples BC1: the size is
+    // rounded to whole 4×4 blocks and an opaque result is kept as BC1 blocks (DecodedImage::blocks)
+    // instead of BGRA pixels; with block_alpha one with transparency as BC3 (logos).
     bool block_compress = false;
+    bool block_alpha = false;
     uint32_t cover_width = 1920, cover_height = 1080; // cover_fit's box, in pixels.
 };
 // The size a cover_fit image is decoded to: scaled down (never up) to the smallest size that still
@@ -87,7 +92,8 @@ struct DecodedImage {
     // decoder's reservation. Completed tickets keep it until upload/discard.
     std::shared_ptr<DecodeMemoryReservation> reservation;
     std::vector<uint8_t> pixels;             // 32bpp premultiplied BGRA, stride = width * 4; empty when `blocks` holds the image.
-    std::vector<uint8_t> blocks;             // DecodeKind::block_compress: BC1 blocks (block_compression.hpp), else empty.
+    std::vector<uint8_t> blocks;             // DecodeKind::block_compress: BC1/BC3 blocks (block_compression.hpp), else empty.
+    block_compression::Format block_format = block_compression::Format::none; // Of `blocks`.
     std::vector<uint8_t> gloss;              // Steelbook only: A8 polished dark ink, stride = width; empty if none.
     std::vector<uint8_t> matte;              // Steelbook only: A8 grainy matte print, stride = width; empty if none.
     std::vector<uint8_t> relief;             // Steelbook only: opaque BGRA edge relief (steelbook_material::emboss); empty if none.
@@ -95,7 +101,7 @@ struct DecodedImage {
     InkBounds ink;                           // Logos only.
     bool valid() const {
         return width && height && (pixels.size() == static_cast<size_t>(width) * height * 4 ||
-                                   (pixels.empty() && !blocks.empty() && blocks.size() == static_cast<size_t>(width / 4) * (height / 4) * 8));
+                                   (pixels.empty() && !blocks.empty() && blocks.size() == block_compression::blockBytes(block_format, width, height)));
     }
 };
 
@@ -125,6 +131,9 @@ public:
     ImageDecoder& operator=(const ImageDecoder&) = delete;
 
     void start(HWND notify, unsigned threads = 2);
+    // Block-compressed results are kept in (and read from) this folder from now on (texture_cache.hpp);
+    // an empty path keeps none. Before start(), or while no job runs.
+    void useTextureCache(const std::filesystem::path& folder, uint64_t budget_bytes);
     // Without started workers (tests, failed start) the image is decoded inline.
     std::shared_ptr<DecodeTicket> submit(ImageBytes bytes, DecodeKind kind);
     uint64_t completed() const { return completed_.load(std::memory_order_acquire); }
@@ -137,7 +146,7 @@ public:
 private:
     struct Job { ImageBytes bytes; DecodeKind kind; std::shared_ptr<DecodeTicket> ticket; };
     void run();
-    void decode(Job& job, IWICImagingFactory* wic, bool wait);
+    void decode(Job& job, IWICImagingFactory* wic, bool wait, TextureCache* textures);
 
     HWND notify_ = nullptr;
     std::mutex mutex_;
@@ -146,6 +155,7 @@ private:
     std::vector<std::thread> workers_;
     std::atomic_bool stopping_{false};
     std::shared_ptr<DecodeMemoryBudget> budget_;
+    std::shared_ptr<TextureCache> textures_; // Set before the workers use it; read only afterwards.
     std::atomic_uint64_t completed_{0};
     std::atomic_size_t pending_{0};
     std::atomic_uint64_t decode_us_{0};

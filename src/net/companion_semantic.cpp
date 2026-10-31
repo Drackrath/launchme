@@ -140,6 +140,11 @@ std::vector<mind::Candidate> candidates(const std::vector<Hit>& hits, std::strin
     return out;
 }
 
+// The model (ONNX Runtime, ~120 MB quantized, more once loaded) is held only while it is used: after
+// idle_unload without an embedding it goes, and the next indexing or search loads it again (its
+// digest checked once a run, companion_embeddings.cpp).
+constexpr auto idle_unload = std::chrono::minutes(3);
+
 struct Service::Impl {
     std::filesystem::path path;
     Factory factory;
@@ -149,7 +154,9 @@ struct Service::Impl {
     std::condition_variable_any wake;
     std::vector<Document> current;
     Vectors vectors;
-    std::unique_ptr<Embedder> engine;
+    std::unique_ptr<Embedder> engine;              // engine_mutex; null while unloaded.
+    std::string identity;                          // The model's, fixed for the run (the vector cache's key).
+    std::chrono::steady_clock::time_point engine_used{}; // engine_mutex.
     std::atomic_bool stopped{false};
     uint64_t revision = 0; // Do not reconcile an empty snapshot before the caller supplies its archive.
     Progress status;
@@ -157,13 +164,28 @@ struct Service::Impl {
     Impl(std::filesystem::path cache, Factory create) : path(std::move(cache)), factory(std::move(create)) {
         worker = std::jthread([this](std::stop_token stop) { run(stop); });
     }
+    // With engine_mutex held: the model, loaded again after an idle unload; null when it cannot be.
+    Embedder* loadedEngine() {
+        if (!engine) {
+            auto loaded = factory();
+            if (!loaded || loaded->identity() != identity) return nullptr;
+            engine = std::move(loaded);
+        }
+        engine_used = std::chrono::steady_clock::now();
+        return engine.get();
+    }
     void run(std::stop_token stop) {
         try {
             auto loaded_engine = factory();
             require(loaded_engine != nullptr, "Embedding model unavailable.");
             Database database(path, loaded_engine->identity());
             auto loaded_vectors = database.load();
-            { std::lock_guard lock(engine_mutex); engine = std::move(loaded_engine); }
+            {
+                std::lock_guard lock(engine_mutex); // search() reads the identity under it too.
+                identity = loaded_engine->identity();
+                engine = std::move(loaded_engine);
+                engine_used = std::chrono::steady_clock::now();
+            }
             { std::lock_guard lock(state_mutex); vectors = std::move(loaded_vectors); }
             uint64_t processed = 0;
             while (!stop.stop_requested()) {
@@ -171,7 +193,12 @@ struct Service::Impl {
                 uint64_t generation;
                 {
                     std::unique_lock lock(state_mutex);
-                    wake.wait(lock, stop, [&] { return processed != revision; });
+                    while (!stop.stop_requested() && processed == revision)
+                        if (!wake.wait_for(lock, stop, std::chrono::seconds(30), [&] { return processed != revision; })) {
+                            // Nothing new to index: the model goes once nobody has used it for a while.
+                            std::unique_lock idle(engine_mutex, std::try_to_lock);
+                            if (idle && engine && std::chrono::steady_clock::now() - engine_used >= idle_unload) engine.reset();
+                        }
                     if (stop.stop_requested()) break;
                     snapshot = current; generation = revision;
                     status = {Progress::State::indexing, 0, snapshot.size(), {}};
@@ -198,7 +225,12 @@ struct Service::Impl {
                     if (!live.contains(document.key)) continue;
                     if (!cached) {
                         Vector vector;
-                        { std::lock_guard lock(engine_mutex); vector = engine->encode(document.text, false); }
+                        {
+                            std::lock_guard lock(engine_mutex);
+                            auto* model = loadedEngine();
+                            require(model != nullptr, "Embedding model unavailable.");
+                            vector = model->encode(document.text, false);
+                        }
                         require(normalize(vector), "Embedding model returned an invalid vector.");
                         {
                             std::lock_guard lock(state_mutex);
@@ -283,9 +315,11 @@ std::vector<Hit> Service::search(std::string_view look, std::wstring_view query,
     std::optional<Vector> embedded;
     {
         std::unique_lock lock(impl_->engine_mutex, std::defer_lock);
-        if (lock.try_lock_for(std::chrono::milliseconds(100)) && impl_->engine && !impl_->stopped) {
-            try { embedded = impl_->engine->encode(query, true); if (!normalize(*embedded)) embedded.reset(); }
-            catch (...) { embedded.reset(); }
+        // Loaded again here when idle let it go (a worker building her reply waits for it).
+        if (lock.try_lock_for(std::chrono::milliseconds(100)) && !impl_->stopped && !impl_->identity.empty()) {
+            try {
+                if (auto* model = impl_->loadedEngine()) { embedded = model->encode(query, true); if (!normalize(*embedded)) embedded.reset(); }
+            } catch (...) { embedded.reset(); }
         }
     }
     struct Ranked { Hit hit; int lexical; };

@@ -115,3 +115,5 @@ void trimProcessMemory() {
     malloc_trim(0);
 #endif
 }
+
+void setBackgroundPriority(bool) {}

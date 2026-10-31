@@ -764,10 +764,10 @@ void Launcher::settingsToggle(const Row& row) {
     else if (row.id == Id::low_memory) {
         settings_.low_memory = !settings_.low_memory;
         applyLowMemory(); // Takes effect for artwork decoded from now on (src/app/memory.cpp).
-        settingsChanged(); audio_.context(); return; // Rows rebuilt: Kompresja grafik shows only under it.
+        settingsChanged(); audio_.context(); return;
     }
-    else if (row.id == Id::low_memory_bc1) {
-        settings_.low_memory_bc1 = !settings_.low_memory_bc1;
+    else if (row.id == Id::texture_compression) {
+        settings_.texture_compression = !settings_.texture_compression;
         applyLowMemory();
         settingsChanged(); audio_.context(); return;
     }

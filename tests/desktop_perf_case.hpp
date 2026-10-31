@@ -55,8 +55,9 @@ int LauncherUiTest::profileDesktop(HWND window, int seconds) {
     app.renderer_.startDecoderForTest();
     wchar_t full_ram[4]{};
     app.settings_.low_memory = !(GetEnvironmentVariableW(L"LAUNCHME_PERF_FULL_RAM", full_ram, 4) == 1 && full_ram[0] == L'1');
+    // Kompresja grafik as the app has it (on), or LAUNCHME_PERF_BC1=0/1.
     wchar_t bc1[4]{};
-    app.settings_.low_memory_bc1 = GetEnvironmentVariableW(L"LAUNCHME_PERF_BC1", bc1, 4) == 1 && bc1[0] == L'1';
+    if (GetEnvironmentVariableW(L"LAUNCHME_PERF_BC1", bc1, 4) == 1 && (bc1[0] == L'0' || bc1[0] == L'1')) app.settings_.texture_compression = bc1[0] == L'1';
     app.applyLowMemory();
     app.initializeLibraryPreferences();
     app.renderer_.profile(true);

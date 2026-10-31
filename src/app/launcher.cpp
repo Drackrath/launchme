@@ -246,6 +246,11 @@ bool Launcher::initialize(HWND hwnd) {
     renderer_.setGlass(settings_.glass);
     renderer_.setConsoleColors(settings_.console_colors);
     applyLowMemory(); // System → Wydajność → Tryb niskiego zużycia RAM.
+#ifndef LAUNCHME_UI_TEST
+    // Kompresja grafik: compressed art kept on disk, so each picture is compressed once (tests
+    // decode inline and keep nothing).
+    renderer_.setTextureCache(userConfigDirectory() / L"textures");
+#endif
     // Play a boot cue already decoded during renderer startup before initializing services.
     // Only consume our own audio payloads; do not reenter general window/input handling.
     MSG ready_audio{};
@@ -468,7 +473,7 @@ void Launcher::snapCardsForTransition() {
 void Launcher::tick() {
     const auto now = std::chrono::steady_clock::now();
     last_tick_ms_ = GetTickCount64();
-    if (closing_) { tickClose(now); return; }
+    if (closing_) { frame_limit_ = 240; tickClose(now); return; } // The exit animation at the full rate.
     pollMemory();
     pollGameFocus();
     pollTray();
@@ -869,6 +874,12 @@ void Launcher::tick() {
         if (gameOverlayOpen()) invalidateGameOverlay();
         else if (!IsIconic(hwnd_)) InvalidateRect(hwnd_, nullptr, FALSE);
     }
+    // Fewer wake-ups while nothing moves: after 3 s of a still screen without input 60 Hz, after 20 s
+    // 30 Hz (a pad press is still seen within a frame of that), 10 Hz behind a game. Any motion, paint
+    // or input brings the full rate back with the next tick (main.cpp: FrameClock::limit).
+    if (needs_paint || paint_deferred_ || gameOverlayOpen() || profiler_.overlay()) still_since_ = now;
+    const auto still = std::min(now - still_since_, now - last_input_);
+    frame_limit_ = background_mode_ ? 10 : still >= std::chrono::seconds(20) ? 30 : still >= std::chrono::seconds(3) ? 60 : 240;
 }
 
 // Library scan/poller and artwork downloaders: src/app/library_worker.cpp.

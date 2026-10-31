@@ -621,8 +621,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show_command) {
         }
         if (!running) break;
         auto* active = reinterpret_cast<Launcher*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
-        // Nobody watches a switched-off display; the screensaver's slow pans need no 144 Hz.
-        frame_clock.limit(active && active->displayOff() ? 5 : active && active->screensaverActive() ? 30 : 240);
+        // Nobody watches a switched-off display; the screensaver's slow pans need no 144 Hz; a still
+        // screen or a game in front needs fewer ticks (Launcher::frameLimit).
+        frame_clock.limit(active && active->displayOff() ? 5 : active && active->screensaverActive() ? 30 : active ? active->frameLimit() : 240);
         frame_clock.update(active ? active->frameWindow() : hwnd);
         if (frame_clock.ready()) {
             frame_clock.consume();
@@ -919,8 +920,9 @@ int main(int argc, char** argv) {
             }
         if (!running) break;
         auto* active = reinterpret_cast<Launcher*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
-        // Nobody watches a switched-off display; the screensaver's slow pans need no 144 Hz.
-        frame_clock.limit(active && active->displayOff() ? 5 : active && active->screensaverActive() ? 30 : 240);
+        // Nobody watches a switched-off display; the screensaver's slow pans need no 144 Hz; a still
+        // screen or a game in front needs fewer ticks (Launcher::frameLimit).
+        frame_clock.limit(active && active->displayOff() ? 5 : active && active->screensaverActive() ? 30 : active ? active->frameLimit() : 240);
         frame_clock.update(active ? active->frameWindow() : hwnd);
         if (frame_clock.ready()) {
             frame_clock.consume();

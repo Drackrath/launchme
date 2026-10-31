@@ -57,9 +57,13 @@ workers and comes back as posted messages.
 ## Rendering
 
 `Launcher::paint` fills a `ViewContext` (what the screen shows) and hands it to `Renderer::paint`,
-which draws the layers in a fixed order (home, library, dialogs, toasts). The renderer keeps image
-slots (`std::vector<Cover>` per kind) uploaded from decoded bytes; `renderer_resources.cpp` creates,
-discards and uploads them and `renderer.cpp` counts their memory. Small drawing helpers shared by the
+which draws the layers in a fixed order (home, library, dialogs, toasts). On Windows the window's
+target is a flip-model swap chain on the renderer's own Direct3D 11 device (`swap_chain.cpp`; an
+HWND render target where it cannot be made); game videos are decoded into textures on that device.
+The renderer keeps image slots (`std::vector<Cover>` per kind) uploaded from decoded bytes, BC1/BC3
+blocks where the GPU samples them (`artwork/block_compression.cpp`, kept on disk by
+`ui/texture_cache.cpp`); `renderer_resources.cpp` creates, discards and uploads them and
+`renderer.cpp` counts their memory. Small drawing helpers shared by the
 renderer files (`color`, `box`, `smoothFade`, `upper`) are in `renderer_internal.hpp`
 (`render_detail`); desktop mode's in `desktop_render_internal.hpp`. On Linux the same calls reach Skia
 through `src/linux/gfx`.

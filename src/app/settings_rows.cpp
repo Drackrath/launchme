@@ -732,10 +732,9 @@ void Launcher::buildSettingsRows() {
         add({Id::low_memory, Control::toggle, tr(L"Tryb niskiego zużycia RAM"),
             tr(L"Grafiki w rozmiarze z ekranu i mniej trzymanych w pamięci; gdy gra działa, launcher oddaje pamięć."),
             {}, settings_.low_memory});
-        if (settings_.low_memory)
-            add({Id::low_memory_bc1, Control::toggle, tr(L"Kompresja grafik (BC1)"),
-                tr(L"Grafiki w pamięci karty graficznej 8 razy mniejsze, kosztem dłuższego wczytywania i odrobiny jakości."),
-                {}, settings_.low_memory_bc1});
+        add({Id::texture_compression, Control::toggle, tr(L"Kompresja grafik (BC1)"),
+            tr(L"Okładki i plakaty w pamięci karty graficznej 8 razy mniejsze, loga 4 razy, kosztem odrobiny jakości. W trybie niskiego zużycia RAM także tła."),
+            {}, settings_.texture_compression});
         section(tr(L"Pomoc"));
         // The version, and the folder with launchme.log and crash reports a user can send.
         add({Id::about, Control::action, L"Launchme " + diagnostics::version(),

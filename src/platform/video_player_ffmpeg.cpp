@@ -8,6 +8,8 @@ extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
 #include <libavutil/channel_layout.h>
+#include <libavutil/hwcontext.h>
+#include <libavutil/pixdesc.h>
 #include <libswresample/swresample.h>
 #include <libswscale/swscale.h>
 }
@@ -16,6 +18,7 @@ extern "C" {
 #include <algorithm>
 #include <chrono>
 #include <condition_variable>
+#include <cstdlib>
 #include <mutex>
 #include <thread>
 
@@ -32,13 +35,44 @@ struct Close {
 };
 template <class T> using Owned = std::unique_ptr<T, Close>;
 
-Owned<AVCodecContext> openDecoder(const AVStream* stream) {
+// The GPU's video decoder through VA-API (Intel, AMD, the Steam Deck) where the system has one for
+// this codec: decoded frames come back to memory (av_hwframe_transfer_data) for the BGRA scaler, so
+// the CPU only converts. A profile the GPU lacks falls back to software in get_format.
+// LAUNCHME_VIDEO_HWACCEL=0 decodes on the CPU.
+bool hardwareWanted() {
+    const char* value = std::getenv("LAUNCHME_VIDEO_HWACCEL");
+    return !(value && value[0] == '0');
+}
+bool vaapiDecodes(const AVCodec* codec) {
+    for (int i = 0;; ++i) {
+        const AVCodecHWConfig* config = avcodec_get_hw_config(codec, i);
+        if (!config) return false;
+        if (config->device_type == AV_HWDEVICE_TYPE_VAAPI && (config->methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX)) return true;
+    }
+}
+AVPixelFormat pickFormat(AVCodecContext*, const AVPixelFormat* formats) {
+    for (const AVPixelFormat* format = formats; *format != AV_PIX_FMT_NONE; ++format)
+        if (*format == AV_PIX_FMT_VAAPI) return *format;
+    for (const AVPixelFormat* format = formats; *format != AV_PIX_FMT_NONE; ++format) {
+        const AVPixFmtDescriptor* description = av_pix_fmt_desc_get(*format);
+        if (description && !(description->flags & AV_PIX_FMT_FLAG_HWACCEL)) return *format;
+    }
+    return AV_PIX_FMT_NONE;
+}
+
+Owned<AVCodecContext> openDecoder(const AVStream* stream, bool hardware = false) {
     const AVCodec* codec = avcodec_find_decoder(stream->codecpar->codec_id);
     if (!codec) return nullptr;
     Owned<AVCodecContext> decoder(avcodec_alloc_context3(codec));
     if (!decoder || avcodec_parameters_to_context(decoder.get(), stream->codecpar) < 0) return nullptr;
     decoder->thread_count = 0; // As many as FFmpeg finds useful.
-    if (avcodec_open2(decoder.get(), codec, nullptr) < 0) return nullptr;
+    AVBufferRef* device = nullptr;
+    if (hardware && vaapiDecodes(codec) && av_hwdevice_ctx_create(&device, AV_HWDEVICE_TYPE_VAAPI, nullptr, nullptr, 0) >= 0) {
+        decoder->hw_device_ctx = device; // The decoder owns it now.
+        decoder->get_format = pickFormat;
+        decoder->thread_count = 1; // The GPU decodes; threads would only hold more surfaces.
+    }
+    if (avcodec_open2(decoder.get(), codec, nullptr) < 0) return device ? openDecoder(stream, false) : nullptr;
     return decoder;
 }
 }
@@ -83,8 +117,8 @@ struct VideoPlayer::Impl {
 void VideoPlayer::Impl::run(const std::shared_ptr<std::atomic_bool>& error) {
     using clock = std::chrono::steady_clock;
     Owned<AVPacket> packet(av_packet_alloc());
-    Owned<AVFrame> frame(av_frame_alloc());
-    if (!packet || !frame) { error->store(true); return; }
+    Owned<AVFrame> frame(av_frame_alloc()), software(av_frame_alloc()); // software: a VA-API frame copied back.
+    if (!packet || !frame || !software) { error->store(true); return; }
     Owned<SwsContext> scaler;
     std::vector<uint8_t> scratch, pcm; // The next picture; converted sound.
     const AVStream* stream = input->streams[video_index];
@@ -104,6 +138,11 @@ void VideoPlayer::Impl::run(const std::shared_ptr<std::atomic_bool>& error) {
         const auto due = start + std::chrono::duration_cast<clock::duration>(std::chrono::duration<double>(offset + at));
         if (!waitUntil(due)) return false;
         if (clock::now() - due > std::chrono::milliseconds(100)) return true; // Behind: drop it, catch up.
+        if (picture->format == AV_PIX_FMT_VAAPI) { // Decoded on the GPU: its pixels back to memory (NV12 mostly).
+            av_frame_unref(software.get());
+            if (av_hwframe_transfer_data(software.get(), picture, 0) < 0) return true;
+            picture = software.get();
+        }
         const int width = picture->width, height = picture->height;
         if (width <= 0 || height <= 0) return true;
         uint32_t target_width = static_cast<uint32_t>(width), target_height = static_cast<uint32_t>(height);
@@ -181,7 +220,12 @@ VideoPlayer::~VideoPlayer() { stop(); }
 
 bool VideoPlayer::active() const { return impl_->worker.joinable(); }
 
-bool VideoPlayer::open(const std::filesystem::path& file, double volume) {
+// Frames always come through memory here (frame()); a GPU device is Windows' path.
+void* VideoPlayer::device() const { return nullptr; }
+bool VideoPlayer::nextFrame(uint32_t&, uint32_t&, uint32_t) { return false; }
+bool VideoPlayer::transfer(void*, uint32_t, uint32_t) { return false; }
+
+bool VideoPlayer::open(const std::filesystem::path& file, double volume, void*) {
     stop();
     error_ = std::make_shared<std::atomic_bool>(false);
     av_log_set_level(AV_LOG_ERROR); // Not the decoders' notes on recoverable quirks (MP3 padding, ...).
@@ -191,7 +235,7 @@ bool VideoPlayer::open(const std::filesystem::path& file, double volume) {
     impl.input.reset(opened);
     if (avformat_find_stream_info(impl.input.get(), nullptr) < 0) { impl.close(); return false; }
     impl.video_index = av_find_best_stream(impl.input.get(), AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
-    if (impl.video_index < 0 || !(impl.video = openDecoder(impl.input->streams[impl.video_index]))) { impl.close(); return false; }
+    if (impl.video_index < 0 || !(impl.video = openDecoder(impl.input->streams[impl.video_index], hardwareWanted()))) { impl.close(); return false; }
     // Sound is optional: a silent clip, or no output, still plays its picture.
     impl.audio_index = av_find_best_stream(impl.input.get(), AVMEDIA_TYPE_AUDIO, -1, impl.video_index, nullptr, 0);
     if (impl.audio_index >= 0) impl.audio = openDecoder(impl.input->streams[impl.audio_index]);

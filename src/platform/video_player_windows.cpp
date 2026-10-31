@@ -5,6 +5,7 @@
 #endif
 #include <mfmediaengine.h>
 #ifdef _WIN32
+#include <d3d11.h>
 #include <mfidl.h>
 #include <wincodec.h>
 #endif
@@ -31,6 +32,9 @@ private:
 
 struct VideoPlayer::Impl {
     ComPtr<IMFMediaEngine> engine_;
+    // open() with a device: Media Foundation decodes on it (DXVA) and draws frames into textures.
+    ComPtr<IMFDXGIDeviceManager> manager_;
+    void* device_ = nullptr;
     ComPtr<IWICImagingFactory> wic_;
     ComPtr<IWICBitmap> bitmap_;
     uint32_t bitmap_width_ = 0, bitmap_height_ = 0;
@@ -46,7 +50,7 @@ VideoPlayer::~VideoPlayer() {
 
 bool VideoPlayer::active() const { return impl_->engine_ != nullptr; }
 
-bool VideoPlayer::open(const std::filesystem::path& file, double volume) {
+bool VideoPlayer::open(const std::filesystem::path& file, double volume, void* device) {
     auto& engine_ = impl_->engine_; auto& wic_ = impl_->wic_; auto& started_ = impl_->started_;
     stop();
     error_ = std::make_shared<std::atomic_bool>(false);
@@ -58,26 +62,37 @@ bool VideoPlayer::open(const std::filesystem::path& file, double volume) {
     ComPtr<IMFMediaEngineClassFactory> factory;
     ComPtr<IMFAttributes> attributes;
     if (FAILED(CoCreateInstance(CLSID_MFMediaEngineClassFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory))) ||
-        FAILED(MFCreateAttributes(&attributes, 2))) return false;
+        FAILED(MFCreateAttributes(&attributes, 3))) return false;
     auto notify = Microsoft::WRL::Make<Notify>(error_);
     if (!notify || FAILED(attributes->SetUnknown(MF_MEDIA_ENGINE_CALLBACK, notify.Get())) ||
         FAILED(attributes->SetUINT32(MF_MEDIA_ENGINE_VIDEO_OUTPUT_FORMAT, DXGI_FORMAT_B8G8R8A8_UNORM))) return false;
-    // No playback window and no DXGI manager: frame-server mode, frames copied to a WIC bitmap.
+    // With the renderer's device: decoded by the GPU's video engine and drawn into its textures
+    // (transfer), no frame through memory. Without one (or if the manager cannot take it), copies.
+    UINT token = 0;
+    ComPtr<IMFDXGIDeviceManager> manager;
+    if (device && SUCCEEDED(MFCreateDXGIDeviceManager(&token, manager.GetAddressOf())) &&
+        SUCCEEDED(manager->ResetDevice(static_cast<ID3D11Device*>(device), token)) &&
+        SUCCEEDED(attributes->SetUnknown(MF_MEDIA_ENGINE_DXGI_MANAGER, manager.Get()))) {
+        impl_->manager_ = std::move(manager);
+        impl_->device_ = device;
+    }
+    // No playback window: frame-server mode, frames copied to a WIC bitmap or drawn into a texture.
     ComPtr<IMFMediaEngine> engine;
-    if (FAILED(factory->CreateInstance(0, attributes.Get(), &engine))) return false;
+    const auto fail = [&] { if (engine) engine->Shutdown(); impl_->manager_.Reset(); impl_->device_ = nullptr; return false; };
+    if (FAILED(factory->CreateInstance(0, attributes.Get(), &engine))) return fail();
     // A byte stream instead of a URL: any local path works, spaces and all.
     ComPtr<IMFByteStream> stream;
     ComPtr<IMFMediaEngineEx> extended;
     if (FAILED(MFCreateFile(MF_ACCESSMODE_READ, MF_OPENMODE_FAIL_IF_NOT_EXIST, MF_FILEFLAGS_NONE, file.c_str(), &stream)) ||
-        FAILED(engine.As(&extended))) { engine->Shutdown(); return false; }
+        FAILED(engine.As(&extended))) return fail();
     BSTR name = SysAllocString(file.c_str()); // Its extension tells the engine the container type.
     const HRESULT source = extended->SetSourceFromByteStream(stream.Get(), name);
     SysFreeString(name);
-    if (FAILED(source)) { engine->Shutdown(); return false; }
+    if (FAILED(source)) return fail();
     engine->SetLoop(TRUE);
     engine->SetVolume(std::clamp(volume, 0.0, 1.0));
     engine->SetMuted(volume <= 0.0);
-    if (FAILED(engine->Play())) { engine->Shutdown(); return false; }
+    if (FAILED(engine->Play())) return fail();
     engine_ = std::move(engine);
     return true;
 }
@@ -89,8 +104,36 @@ void VideoPlayer::stop() {
     engine_->Pause();
     engine_->Shutdown();
     engine_.Reset();
+    impl_->manager_.Reset();
+    impl_->device_ = nullptr;
     bitmap_.Reset();
     bitmap_width_ = bitmap_height_ = 0;
+}
+
+void* VideoPlayer::device() const { return impl_->engine_ ? impl_->device_ : nullptr; }
+
+bool VideoPlayer::nextFrame(uint32_t& width, uint32_t& height, uint32_t max_width) {
+    auto& engine_ = impl_->engine_;
+    if (!engine_ || !impl_->device_ || error_->load()) return false;
+    LONGLONG time = 0;
+    if (engine_->OnVideoStreamTick(&time) != S_OK) return false; // S_FALSE: no new frame.
+    DWORD native_width = 0, native_height = 0;
+    if (FAILED(engine_->GetNativeVideoSize(&native_width, &native_height)) || !native_width || !native_height) return false;
+    width = native_width; height = native_height;
+    if (max_width && width > max_width) {
+        height = std::max<uint32_t>(1, static_cast<uint32_t>(uint64_t(native_height) * max_width / native_width));
+        width = max_width;
+    }
+    return true;
+}
+
+bool VideoPlayer::transfer(void* texture, uint32_t width, uint32_t height) {
+    auto& engine_ = impl_->engine_;
+    if (!engine_ || !impl_->device_ || !texture || error_->load()) return false;
+    const MFVideoNormalizedRect source{0, 0, 1, 1};
+    const RECT destination{0, 0, static_cast<LONG>(width), static_cast<LONG>(height)};
+    const MFARGB border{0, 0, 0, 255};
+    return SUCCEEDED(engine_->TransferVideoFrame(static_cast<ID3D11Texture2D*>(texture), &source, &destination, &border));
 }
 
 void VideoPlayer::setVolume(double volume) {

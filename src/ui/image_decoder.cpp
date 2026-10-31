@@ -1,5 +1,6 @@
 #include "image_decoder.hpp"
 #include "steelbook_material.hpp"
+#include "texture_cache.hpp"
 #include "../artwork/block_compression.hpp"
 
 #include <wincodec.h>
@@ -169,7 +170,7 @@ DecodedImage decodeImage(IWICImagingFactory* wic, std::span<const uint8_t> bytes
         target_width = std::max(1u, static_cast<UINT>(target_width * scale));
         target_height = std::max(1u, static_cast<UINT>(target_height * scale));
     }
-    // Whole 4×4 blocks for BC1: at most 3 px less on a side (under 1% of a cover's shape).
+    // Whole 4×4 blocks for BC1/BC3: at most 3 px less on a side (under 1% of a cover's shape).
     if (kind.block_compress && !kind.steelbook && target_width >= 4 && target_height >= 4) {
         target_width -= target_width % 4;
         target_height -= target_height % 4;
@@ -224,8 +225,15 @@ DecodedImage decodeImage(IWICImagingFactory* wic, std::span<const uint8_t> bytes
         if (any(matte)) result.matte = std::move(matte);
     }
     result.width = width; result.height = height;
-    if (kind.block_compress && !kind.steelbook) result.blocks = block_compression::encodeBc1(pixels.data(), width, height);
-    if (result.blocks.empty()) result.pixels = std::move(pixels); // Not opaque or not whole blocks: as decoded.
+    if (kind.block_compress && !kind.steelbook) {
+        result.blocks = block_compression::encodeBc1(pixels.data(), width, height);
+        if (!result.blocks.empty()) result.block_format = block_compression::Format::bc1;
+        else if (kind.block_alpha) { // Transparency (logos): BC3, a quarter of BGRA.
+            result.blocks = block_compression::encodeBc3(pixels.data(), width, height);
+            if (!result.blocks.empty()) result.block_format = block_compression::Format::bc3;
+        }
+    }
+    if (result.blocks.empty()) result.pixels = std::move(pixels); // Not whole blocks, or transparent without block_alpha: as decoded.
     return result;
 } catch (...) { return {}; } // Allocation/codec failures complete the ticket without terminating a worker.
 
@@ -258,9 +266,15 @@ void ImageDecoder::start(HWND notify, unsigned threads) {
     } catch (...) { /* Fewer (or no) workers: submit() decodes inline. */ }
 }
 
+void ImageDecoder::useTextureCache(const std::filesystem::path& folder, uint64_t budget_bytes) {
+    std::lock_guard lock(mutex_);
+    textures_ = folder.empty() ? nullptr : std::make_shared<TextureCache>(folder, budget_bytes);
+}
+
 std::shared_ptr<DecodeTicket> ImageDecoder::submit(ImageBytes bytes, DecodeKind kind) {
     auto ticket = std::make_shared<DecodeTicket>();
     if (!bytes || bytes->empty()) { ticket->done.store(true, std::memory_order_release); return ticket; }
+    std::shared_ptr<TextureCache> textures;
     {
         std::lock_guard lock(mutex_);
         if (!workers_.empty() && !stopping_) {
@@ -269,11 +283,12 @@ std::shared_ptr<DecodeTicket> ImageDecoder::submit(ImageBytes bytes, DecodeKind 
             wake_.notify_one();
             return ticket;
         }
+        textures = textures_;
     }
     Job job{std::move(bytes), kind, ticket};
     // Never wait for memory on the UI thread: it may own the tickets whose
     // upload would release it. Inline users get a completed invalid ticket.
-    decode(job, inlineFactory().Get(), false);
+    decode(job, inlineFactory().Get(), false, textures.get());
     ticket->done.store(true, std::memory_order_release);
     completed_.fetch_add(1, std::memory_order_acq_rel);
     return ticket;
@@ -282,7 +297,7 @@ std::shared_ptr<DecodeTicket> ImageDecoder::submit(ImageBytes bytes, DecodeKind 
 size_t ImageDecoder::reservedBytes() const { std::lock_guard lock(budget_->mutex); return budget_->used; }
 size_t ImageDecoder::peakReservedBytes() const { std::lock_guard lock(budget_->mutex); return budget_->peak; }
 
-void ImageDecoder::decode(Job& job, IWICImagingFactory* wic, bool wait) try {
+void ImageDecoder::decode(Job& job, IWICImagingFactory* wic, bool wait, TextureCache* textures) try {
     auto reservation = std::make_shared<DecodeMemoryReservation>(budget_);
     {
         std::unique_lock lock(budget_->mutex);
@@ -298,7 +313,14 @@ void ImageDecoder::decode(Job& job, IWICImagingFactory* wic, bool wait) try {
         budget_->used += reservation->bytes; budget_->peak = std::max(budget_->peak, budget_->used);
     }
     const auto started = std::chrono::steady_clock::now();
-    auto image = decodeImage(wic, *job.bytes, job.kind);
+    // Block-compressed before (this picture for this use): read back instead of decoded and compressed.
+    const bool cached = textures && job.kind.block_compress && !job.kind.steelbook;
+    const uint64_t key = cached ? TextureCache::key(*job.bytes, job.kind) : 0;
+    DecodedImage image;
+    if (!cached || !textures->load(key, image) || !image.valid()) {
+        image = decodeImage(wic, *job.bytes, job.kind);
+        if (cached && !image.blocks.empty()) textures->store(key, image);
+    }
     decode_us_.fetch_add(static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - started).count()), std::memory_order_relaxed);
     if (image.valid()) {
         reservation->shrink(image.pixels.size() + image.blocks.size() + image.gloss.size() + image.matte.size() + image.relief.size());
@@ -313,10 +335,12 @@ void ImageDecoder::run() {
     CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(wic.GetAddressOf()));
     while (true) {
         Job job;
+        std::shared_ptr<TextureCache> textures;
         {
             std::unique_lock lock(mutex_);
             wake_.wait(lock, [&] { return stopping_ || !jobs_.empty(); });
             if (stopping_) break;
+            textures = textures_;
             // The most wanted first (lowest priority, then the oldest): after a fast scroll the rows
             // now in view do not wait behind the ones passed on the way.
             auto next = jobs_.begin();
@@ -328,7 +352,7 @@ void ImageDecoder::run() {
         }
         // The renderer replaced or dropped this slot while it was queued.
         if (job.ticket.use_count() > 1) {
-            decode(job, wic.Get(), true);
+            decode(job, wic.Get(), true, textures.get());
         }
         job.ticket->done.store(true, std::memory_order_release);
         completed_.fetch_add(1, std::memory_order_acq_rel);

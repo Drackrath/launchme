@@ -25,12 +25,13 @@ ImageBytes shared(std::vector<uint8_t> bytes) { return shareImage(std::move(byte
 // An empty buffer counts as no image, as with the vector setters.
 ImageBytes shared(ImageBytes bytes) { return bytes && !bytes->empty() ? std::move(bytes) : ImageBytes{}; }
 constexpr auto reveal_duration = std::chrono::milliseconds(140);
-// GPU bytes of an uploaded picture: 4 a pixel, half a byte as BC1 (low memory).
+// GPU bytes of an uploaded picture: 4 a pixel, half a byte as BC1, one as BC3 (Kompresja grafik).
 size_t bitmapBytes(ID2D1Bitmap* bitmap) {
     if (!bitmap) return 0;
     const auto size = bitmap->GetPixelSize();
     const size_t pixels = static_cast<size_t>(size.width) * size.height;
-    return bitmap->GetPixelFormat().format == DXGI_FORMAT_BC1_UNORM ? pixels / 2 : pixels * 4;
+    const auto format = bitmap->GetPixelFormat().format;
+    return format == DXGI_FORMAT_BC1_UNORM ? pixels / 2 : format == DXGI_FORMAT_BC3_UNORM ? pixels : pixels * 4;
 }
 // Decode caps by drawn size. The largest card (focused shelf card at 4K, launch zoom)
 // is ~760 px and the crop preview ~1250 px; posters rarely exceed 600x900 anyway. XMB
@@ -69,6 +70,13 @@ bool Renderer::initialize(HWND hwnd, bool layered) {
     immediate_present_ = SUCCEEDED(DwmIsCompositionEnabled(&composed)) && composed;
     wchar_t present[4]{};
     if (GetEnvironmentVariableW(L"LAUNCHME_PRESENT_IMMEDIATE", present, 4) == 1 && (present[0] == L'0' || present[0] == L'1')) immediate_present_ = present[0] == L'1';
+#ifdef _WIN32
+    // Asked for explicitly (the uncapped benchmark): frames as fast as they come, torn if need be.
+    tearing_wanted_ = present[0] == L'1';
+    wchar_t option[4]{};
+    if (GetEnvironmentVariableW(L"LAUNCHME_SWAPCHAIN", option, 4) == 1 && option[0] == L'0') swap_wanted_ = false;
+    if (GetEnvironmentVariableW(L"LAUNCHME_VIDEO_GPU", option, 4) == 1 && option[0] == L'0') gpu_video_ = false;
+#endif
     hwnd_ = hwnd;
     if (FAILED(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, factory_.GetAddressOf())) ||
         FAILED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
@@ -108,11 +116,16 @@ void Renderer::loadLocalFonts() {
 void Renderer::resize() {
     updateViewport();
     if (layered_) { discardTarget(); return; }
-    if (window_target_) {
-        RECT rect{};
-        GetClientRect(hwnd_, &rect);
-        if (FAILED(window_target_->Resize(D2D1::SizeU(std::max(1L, rect.right), std::max(1L, rect.bottom))))) discardTarget();
+    RECT rect{};
+    GetClientRect(hwnd_, &rect);
+    const auto width = static_cast<UINT32>(std::max(1L, rect.right)), height = static_cast<UINT32>(std::max(1L, rect.bottom));
+#ifdef _WIN32
+    if (swap_) {
+        if (!swap_.resize(width, height)) discardTarget();
+        return;
     }
+#endif
+    if (window_target_ && FAILED(window_target_->Resize(D2D1::SizeU(width, height)))) discardTarget();
 }
 
 void Renderer::resetCovers(size_t count, bool preserve_background) {
@@ -301,6 +314,9 @@ void Renderer::releaseGraphics() {
     squircle_.Reset(); squircle_compact_.Reset(); power_arc_.Reset(); controller_glyph_.Reset(); play_glyph_.Reset();
     controller_art_stroke_.Reset(); companion_stroke_.Reset(); tarot_stroke_.Reset();
     factory_.Reset();
+#ifdef _WIN32
+    swap_failed_ = false; // The next target tries the swap chain again.
+#endif
 }
 
 void Renderer::setDisc(size_t index, ImageBytes pixels) {
@@ -429,13 +445,14 @@ void Renderer::paint(const std::vector<GameCard>& cards, size_t selected, bool s
             // A captured exit frame or opaque screensaver covers everything. Skip
             // the launcher scene and leave its selection/hero handoff untouched.
             context_ = &context;
+            beginFrame();
             target_->BeginDraw();
             target_->SetTransform(D2D1::Matrix3x2F::Scale(viewport_.scale, viewport_.scale));
             target_->Clear(color(0, 0, 0));
             if (!exit_snapshot) drawScreensaver(*context.screensaver);
             if (context.exit_progress >= 0) drawExitTransition(context.exit_progress);
             const auto submitted = std::chrono::steady_clock::now();
-            const auto result = target_->EndDraw();
+            const auto result = finishFrame(target_->EndDraw());
             if (profiling_) {
                 timing_ = {std::chrono::duration<double, std::milli>(submitted - started).count(),
                     std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - submitted).count(), pending_upload_ms_, pending_uploads_};
@@ -467,6 +484,7 @@ void Renderer::paint(const std::vector<GameCard>& cards, size_t selected, bool s
         else if (scanning_since_ == std::chrono::steady_clock::time_point{}) scanning_since_ = std::chrono::steady_clock::now();
         elapsed_ = elapsed;
         detail_ = detail;
+        beginFrame();
         target_->BeginDraw();
         const float scale = viewport_.scale;
         target_->SetTransform(D2D1::Matrix3x2F::Scale(scale, scale));
@@ -599,7 +617,7 @@ void Renderer::paint(const std::vector<GameCard>& cards, size_t selected, bool s
         }
         if (context.exit_progress >= 0) drawExitTransition(context.exit_progress);
         const auto submitted = std::chrono::steady_clock::now();
-        const auto result = target_->EndDraw();
+        const auto result = finishFrame(target_->EndDraw());
 #ifdef LAUNCHME_UI_TEST
         draw_result_for_test = FAILED(foreground_result) ? foreground_result : result;
 #endif
@@ -609,6 +627,7 @@ void Renderer::paint(const std::vector<GameCard>& cards, size_t selected, bool s
             pending_upload_ms_ = 0; pending_uploads_ = 0;
         }
         if (result == D2DERR_RECREATE_TARGET || foreground_result == D2DERR_RECREATE_TARGET) discardTarget();
+        else if (screen_changed_) releaseIdleCaches();
         cards_ = nullptr;
         context_ = nullptr;
     }
@@ -699,7 +718,12 @@ void Renderer::setVideoFrame(const uint8_t* bgra, uint32_t width, uint32_t heigh
     if (first) video_started_ = std::chrono::steady_clock::now();
 }
 
-void Renderer::clearVideo() { video_bitmap_.Reset(); }
+void Renderer::clearVideo() {
+    video_bitmap_.Reset();
+#ifdef _WIN32
+    video_texture_.Reset(); video_texture_bitmap_.Reset();
+#endif
+}
 
 bool Renderer::animating() const {
     return decoder_.pending() > 0 || decoder_.completed() != decoded_seen_ || uploads_left_ ||

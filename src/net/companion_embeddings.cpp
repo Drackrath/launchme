@@ -11,16 +11,39 @@
 #include <algorithm>
 #include <cmath>
 #include <fstream>
+#include <map>
+#include <mutex>
 #include <stdexcept>
+#include <utility>
 
 namespace companion::semantic {
 namespace {
 constexpr const char* model_sha = "66fc00f5f29afcaff34092e1bdd20008ca3918265a82fb9695a551e510cc4ebc";
 constexpr const char* tokenizer_sha = "cfc8146abe2a0488e9e2a0c56de7952f7c11ab059eca145a0a727afce0db2865";
 constexpr size_t token_limit = 128;
+// The file has this digest. Checked once a run while its size and write time stay: the model is
+// loaded again whenever the semantic memory needs it after an idle unload (companion_semantic.cpp),
+// and hashing its 100+ MB each time would cost more than the load.
+bool verified(const std::filesystem::path& path, std::string_view sha) {
+    static std::mutex mutex;
+    static std::map<std::filesystem::path, std::pair<uintmax_t, std::filesystem::file_time_type>> checked;
+    std::error_code ec;
+    const auto size = std::filesystem::file_size(path, ec);
+    if (ec) return false;
+    const auto time = std::filesystem::last_write_time(path, ec);
+    if (ec) return false;
+    {
+        std::lock_guard lock(mutex);
+        if (const auto found = checked.find(path); found != checked.end() && found->second == std::pair{size, time}) return true;
+    }
+    if (updater::sha256File(path) != sha) return false;
+    std::lock_guard lock(mutex);
+    checked[path] = {size, time};
+    return true;
+}
 void loadTokenizer(sentencepiece::SentencePieceProcessor& sp, const std::filesystem::path& directory) {
     const auto path = directory / L"sentencepiece.bpe.model";
-    if (updater::sha256File(path) != tokenizer_sha) throw std::runtime_error("Embedding tokenizer is missing or has an unexpected digest.");
+    if (!verified(path, tokenizer_sha)) throw std::runtime_error("Embedding tokenizer is missing or has an unexpected digest.");
     std::ifstream input(path, std::ios::binary);
     const std::string bytes((std::istreambuf_iterator<char>(input)), {});
     if (!sp.LoadFromSerializedProto(bytes).ok()) throw std::runtime_error("Cannot load the embedding tokenizer.");
@@ -46,12 +69,14 @@ public:
     explicit Local(const std::filesystem::path& directory) {
         environment_.DisableTelemetryEvents();
         const auto path = directory / L"model.onnx";
-        if (updater::sha256File(path) != model_sha) throw std::runtime_error("Embedding model is missing or has an unexpected digest.");
+        if (!verified(path, model_sha)) throw std::runtime_error("Embedding model is missing or has an unexpected digest.");
         loadTokenizer(tokenizer_, directory);
         Ort::SessionOptions options;
         options.SetIntraOpNumThreads(2);
         options.SetInterOpNumThreads(1);
         options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
+        // One short sentence at a time: no arena kept at its peak between them (plain allocations).
+        options.DisableCpuMemArena();
         session_ = Ort::Session(environment_, path.c_str(), options);
     }
     std::string identity() const override { return std::string("multilingual-minilm-l12/mean-l2/128/xlmr-v1/") + model_sha + "/" + tokenizer_sha; }

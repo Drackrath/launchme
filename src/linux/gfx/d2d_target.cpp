@@ -140,7 +140,9 @@ HRESULT Canvas::createBitmap(D2D1_SIZE_U size, const void* data, UINT32 pitch, c
     *bitmap = nullptr;
     const auto format = properties ? properties->pixelFormat : format_;
     ComPtr<Bitmap> created;
-    const HRESULT result = Bitmap::create(size, data, pitch, format, properties ? properties->dpiX : dpi_, properties ? properties->dpiY : dpi_, created);
+    const float dpi_x = properties ? properties->dpiX : dpi_, dpi_y = properties ? properties->dpiY : dpi_;
+    const HRESULT result = format.format == DXGI_FORMAT_BC1_UNORM ? Bitmap::createCompressed(size, data, pitch, format, dpi_x, dpi_y, gpu_, created)
+                                                                  : Bitmap::create(size, data, pitch, format, dpi_x, dpi_y, created);
     if (SUCCEEDED(result)) *bitmap = created.Detach();
     return result;
 }
@@ -150,7 +152,10 @@ HRESULT Canvas::createBitmap1(D2D1_SIZE_U size, const void* data, UINT32 pitch, 
     *bitmap = nullptr;
     if (!properties) return E_INVALIDARG;
     ComPtr<Bitmap> created;
-    const HRESULT result = Bitmap::create(size, data, pitch, properties->pixelFormat, properties->dpiX, properties->dpiY, created);
+    // BC1 (the renderer's Kompresja grafik) into a compressed texture where the GPU samples it.
+    const HRESULT result = properties->pixelFormat.format == DXGI_FORMAT_BC1_UNORM ?
+        Bitmap::createCompressed(size, data, pitch, properties->pixelFormat, properties->dpiX, properties->dpiY, gpu_, created) :
+        Bitmap::create(size, data, pitch, properties->pixelFormat, properties->dpiX, properties->dpiY, created);
     if (SUCCEEDED(result)) *bitmap = created.Detach();
     return result;
 }

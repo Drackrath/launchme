@@ -319,12 +319,15 @@ void bitmaps(ID2D1Factory* factory) {
             turn.m[r][k] = sum;
         }
     s.context->DrawBitmap(picture.Get(), D2D1::RectF(0, 0, 160, 100), 1, D2D1_INTERPOLATION_MODE_ANISOTROPIC, nullptr, &turn);
-    check(!s.context->IsDxgiFormatSupported(DXGI_FORMAT_BC1_UNORM), "BC1 is not offered");
+    // BC1 where the GPU samples it (a compressed texture); in memory never, and then creation fails cleanly.
+    const bool bc1_offered = s.context->IsDxgiFormatSupported(DXGI_FORMAT_BC1_UNORM);
+    check(!s.context->IsDxgiFormatSupported(DXGI_FORMAT_BC3_UNORM), "BC3 is not offered");
     ComPtr<ID2D1Bitmap1> bc1;
     const uint8_t block[8]{};
-    check(FAILED(s.context->CreateBitmap(D2D1::SizeU(4, 4), block, 8,
-                                         D2D1::BitmapProperties1(D2D1_BITMAP_OPTIONS_NONE, D2D1::PixelFormat(DXGI_FORMAT_BC1_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)),
-                                         bc1.GetAddressOf())), "BC1 bitmaps fail cleanly");
+    const HRESULT made = s.context->CreateBitmap(D2D1::SizeU(4, 4), block, 8,
+                                                 D2D1::BitmapProperties1(D2D1_BITMAP_OPTIONS_NONE, D2D1::PixelFormat(DXGI_FORMAT_BC1_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)),
+                                                 bc1.GetAddressOf());
+    check(bc1_offered ? SUCCEEDED(made) : FAILED(made), "BC1 bitmaps exactly where offered");
 }
 
 // Effects as the launcher chains them.

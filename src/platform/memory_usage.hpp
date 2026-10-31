@@ -27,3 +27,9 @@ std::optional<DrmClientMemory> drmClientMemory(std::string_view fdinfo);
 // is emptied (pages come back from the standby list when touched again). For a launcher waiting
 // in the background while a game runs. On Linux the allocator's free pages are returned (malloc_trim).
 void trimProcessMemory();
+
+// While a game runs in front of the launcher (src/app/memory.cpp): this process at below-normal
+// priority, with EcoQoS (Windows 11 runs it on efficiency cores at low clocks and ignores its timer
+// resolution) and a low memory priority (its pages are the first the system trims). false: back
+// to normal at once. On Linux nothing: an unprivileged process cannot raise its niceness again.
+void setBackgroundPriority(bool background);

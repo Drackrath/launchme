@@ -446,8 +446,10 @@ void Launcher::desktopRequestArt() {
     }
     // Bitmaps: kept near the view; further away, a card whose art is still decoding is dropped (no
     // longer wanted), shown ones stay until their bytes pass the budget, the farthest go first.
-    // About 45 posters of 600×900 beyond the kept rows (low memory: a third, or a fair share more as BC1).
-    const size_t budget = !settings_.low_memory ? size_t{96} << 20 : settings_.low_memory_bc1 ? size_t{32} << 20 : size_t{48} << 20;
+    // About 45 posters of 600×900 beyond the kept rows (low memory: a third); as BC1 an eighth of the
+    // bytes each, so the same budget keeps far more of them.
+    const size_t budget = !settings_.low_memory ? (settings_.texture_compression ? size_t{48} << 20 : size_t{96} << 20) :
+                          settings_.texture_compression ? size_t{32} << 20 : size_t{48} << 20;
     const size_t columns = static_cast<size_t>(desktopLayout().columns());
     const size_t middle = (range.first + range.end) / 2 / columns;
     std::vector<std::pair<size_t, size_t>> shown; // Rows from the middle, card.

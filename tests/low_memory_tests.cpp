@@ -147,6 +147,20 @@ int main() {
     if (!block_compression::encodeBc1(translucent.data(), 600, 900).empty()) return 7;
     if (!block_compression::encodeBc1(image.data(), 598, 900).empty()) return 8;
     if (!block_compression::decodeBc1(blocks.data(), blocks.size() - 8, 600, 900).empty()) return 9;
+    // BC3 (logos): premultiplied colours as BC1's, the alpha within a step of its interpolation.
+    auto logo = image;
+    for (size_t i = 0; i < logo.size(); i += 4) {
+        const uint32_t x = static_cast<uint32_t>(i / 4 % 600);
+        const uint8_t alpha = x < 100 ? 0 : x > 500 ? 255 : static_cast<uint8_t>((x - 100) * 255 / 400);
+        for (int c = 0; c < 3; ++c) logo[i + c] = static_cast<uint8_t>((logo[i + c] * alpha + 127) / 255);
+        logo[i + 3] = alpha;
+    }
+    const auto bc3 = block_compression::encodeBc3(logo.data(), 600, 900);
+    if (bc3.size() != block_compression::bc3Bytes(600, 900)) return 14;
+    const auto logo_back = block_compression::decodeBc3(bc3.data(), bc3.size(), 600, 900);
+    if (logo_back.size() != logo.size() || psnr(logo, logo_back) < 30) return 15;
+    for (size_t i = 3; i < logo.size(); i += 4) if (std::abs(int(logo[i]) - int(logo_back[i])) > 10) return 16;
+    if (!block_compression::encodeBc3(logo.data(), 598, 900).empty()) return 17;
 
     // The cache given back behind a game: a zero budget drops every unpinned entry, oldest first.
     LruCache<Blob, BlobBytes> cache(100);

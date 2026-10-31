@@ -185,6 +185,9 @@ AppSettings parseAppSettings(std::string_view text) {
         auto value = trim(line.substr(equal + 1));
         if (parseLookSetting(settings, key, value)) continue; // Kept apart: MSVC caps one if/else chain's depth.
         if (key == "xbox_own_install") { if (value == "0" || value == "1") settings.xbox_own_install = value == "1"; continue; }
+        if (key == "texture_compression") { if (value == "0" || value == "1") settings.texture_compression = value == "1"; continue; }
+        // Before 0.4.6 (opt-in under the low memory mode): on stays on; off takes the new default.
+        if (key == "low_memory_bc1") { if (value == "1") settings.texture_compression = true; continue; }
         if (key == "aurelia") { if (value == "0" || value == "1") settings.aurelia = value == "1"; continue; }
         if (key == "aurelia_intro_done") { if (value == "0" || value == "1") settings.aurelia_intro_done = value == "1"; continue; }
         if (key == "steam_account") { // <app id>:<SteamID64>
@@ -223,7 +226,6 @@ AppSettings parseAppSettings(std::string_view text) {
         else if (key == "pc_sources_detected" && (value == "0" || value == "1")) settings.pc_sources_detected = value == "1";
         else if (key == "autostart" && (value == "0" || value == "1")) settings.autostart = value == "1";
         else if (key == "low_memory" && (value == "0" || value == "1")) settings.low_memory = value == "1";
-        else if (key == "low_memory_bc1" && (value == "0" || value == "1")) settings.low_memory_bc1 = value == "1";
         else if (key == "tv_monitor" && value.size() < 64 && value.starts_with("\\\\.\\")) settings.tv_monitor = text_encoding::wideLenient(value);
         else if (key == "desktop_platform_badges" && (value == "0" || value == "1")) settings.desktop_platform_badges = value == "1";
         else if (key == "desktop_gray_uninstalled" && (value == "0" || value == "1")) settings.desktop_gray_uninstalled = value == "1";
@@ -601,7 +603,7 @@ bool saveAppSettings(const AppSettings& settings, const std::filesystem::path& f
            << "pc_sources_detected=" << settings.pc_sources_detected << '\n'
            << "autostart=" << settings.autostart << '\n'
            << "low_memory=" << settings.low_memory << '\n'
-           << "low_memory_bc1=" << settings.low_memory_bc1 << '\n'
+           << "texture_compression=" << settings.texture_compression << '\n'
            << "tv_monitor=" << (settings.tv_monitor.find_first_of(L"\r\n") == std::wstring::npos ? text_encoding::utf8(settings.tv_monitor) : std::string()) << '\n'
          << "desktop_platform_badges=" << settings.desktop_platform_badges << '\n'
          << "desktop_gray_uninstalled=" << settings.desktop_gray_uninstalled << '\n'

@@ -101,9 +101,13 @@ public:
 class Bitmap final : public lm_com::Object<ID2D1Bitmap1>, public ImageSource {
 public:
     // Pixels from memory in `format` (nullptr: transparent). Fails for formats it cannot hold
-    // (block-compressed ones among them).
+    // (block-compressed ones among them: createCompressed).
     static HRESULT create(D2D1_SIZE_U size, const void* data, UINT32 pitch, D2D1_PIXEL_FORMAT format, float dpiX, float dpiY,
                           ComPtr<Bitmap>& out);
+    // BC1 blocks straight into a GPU texture of `gpu` (blockCompressionSupported): an eighth of BGRA's
+    // memory. Fails without such a GPU, or for another format.
+    static HRESULT createCompressed(D2D1_SIZE_U size, const void* data, UINT32 pitch, D2D1_PIXEL_FORMAT format, float dpiX, float dpiY,
+                                    GrDirectContext* gpu, ComPtr<Bitmap>& out);
     static Bitmap* from(ID2D1Image* image);
 
     D2D1_SIZE_F STDMETHODCALLTYPE GetSize() const override;
@@ -147,6 +151,8 @@ private:
 };
 // The pixel format a bitmap or render target gets for a requested one (unknown parts filled in).
 D2D1_PIXEL_FORMAT resolveFormat(D2D1_PIXEL_FORMAT format);
+// A block-compressed format `gpu` samples (BC1 on Vulkan or OpenGL drivers that have it); never in memory.
+bool blockCompressionSupported(GrDirectContext* gpu, DXGI_FORMAT format);
 // Interpolation modes as Skia sampling, for drawing `pixels` source pixels into `shown` device pixels.
 SkSamplingOptions samplingFor(D2D1_INTERPOLATION_MODE mode, bool reducing, bool mipmapped);
 
@@ -400,7 +406,8 @@ public:
     HRESULT STDMETHODCALLTYPE CreateEffect(REFCLSID effectId, ID2D1Effect** effect) override { return createEffect(effectId, effect); }
     BOOL STDMETHODCALLTYPE IsDxgiFormatSupported(DXGI_FORMAT format) const override {
         return format == DXGI_FORMAT_B8G8R8A8_UNORM || format == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB || format == DXGI_FORMAT_B8G8R8X8_UNORM ||
-               format == DXGI_FORMAT_R8G8B8A8_UNORM || format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB || format == DXGI_FORMAT_A8_UNORM;
+               format == DXGI_FORMAT_R8G8B8A8_UNORM || format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB || format == DXGI_FORMAT_A8_UNORM ||
+               blockCompressionSupported(gpu(), format);
     }
     void STDMETHODCALLTYPE SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND blend) override { setPrimitiveBlend(blend); }
     D2D1_PRIMITIVE_BLEND STDMETHODCALLTYPE GetPrimitiveBlend() const override { return primitiveBlend(); }

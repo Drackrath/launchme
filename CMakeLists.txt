@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(launchme VERSION 0.4.5 LANGUAGES C CXX)
+project(launchme VERSION 0.4.6 LANGUAGES C CXX)
 
 if(NOT WIN32)
     # Linux (highly experimental, docs/linux-port.md): the shared core, its tests and the launcher on SDL3 + Skia.
@@ -92,7 +92,7 @@ endfunction()
 include(cmake/Sources.cmake)
 set(LAUNCHME_APP_LIBS d2d1 dxguid dwrite windowscodecs winhttp shell32 ole32 xaudio2 dwmapi xinput advapi32
     mfplat mfreadwrite mfuuid crypt32 windowsapp hid propsys bcrypt powrprof pdh bthprops cfgmgr32 xmllite shlwapi
-    launchme_webview2 version oleaut32 normaliz dxgi)
+    launchme_webview2 version oleaut32 normaliz dxgi d3d11)
 
 # Backend/parser/platform sources have identical definitions in production, tests
 # and tools. App/UI stay separate: LAUNCHME_UI_TEST changes Renderer's class layout.
@@ -111,6 +111,25 @@ launchme_executable(steam_library_sync_probe SOURCES tools/steam_library_sync_pr
 launchme_executable(launchme WIN32 SOURCES src/main.cpp ${LAUNCHME_APP_SOURCES} LIBS ${LAUNCHME_APP_LIBS})
 target_precompile_headers(launchme PRIVATE src/app/launcher.hpp)
 companion_embedding_assets(launchme)
+# Link-time code generation of the shipped launcher (its app and UI code is compiled for it alone):
+# inlining across the renderer's and the launcher's files. Tests and tools link as before.
+option(LAUNCHME_LTO "Link-time code generation for launchme.exe (Release, RelWithDebInfo)" ON)
+if(LAUNCHME_LTO)
+    set_property(TARGET launchme PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
+    set_property(TARGET launchme PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELWITHDEBINFO ON)
+endif()
+# Profile-guided optimization (MSVC), in two builds: -DLAUNCHME_PGO=instrument, then run
+# build/temp/vs/Release/launchme.exe through the usual screens (its .pgc files are written beside
+# the .pgd), then -DLAUNCHME_PGO=optimize. Empty (the default): neither.
+set(LAUNCHME_PGO "" CACHE STRING "Profile-guided optimization of launchme.exe: instrument, optimize or empty")
+if(LAUNCHME_PGO STREQUAL "instrument" OR LAUNCHME_PGO STREQUAL "optimize")
+    set_property(TARGET launchme PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
+    if(LAUNCHME_PGO STREQUAL "instrument")
+        target_link_options(launchme PRIVATE $<$<CONFIG:Release>:/GENPROFILE>)
+    else()
+        target_link_options(launchme PRIVATE $<$<CONFIG:Release>:/USEPROFILE>)
+    endif()
+endif()
 # Icon, VERSIONINFO (from project()) and the application manifest (PerMonitorV2,
 # long paths, Windows 10/11) belong only to the shipped executable.
 set(LAUNCHME_RES_DIR "${CMAKE_CURRENT_SOURCE_DIR}/res")
@@ -513,7 +532,7 @@ add_test(NAME low_memory_mode COMMAND launcher_ui_tests --low-memory)
         SOURCES tests/low_memory_tests.cpp
         LIBS windowscodecs ole32)
     launchme_executable(image_decoder_tests TEST background_image_decoding
-        SOURCES tests/image_decoder_tests.cpp src/ui/image_decoder.cpp
+        SOURCES tests/image_decoder_tests.cpp src/ui/image_decoder.cpp src/ui/texture_cache.cpp
         LIBS windowscodecs ole32 user32)
     launchme_executable(steam_live_test
         SOURCES tests/steam_live_test.cpp src/library/steam.cpp src/library/steam_stats.cpp src/library/steam_achievements.cpp

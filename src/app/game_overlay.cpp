@@ -143,6 +143,8 @@ bool Launcher::openGameOverlay(const GameWindow& target) {
     overlay_selected_ = 0; overlay_target_ = target;
     overlay_closing_ = false;
     overlay_tick_at_ = GetTickCount64();
+    pollBackgroundMode(false); // The overlay is drawn by this process: its normal priority back at once.
+    frame_limit_ = 240;
     // Size the hidden window before the first frame, so the spring starts at
     // Home on the game's monitor rather than the old 1x1/minimized viewport.
     const auto rect = monitorRect(target.window);

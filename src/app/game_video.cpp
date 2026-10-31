@@ -92,7 +92,14 @@ void Launcher::tickVideo(bool& needs_paint) {
         return;
     }
     uint32_t width = 0, height = 0;
-    if (video_player_.frame(video_frame_, width, height)) renderer_.setVideoFrame(video_frame_.data(), width, height);
+    if (void* device = video_player_.device()) {
+        // Decoded on the window's GPU and drawn into a texture there (Windows). A new device (lost,
+        // or given back behind a game) cannot show its frames: the video starts again on it.
+        if (device != renderer_.videoDevice()) { stopVideo(); video_requested_ = false; return; }
+        if (video_player_.nextFrame(width, height, 1920))
+            if (void* texture = renderer_.videoTexture(width, height); texture && video_player_.transfer(texture, width, height))
+                renderer_.showVideoTexture();
+    } else if (video_player_.frame(video_frame_, width, height)) renderer_.setVideoFrame(video_frame_.data(), width, height);
     needs_paint = true; // New frames and the fade-in.
 }
 
@@ -101,9 +108,11 @@ void Launcher::onVideo(std::unique_ptr<VideoMessage> message) {
     // The video's own sound (Biblioteka → Dźwięk filmów); the music fades out meanwhile.
     const double volume = settings_ui::video_volume_levels[std::clamp<size_t>(settings_.video_volume, 0, settings_ui::video_volume_levels.size() - 1)];
     video_silent_ = message->silent;
+    // On the window's GPU where the renderer has its own device (null: frames through memory).
+    void* device = renderer_.videoDevice();
     // A muted trailer, or the video's sound set to Muted: the music keeps playing.
-    if (message->silent || volume <= 0) { video_player_.open(message->file, message->silent ? 0.0 : volume); return; }
-    if (video_player_.open(message->file, volume)) audio_.duckMusic(true);
+    if (message->silent || volume <= 0) { video_player_.open(message->file, message->silent ? 0.0 : volume, device); return; }
+    if (video_player_.open(message->file, volume, device)) audio_.duckMusic(true);
 }
 
 std::filesystem::path Launcher::videoFolder() const {

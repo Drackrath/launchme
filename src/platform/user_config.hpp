@@ -321,14 +321,16 @@ struct AppSettings {
     std::wstring tv_monitor;
     // Start with Windows (HKCU Run entry, written by Launcher::applyAutostart), minimized.
     bool autostart = false;
-    // System → Wydajność → Tryb niskiego zużycia RAM: artwork decoded at its size on screen and
-    // block-compressed on the GPU, encoded bytes not kept once uploaded, fewer bitmaps kept around
-    // the view, the browser window suspended while hidden, and everything given back while a game
-    // runs in front of the launcher (src/app/memory.cpp).
+    // System → Wydajność → Tryb niskiego zużycia RAM: artwork decoded at its size on screen, encoded
+    // bytes not kept once uploaded, fewer bitmaps kept around the view, the browser window suspended
+    // while hidden, and everything given back while a game runs in front of the launcher
+    // (src/app/memory.cpp).
     bool low_memory = true;
-    // Under it, Kompresja grafik (BC1): opaque artwork kept on the GPU as BC1 blocks (an eighth of BGRA),
-    // at the cost of a longer decode (~5 ms a poster) and a slight loss of quality. Off by default.
-    bool low_memory_bc1 = false;
+    // System → Wydajność → Kompresja grafik (BC1): covers, posters and thumbnails kept on the GPU as BC1
+    // blocks (an eighth of BGRA), logos as BC3 (a quarter); backgrounds too in the low memory mode.
+    // The blocks are kept on disk (textures\), so a picture is compressed once. On by default
+    // (stored as texture_compression; the older low_memory_bc1=1 turns it on as well).
+    bool texture_compression = true;
 };
 
 // The name or nickname she may call you by (AppSettings::companion_user_name): trimmed, one line,

@@ -1,8 +1,12 @@
 // Direct2D target lifetime and device-dependent resources. Screen drawing stays in *_renderer.cpp.
 #include "renderer.hpp"
 #include "../artwork/block_compression.hpp"
+#include "../platform/diagnostics.hpp"
 #include <algorithm>
 #include <chrono>
+#ifdef _WIN32
+#include <d2d1_1helper.h>
+#endif
 
 using Microsoft::WRL::ComPtr;
 namespace {
@@ -38,6 +42,22 @@ bool Renderer::createTarget() {
         if (!createTargetResources()) { discardTarget(); return false; }
         return true;
     }
+#ifdef _WIN32
+    // A flip-model swap chain on the renderer's own device (swap_chain.hpp); the HWND target where
+    // it cannot be made (or LAUNCHME_SWAPCHAIN=0).
+    if (swap_wanted_ && !swap_failed_) {
+        if (swap_.create(factory_.Get(), hwnd_, static_cast<UINT>(std::max(1L, bounds.right)), static_cast<UINT>(std::max(1L, bounds.bottom)),
+                         tearing_wanted_)) {
+            target_ = swap_.context();
+            ++device_generation_;
+            limitTextureMemory();
+            if (!createTargetResources()) { discardTarget(); return false; }
+            return true;
+        }
+        swap_failed_ = true;
+        diagnostics::log("warning", "No flip-model swap chain: the window draws through an HWND render target");
+    }
+#endif
     // FrameClock paces production; DWM composes the display.
     if (FAILED(factory_->CreateHwndRenderTarget(
             D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_DEFAULT,
@@ -47,8 +67,116 @@ bool Renderer::createTarget() {
                 immediate_present_ ? D2D1_PRESENT_OPTIONS_IMMEDIATELY : D2D1_PRESENT_OPTIONS_NONE),
             window_target_.GetAddressOf()))) return false;
     if (FAILED(window_target_.As(&target_))) return false;
+    ++device_generation_;
+    limitTextureMemory();
     if (!createTargetResources()) { discardTarget(); return false; }
     return true;
+}
+
+// ---- Frames, device caches and video textures --------------------------------------------------
+
+void Renderer::beginFrame() {
+#ifdef _WIN32
+    // Normally at once: the frame clock already paces frames. Not in the uncapped benchmark, which
+    // measures how fast frames are drawn, not shown.
+    if (swap_ && !tearing_wanted_) swap_.waitForFrame(50);
+#endif
+}
+
+HRESULT Renderer::finishFrame(HRESULT drawn) {
+#ifdef _WIN32
+    if (swap_ && SUCCEEDED(drawn) && FAILED(swap_.present(immediate_present_))) return D2DERR_RECREATE_TARGET;
+#endif
+    return drawn;
+}
+
+#ifdef _WIN32
+Microsoft::WRL::ComPtr<ID2D1Device> Renderer::d2dDevice() const {
+    ComPtr<ID2D1Device> device;
+    if (swap_) { device = swap_.device(); return device; }
+    // An HWND target answers as a device context too (Windows 8+); a DC or WIC target has no device.
+    ComPtr<ID2D1DeviceContext> context;
+    if (target_ && !layered_ && SUCCEEDED(target_.As(&context))) context->GetDevice(device.GetAddressOf());
+    return device;
+}
+#endif
+
+void Renderer::limitTextureMemory() {
+#ifdef _WIN32
+    // Direct2D's own cache of intermediate textures (effects such as the glass blur, layers, glyphs):
+    // at 4K one full-screen intermediate is 33 MB, so a few of them fit; the low memory mode keeps fewer.
+    if (const auto device = d2dDevice()) device->SetMaximumTextureMemory(low_memory_ ? uint64_t{64} << 20 : uint64_t{160} << 20);
+#endif
+}
+
+void Renderer::releaseIdleCaches() {
+    const auto now = std::chrono::steady_clock::now();
+    if (now - caches_released_ < std::chrono::seconds(10)) return;
+    caches_released_ = now;
+#ifdef _WIN32
+    // What the screens left behind and have not used for 10 s (another screen's effects and layers).
+    if (const auto device = d2dDevice()) device->ClearResources(10000);
+#endif
+}
+
+void Renderer::trimGraphics() {
+#ifdef _WIN32
+    if (swap_) { swap_.trim(); return; }
+    if (const auto device = d2dDevice()) device->ClearResources(0);
+#endif
+}
+
+void* Renderer::videoDevice() {
+#ifdef _WIN32
+    if (!swap_ || !gpu_video_) return nullptr;
+    swap_.protectForVideo(); // Media Foundation decodes on its own threads with this device.
+    return swap_.device3d();
+#else
+    return nullptr;
+#endif
+}
+
+void* Renderer::videoTexture(uint32_t width, uint32_t height) {
+#ifdef _WIN32
+    if (!swap_ || !target_ || !width || !height) return nullptr;
+    if (video_texture_) {
+        D3D11_TEXTURE2D_DESC current{};
+        video_texture_->GetDesc(&current);
+        if (current.Width == width && current.Height == height) return video_texture_.Get();
+    }
+    video_texture_.Reset(); video_texture_bitmap_.Reset();
+    D3D11_TEXTURE2D_DESC description{};
+    description.Width = width; description.Height = height;
+    description.MipLevels = 1; description.ArraySize = 1;
+    description.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    description.SampleDesc = {1, 0};
+    description.Usage = D3D11_USAGE_DEFAULT;
+    // Media Foundation's video processor draws into it; Direct2D samples it.
+    description.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+    ComPtr<IDXGISurface> surface;
+    ComPtr<ID2D1Bitmap1> bitmap;
+    const auto properties = D2D1::BitmapProperties1(D2D1_BITMAP_OPTIONS_NONE, D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_IGNORE), 96, 96);
+    if (FAILED(swap_.device3d()->CreateTexture2D(&description, nullptr, video_texture_.GetAddressOf())) ||
+        FAILED(video_texture_.As(&surface)) || FAILED(swap_.context()->CreateBitmapFromDxgiSurface(surface.Get(), &properties, bitmap.GetAddressOf()))) {
+        video_texture_.Reset();
+        return nullptr;
+    }
+    video_texture_bitmap_ = bitmap;
+    return video_texture_.Get();
+#else
+    (void)width; (void)height;
+    return nullptr;
+#endif
+}
+
+void Renderer::showVideoTexture() {
+#ifdef _WIN32
+    if (!video_texture_bitmap_ || video_bitmap_ == video_texture_bitmap_) return;
+    const bool first = !video_bitmap_; // The video starts: its fade-in (a new size only swaps the picture).
+    video_bitmap_ = video_texture_bitmap_;
+    video_blur_.Reset();
+    if (first) video_started_ = std::chrono::steady_clock::now();
+#endif
 }
 
 bool Renderer::createTargetResources() {
@@ -56,6 +184,7 @@ bool Renderer::createTargetResources() {
     {
         ComPtr<ID2D1DeviceContext> context;
         bc1_supported_ = SUCCEEDED(target_.As(&context)) && context->IsDxgiFormatSupported(DXGI_FORMAT_BC1_UNORM);
+        bc3_supported_ = bc1_supported_ && context->IsDxgiFormatSupported(DXGI_FORMAT_BC3_UNORM);
     }
     if (SUCCEEDED(target_.As(&realizer_)) &&
         FAILED(realizer_->CreateFilledGeometryRealization(squircle_.Get(), squircle_tolerance, squircle_fill_.GetAddressOf())))
@@ -260,6 +389,11 @@ void Renderer::discardTarget() {
     desktop_shade_.Reset(); desktop_fade_top_.Reset(); desktop_fade_bottom_.Reset(); desktop_hero_fade_.Reset();
     squircle_compact_strokes_.clear(); squircle_compact_fill_.Reset();
     aura_.Reset(); status_shade_.Reset(); install_vignette_.Reset(); shade_.Reset(); solid_.Reset(); target_.Reset(); window_target_.Reset();
+#ifdef _WIN32
+    // Last: everything made on the device went above; a new one comes with the next target.
+    video_texture_.Reset(); video_texture_bitmap_.Reset();
+    swap_.reset();
+#endif
 }
 
 DecodeKind Renderer::decodeKind(const Cover& cover) const {
@@ -272,7 +406,10 @@ DecodeKind Renderer::decodeKind(const Cover& cover) const {
         kind.cover_width = std::max(1920u, pixels.width);
         kind.cover_height = std::max(1080u, pixels.height);
     }
-    kind.block_compress = block_compress_ && bc1_supported_ && !cover.logo; // Logos keep their alpha.
+    // Kompresja grafik: opaque art as BC1, logos as BC3 (their alpha); backgrounds only in the low memory
+    // mode, as their smooth full-screen gradients show BC1's steps most.
+    kind.block_compress = block_compress_ && bc1_supported_ && (!cover.logo || bc3_supported_) && (!cover.hero || low_memory_);
+    kind.block_alpha = kind.block_compress && cover.logo;
     return kind;
 }
 
@@ -322,18 +459,22 @@ void Renderer::upload(Cover& cover, bool reveal) {
     ComPtr<ID2D1Bitmap> bitmap;
     ComPtr<ID2D1BitmapBrush> brush;
     if (!image.blocks.empty()) {
-        // BC1 (low memory): an eighth of the BGRA bitmap. A target that refuses it (or its brush)
-        // gets the blocks decoded here, and later pictures as BGRA.
+        // Kompresja grafik: BC1 an eighth of the BGRA bitmap, BC3 (logos) a quarter. A target that
+        // refuses it (or its brush) gets the blocks decoded here, and later pictures as BGRA.
+        const bool bc3 = image.block_format == block_compression::Format::bc3;
+        bool& supported = bc3 ? bc3_supported_ : bc1_supported_;
         ComPtr<ID2D1DeviceContext> context;
         ComPtr<ID2D1Bitmap1> compressed;
-        if (bc1_supported_ && SUCCEEDED(target_.As(&context)) &&
-            SUCCEEDED(context->CreateBitmap(D2D1::SizeU(image.width, image.height), image.blocks.data(), (image.width / 4) * 8,
-                D2D1::BitmapProperties1(D2D1_BITMAP_OPTIONS_NONE, D2D1::PixelFormat(DXGI_FORMAT_BC1_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)),
+        if (supported && SUCCEEDED(target_.As(&context)) &&
+            SUCCEEDED(context->CreateBitmap(D2D1::SizeU(image.width, image.height), image.blocks.data(), (image.width / 4) * (bc3 ? 16 : 8),
+                D2D1::BitmapProperties1(D2D1_BITMAP_OPTIONS_NONE, D2D1::PixelFormat(bc3 ? DXGI_FORMAT_BC3_UNORM : DXGI_FORMAT_BC1_UNORM,
+                                                                                    D2D1_ALPHA_MODE_PREMULTIPLIED)),
                 compressed.GetAddressOf())) &&
             SUCCEEDED(target_->CreateBitmapBrush(compressed.Get(), brush.GetAddressOf()))) bitmap = std::move(compressed);
         else {
-            bc1_supported_ = false; brush.Reset();
-            const auto bgra = block_compression::decodeBc1(image.blocks.data(), image.blocks.size(), image.width, image.height);
+            supported = false; brush.Reset();
+            const auto bgra = bc3 ? block_compression::decodeBc3(image.blocks.data(), image.blocks.size(), image.width, image.height)
+                                  : block_compression::decodeBc1(image.blocks.data(), image.blocks.size(), image.width, image.height);
             if (bgra.empty() || FAILED(target_->CreateBitmap(D2D1::SizeU(image.width, image.height), bgra.data(), image.width * 4,
                                                              properties, bitmap.GetAddressOf()))) return;
         }

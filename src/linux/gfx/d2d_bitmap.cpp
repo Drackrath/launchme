@@ -1,12 +1,17 @@
 // Direct2D bitmaps on Skia images: premultiplied BGRA (Direct2D's B8G8R8A8 in memory), or alpha
-// only. Straight, ignored-alpha and R8G8B8A8 pixels are converted on upload; block-compressed
-// formats are refused. Pixels from memory stay in memory until first drawn on the GPU, then live
-// there as a mipmapped texture; a bitmap drawn into (a render target's, a copy's destination)
-// is a surface, read through snapshots.
+// only. Straight, ignored-alpha and R8G8B8A8 pixels are converted on upload; BC1 blocks go
+// straight into a compressed GPU texture where the GPU samples them (createCompressed), other
+// block-compressed formats are refused. Pixels from memory stay in memory until first drawn on the
+// GPU, then live there as a mipmapped texture; a bitmap drawn into (a render target's, a copy's
+// destination) is a surface, read through snapshots.
 #include "d2d_internal.hpp"
 
 #include "include/core/SkBitmap.h"
+#include "include/core/SkData.h"
 #include "include/core/SkPixmap.h"
+#include "include/core/SkTextureCompressionType.h"
+#include "include/gpu/GpuTypes.h"
+#include "include/gpu/ganesh/GrBackendSurface.h"
 #include "include/gpu/ganesh/GrDirectContext.h"
 #include "include/gpu/ganesh/GrRecordingContext.h"
 #include "include/gpu/ganesh/SkImageGanesh.h"
@@ -105,6 +110,25 @@ HRESULT Bitmap::create(D2D1_SIZE_U size, const void* data, UINT32 pitch, D2D1_PI
     out.Attach(new Bitmap(static_cast<int>(size.width), static_cast<int>(size.height), format, dpiX, dpiY));
     // Without data the pixels are transparent: nothing is held until something is drawn or copied in.
     return data ? out->CopyFromMemory(nullptr, data, pitch) : S_OK;
+}
+
+bool blockCompressionSupported(GrDirectContext* gpu, DXGI_FORMAT format) {
+    return gpu && format == DXGI_FORMAT_BC1_UNORM && gpu->compressedBackendFormat(SkTextureCompressionType::kBC1_RGBA8_UNORM).isValid();
+}
+
+HRESULT Bitmap::createCompressed(D2D1_SIZE_U size, const void* data, UINT32 pitch, D2D1_PIXEL_FORMAT format, float dpiX, float dpiY,
+                                 GrDirectContext* gpu, ComPtr<Bitmap>& out) {
+    if (!blockCompressionSupported(gpu, format.format)) return D2DERR_UNSUPPORTED_PIXEL_FORMAT;
+    if (!data || !size.width || !size.height || size.width % 4 || size.height % 4 || size.width > 16384 || size.height > 16384 ||
+        pitch != size.width / 4 * 8) return E_INVALIDARG;
+    const size_t bytes = static_cast<size_t>(size.width / 4) * (size.height / 4) * 8;
+    sk_sp<SkImage> texture = SkImages::TextureFromCompressedTextureData(gpu, SkData::MakeWithCopy(data, bytes), static_cast<int>(size.width),
+                                                                        static_cast<int>(size.height), SkTextureCompressionType::kBC1_RGBA8_UNORM,
+                                                                        skgpu::Mipmapped::kNo);
+    if (!texture) return D2DERR_UNSUPPORTED_PIXEL_FORMAT;
+    out.Attach(new Bitmap(static_cast<int>(size.width), static_cast<int>(size.height), {format.format, D2D1_ALPHA_MODE_PREMULTIPLIED}, dpiX, dpiY));
+    out->image_ = std::move(texture);
+    return S_OK;
 }
 
 Bitmap* Bitmap::from(ID2D1Image* image) { return dynamic_cast<Bitmap*>(image); }

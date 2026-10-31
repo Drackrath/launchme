@@ -58,19 +58,23 @@ int LauncherUiTest::lowMemory(HWND window) {
     app.settings_state_.options = true; app.settings_state_.selected[app.settings_state_.category] = static_cast<int>(row - app.settings_rows_.begin());
     app.ensureSettingVisible();
     if (!capture(L"low-memory-setting.png")) return 9604;
-    // Kompresja grafik (BC1) right under it, off by default.
+    // Kompresja grafik (BC1) right under it, on by default, and with or without the low memory mode.
     const size_t low_row = static_cast<size_t>(row - app.settings_rows_.begin());
-    const auto has_bc1 = [&] { return low_row + 1 < app.settings_rows_.size() && app.settings_rows_[low_row + 1].id == settings_ui::Id::low_memory_bc1; };
-    if (AppSettings{}.low_memory_bc1 || !has_bc1() || app.settings_rows_[low_row + 1].checked) return 9640;
+    const auto has_bc1 = [&] { return low_row + 1 < app.settings_rows_.size() && app.settings_rows_[low_row + 1].id == settings_ui::Id::texture_compression; };
+    if (!AppSettings{}.texture_compression || !has_bc1() || !app.settings_rows_[low_row + 1].checked) return 9640;
     app.settingsActivate(); app.saveSettings();
     if (app.settings_.low_memory || app.renderer_.lowMemory() || app.art_.budget() != Launcher::art_budget || loadAppSettings().low_memory) return 9605;
-    if (has_bc1()) return 9641; // Only under the low memory mode.
+    if (!has_bc1()) return 9641; // Not only under the low memory mode.
     app.settings_state_.selected[app.settings_state_.category] = static_cast<int>(low_row);
     app.settingsActivate(); app.saveSettings();
     if (!app.settings_.low_memory || !app.renderer_.lowMemory() || !loadAppSettings().low_memory || !has_bc1()) return 9606;
+    // Switched off and on again; an older settings file's low_memory_bc1=0 keeps the new default.
     app.settings_state_.selected[app.settings_state_.category] = static_cast<int>(low_row + 1);
     app.settingsActivate(); app.saveSettings();
-    if (!app.settings_.low_memory_bc1 || !loadAppSettings().low_memory_bc1 || !app.settings_rows_[low_row + 1].checked) return 9642;
+    if (app.settings_.texture_compression || loadAppSettings().texture_compression || app.settings_rows_[low_row + 1].checked) return 9642;
+    app.settingsActivate(); app.saveSettings();
+    if (!app.settings_.texture_compression || !loadAppSettings().texture_compression || !app.settings_rows_[low_row + 1].checked) return 9645;
+    if (!parseAppSettings("low_memory_bc1=0\n").texture_compression || parseAppSettings("texture_compression=0\n").texture_compression) return 9646;
     app.ensureSettingVisible();
     if (!capture(L"low-memory-bc1-setting.png")) return 9644;
     app.back();
@@ -192,7 +196,7 @@ int LauncherUiTest::lowMemory(HWND window) {
     app.game_sessions_.erase("test-session");
     if (!covered || alongside || front) return 9631;
     // Without Kompresja grafik a new picture is uploaded as BGRA (still at the size drawn).
-    app.settings_.low_memory_bc1 = false; app.applyLowMemory();
+    app.settings_.texture_compression = false; app.applyLowMemory();
     app.renderer_.setCover(app.selected_, shareImage(jpegFixture(600, 900, 4242)), {});
     app.paint();
     if (!app.renderer_.coverReadyForTest(app.selected_) || app.renderer_.coverCompressedForTest(app.selected_)) return 9643;

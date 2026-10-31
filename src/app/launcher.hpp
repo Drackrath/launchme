@@ -714,6 +714,9 @@ public:
     void onIdentify(std::unique_ptr<IdentifyMessage> message);
     void focusLibraryControls();
     void setFrameRate(int target, int refresh) { target_hz_ = target; refresh_hz_ = refresh; }
+    // The frame clock's bound for this launcher's ticks (FrameClock::limit): fewer wake-ups while
+    // the screen stands still or a game is in front.
+    int frameLimit() const { return frame_limit_; }
 #ifdef _WIN32
     void controllerDeviceChanged(HANDLE device) { controller_input_.deviceChanged(device); controller_rescan_->request(); }
 #endif
@@ -1933,8 +1936,9 @@ private:
         }
     };
     // RAM budget of art_: past it, least recently used artwork of cards that are not bound
-    // on screen is dropped and later read again from the disk cache (a worker, no network).
-    static constexpr size_t art_budget = size_t{128} << 20;
+    // on screen is dropped and later read again from the disk cache (a worker, no network; the
+    // system's file cache usually has it, and Kompresja grafik keeps the decoded blocks on disk too).
+    static constexpr size_t art_budget = size_t{64} << 20;
     // Called after art_ grows: trims it to the budget and lets dropped keys be requested again.
     void trimArt();
     void forgetArtRequests(const std::vector<std::string>& keys); // Dropped from art_: requestable again.
@@ -1954,6 +1958,16 @@ private:
     void releaseFarHeroes();
     bool memory_released_ = false;
     uint64_t memory_hidden_since_ = 0;
+    // A game in front for a while, whatever the low memory mode (memory.cpp): background priority,
+    // 10 Hz frames, nothing painted.
+    static constexpr uint64_t background_delay_ms = 3000;
+    void pollBackgroundMode(bool behind_game);
+    bool background_mode_ = false;
+    uint64_t background_since_ = 0;
+    // The frame clock's bound (main.cpp): the full rate while anything moves or was touched lately,
+    // 60 Hz after 3 s of a still screen, 30 Hz after 20 s, 10 Hz behind a game (end of tick()).
+    int frame_limit_ = 240;
+    std::chrono::steady_clock::time_point still_since_ = std::chrono::steady_clock::now();
     std::function<HWND()> foreground_window_; // Tests: the window in front; GetForegroundWindow otherwise.
     void startArtworkWorkers(bool network = true); // Tests can run the actual disk lane alone.
     // The screensaver's slideshow (screensaver_state.hpp).

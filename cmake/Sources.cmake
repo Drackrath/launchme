@@ -211,6 +211,8 @@ set(LAUNCHME_APP_SOURCES
     src/store/steam_app_match.cpp
     src/ui/renderer.cpp
     src/ui/renderer_resources.cpp
+    src/ui/swap_chain.cpp
+    src/ui/texture_cache.cpp
     src/ui/renderer_text.cpp
     src/ui/background_renderer.cpp
     src/ui/card_renderer.cpp

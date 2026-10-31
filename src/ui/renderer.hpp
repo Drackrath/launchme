@@ -4,6 +4,7 @@
 #include "../i18n/i18n.hpp"
 #include "../artwork/text_crop.hpp"
 #include "image_decoder.hpp"
+#include "swap_chain.hpp"
 #include "view_context.hpp"
 #include "controller_art.hpp"
 #include "text_layout_cache.hpp"
@@ -136,10 +137,24 @@ public:
     // System → Wydajność → Tryb niskiego zużycia RAM (AppSettings::low_memory): card art is decoded at
     // the size it is drawn (and again larger when drawn larger), and covers, posters, logos and discs let
     // their encoded bytes go once uploaded (the launcher's cache or the disk has them). block_compress
-    // (AppSettings::low_memory_bc1): opaque art goes to the GPU as BC1 blocks where the device samples them.
-    // From the next decode on.
-    void setLowMemory(bool enabled, bool block_compress = false) { low_memory_ = enabled; block_compress_ = enabled && block_compress; }
+    // (AppSettings::texture_compression): opaque art goes to the GPU as BC1 blocks and logos as BC3 where
+    // the device samples them; backgrounds only in the low memory mode (smooth gradients over the whole
+    // screen show BC1's steps most). From the next decode on.
+    void setLowMemory(bool enabled, bool block_compress = false) { low_memory_ = enabled; block_compress_ = block_compress; limitTextureMemory(); }
     bool lowMemory() const { return low_memory_; }
+    // Compressed art kept on disk in this folder (texture_cache.hpp; empty: none).
+    void setTextureCache(const std::filesystem::path& folder) { decoder_.useTextureCache(folder, texture_cache_budget); }
+    // Behind a game (src/app/memory.cpp): Direct2D's caches and the driver's temporary allocations go
+    // back; the bitmaps stay (the low memory mode releases those too, releaseGraphics).
+    void trimGraphics();
+    // Game videos straight on the GPU (game_video.cpp, Windows): the window's Direct3D 11 device
+    // (null without the swap chain target, or with LAUNCHME_VIDEO_GPU=0), a BGRA texture of this size
+    // the next frame is drawn into, and that frame shown once it is there. Linux copies frames
+    // (setVideoFrame). deviceGeneration() changes with every new device.
+    void* videoDevice();
+    void* videoTexture(uint32_t width, uint32_t height);
+    void showVideoTexture();
+    uint64_t deviceGeneration() const { return device_generation_; }
     // The launcher waits behind a game: every device resource goes (bitmaps, brushes, the Direct2D
     // target and with it its GPU device), and so do the card art slots and cached text layouts. The
     // next paint makes the target again; takeArtLost() then asks the launcher to bind the art again.
@@ -293,6 +308,9 @@ public:
         return index < covers_.size() && covers_[index].bitmap && covers_[index].bitmap->GetPixelFormat().format == DXGI_FORMAT_BC1_UNORM;
     }
     bool bc1ForTest() const { return bc1_supported_; }
+#ifdef _WIN32
+    bool swapChainForTest() const { return static_cast<bool>(swap_); }
+#endif
     bool targetForTest() const { return target_ != nullptr; }
     void discardTargetForTest() { discardTarget(); } // As on device loss.
     uint32_t coverEdgeForTest() const { return coverEdge(); }
@@ -381,6 +399,19 @@ private:
         Microsoft::WRL::ComPtr<ID2D1Bitmap> desaturated, desaturated_source;
     };
 
+    // Swap chain frames (swap_chain.hpp): waited for before drawing, shown after EndDraw; a lost
+    // device turns into D2DERR_RECREATE_TARGET as an HWND target's EndDraw reports it.
+    void beginFrame();
+    HRESULT finishFrame(HRESULT drawn);
+    // The target's Direct2D device (Windows; Skia manages its own caches on Linux): its texture cache
+    // bounded (low memory: less), and caches unused for a while let go when the screen changes (at
+    // most every 10 s).
+#ifdef _WIN32
+    Microsoft::WRL::ComPtr<ID2D1Device> d2dDevice() const;
+#endif
+    void limitTextureMemory();
+    void releaseIdleCaches();
+    static constexpr uint64_t texture_cache_budget = uint64_t{512} << 20; // Compressed art on disk.
     bool createShape();
     bool font(Microsoft::WRL::ComPtr<IDWriteTextFormat>& destination, float size,
               DWRITE_FONT_WEIGHT weight, DWRITE_TEXT_ALIGNMENT alignment = DWRITE_TEXT_ALIGNMENT_LEADING);
@@ -881,6 +912,18 @@ private:
     bool layered_ = false;
     bool low_memory_ = false, block_compress_ = false; // setLowMemory.
     bool bc1_supported_ = false; // The target samples BC1 bitmaps (ID2D1DeviceContext, Windows 8.1+).
+    bool bc3_supported_ = false; // BC3 too (logos with transparency); not on Linux.
+#ifdef _WIN32
+    SwapChainTarget swap_;    // The window's target (createTarget); empty: the HWND target below or none.
+    bool swap_wanted_ = true; // LAUNCHME_SWAPCHAIN=0: the HWND target, for comparisons.
+    bool swap_failed_ = false; // Could not be made: the HWND target until releaseGraphics.
+    bool tearing_wanted_ = false; // LAUNCHME_PRESENT_IMMEDIATE=1 (the uncapped benchmark).
+    bool gpu_video_ = true;   // LAUNCHME_VIDEO_GPU=0: video frames copied through memory.
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> video_texture_; // videoTexture, and its bitmap until the first frame shows.
+    Microsoft::WRL::ComPtr<ID2D1Bitmap> video_texture_bitmap_;
+#endif
+    uint64_t device_generation_ = 0;
+    std::chrono::steady_clock::time_point caches_released_{};
     bool art_lost_ = false; // takeArtLost.
     LayeredSurface layered_surface_;
     ImageDecoder decoder_;
