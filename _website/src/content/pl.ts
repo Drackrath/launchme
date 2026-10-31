@@ -331,7 +331,19 @@ export const pl: Dict = {
   footer: {
     tagline: "Natywny launcher gier. Wolne oprogramowanie, zrobione na mój PC i udostępnione.",
     project: "Projekt",
-    links: { source: "Kod źródłowy", releases: "Wydania", changelog: "Lista zmian", issues: "Zgłoszenia", sdk: "SDK wtyczek", license: "Licencja (GPL-3.0)" },
+    links: {
+      source: "Kod źródłowy",
+      releases: "Wydania",
+      changelog: "Lista zmian",
+      issues: "Zgłoszenia",
+      discord: "Discord",
+      sdk: "SDK wtyczek",
+      license: "Licencja (GPL-3.0)",
+      signing: "Code signing policy",
+    },
+    // SignPath Foundation's required attribution, in English as on the policy page.
+    signing: "Free code signing provided by {signpath}, certificate by {foundation}.",
+    discord: "Dołącz do Discorda",
     site: "Strona",
     lang: "Language: English",
     layout: "Alternatywny układ",

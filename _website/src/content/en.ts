@@ -329,7 +329,19 @@ export const en = {
   footer: {
     tagline: "A native game launcher. Free software, made for my own PC and shared.",
     project: "Project",
-    links: { source: "Source code", releases: "Releases", changelog: "Changelog", issues: "Issues", sdk: "Plugin SDK", license: "License (GPL-3.0)" },
+    links: {
+      source: "Source code",
+      releases: "Releases",
+      changelog: "Changelog",
+      issues: "Issues",
+      discord: "Discord",
+      sdk: "Plugin SDK",
+      license: "License (GPL-3.0)",
+      signing: "Code signing policy",
+    },
+    // SignPath Foundation's required attribution (docs/CODE_SIGNING.md): "{signpath}" and "{foundation}" become links.
+    signing: "Free code signing provided by {signpath}, certificate by {foundation}.",
+    discord: "Join the Discord",
     site: "Site",
     lang: "Język: Polski",
     layout: "Alt layout",

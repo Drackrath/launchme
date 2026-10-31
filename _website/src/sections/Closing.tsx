@@ -2,10 +2,24 @@ import { AnimatePresence, motion } from "motion/react";
 import { ArrowUpRight, Bug, Download, FolderOpen, Plus, Terminal } from "lucide-react";
 import { useState } from "react";
 import { LogoFull } from "../components/Logo";
-import { ButtonGhost, ButtonPrimary, GitHubIcon, Magnet, Reveal, SectionHeader, WindowsIcon } from "../components/ui";
+import { ButtonGhost, ButtonPrimary, DiscordIcon, GitHubIcon, Magnet, Reveal, SectionHeader, WindowsIcon } from "../components/ui";
 import { cn } from "../lib/cn";
 import { usePage } from "../lib/page";
-import { CHANGELOG_URL, formatDate, formatSize, GITHUB_URL, ISSUES_URL, LATEST_URL, LICENSE_URL, RELEASES_URL, SDK_URL } from "../lib/release";
+import {
+  CHANGELOG_URL,
+  CODE_SIGNING_URL,
+  DISCORD_URL,
+  formatDate,
+  formatSize,
+  GITHUB_URL,
+  ISSUES_URL,
+  LATEST_URL,
+  LICENSE_URL,
+  RELEASES_URL,
+  SDK_URL,
+  SIGNPATH_FOUNDATION_URL,
+  SIGNPATH_URL,
+} from "../lib/release";
 
 /* --------------------------------------------------------------- Install */
 
@@ -126,9 +140,15 @@ export function Footer() {
     [f.links.releases, RELEASES_URL],
     [f.links.changelog, CHANGELOG_URL],
     [f.links.issues, ISSUES_URL],
+    [f.links.discord, DISCORD_URL],
     [f.links.sdk, SDK_URL],
     [f.links.license, LICENSE_URL],
+    [f.links.signing, CODE_SIGNING_URL],
   ];
+  // "Free code signing provided by {signpath}, certificate by {foundation}." with both names as links.
+  const [beforeSignPath, afterSignPath = ""] = f.signing.split("{signpath}");
+  const [betweenNames, afterFoundation = ""] = afterSignPath.split("{foundation}");
+  const linkClass = "text-white/70 underline-offset-2 hover:text-white hover:underline";
   return (
     <footer className="relative mt-40 border-t border-line">
       <div className="mx-auto grid max-w-6xl gap-12 px-5 py-16 md:grid-cols-[1.4fr_1fr_1fr]">
@@ -142,6 +162,14 @@ export function Footer() {
             className="mt-6 inline-flex h-11 items-center gap-2.5 rounded-full border border-line-strong bg-white/5 px-5 text-[14px] text-white transition-colors hover:bg-white/10"
           >
             <GitHubIcon className="size-4" /> uxandai/launchme <ArrowUpRight className="size-4 text-white/50" />
+          </a>
+          <a
+            href={DISCORD_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="ml-3 mt-6 inline-flex h-11 items-center gap-2.5 rounded-full border border-line-strong bg-white/5 px-5 text-[14px] text-white transition-colors hover:bg-white/10"
+          >
+            <DiscordIcon className="size-4" /> {f.discord} <ArrowUpRight className="size-4 text-white/50" />
           </a>
         </div>
         <div>
@@ -180,6 +208,20 @@ export function Footer() {
       </div>
       <div className="mx-auto max-w-6xl border-t border-line px-5 py-8 text-[12.5px] leading-relaxed text-dim">
         <p>{f.legal}</p>
+        <p className="mt-2">
+          {beforeSignPath}
+          <a href={SIGNPATH_URL} target="_blank" rel="noreferrer" className={linkClass}>
+            SignPath.io
+          </a>
+          {betweenNames}
+          <a href={SIGNPATH_FOUNDATION_URL} target="_blank" rel="noreferrer" className={linkClass}>
+            SignPath Foundation
+          </a>
+          {afterFoundation} ·{" "}
+          <a href={CODE_SIGNING_URL} target="_blank" rel="noreferrer" className={linkClass}>
+            {f.links.signing}
+          </a>
+        </p>
         <p className="mt-2">{f.copyright} · GPL-3.0-or-later</p>
       </div>
       <div aria-hidden className="pointer-events-none mx-auto h-[clamp(70px,11vw,150px)] max-w-6xl select-none overflow-hidden px-5">

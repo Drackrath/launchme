@@ -1,7 +1,8 @@
 ![launchme](docs/branding/readme-banner.svg)
 
 **[Website](https://uxandai.github.io/launchme/)** · **[Changelog](changelog/)** · **[Download](../../releases/latest)** ·
-**[Architecture](docs/ARCHITECTURE.md)**
+**[Discord](https://discord.gg/y2wk3kr9wW)** · **[Architecture](docs/ARCHITECTURE.md)** ·
+**[Code signing policy](docs/CODE_SIGNING.md)**
 
 A full-screen, console-style game launcher for Windows 10/11, built for a gamepad.
 It merges Steam (collections and non-Steam shortcuts), GOG, Battle.net, EA app, Ubisoft Connect,
@@ -47,6 +48,12 @@ Building the installer: `tools\build-installer.ps1` (Inno Setup 6.6 or newer; `-
 
 Linux (highly experimental): `launchme-<version>-x86_64.AppImage` from the same release; make it executable and
 run it.
+
+**Code signing policy:** free code signing provided by [SignPath.io](https://about.signpath.io), certificate by
+[SignPath Foundation](https://signpath.org). Roles, what is signed and the privacy policy:
+[docs/CODE_SIGNING.md](docs/CODE_SIGNING.md).
+
+Questions, ideas and news: the [Discord server](https://discord.gg/y2wk3kr9wW).
 
 ## Where settings and cache are stored
 
@@ -171,7 +178,12 @@ Settings → System → Help → **Open folder** (the version row) opens it.
   (Settings → System → Updates, or the icon on the desktop window's top bar), then shows what is new.
 - **Low memory mode** (Settings → System → Performance, on by default): artwork decoded at its size on
   screen, fewer images kept in memory, and while a game runs in front of the launcher it gives its graphics
-  and artwork back (GPU memory to zero). Optional *Artwork compression (BC1)* for 8× less graphics memory.
+  and artwork back (GPU memory to zero).
+- **Artwork compression (BC1)** (Settings → System → Performance, on by default): covers and posters take 8×
+  less graphics memory, logos 4× (BC3); compressed once and kept on disk.
+- **Out of the game's way**: with a game in front the launcher drops to below-normal priority with EcoQoS,
+  10 frames a second and nothing drawn; a still screen ticks at 60, then 30 Hz. Flip-model presentation
+  (Windows) and game videos decoded on the GPU.
 - **Hide to tray while playing** (Settings → Library → Launching, off by default): while a game started here runs,
   the launcher leaves the taskbar and Alt+Tab and comes back when the game closes.
 - **Music and sound**: background music with two themes (Horizons and Exploratory Silence) or none, and

@@ -9,6 +9,10 @@ export const ISSUES_URL = `${GITHUB_URL}/issues`;
 export const SDK_URL = `${GITHUB_URL}/blob/main/docs/plugins/README.md`;
 export const LINUX_DOC_URL = `${GITHUB_URL}/blob/main/docs/LINUX_WINE.md`;
 export const LICENSE_URL = `${GITHUB_URL}/blob/main/LICENSE`;
+export const CODE_SIGNING_URL = `${GITHUB_URL}/blob/main/docs/CODE_SIGNING.md`;
+export const DISCORD_URL = "https://discord.gg/y2wk3kr9wW";
+export const SIGNPATH_URL = "https://about.signpath.io";
+export const SIGNPATH_FOUNDATION_URL = "https://signpath.org";
 
 export type Asset = { name: string; size: number; url: string };
 export type Release = {
