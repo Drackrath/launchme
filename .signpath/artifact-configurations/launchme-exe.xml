@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- SignPath artifact configuration "launchme-exe": the GitHub artifact (a ZIP) holding launchme.exe. -->
-<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
-  <zip-file>
-    <pe-file path="launchme.exe">
-      <authenticode-sign />
-    </pe-file>
-  </zip-file>
-</artifact-configuration>

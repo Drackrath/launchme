@@ -7,7 +7,6 @@ import { cn } from "../lib/cn";
 import { usePage } from "../lib/page";
 import {
   CHANGELOG_URL,
-  CODE_SIGNING_URL,
   DISCORD_URL,
   formatDate,
   formatSize,
@@ -17,8 +16,6 @@ import {
   LICENSE_URL,
   RELEASES_URL,
   SDK_URL,
-  SIGNPATH_FOUNDATION_URL,
-  SIGNPATH_URL,
 } from "../lib/release";
 
 /* --------------------------------------------------------------- Install */
@@ -143,12 +140,7 @@ export function Footer() {
     [f.links.discord, DISCORD_URL],
     [f.links.sdk, SDK_URL],
     [f.links.license, LICENSE_URL],
-    [f.links.signing, CODE_SIGNING_URL],
   ];
-  // "Free code signing provided by {signpath}, certificate by {foundation}." with both names as links.
-  const [beforeSignPath, afterSignPath = ""] = f.signing.split("{signpath}");
-  const [betweenNames, afterFoundation = ""] = afterSignPath.split("{foundation}");
-  const linkClass = "text-white/70 underline-offset-2 hover:text-white hover:underline";
   return (
     <footer className="relative mt-40 border-t border-line">
       <div className="mx-auto grid max-w-6xl gap-12 px-5 py-16 md:grid-cols-[1.4fr_1fr_1fr]">
@@ -208,20 +200,6 @@ export function Footer() {
       </div>
       <div className="mx-auto max-w-6xl border-t border-line px-5 py-8 text-[12.5px] leading-relaxed text-dim">
         <p>{f.legal}</p>
-        <p className="mt-2">
-          {beforeSignPath}
-          <a href={SIGNPATH_URL} target="_blank" rel="noreferrer" className={linkClass}>
-            SignPath.io
-          </a>
-          {betweenNames}
-          <a href={SIGNPATH_FOUNDATION_URL} target="_blank" rel="noreferrer" className={linkClass}>
-            SignPath Foundation
-          </a>
-          {afterFoundation} ·{" "}
-          <a href={CODE_SIGNING_URL} target="_blank" rel="noreferrer" className={linkClass}>
-            {f.links.signing}
-          </a>
-        </p>
         <p className="mt-2">{f.copyright} · GPL-3.0-or-later</p>
       </div>
       <div aria-hidden className="pointer-events-none mx-auto h-[clamp(70px,11vw,150px)] max-w-6xl select-none overflow-hidden px-5">

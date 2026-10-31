@@ -339,10 +339,7 @@ export const pl: Dict = {
       discord: "Discord",
       sdk: "SDK wtyczek",
       license: "Licencja (GPL-3.0)",
-      signing: "Code signing policy",
     },
-    // SignPath Foundation's required attribution, in English as on the policy page.
-    signing: "Free code signing provided by {signpath}, certificate by {foundation}.",
     discord: "Dołącz do Discorda",
     site: "Strona",
     lang: "Language: English",

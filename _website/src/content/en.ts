@@ -337,10 +337,7 @@ export const en = {
       discord: "Discord",
       sdk: "Plugin SDK",
       license: "License (GPL-3.0)",
-      signing: "Code signing policy",
     },
-    // SignPath Foundation's required attribution (docs/CODE_SIGNING.md): "{signpath}" and "{foundation}" become links.
-    signing: "Free code signing provided by {signpath}, certificate by {foundation}.",
     discord: "Join the Discord",
     site: "Site",
     lang: "Język: Polski",
