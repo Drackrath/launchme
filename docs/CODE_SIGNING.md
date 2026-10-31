@@ -3,12 +3,17 @@
 Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by
 [SignPath Foundation](https://signpath.org).
 
+Status: the project has applied to SignPath Foundation. Until it is accepted, releases are published unsigned
+(the release workflow skips signing; see [.signpath/README.md](../.signpath/README.md)).
+
 ## What is signed
 
-The Windows release (`launchme-<version>-win64.zip` on [Releases](../../../releases)): `launchme.exe` and the
-plugins built from this repository (HowLongToBeat, Achievements). Every signed file is built from the tagged
-source in this repository by its build scripts; third-party libraries shipped next to it (ONNX Runtime) are
-not signed with this certificate. Each release is signed only after a manual approval.
+The Windows release files built by [the release workflow](../.github/workflows/release.yml) on GitHub's runners
+from the tagged source in this repository: `launchme.exe` (also inside `launchme-<version>-win64.zip`) and the
+installer `launchme-<version>-win64-setup.exe`. Not signed with this certificate: third-party libraries shipped
+next to the program (ONNX Runtime), the plugin DLLs inside `plugin-packages/*.zip` and the installer's
+uninstaller. Each release is signed only after a manual approval. `SHA256SUMS` of every release asset is signed
+with Sigstore by the same workflow.
 
 ## Team roles
 
@@ -40,5 +45,6 @@ services has its own privacy policy.
 
 ## Removing launchme
 
-There is no installer. Switch off *Start with Windows* (Settings → System) and remove the shortcuts launchme
+Installed with the setup: uninstall it in Windows' Settings → Apps; your settings stay unless you choose to
+remove them too. The ZIP: switch off *Start with Windows* (Settings → System), remove the shortcuts launchme
 added outside itself (Tryb TV's Shortcuts page), then delete the program's folder and `%LOCALAPPDATA%\Launchme`.
